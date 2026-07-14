@@ -45,7 +45,8 @@ VoodooTracker X currently has:
   exact XM sample panning plus instrument autovibrato preservation, exact runtime-inert XM panning-
   envelope metadata preserved through editable copy and Export XM, plus a capped
   whole-document applyEdit/undo funnel used by Clear Current Pattern and
-  instrument rename
+  instrument rename, sample panning, and exact `0...64` sample-volume edits;
+  later playback consumes edited volume through the unchanged adapter gain path
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -95,7 +96,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recently completed target:
-`instrument: add editable sample panning mutation behind applyEdit`.
+`instrument: add editable sample volume mutation behind applyEdit`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see

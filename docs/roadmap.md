@@ -160,7 +160,9 @@ Recommended next PR sequence:
    sample mutation.
 3. Represented instrument NAME and selected-sample PAN editing through
    `applyEdit` are done, along with panning-envelope/autovibrato preservation
-   and the read-only VOL/PAN envelope display. Continue with narrow slices.
+   and the read-only VOL/PAN envelope display. Selected-sample VOLUME now also
+   edits exact XM `0...64` values while stopped and feeds the unchanged gain
+   mapping on subsequent playback. Continue with narrow slices.
 4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before

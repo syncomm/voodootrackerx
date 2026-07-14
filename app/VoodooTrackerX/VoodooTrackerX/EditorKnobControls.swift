@@ -55,6 +55,7 @@ final class VTXEditorKnobControl: NSControl {
     private var storedValue: Double
     private var dragStartY: CGFloat?
     private var dragStartValue: Double?
+    private var didChangeDuringTracking = false
 
     init(
         value: Double = 0,
@@ -108,6 +109,7 @@ final class VTXEditorKnobControl: NSControl {
         let point = convert(event.locationInWindow, from: nil)
         dragStartY = point.y
         dragStartValue = storedValue
+        didChangeDuringTracking = false
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -123,12 +125,19 @@ final class VTXEditorKnobControl: NSControl {
 
         let deltaY = Double(point.y - dragStartY)
         let valueDelta = (deltaY / 120.0) * range
-        setValue(dragStartValue + valueDelta, sendAction: true)
+        didChangeDuringTracking = setValue(
+            dragStartValue + valueDelta,
+            sendAction: isContinuous
+        ) || didChangeDuringTracking
     }
 
     override func mouseUp(with event: NSEvent) {
+        if !isContinuous, didChangeDuringTracking {
+            sendAction(action, to: target)
+        }
         dragStartY = nil
         dragStartValue = nil
+        didChangeDuringTracking = false
     }
 
     override func draw(_ dirtyRect: NSRect) {

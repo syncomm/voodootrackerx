@@ -10,6 +10,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(noDocument.source, .none)
         XCTAssertTrue(noDocument.isReadOnly)
         XCTAssertFalse(noDocument.isInstrumentNameEditable)
+        XCTAssertFalse(noDocument.isSampleVolumeEditable)
         XCTAssertFalse(noDocument.isSamplePanningEditable)
         XCTAssertNil(noDocument.selectedInstrumentSlot)
         XCTAssertTrue(noDocument.instrumentSlots.isEmpty)
@@ -23,6 +24,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(blankDocument.source, .editableDocument)
         XCTAssertTrue(blankDocument.isReadOnly)
         XCTAssertFalse(blankDocument.isInstrumentNameEditable)
+        XCTAssertFalse(blankDocument.isSampleVolumeEditable)
         XCTAssertFalse(blankDocument.isSamplePanningEditable)
         XCTAssertNil(blankDocument.selectedInstrumentSlot)
         XCTAssertTrue(blankDocument.instrumentSlots.isEmpty)
@@ -44,6 +46,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(state.source, .loadedModule)
         XCTAssertTrue(state.isReadOnly)
         XCTAssertFalse(state.isInstrumentNameEditable)
+        XCTAssertFalse(state.isSampleVolumeEditable)
         XCTAssertEqual(state.instrumentDisplay, "I02")
         XCTAssertEqual(state.instrumentName, "Lead")
         XCTAssertEqual(state.sampleCount, 2)
@@ -292,6 +295,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(sample.lengthDisplay, "1024")
         XCTAssertEqual(sample.loopModeDisplay, "Ping-pong")
         XCTAssertEqual(sample.loopRangeDisplay, "128..<384")
+        XCTAssertEqual(sample.volumeLevel, 48)
         XCTAssertEqual(sample.volumeDisplay, "48 / 64")
         XCTAssertEqual(sample.panning, 32)
         XCTAssertEqual(sample.panningDisplay, "32 / 255")
@@ -304,7 +308,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(sample.finetuneDisplay, "-8")
     }
 
-    func testPanIsEnabledOnlyForStoppedEditableRepresentedSample() throws {
+    func testVolumeAndPanAreEnabledOnlyForStoppedEditableRepresentedSample() throws {
         let palette = makeInstrumentPalette()
         let selection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
         let loaded = InstrumentEditorDisplayState.loadedModule(
@@ -326,10 +330,18 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         for (state, expectedEnabled) in [(loaded, false), (editable, true), (playing, false)] {
             let controller = InstrumentEditorWindowController(displayState: state)
             let descendants = try XCTUnwrap(controller.window?.contentView).instrumentEditorDescendants
+            let volume = try XCTUnwrap(descendants.sampleVolumeControl)
             let pan = try XCTUnwrap(descendants.samplePanningControl)
+            XCTAssertEqual(volume.isEnabled, expectedEnabled)
             XCTAssertEqual(pan.isEnabled, expectedEnabled)
+            XCTAssertEqual(state.isSampleVolumeEditable, expectedEnabled)
             XCTAssertEqual(state.isSamplePanningEditable, expectedEnabled)
+            XCTAssertEqual(volume.minimumValue, 0)
+            XCTAssertEqual(volume.maximumValue, 64)
+            XCTAssertEqual(volume.value, 48)
+            XCTAssertFalse(volume.isContinuous)
             XCTAssertEqual(pan.value, -0.75, accuracy: 0.000_001)
+            XCTAssertEqual(descendants.sampleVolumeReadout?.stringValue, "48")
             XCTAssertTrue(descendants.compactMap { ($0 as? NSTextField)?.stringValue }.contains("32 / 255"))
         }
     }
@@ -397,11 +409,15 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(indicator.state, .off)
     }
 
-    func testEmptySampleStateKeepsPanDisplayCleanAndInert() throws {
+    func testEmptySampleStateKeepsVolumeAndPanDisplaysCleanAndInert() throws {
         let controller = InstrumentEditorWindowController(displayState: .editableDocument(.makeDefault()))
         let descendants = try XCTUnwrap(controller.window?.contentView).instrumentEditorDescendants
+        let volume = try XCTUnwrap(descendants.sampleVolumeControl)
         let pan = try XCTUnwrap(descendants.compactMap { $0 as? VTXEditorPanSliderControl }.first)
 
+        XCTAssertFalse(volume.isEnabled)
+        XCTAssertEqual(volume.value, 0)
+        XCTAssertEqual(descendants.sampleVolumeReadout?.stringValue, "—")
         XCTAssertFalse(pan.isEnabled)
         XCTAssertEqual(pan.value, 0)
         XCTAssertTrue(descendants.compactMap { ($0 as? NSTextField)?.stringValue }.contains("— NO SAMPLE"))
@@ -418,6 +434,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(document.instrumentPalette, palette)
         XCTAssertFalse(state.isReadOnly)
         XCTAssertTrue(state.isInstrumentNameEditable)
+        XCTAssertTrue(state.isSampleVolumeEditable)
         XCTAssertTrue(state.isSamplePanningEditable)
         XCTAssertEqual(state.source, .editableDocument)
         XCTAssertTrue(EditorCommandAvailability.canClearCurrentPattern(
@@ -431,10 +448,11 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         let playingState = InstrumentEditorDisplayState.editableDocument(document, isPlaybackActive: true)
         XCTAssertTrue(playingState.isReadOnly)
         XCTAssertFalse(playingState.isInstrumentNameEditable)
+        XCTAssertFalse(playingState.isSampleVolumeEditable)
         XCTAssertFalse(playingState.isSamplePanningEditable)
     }
 
-    func testWindowCreatesFixedMockupHierarchyWithNameAndPanEditable() throws {
+    func testWindowCreatesFixedMockupHierarchyWithNameVolumeAndPanEditable() throws {
         let controller = InstrumentEditorWindowController(
             displayState: .editableDocument(makeEditableDocument(palette: makeInstrumentPalette()))
         )
@@ -463,7 +481,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.noteKeymapPanel))
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.keymapRangeStrip))
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.keyboardPlaceholder))
-        XCTAssertTrue(fieldValues.contains("NAME + PAN"))
+        XCTAssertTrue(fieldValues.contains("NAME + VOL + PAN"))
         XCTAssertTrue(fieldValues.contains("OTHER FIELDS READ-ONLY"))
         let nameField = try XCTUnwrap(contentView.instrumentEditorNameField)
         XCTAssertTrue(nameField.isEnabled)
@@ -480,8 +498,9 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             Set(futureControls.compactMap { ($0 as? NSButton)?.title }),
             ["IMPORT XI", "EXPORT XI", "▶", "+ ADD PT", "DEL PT", "ON", "∿", "⊓", "⊿", "◺", "◀ C-2", "C-4 ▶"]
         )
-        XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorKnobControl }.count, 5)
+        XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorKnobControl }.count, 4)
         XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorPanSliderControl }.count, 0)
+        XCTAssertTrue(try XCTUnwrap(descendants.sampleVolumeControl).isEnabled)
         XCTAssertTrue(try XCTUnwrap(descendants.samplePanningControl).isEnabled)
 
         let envelopeGraph = try XCTUnwrap(descendants.first {
@@ -551,6 +570,29 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(submittedInstrument, 1)
         XCTAssertEqual(submittedSample, 1)
         XCTAssertEqual(submittedPanning, 255)
+    }
+
+    func testEditableVolumeSubmitsSelectedZeroBasedIndicesAndExactXMValue() throws {
+        var submittedInstrument: Int?
+        var submittedSample: Int?
+        var submittedVolume: UInt8?
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(makeEditableDocument(palette: makeInstrumentPalette())),
+            sampleVolumeEditHandler: { instrument, sample, volume in
+                submittedInstrument = instrument
+                submittedSample = sample
+                submittedVolume = volume
+                return true
+            }
+        )
+        let contentView = try XCTUnwrap(controller.window?.contentView)
+        let volume = try XCTUnwrap(contentView.instrumentEditorDescendants.sampleVolumeControl)
+
+        XCTAssertFalse(volume.isContinuous)
+        XCTAssertTrue(volume.setValue(17, sendAction: true))
+        XCTAssertEqual(submittedInstrument, 1)
+        XCTAssertEqual(submittedSample, 1)
+        XCTAssertEqual(submittedVolume, 17)
     }
 
     func testApplyingSelectionChangeRefreshesVisibleSampleRows() throws {
@@ -777,6 +819,18 @@ private extension NSView {
 
 @MainActor
 private extension Array where Element == NSView {
+    var sampleVolumeControl: VTXEditorKnobControl? {
+        compactMap { $0 as? VTXEditorKnobControl }.first {
+            $0.identifier?.rawValue == InstrumentEditorViewIdentifier.sampleVolumeControl
+        }
+    }
+
+    var sampleVolumeReadout: VTXEditorSegmentReadout? {
+        compactMap { $0 as? VTXEditorSegmentReadout }.first {
+            $0.identifier?.rawValue == InstrumentEditorViewIdentifier.sampleVolumeReadout
+        }
+    }
+
     var samplePanningControl: VTXEditorPanSliderControl? {
         compactMap { $0 as? VTXEditorPanSliderControl }.first {
             $0.identifier?.rawValue == InstrumentEditorViewIdentifier.samplePanningControl

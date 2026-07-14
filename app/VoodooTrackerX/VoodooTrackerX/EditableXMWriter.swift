@@ -372,7 +372,7 @@ struct EditableXMWriter {
             lengthBytes: UInt32(payload.count),
             loopStartBytes: loopStartBytes,
             loopLengthBytes: loopLengthBytes,
-            volume: clampedXMVolume(sample.volume),
+            volume: sample.xmVolume,
             finetune: clampedSignedByte(sample.finetune),
             type: sampleType(loopType: sample.loopType, bitDepth: bitDepth),
             panning: sample.panning,
@@ -391,12 +391,6 @@ struct EditableXMWriter {
         return noteSampleMap.map { mappedSampleIndex in
             sampleIndexToOutputIndex[mappedSampleIndex] ?? 0
         }
-    }
-
-    private func clampedXMVolume(_ volume: Float) -> UInt8 {
-        let finiteVolume = volume.isFinite ? volume : 0
-        let scaled = Int((finiteVolume * 64).rounded())
-        return UInt8(max(0, min(64, scaled)))
     }
 
     private func clampedSignedByte(_ value: Int) -> UInt8 {

@@ -155,6 +155,35 @@ final class EditorControlPrimitivesTests: XCTestCase {
         XCTAssertEqual(recorder.count, 1)
     }
 
+    func testKnobNonContinuousTrackingCommitsOnceOnMouseUp() throws {
+        let knob = VTXEditorControlFactory.makeKnobControl()
+        knob.frame = NSRect(x: 0, y: 0, width: 72, height: 72)
+        knob.isContinuous = false
+        let recorder = EditorControlActionRecorder()
+        knob.target = recorder
+        knob.action = #selector(EditorControlActionRecorder.record(_:))
+        let event: (NSEvent.EventType, CGFloat) throws -> NSEvent = { type, y in
+            try XCTUnwrap(NSEvent.mouseEvent(
+                with: type,
+                location: NSPoint(x: 36, y: y),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            ))
+        }
+
+        knob.mouseDown(with: try event(.leftMouseDown, 12))
+        knob.mouseDragged(with: try event(.leftMouseDragged, 36))
+        knob.mouseDragged(with: try event(.leftMouseDragged, 60))
+        XCTAssertEqual(recorder.count, 0)
+        knob.mouseUp(with: try event(.leftMouseUp, 60))
+        XCTAssertEqual(recorder.count, 1)
+    }
+
     func testPanSliderDefaultRangeAndValueClamping() {
         let slider = VTXEditorControlFactory.makePanSliderControl()
 

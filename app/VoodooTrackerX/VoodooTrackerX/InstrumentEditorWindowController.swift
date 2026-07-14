@@ -16,6 +16,8 @@ enum InstrumentEditorViewIdentifier {
     static let keyboardPlaceholder = "instrumentEditor.keyboardPlaceholder"
     static let readOnlyBadge = "instrumentEditor.readOnlyBadge"
     static let instrumentNameField = "instrumentEditor.instrumentNameField"
+    static let sampleVolumeControl = "instrumentEditor.sampleVolumeControl"
+    static let sampleVolumeReadout = "instrumentEditor.sampleVolumeReadout"
     static let samplePanningControl = "instrumentEditor.samplePanningControl"
     static let samplePanningReadout = "instrumentEditor.samplePanningReadout"
     static let instrumentRowPrefix = "instrumentEditor.instrumentRow."
@@ -238,6 +240,7 @@ struct InstrumentEditorDisplayState: Equatable {
         instrumentName: "No instrument available",
         instrumentNameEditValue: "",
         isInstrumentNameEditable: false,
+        isSampleVolumeEditable: false,
         isSamplePanningEditable: false,
         sampleCount: 0,
         selectedSampleSlot: nil,
@@ -255,6 +258,7 @@ struct InstrumentEditorDisplayState: Equatable {
     let instrumentName: String
     let instrumentNameEditValue: String
     let isInstrumentNameEditable: Bool
+    let isSampleVolumeEditable: Bool
     let isSamplePanningEditable: Bool
     let sampleCount: Int
     let selectedSampleSlot: Int?
@@ -264,7 +268,9 @@ struct InstrumentEditorDisplayState: Equatable {
     let autoVibrato: PlaybackInstrumentAutoVibrato?
     let keymapRanges: [KeymapRange]
     let emptyMessage: String
-    var isReadOnly: Bool { !isInstrumentNameEditable && !isSamplePanningEditable }
+    var isReadOnly: Bool {
+        !isInstrumentNameEditable && !isSampleVolumeEditable && !isSamplePanningEditable
+    }
 
     var selectedSample: SampleSlot? {
         sampleSlots.first(where: \.isSelected)
@@ -340,6 +346,7 @@ struct InstrumentEditorDisplayState: Equatable {
                 instrumentName: "No instrument available",
                 instrumentNameEditValue: "",
                 isInstrumentNameEditable: false,
+                isSampleVolumeEditable: false,
                 isSamplePanningEditable: false,
                 sampleCount: 0,
                 selectedSampleSlot: nil,
@@ -364,6 +371,8 @@ struct InstrumentEditorDisplayState: Equatable {
             instrumentName: normalizedName(instrument.name, fallback: "(unnamed instrument)"),
             instrumentNameEditValue: instrument.name ?? "",
             isInstrumentNameEditable: allowsInstrumentNameEditing,
+            isSampleVolumeEditable: allowsInstrumentNameEditing &&
+                selectedRepresentedSample.map { $0.sampleLength > 0 && !$0.pcm.isEmpty } == true,
             isSamplePanningEditable: allowsInstrumentNameEditing &&
                 selectedRepresentedSample.map { $0.sampleLength > 0 && !$0.pcm.isEmpty } == true,
             sampleCount: instrument.samples.count,
@@ -417,6 +426,8 @@ struct InstrumentEditorDisplayState: Equatable {
 }
 
 typealias InstrumentNameEditHandler = (_ zeroBasedInstrumentIndex: Int, _ name: String) -> Bool
+typealias SampleVolumeEditHandler =
+    (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ volume: UInt8) -> Bool
 typealias SamplePanningEditHandler =
     (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ panning: UInt8) -> Bool
 
@@ -428,10 +439,12 @@ final class InstrumentEditorWindowPresenter {
     func show(
         displayState: InstrumentEditorDisplayState,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
+        sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) -> InstrumentEditorWindowController {
         if let windowController {
             windowController.instrumentNameEditHandler = instrumentNameEditHandler
+            windowController.sampleVolumeEditHandler = sampleVolumeEditHandler
             windowController.samplePanningEditHandler = samplePanningEditHandler
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
@@ -441,6 +454,7 @@ final class InstrumentEditorWindowPresenter {
         let controller = InstrumentEditorWindowController(
             displayState: displayState,
             instrumentNameEditHandler: instrumentNameEditHandler,
+            sampleVolumeEditHandler: sampleVolumeEditHandler,
             samplePanningEditHandler: samplePanningEditHandler
         )
         controller.closeHandler = { [weak self, weak controller] in
@@ -466,6 +480,11 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             (window?.contentView as? InstrumentEditorView)?.instrumentNameEditHandler = instrumentNameEditHandler
         }
     }
+    var sampleVolumeEditHandler: SampleVolumeEditHandler? {
+        didSet {
+            (window?.contentView as? InstrumentEditorView)?.sampleVolumeEditHandler = sampleVolumeEditHandler
+        }
+    }
     var samplePanningEditHandler: SamplePanningEditHandler? {
         didSet {
             (window?.contentView as? InstrumentEditorView)?.samplePanningEditHandler = samplePanningEditHandler
@@ -475,14 +494,17 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
     init(
         displayState: InstrumentEditorDisplayState = .empty,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
+        sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) {
         self.instrumentNameEditHandler = instrumentNameEditHandler
+        self.sampleVolumeEditHandler = sampleVolumeEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
         let contentView = InstrumentEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
             displayState: displayState,
             instrumentNameEditHandler: instrumentNameEditHandler,
+            sampleVolumeEditHandler: sampleVolumeEditHandler,
             samplePanningEditHandler: samplePanningEditHandler
         )
         let panel = NSPanel(
@@ -537,16 +559,19 @@ final class InstrumentEditorView: FlippedEditorView {
     private(set) var rebuildCount = 0
     private var envelopePanelView: NSView?
     var instrumentNameEditHandler: InstrumentNameEditHandler?
+    var sampleVolumeEditHandler: SampleVolumeEditHandler?
     var samplePanningEditHandler: SamplePanningEditHandler?
 
     init(
         frame frameRect: NSRect,
         displayState: InstrumentEditorDisplayState = .empty,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
+        sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) {
         self.displayState = displayState
         self.instrumentNameEditHandler = instrumentNameEditHandler
+        self.sampleVolumeEditHandler = sampleVolumeEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.contentView)
@@ -650,10 +675,11 @@ final class InstrumentEditorView: FlippedEditorView {
 
         let editableFields = [
             displayState.isInstrumentNameEditable ? "NAME" : nil,
+            displayState.isSampleVolumeEditable ? "VOL" : nil,
             displayState.isSamplePanningEditable ? "PAN" : nil,
         ].compactMap { $0 }
-        let editStatus = editableFields.count == 2
-            ? "NAME + PAN"
+        let editStatus = editableFields.count > 1
+            ? editableFields.joined(separator: " + ")
             : editableFields.first.map { "\($0) EDITABLE" } ?? "READ-ONLY"
         let readOnly = VTXEditorControlFactory.makeSegmentReadout(
             value: editStatus,
@@ -848,9 +874,7 @@ final class InstrumentEditorView: FlippedEditorView {
         addLabel("REL", to: panel, frame: NSRect(x: 151, y: 11, width: 21, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
         addReadout(sample?.relativeNoteDisplay ?? "—", to: panel, frame: NSRect(x: 176, y: 5, width: 52, height: 23))
 
-        let volume = Double(sample?.volume ?? 0)
-        let volumeReadout = sample.map { String($0.volumeLevel) } ?? "—"
-        addDisabledKnob(value: volume, minimum: 0, maximum: 1, id: "defaultVolume", label: "VOLUME", readout: volumeReadout, to: panel, x: 24, y: 34, emphasized: true)
+        addSampleVolumeControl(sample, to: panel)
         addDisabledKnob(value: Double(sample?.finetune ?? 0), minimum: -128, maximum: 127, id: "defaultFinetune", label: "FINETUNE", readout: sample?.finetuneDisplay ?? "—", to: panel, x: 110, y: 34)
 
         addLabel("PAN", to: panel, frame: NSRect(x: 10, y: 151, width: 28, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
@@ -871,6 +895,56 @@ final class InstrumentEditorView: FlippedEditorView {
         addControl(pan, to: panel, frame: NSRect(x: 52, y: 142, width: 170, height: 32))
         let readout = addLabel(sample?.panningDisplay ?? "— NO SAMPLE", to: panel, frame: NSRect(x: 52, y: 174, width: 170, height: 10), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.42), size: 7.5, alignment: .center)
         readout.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.samplePanningReadout)
+    }
+
+    private func addSampleVolumeControl(
+        _ sample: InstrumentEditorDisplayState.SampleSlot?,
+        to parent: NSView
+    ) {
+        let isEditable = displayState.isSampleVolumeEditable
+        let x: CGFloat = 24
+        let y: CGFloat = 34
+        let knob = VTXEditorControlFactory.makeKnobControl(
+            value: Double(sample?.volumeLevel ?? 0),
+            minimumValue: 0,
+            maximumValue: Double(PlaybackSample.xmMaximumVolume),
+            isEmphasized: true
+        )
+        knob.isEnabled = isEditable
+        knob.isContinuous = false
+        knob.target = isEditable ? self : nil
+        knob.action = isEditable ? #selector(commitSampleVolume(_:)) : nil
+        knob.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleVolumeControl)
+        knob.toolTip = isEditable
+            ? "Change the selected sample default volume"
+            : "Sample volume is editable only for represented samples in stopped editable documents"
+        addControl(knob, to: parent, frame: NSRect(x: x, y: y, width: 72, height: 72))
+        addLabel("VOLUME", to: parent, frame: NSRect(x: x, y: y + 73, width: 72, height: 10), color: VTXEditorControlTheme.panelLabelText, size: 8, alignment: .center)
+        let readout = VTXEditorControlFactory.makeSegmentReadout(
+            value: sample.map { String($0.volumeLevel) } ?? "—",
+            fixedWidth: 56
+        )
+        readout.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleVolumeReadout)
+        addControl(readout, to: parent, frame: NSRect(x: x + 8, y: y + 88, width: 56, height: 23))
+    }
+
+    @objc
+    private func commitSampleVolume(_ sender: VTXEditorKnobControl) {
+        let volume = Int(sender.value.rounded())
+        guard displayState.isSampleVolumeEditable,
+              (0...Int(PlaybackSample.xmMaximumVolume)).contains(volume),
+              let instrumentSlot = displayState.selectedInstrumentSlot,
+              let sampleSlot = displayState.selectedSampleSlot,
+              instrumentSlot > 0,
+              sampleSlot > 0,
+              sampleVolumeEditHandler?(
+                  instrumentSlot - 1,
+                  sampleSlot - 1,
+                  UInt8(volume)
+              ) == true else {
+            sender.setValue(Double(displayState.selectedSample?.volumeLevel ?? 0))
+            return
+        }
     }
 
     @objc

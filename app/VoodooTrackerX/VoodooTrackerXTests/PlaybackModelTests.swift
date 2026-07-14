@@ -619,7 +619,7 @@ final class PlaybackModelTests: XCTestCase {
         }
     }
 
-    func testPlaybackSampleAndInstrumentCopyHelpersPreservePanning() throws {
+    func testPlaybackSampleAndInstrumentCopyHelpersPreserveVolumeAndPanning() throws {
         let original = PlaybackSample(
             instrumentIndex: 3,
             sampleIndex: 2,
@@ -640,12 +640,17 @@ final class PlaybackModelTests: XCTestCase {
         )
 
         let changed = original.withPanning(201)
+        let changedVolume = original.withVolume(17)
         let renamedInstrument = PlaybackInstrument(index: 3, name: "Before", samples: [original])
             .withName("After")
 
         XCTAssertEqual(changed.panning, 201)
         XCTAssertEqual(changed.withPanning(37), original)
+        XCTAssertEqual(original.xmVolume, 48)
+        XCTAssertEqual(changedVolume.xmVolume, 17)
+        XCTAssertEqual(changedVolume.withVolume(original.xmVolume), original)
         XCTAssertEqual(try XCTUnwrap(renamedInstrument.samples.first).panning, 37)
+        XCTAssertEqual(try XCTUnwrap(renamedInstrument.samples.first).xmVolume, 48)
     }
 
     func testPlaybackInstrumentAutoVibratoDefaultsToDisabledZeroBytes() {

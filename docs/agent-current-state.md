@@ -40,7 +40,10 @@ PAN are editable only in stopped editable documents or editable copies; both
 use labeled whole-document `applyEdit` undo/redo. Sample panning is the first
 editable sample metadata field and preserves the exact XM `0...255` byte
 through snapshots and Export XM. Loaded modules, playing documents, missing or
-empty sample slots, and all other mutation controls remain read-only/inert.
+empty sample slots, and all unimplemented mutation controls remain read-only/inert.
+Selected-sample volume now likewise preserves exact XM `0...64` values through
+`applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
+adapter gain mapping without runtime engine, DSP, or scheduling changes.
 Sample panning remains runtime-inert and
 does not change adapter plans, voice pan, or render output. XM instrument
 autovibrato type/sweep/depth/rate bytes are likewise preserved through editable

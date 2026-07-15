@@ -80,6 +80,21 @@ final class EditableDocumentEditCoordinator {
     }
 
     @discardableResult
+    func setSampleRelativeNote(instrumentAt zeroBasedInstrumentIndex: Int, sampleAt zeroBasedSampleIndex: Int, relativeNote: Int) -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.selection.selectedInstrument == zeroBasedInstrumentIndex + 1,
+              document.selection.selectedSample == zeroBasedSampleIndex + 1,
+              document.setSampleRelativeNote(
+                  instrumentAt: zeroBasedInstrumentIndex,
+                  sampleAt: zeroBasedSampleIndex,
+                  relativeNote: relativeNote
+              ) else {
+            return false
+        }
+        return applyEdit(label: "Change Sample Relative Note", updatedDocument: document)
+    }
+
+    @discardableResult
     func setSampleFinetune(instrumentAt zeroBasedInstrumentIndex: Int, sampleAt zeroBasedSampleIndex: Int, finetune: Int) -> Bool {
         guard var document = contextProvider().documentAvailableForMutation,
               document.selection.selectedInstrument == zeroBasedInstrumentIndex + 1,

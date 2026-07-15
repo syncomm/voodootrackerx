@@ -602,6 +602,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     volume: volume
                 ) ?? false
             },
+            sampleFinetuneEditHandler: { [weak self] instrumentIndex, sampleIndex, finetune in
+                self?.editableDocumentEditCoordinator.setSampleFinetune(
+                    instrumentAt: instrumentIndex,
+                    sampleAt: sampleIndex,
+                    finetune: finetune
+                ) ?? false
+            },
             samplePanningEditHandler: { [weak self] instrumentIndex, sampleIndex, panning in
                 self?.editableDocumentEditCoordinator.setSamplePanning(
                     instrumentAt: instrumentIndex,

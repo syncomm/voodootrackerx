@@ -162,7 +162,9 @@ Recommended next PR sequence:
    `applyEdit` are done, along with panning-envelope/autovibrato preservation
    and the read-only VOL/PAN envelope display. Selected-sample VOLUME now also
    edits exact XM `0...64` values while stopped and feeds the unchanged gain
-   mapping on subsequent playback. Continue with narrow slices.
+   mapping on subsequent playback. Selected-sample FINETUNE likewise edits the
+   exact XM signed byte `-128...127`; Export XM/reopen preserves it and later
+   playback uses the unchanged pitch behavior. Continue with narrow slices.
 4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before
@@ -184,6 +186,11 @@ Parked parity-watch items:
 
 Recently completed:
 
+- XM sample-header finetune is editable across the full signed-byte range only
+  for a stopped editable document/copy. One `Change Sample Finetune` applyEdit
+  snapshot supports undo/redo and refreshes the signed readout; Export XM/reopen
+  preserves the exact value. Later playback uses the existing pitch/sample-step
+  behavior with no formula, scheduling, runtime engine, or C mixer DSP change.
 - XM sample-header panning is the first editable sample metadata field. The
   selected represented sample's exact `UInt8` value can change only in stopped
   editable documents/copies, through one labeled `applyEdit` undo action; the
@@ -417,7 +424,8 @@ Recommended next product PR:
   editable-copy UI, Instrument Editor shell, instrument NAME editing, and
   document applyEdit/undo funnel, plus sample-panning, panning-envelope, and
   autovibrato round-trip support, read-only envelope display, and editable
-  selected-sample panning behind `applyEdit` are in place. Continue with a
+  selected-sample panning, volume, and signed-byte finetune behind `applyEdit`
+  are in place. Continue with a
   separately scoped sample/instrument slice.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
@@ -683,6 +691,9 @@ Current implemented foundation:
   editor/control-panel refresh paths
 - exact XM sample panning preservation plus stopped editable-document mutation
   through applyEdit/undo/redo; loaded modules and runtime behavior stay unchanged
+- exact XM signed-byte sample finetune preservation plus stopped editable-
+  document mutation through applyEdit/undo/redo; subsequent playback uses the
+  existing pitch path and loaded modules stay read-only
 - exact XM instrument autovibrato preservation through the same paths, with
   disabled VIBRATO display and no playback, audition, scheduling, or PCM change
 - exact XM instrument panning-envelope preservation through the same paths,

@@ -45,8 +45,9 @@ VoodooTracker X currently has:
   exact XM sample panning plus instrument autovibrato preservation, exact runtime-inert XM panning-
   envelope metadata preserved through editable copy and Export XM, plus a capped
   whole-document applyEdit/undo funnel used by Clear Current Pattern and
-  instrument rename, sample panning, and exact `0...64` sample-volume edits;
-  later playback consumes edited volume through the unchanged adapter gain path
+  instrument rename, sample panning, exact `0...64` sample-volume edits, and
+  exact signed-byte `-128...127` sample-finetune edits; later playback consumes
+  edited volume and finetune through the unchanged adapter gain and pitch paths
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -96,7 +97,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recently completed target:
-`instrument: add editable sample volume mutation behind applyEdit`.
+`instrument: add editable sample finetune mutation behind applyEdit`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -110,9 +111,10 @@ Recently completed target:
 5. Build an Instrument Editor shell/read-only binding. Done.
 6. Add the document `applyEdit`/undo funnel for future instrument/sample edits.
    Done.
-7. Instrument NAME and selected-sample PAN editing behind `applyEdit` are done;
-   sample panning is the first editable sample metadata field. Loaded modules
-   and playback remain read-only, and panning remains runtime-inert.
+7. Instrument NAME plus selected-sample PAN, VOLUME, and signed-byte FINETUNE
+   editing behind `applyEdit` are done. Loaded modules and playback remain
+   read-only; panning remains runtime-inert, while later playback consumes
+   volume and finetune through existing gain and pitch behavior.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
@@ -668,6 +670,10 @@ As semantics remain deferred.
 
 Implemented foundation:
 
+- exact XM sample finetune `-128...127` mutation for stopped editable
+  documents/copies through applyEdit/undo/redo and Export XM/reopen; later
+  playback uses existing pitch behavior with no formula, scheduling, runtime
+  engine, or C mixer DSP change
 - document-level applyEdit/undo using capped whole-value snapshots, with Clear
   Current Pattern and represented instrument rename routed through it
 - v1-mockup-aligned Instrument Editor shell bound to loaded modules,

@@ -18,6 +18,8 @@ enum InstrumentEditorViewIdentifier {
     static let instrumentNameField = "instrumentEditor.instrumentNameField"
     static let sampleVolumeControl = "instrumentEditor.sampleVolumeControl"
     static let sampleVolumeReadout = "instrumentEditor.sampleVolumeReadout"
+    static let sampleFinetuneControl = "instrumentEditor.sampleFinetuneControl"
+    static let sampleFinetuneReadout = "instrumentEditor.sampleFinetuneReadout"
     static let samplePanningControl = "instrumentEditor.samplePanningControl"
     static let samplePanningReadout = "instrumentEditor.samplePanningReadout"
     static let instrumentRowPrefix = "instrumentEditor.instrumentRow."
@@ -241,6 +243,7 @@ struct InstrumentEditorDisplayState: Equatable {
         instrumentNameEditValue: "",
         isInstrumentNameEditable: false,
         isSampleVolumeEditable: false,
+        isSampleFinetuneEditable: false,
         isSamplePanningEditable: false,
         sampleCount: 0,
         selectedSampleSlot: nil,
@@ -259,6 +262,7 @@ struct InstrumentEditorDisplayState: Equatable {
     let instrumentNameEditValue: String
     let isInstrumentNameEditable: Bool
     let isSampleVolumeEditable: Bool
+    let isSampleFinetuneEditable: Bool
     let isSamplePanningEditable: Bool
     let sampleCount: Int
     let selectedSampleSlot: Int?
@@ -269,7 +273,10 @@ struct InstrumentEditorDisplayState: Equatable {
     let keymapRanges: [KeymapRange]
     let emptyMessage: String
     var isReadOnly: Bool {
-        !isInstrumentNameEditable && !isSampleVolumeEditable && !isSamplePanningEditable
+        !isInstrumentNameEditable &&
+            !isSampleVolumeEditable &&
+            !isSampleFinetuneEditable &&
+            !isSamplePanningEditable
     }
 
     var selectedSample: SampleSlot? {
@@ -347,6 +354,7 @@ struct InstrumentEditorDisplayState: Equatable {
                 instrumentNameEditValue: "",
                 isInstrumentNameEditable: false,
                 isSampleVolumeEditable: false,
+                isSampleFinetuneEditable: false,
                 isSamplePanningEditable: false,
                 sampleCount: 0,
                 selectedSampleSlot: nil,
@@ -364,6 +372,8 @@ struct InstrumentEditorDisplayState: Equatable {
             .sorted { ($0.slot, $0.name) < ($1.slot, $1.name) }
         let selectedSampleSlot = slots.contains(where: \.isSelected) ? selection.selectedSample : nil
         let selectedRepresentedSample = instrument.sample(selectedSampleSlot: selection.selectedSample)
+        let allowsSelectedSampleEditing = allowsInstrumentNameEditing &&
+            selectedRepresentedSample.map { $0.sampleLength > 0 && !$0.pcm.isEmpty } == true
         return InstrumentEditorDisplayState(
             source: source,
             instrumentSlots: instrumentSlots,
@@ -371,10 +381,9 @@ struct InstrumentEditorDisplayState: Equatable {
             instrumentName: normalizedName(instrument.name, fallback: "(unnamed instrument)"),
             instrumentNameEditValue: instrument.name ?? "",
             isInstrumentNameEditable: allowsInstrumentNameEditing,
-            isSampleVolumeEditable: allowsInstrumentNameEditing &&
-                selectedRepresentedSample.map { $0.sampleLength > 0 && !$0.pcm.isEmpty } == true,
-            isSamplePanningEditable: allowsInstrumentNameEditing &&
-                selectedRepresentedSample.map { $0.sampleLength > 0 && !$0.pcm.isEmpty } == true,
+            isSampleVolumeEditable: allowsSelectedSampleEditing,
+            isSampleFinetuneEditable: allowsSelectedSampleEditing,
+            isSamplePanningEditable: allowsSelectedSampleEditing,
             sampleCount: instrument.samples.count,
             selectedSampleSlot: selectedSampleSlot,
             sampleSlots: slots,
@@ -428,6 +437,8 @@ struct InstrumentEditorDisplayState: Equatable {
 typealias InstrumentNameEditHandler = (_ zeroBasedInstrumentIndex: Int, _ name: String) -> Bool
 typealias SampleVolumeEditHandler =
     (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ volume: UInt8) -> Bool
+typealias SampleFinetuneEditHandler =
+    (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ finetune: Int) -> Bool
 typealias SamplePanningEditHandler =
     (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ panning: UInt8) -> Bool
 
@@ -440,11 +451,13 @@ final class InstrumentEditorWindowPresenter {
         displayState: InstrumentEditorDisplayState,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
+        sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) -> InstrumentEditorWindowController {
         if let windowController {
             windowController.instrumentNameEditHandler = instrumentNameEditHandler
             windowController.sampleVolumeEditHandler = sampleVolumeEditHandler
+            windowController.sampleFinetuneEditHandler = sampleFinetuneEditHandler
             windowController.samplePanningEditHandler = samplePanningEditHandler
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
@@ -455,6 +468,7 @@ final class InstrumentEditorWindowPresenter {
             displayState: displayState,
             instrumentNameEditHandler: instrumentNameEditHandler,
             sampleVolumeEditHandler: sampleVolumeEditHandler,
+            sampleFinetuneEditHandler: sampleFinetuneEditHandler,
             samplePanningEditHandler: samplePanningEditHandler
         )
         controller.closeHandler = { [weak self, weak controller] in
@@ -485,6 +499,11 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             (window?.contentView as? InstrumentEditorView)?.sampleVolumeEditHandler = sampleVolumeEditHandler
         }
     }
+    var sampleFinetuneEditHandler: SampleFinetuneEditHandler? {
+        didSet {
+            (window?.contentView as? InstrumentEditorView)?.sampleFinetuneEditHandler = sampleFinetuneEditHandler
+        }
+    }
     var samplePanningEditHandler: SamplePanningEditHandler? {
         didSet {
             (window?.contentView as? InstrumentEditorView)?.samplePanningEditHandler = samplePanningEditHandler
@@ -495,16 +514,19 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         displayState: InstrumentEditorDisplayState = .empty,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
+        sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) {
         self.instrumentNameEditHandler = instrumentNameEditHandler
         self.sampleVolumeEditHandler = sampleVolumeEditHandler
+        self.sampleFinetuneEditHandler = sampleFinetuneEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
         let contentView = InstrumentEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
             displayState: displayState,
             instrumentNameEditHandler: instrumentNameEditHandler,
             sampleVolumeEditHandler: sampleVolumeEditHandler,
+            sampleFinetuneEditHandler: sampleFinetuneEditHandler,
             samplePanningEditHandler: samplePanningEditHandler
         )
         let panel = NSPanel(
@@ -560,6 +582,7 @@ final class InstrumentEditorView: FlippedEditorView {
     private var envelopePanelView: NSView?
     var instrumentNameEditHandler: InstrumentNameEditHandler?
     var sampleVolumeEditHandler: SampleVolumeEditHandler?
+    var sampleFinetuneEditHandler: SampleFinetuneEditHandler?
     var samplePanningEditHandler: SamplePanningEditHandler?
 
     init(
@@ -567,11 +590,13 @@ final class InstrumentEditorView: FlippedEditorView {
         displayState: InstrumentEditorDisplayState = .empty,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
+        sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) {
         self.displayState = displayState
         self.instrumentNameEditHandler = instrumentNameEditHandler
         self.sampleVolumeEditHandler = sampleVolumeEditHandler
+        self.sampleFinetuneEditHandler = sampleFinetuneEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.contentView)
@@ -676,11 +701,14 @@ final class InstrumentEditorView: FlippedEditorView {
         let editableFields = [
             displayState.isInstrumentNameEditable ? "NAME" : nil,
             displayState.isSampleVolumeEditable ? "VOL" : nil,
+            displayState.isSampleFinetuneEditable ? "FINE" : nil,
             displayState.isSamplePanningEditable ? "PAN" : nil,
         ].compactMap { $0 }
-        let editStatus = editableFields.count > 1
-            ? editableFields.joined(separator: " + ")
-            : editableFields.first.map { "\($0) EDITABLE" } ?? "READ-ONLY"
+        let editStatus = editableFields.count == 4
+            ? "N/V/F/P EDIT"
+            : editableFields.count > 1
+                ? editableFields.joined(separator: "/")
+                : editableFields.first.map { "\($0) EDITABLE" } ?? "READ-ONLY"
         let readOnly = VTXEditorControlFactory.makeSegmentReadout(
             value: editStatus,
             fixedWidth: 112
@@ -875,7 +903,7 @@ final class InstrumentEditorView: FlippedEditorView {
         addReadout(sample?.relativeNoteDisplay ?? "—", to: panel, frame: NSRect(x: 176, y: 5, width: 52, height: 23))
 
         addSampleVolumeControl(sample, to: panel)
-        addDisabledKnob(value: Double(sample?.finetune ?? 0), minimum: -128, maximum: 127, id: "defaultFinetune", label: "FINETUNE", readout: sample?.finetuneDisplay ?? "—", to: panel, x: 110, y: 34)
+        addSampleFinetuneControl(sample, to: panel)
 
         addLabel("PAN", to: panel, frame: NSRect(x: 10, y: 151, width: 28, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
         let pan = VTXEditorControlFactory.makePanSliderControl(
@@ -928,6 +956,36 @@ final class InstrumentEditorView: FlippedEditorView {
         addControl(readout, to: parent, frame: NSRect(x: x + 8, y: y + 88, width: 56, height: 23))
     }
 
+    private func addSampleFinetuneControl(
+        _ sample: InstrumentEditorDisplayState.SampleSlot?,
+        to parent: NSView
+    ) {
+        let isEditable = displayState.isSampleFinetuneEditable
+        let x: CGFloat = 110
+        let y: CGFloat = 34
+        let knob = VTXEditorControlFactory.makeKnobControl(
+            value: Double(sample?.finetune ?? 0),
+            minimumValue: Double(PlaybackSample.xmFinetuneRange.lowerBound),
+            maximumValue: Double(PlaybackSample.xmFinetuneRange.upperBound)
+        )
+        knob.isEnabled = isEditable
+        knob.isContinuous = false
+        knob.target = isEditable ? self : nil
+        knob.action = isEditable ? #selector(commitSampleFinetune(_:)) : nil
+        knob.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleFinetuneControl)
+        knob.toolTip = isEditable
+            ? "Change the selected sample finetune"
+            : "Sample finetune is editable only for represented samples in stopped editable documents"
+        addControl(knob, to: parent, frame: NSRect(x: x, y: y, width: 72, height: 72))
+        addLabel("FINETUNE", to: parent, frame: NSRect(x: x, y: y + 73, width: 72, height: 10), color: VTXEditorControlTheme.panelLabelText, size: 8, alignment: .center)
+        let readout = VTXEditorControlFactory.makeSegmentReadout(
+            value: sample?.finetuneDisplay ?? "—",
+            fixedWidth: 56
+        )
+        readout.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleFinetuneReadout)
+        addControl(readout, to: parent, frame: NSRect(x: x + 8, y: y + 88, width: 56, height: 23))
+    }
+
     @objc
     private func commitSampleVolume(_ sender: VTXEditorKnobControl) {
         let volume = Int(sender.value.rounded())
@@ -943,6 +1001,25 @@ final class InstrumentEditorView: FlippedEditorView {
                   UInt8(volume)
               ) == true else {
             sender.setValue(Double(displayState.selectedSample?.volumeLevel ?? 0))
+            return
+        }
+    }
+
+    @objc
+    private func commitSampleFinetune(_ sender: VTXEditorKnobControl) {
+        let finetune = Int(sender.value.rounded())
+        guard displayState.isSampleFinetuneEditable,
+              PlaybackSample.xmFinetuneRange.contains(finetune),
+              let instrumentSlot = displayState.selectedInstrumentSlot,
+              let sampleSlot = displayState.selectedSampleSlot,
+              instrumentSlot > 0,
+              sampleSlot > 0,
+              sampleFinetuneEditHandler?(
+                  instrumentSlot - 1,
+                  sampleSlot - 1,
+                  finetune
+              ) == true else {
+            sender.setValue(Double(displayState.selectedSample?.finetune ?? 0))
             return
         }
     }

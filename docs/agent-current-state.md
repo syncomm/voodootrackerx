@@ -35,15 +35,18 @@ convenient sharing. Export XM remains scoped to the current editable subset,
 not an arbitrary-XM round-trip guarantee or full FT2/OpenMPT/MilkyTracker
 parity claim. `Window > Instrument Editor` follows the v1 mockup hierarchy for
 the current palette selection, represented sample metadata, read-only VOL/PAN envelope
-preview, and note-map ranges. Represented instrument NAME and selected-sample
-PAN are editable only in stopped editable documents or editable copies; both
-use labeled whole-document `applyEdit` undo/redo. Sample panning is the first
+preview, and note-map ranges. Represented instrument NAME plus selected-sample
+PAN, VOLUME, and FINETUNE are editable only in stopped editable documents or
+editable copies; all use labeled whole-document `applyEdit` undo/redo. Sample panning is the first
 editable sample metadata field and preserves the exact XM `0...255` byte
 through snapshots and Export XM. Loaded modules, playing documents, missing or
 empty sample slots, and all unimplemented mutation controls remain read-only/inert.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
 adapter gain mapping without runtime engine, DSP, or scheduling changes.
+Selected-sample finetune preserves the exact XM signed byte `-128...127` through
+the same paths; later playback uses the existing pitch adaptation with no pitch
+formula, runtime engine, DSP, or scheduling architecture change.
 Sample panning remains runtime-inert and
 does not change adapter plans, voice pan, or render output. XM instrument
 autovibrato type/sweep/depth/rate bytes are likewise preserved through editable
@@ -53,8 +56,8 @@ loop indices, and supported flags are now preserved through the same loaded,
 editable-copy, snapshot, and Export XM paths. The local display-only VOL/PAN
 selector exposes their graph, point count, enabled, sustain, and loop state;
 they remain runtime-inert and create no document or undo mutation. These
-metadata slices add no broader sample, PCM, envelope, or vibrato mutation, XI
-behavior, envelope/keymap editing, waveform display, or sample import. Save/Save As,
+metadata slices add no relative-note, loop, PCM, envelope, waveform, vibrato,
+keymap, XI, or import mutation. Save/Save As,
 loaded-module direct editing, broader Instrument Editor editing, Sample Editor, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
@@ -218,6 +221,12 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
+- The selected represented sample's exact XM signed finetune byte (`-128...127`)
+  now edits only in stopped editable documents/copies through one `Change Sample
+  Finetune` applyEdit action with undo/redo. Export XM/reopen preserves the exact
+  byte, and subsequent playback uses the existing pitch/sample-step adaptation;
+  pitch formulas, scheduling, runtime engine behavior, C mixer DSP, and all
+  neighboring sample/instrument data are unchanged.
 - The selected represented sample's exact XM panning byte is the first editable
   sample metadata field. Its Instrument Editor PAN control is enabled only for
   stopped editable documents/copies, commits one `Change Sample Panning`

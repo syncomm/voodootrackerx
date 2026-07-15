@@ -949,6 +949,47 @@ struct BlankTrackerDocument: Equatable {
     }
 
     @discardableResult
+    mutating func setSampleFinetune(instrumentAt zeroBasedInstrumentIndex: Int, sampleAt zeroBasedSampleIndex: Int, finetune: Int) -> Bool {
+        guard PlaybackSample.xmFinetuneRange.contains(finetune),
+              (0..<255).contains(zeroBasedInstrumentIndex),
+              (0..<255).contains(zeroBasedSampleIndex),
+              let instrument = instrumentPalette[zeroBasedInstrumentIndex + 1],
+              let sampleStorageIndex = instrument.samples.firstIndex(where: {
+                  $0.sampleIndex == zeroBasedSampleIndex && $0.sampleLength > 0 && !$0.pcm.isEmpty
+              }),
+              instrument.samples[sampleStorageIndex].finetune != finetune else {
+            return false
+        }
+
+        var samples = instrument.samples
+        samples[sampleStorageIndex] = samples[sampleStorageIndex].withFinetune(finetune)
+        var palette = instrumentPalette
+        palette[zeroBasedInstrumentIndex + 1] = PlaybackInstrument(
+            index: instrument.index,
+            name: instrument.name,
+            samples: samples,
+            volumeEnvelope: instrument.volumeEnvelope,
+            panningEnvelope: instrument.panningEnvelope,
+            autoVibrato: instrument.autoVibrato,
+            noteSampleMap: instrument.noteSampleMap
+        )
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: currentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: currentPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
+            selection: selection,
+            instrumentPalette: palette,
+            patterns: patterns
+        )
+        return true
+    }
+
+    @discardableResult
     mutating func setSamplePanning(instrumentAt zeroBasedInstrumentIndex: Int, sampleAt zeroBasedSampleIndex: Int, panning: UInt8) -> Bool {
         guard (0..<255).contains(zeroBasedInstrumentIndex),
               (0..<255).contains(zeroBasedSampleIndex),

@@ -10,6 +10,8 @@ editable documents and route through applyEdit/whole-snapshot undo.
 The existing VOLUME knob now edits the selected represented sample's exact XM `0...64` value under
 the same stopped/editable policy; its bounded control emits valid values and the mutation API rejects
 out-of-range requests. Subsequent playback uses the unchanged adapter gain mapping.
+The existing FINETUNE knob now follows the same policy for the exact XM signed-byte range
+`-128...127`, commits once at mouse-up, and uses the unchanged pitch adaptation on later playback.
 Represented XM autovibrato bytes are shown on the disabled VIBRATO controls. Loaded modules,
 playing documents, and every unimplemented mutation control remain read-only. Broader sample/XI, envelope/keymap, waveform,
 autovibrato playback, and audition work remains future scope. Represented XM panning-envelope data is
@@ -32,7 +34,9 @@ explicit empty state. NAME is inline-editable only for represented instruments i
 documents; it uses XM's 22-byte constraint and one labeled `Rename Instrument` undo step. PAN is the
 first editable sample metadata field and commits one `Change Sample Panning` action at mouse-up.
 VOLUME commits one exact `Change Sample Volume` action at mouse-up and supports undo/redo; loaded
-modules and active playback keep it disabled. No runtime engine, DSP, gain-law, or scheduling logic changed.
+modules and active playback keep it disabled. FINETUNE commits one exact `Change Sample Finetune`
+action at mouse-up with the same gating and signed readout. No pitch formula, runtime engine, DSP,
+gain-law, or scheduling logic changed.
 Undo/redo refresh this window and the main control panel. Sample panning and instrument autovibrato
 remain runtime-inert. Panning-envelope metadata is preserved but not yet
 applied to playback; its VOL/PAN selector changes only local display mode, and every envelope edit
@@ -195,24 +199,29 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 7. Done: read-only VOL/PAN switch + represented panning-envelope preview.
 8. Done: selected represented sample PAN mutation behind applyEdit/undo.
 9. Done: selected represented sample VOLUME mutation behind applyEdit/undo.
-10. Envelope editing (points, sustain, loop, add/del) wired.
-11. Vibrato + defaults clusters wired.
-12. Note-keymap audition through the isolated preview path.
-13. Keymap drag-to-assign-range.
+10. Done: selected represented sample FINETUNE mutation behind applyEdit/undo.
+11. Envelope editing (points, sustain, loop, add/del) wired.
+12. Vibrato + remaining defaults controls wired.
+13. Note-keymap audition through the isolated preview path.
+14. Keymap drag-to-assign-range.
 
 ---
 
 ## 11. Testing / manual verification
 
 For the implemented slice, verify empty/default, loaded-module, editable-copy, playing, and
-selection-change states; confirm NAME, represented-sample VOLUME, and PAN are editable only in a stopped
+selection-change states; confirm NAME and represented-sample VOLUME, FINETUNE, and PAN are editable only in a stopped
 editable document; and confirm edit/undo/redo refresh both the window and control panel. Export a
 supported represented instrument to a temporary XM and reload its name. For sample panning, confirm
 a non-center value displays exactly, PAN stays disabled for loaded/playing/empty states, and an edit
-survives Export XM/reopen. Verify autovibrato likewise survives while VIBRATO remains disabled
+survives Export XM/reopen. For finetune, confirm signed endpoints and intermediate values survive,
+editing is blocked during playback, and undo/redo restore the corresponding later playback pitch.
+Verify autovibrato likewise survives while VIBRATO remains disabled
 and playback/audition output is unchanged. Verify panning-envelope graph/readouts in loaded and
 editable-copy states, clean disabled/empty states, local VOL/PAN switching across undo/redo, and
 unchanged playback. Keep screenshots/exports local and untracked.
+
+Relative-note, loop, PCM, waveform, envelope, keymap, XI, and sample-import editing remain future work.
 
 For later interactive slices, screenshot before/after per PR and verify the surface reads as calm at
 fixed size. Envelope: points

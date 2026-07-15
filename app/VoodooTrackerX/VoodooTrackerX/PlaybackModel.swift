@@ -11,6 +11,7 @@ struct PlaybackCell: Equatable {
 struct PlaybackSample: Equatable {
     static let xmMaximumVolume: UInt8 = 64
     static let xmDefaultVolume: UInt8 = xmMaximumVolume
+    static let xmRelativeNoteRange = Int(Int8.min)...Int(Int8.max)
     static let xmFinetuneRange = Int(Int8.min)...Int(Int8.max)
     /// XM sample-header center/default panning byte.
     static let xmCenterPanning: UInt8 = 128
@@ -99,6 +100,27 @@ struct PlaybackSample: Equatable {
     }
 
     func withPanning(_ panning: UInt8) -> PlaybackSample {
+        PlaybackSample(
+            instrumentIndex: instrumentIndex,
+            sampleIndex: sampleIndex,
+            name: name,
+            pcm: pcm,
+            volume: volume,
+            panning: panning,
+            relativeNote: relativeNote,
+            finetune: finetune,
+            baseSampleRate: baseSampleRate,
+            sampleLength: sampleLength,
+            loopStart: loopStart,
+            loopLength: loopLength,
+            loopType: loopType,
+            sourceBitDepthBits: sourceBitDepthBits,
+            sourceIsSignedPCM: sourceIsSignedPCM,
+            sourceIsDeltaEncoded: sourceIsDeltaEncoded
+        )
+    }
+
+    func withRelativeNote(_ relativeNote: Int) -> PlaybackSample {
         PlaybackSample(
             instrumentIndex: instrumentIndex,
             sampleIndex: sampleIndex,

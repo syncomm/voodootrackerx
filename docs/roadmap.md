@@ -163,8 +163,8 @@ Recommended next PR sequence:
    and the read-only VOL/PAN envelope display. Selected-sample VOLUME now also
    edits exact XM `0...64` values while stopped and feeds the unchanged gain
    mapping on subsequent playback. Selected-sample FINETUNE likewise edits the
-   exact XM signed byte `-128...127`; Export XM/reopen preserves it and later
-   playback uses the unchanged pitch behavior. Continue with narrow slices.
+   exact XM signed byte `-128...127`; REL NOTE now follows the same boundary.
+   Export XM/reopen preserves both, and later playback uses the unchanged pitch behavior.
 4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before
@@ -186,10 +186,10 @@ Parked parity-watch items:
 
 Recently completed:
 
-- XM sample-header finetune is editable across the full signed-byte range only
-  for a stopped editable document/copy. One `Change Sample Finetune` applyEdit
-  snapshot supports undo/redo and refreshes the signed readout; Export XM/reopen
-  preserves the exact value. Later playback uses the existing pitch/sample-step
+- XM sample-header relative note and finetune are editable across the full
+  signed-byte range only for a stopped editable document/copy. Labeled applyEdit
+  snapshots support undo/redo and refresh signed readouts; Export XM/reopen
+  preserves exact values. Later playback uses the existing pitch/sample-step
   behavior with no formula, scheduling, runtime engine, or C mixer DSP change.
 - XM sample-header panning is the first editable sample metadata field. The
   selected represented sample's exact `UInt8` value can change only in stopped
@@ -424,7 +424,7 @@ Recommended next product PR:
   editable-copy UI, Instrument Editor shell, instrument NAME editing, and
   document applyEdit/undo funnel, plus sample-panning, panning-envelope, and
   autovibrato round-trip support, read-only envelope display, and editable
-  selected-sample panning, volume, and signed-byte finetune behind `applyEdit`
+  selected-sample panning, volume, signed-byte relative note, and finetune behind `applyEdit`
   are in place. Continue with a
   separately scoped sample/instrument slice.
 - Module TIME/headroom work should follow
@@ -694,6 +694,8 @@ Current implemented foundation:
 - exact XM signed-byte sample finetune preservation plus stopped editable-
   document mutation through applyEdit/undo/redo; subsequent playback uses the
   existing pitch path and loaded modules stay read-only
+- exact XM signed-byte sample relative-note preservation through the same
+  stopped-editable applyEdit/undo/redo and existing pitch path
 - exact XM instrument autovibrato preservation through the same paths, with
   disabled VIBRATO display and no playback, audition, scheduling, or PCM change
 - exact XM instrument panning-envelope preservation through the same paths,

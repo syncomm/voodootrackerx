@@ -361,6 +361,62 @@ final class EditableXMWriterTests: XCTestCase {
         }
     }
 
+    func testSampleRelativeNoteMutationExportsAndReloadsExactSignedByteWithoutChangingNeighbors() throws {
+        let sample = makeXMSourceSample(
+            name: "Relative",
+            pcm: [0, 0.5, -0.5, 0.25],
+            volume: 0.75,
+            panning: 37,
+            relativeNote: 5,
+            finetune: 12,
+            loopStart: 1,
+            loopLength: 2,
+            loopType: 2
+        )
+        let baseDocument = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [1: PlaybackInstrument(index: 1, name: "Instrument", samples: [sample])]
+        )
+
+        for relativeNote in [-128, -37, 0, 42, 127] {
+            var document = baseDocument
+            XCTAssertTrue(document.setSampleRelativeNote(instrumentAt: 0, sampleAt: 0, relativeNote: relativeNote))
+
+            let data = try EditableXMWriter().data(from: document)
+            let patternHeader = data.patternHeader(at: 336)
+            let instrument = data.instrumentHeader(at: patternHeader.nextOffset)
+            let sampleHeader = data.sampleHeader(at: instrument.sampleHeaderOffset)
+
+            XCTAssertEqual(sampleHeader.relativeNote, UInt8(bitPattern: Int8(relativeNote)))
+            XCTAssertEqual(sampleHeader.lengthBytes, 4)
+            XCTAssertEqual(sampleHeader.loopStartBytes, 1)
+            XCTAssertEqual(sampleHeader.loopLengthBytes, 2)
+            XCTAssertEqual(sampleHeader.volume, 48)
+            XCTAssertEqual(sampleHeader.finetune, UInt8(bitPattern: Int8(12)))
+            XCTAssertEqual(sampleHeader.type, 0x02)
+            XCTAssertEqual(sampleHeader.panning, 37)
+            XCTAssertEqual(sampleHeader.name, "Relative")
+            XCTAssertEqual(Array(data.subdata(in: instrument.sampleDataOffset..<instrument.nextOffset)), [0, 64, 128, 96])
+
+            let url = try temporaryExportURL(filename: "relative-note-\(relativeNote).xm")
+            try data.write(to: url, options: .atomic)
+            let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+            let reloadedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+            let reloadedSample = try XCTUnwrap(reloadedSong.instrument(forInstrument: 1)?.sample(mappedSampleIndex: 0))
+
+            XCTAssertEqual(reloadedSample.relativeNote, relativeNote)
+            XCTAssertEqual(reloadedSample.name, "Relative")
+            XCTAssertEqual(reloadedSample.pcm, sample.pcm)
+            XCTAssertEqual(reloadedSample.xmVolume, 48)
+            XCTAssertEqual(reloadedSample.panning, 37)
+            XCTAssertEqual(reloadedSample.finetune, 12)
+            XCTAssertEqual(reloadedSample.loopStart, 1)
+            XCTAssertEqual(reloadedSample.loopLength, 2)
+            XCTAssertEqual(reloadedSample.loopType, 2)
+        }
+    }
+
     func testDeltaEncodingHelperWritesExact8BitAnd16BitPayloads() {
         XCTAssertEqual(
             XMSampleDeltaEncoder.deltaEncodedSignedPCM(pcm: [0, 0.5, -0.5, 0.25], bitDepthBits: 8),

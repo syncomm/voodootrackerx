@@ -18,6 +18,8 @@ enum InstrumentEditorViewIdentifier {
     static let instrumentNameField = "instrumentEditor.instrumentNameField"
     static let sampleVolumeControl = "instrumentEditor.sampleVolumeControl"
     static let sampleVolumeReadout = "instrumentEditor.sampleVolumeReadout"
+    static let sampleRelativeNoteControl = "instrumentEditor.sampleRelativeNoteControl"
+    static let sampleRelativeNoteReadout = "instrumentEditor.sampleRelativeNoteReadout"
     static let sampleFinetuneControl = "instrumentEditor.sampleFinetuneControl"
     static let sampleFinetuneReadout = "instrumentEditor.sampleFinetuneReadout"
     static let samplePanningControl = "instrumentEditor.samplePanningControl"
@@ -243,6 +245,7 @@ struct InstrumentEditorDisplayState: Equatable {
         instrumentNameEditValue: "",
         isInstrumentNameEditable: false,
         isSampleVolumeEditable: false,
+        isSampleRelativeNoteEditable: false,
         isSampleFinetuneEditable: false,
         isSamplePanningEditable: false,
         sampleCount: 0,
@@ -262,6 +265,7 @@ struct InstrumentEditorDisplayState: Equatable {
     let instrumentNameEditValue: String
     let isInstrumentNameEditable: Bool
     let isSampleVolumeEditable: Bool
+    let isSampleRelativeNoteEditable: Bool
     let isSampleFinetuneEditable: Bool
     let isSamplePanningEditable: Bool
     let sampleCount: Int
@@ -275,6 +279,7 @@ struct InstrumentEditorDisplayState: Equatable {
     var isReadOnly: Bool {
         !isInstrumentNameEditable &&
             !isSampleVolumeEditable &&
+            !isSampleRelativeNoteEditable &&
             !isSampleFinetuneEditable &&
             !isSamplePanningEditable
     }
@@ -354,6 +359,7 @@ struct InstrumentEditorDisplayState: Equatable {
                 instrumentNameEditValue: "",
                 isInstrumentNameEditable: false,
                 isSampleVolumeEditable: false,
+                isSampleRelativeNoteEditable: false,
                 isSampleFinetuneEditable: false,
                 isSamplePanningEditable: false,
                 sampleCount: 0,
@@ -382,6 +388,7 @@ struct InstrumentEditorDisplayState: Equatable {
             instrumentNameEditValue: instrument.name ?? "",
             isInstrumentNameEditable: allowsInstrumentNameEditing,
             isSampleVolumeEditable: allowsSelectedSampleEditing,
+            isSampleRelativeNoteEditable: allowsSelectedSampleEditing,
             isSampleFinetuneEditable: allowsSelectedSampleEditing,
             isSamplePanningEditable: allowsSelectedSampleEditing,
             sampleCount: instrument.samples.count,
@@ -437,6 +444,8 @@ struct InstrumentEditorDisplayState: Equatable {
 typealias InstrumentNameEditHandler = (_ zeroBasedInstrumentIndex: Int, _ name: String) -> Bool
 typealias SampleVolumeEditHandler =
     (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ volume: UInt8) -> Bool
+typealias SampleRelativeNoteEditHandler =
+    (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ relativeNote: Int) -> Bool
 typealias SampleFinetuneEditHandler =
     (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ finetune: Int) -> Bool
 typealias SamplePanningEditHandler =
@@ -451,12 +460,14 @@ final class InstrumentEditorWindowPresenter {
         displayState: InstrumentEditorDisplayState,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
+        sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) -> InstrumentEditorWindowController {
         if let windowController {
             windowController.instrumentNameEditHandler = instrumentNameEditHandler
             windowController.sampleVolumeEditHandler = sampleVolumeEditHandler
+            windowController.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
             windowController.sampleFinetuneEditHandler = sampleFinetuneEditHandler
             windowController.samplePanningEditHandler = samplePanningEditHandler
             windowController.apply(displayState: displayState)
@@ -468,6 +479,7 @@ final class InstrumentEditorWindowPresenter {
             displayState: displayState,
             instrumentNameEditHandler: instrumentNameEditHandler,
             sampleVolumeEditHandler: sampleVolumeEditHandler,
+            sampleRelativeNoteEditHandler: sampleRelativeNoteEditHandler,
             sampleFinetuneEditHandler: sampleFinetuneEditHandler,
             samplePanningEditHandler: samplePanningEditHandler
         )
@@ -499,6 +511,11 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             (window?.contentView as? InstrumentEditorView)?.sampleVolumeEditHandler = sampleVolumeEditHandler
         }
     }
+    var sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? {
+        didSet {
+            (window?.contentView as? InstrumentEditorView)?.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
+        }
+    }
     var sampleFinetuneEditHandler: SampleFinetuneEditHandler? {
         didSet {
             (window?.contentView as? InstrumentEditorView)?.sampleFinetuneEditHandler = sampleFinetuneEditHandler
@@ -514,11 +531,13 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         displayState: InstrumentEditorDisplayState = .empty,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
+        sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) {
         self.instrumentNameEditHandler = instrumentNameEditHandler
         self.sampleVolumeEditHandler = sampleVolumeEditHandler
+        self.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
         self.sampleFinetuneEditHandler = sampleFinetuneEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
         let contentView = InstrumentEditorView(
@@ -526,6 +545,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             displayState: displayState,
             instrumentNameEditHandler: instrumentNameEditHandler,
             sampleVolumeEditHandler: sampleVolumeEditHandler,
+            sampleRelativeNoteEditHandler: sampleRelativeNoteEditHandler,
             sampleFinetuneEditHandler: sampleFinetuneEditHandler,
             samplePanningEditHandler: samplePanningEditHandler
         )
@@ -582,6 +602,7 @@ final class InstrumentEditorView: FlippedEditorView {
     private var envelopePanelView: NSView?
     var instrumentNameEditHandler: InstrumentNameEditHandler?
     var sampleVolumeEditHandler: SampleVolumeEditHandler?
+    var sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler?
     var sampleFinetuneEditHandler: SampleFinetuneEditHandler?
     var samplePanningEditHandler: SamplePanningEditHandler?
 
@@ -590,12 +611,14 @@ final class InstrumentEditorView: FlippedEditorView {
         displayState: InstrumentEditorDisplayState = .empty,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
+        sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) {
         self.displayState = displayState
         self.instrumentNameEditHandler = instrumentNameEditHandler
         self.sampleVolumeEditHandler = sampleVolumeEditHandler
+        self.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
         self.sampleFinetuneEditHandler = sampleFinetuneEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
         super.init(frame: frameRect)
@@ -701,11 +724,12 @@ final class InstrumentEditorView: FlippedEditorView {
         let editableFields = [
             displayState.isInstrumentNameEditable ? "NAME" : nil,
             displayState.isSampleVolumeEditable ? "VOL" : nil,
+            displayState.isSampleRelativeNoteEditable ? "REL" : nil,
             displayState.isSampleFinetuneEditable ? "FINE" : nil,
             displayState.isSamplePanningEditable ? "PAN" : nil,
         ].compactMap { $0 }
-        let editStatus = editableFields.count == 4
-            ? "N/V/F/P EDIT"
+        let editStatus = editableFields.count == 5
+            ? "N/V/R/F/P"
             : editableFields.count > 1
                 ? editableFields.joined(separator: "/")
                 : editableFields.first.map { "\($0) EDITABLE" } ?? "READ-ONLY"
@@ -899,8 +923,7 @@ final class InstrumentEditorView: FlippedEditorView {
 
     private func buildDefaults(_ panel: NSView) {
         let sample = displayState.selectedSample
-        addLabel("REL", to: panel, frame: NSRect(x: 151, y: 11, width: 21, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
-        addReadout(sample?.relativeNoteDisplay ?? "—", to: panel, frame: NSRect(x: 176, y: 5, width: 52, height: 23))
+        addSampleRelativeNoteControl(sample, to: panel)
 
         addSampleVolumeControl(sample, to: panel)
         addSampleFinetuneControl(sample, to: panel)
@@ -956,6 +979,37 @@ final class InstrumentEditorView: FlippedEditorView {
         addControl(readout, to: parent, frame: NSRect(x: x + 8, y: y + 88, width: 56, height: 23))
     }
 
+    private func addSampleRelativeNoteControl(
+        _ sample: InstrumentEditorDisplayState.SampleSlot?,
+        to parent: NSView
+    ) {
+        let isEditable = displayState.isSampleRelativeNoteEditable
+        addLabel("REL", to: parent, frame: NSRect(x: 151, y: 11, width: 21, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
+        let readout = VTXEditorControlFactory.makeSegmentReadout(
+            value: sample?.relativeNoteDisplay ?? "—",
+            fixedWidth: 32
+        )
+        readout.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleRelativeNoteReadout)
+        addControl(readout, to: parent, frame: NSRect(x: 176, y: 5, width: 32, height: 23))
+
+        let stepper = TrackerStepper()
+        stepper.controlSize = .small
+        stepper.increment = 1
+        stepper.valueWraps = false
+        stepper.autorepeat = false
+        stepper.minValue = Double(PlaybackSample.xmRelativeNoteRange.lowerBound)
+        stepper.maxValue = Double(PlaybackSample.xmRelativeNoteRange.upperBound)
+        stepper.integerValue = sample?.relativeNote ?? 0
+        stepper.isEnabled = isEditable
+        stepper.target = isEditable ? self : nil
+        stepper.action = isEditable ? #selector(commitSampleRelativeNote(_:)) : nil
+        stepper.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleRelativeNoteControl)
+        stepper.toolTip = isEditable
+            ? "Change the selected sample relative note"
+            : "Sample relative note is editable only for represented samples in stopped editable documents"
+        addControl(stepper, to: parent, frame: NSRect(x: 210, y: 5, width: 18, height: 23))
+    }
+
     private func addSampleFinetuneControl(
         _ sample: InstrumentEditorDisplayState.SampleSlot?,
         to parent: NSView
@@ -1001,6 +1055,25 @@ final class InstrumentEditorView: FlippedEditorView {
                   UInt8(volume)
               ) == true else {
             sender.setValue(Double(displayState.selectedSample?.volumeLevel ?? 0))
+            return
+        }
+    }
+
+    @objc
+    private func commitSampleRelativeNote(_ sender: TrackerStepper) {
+        let relativeNote = sender.integerValue
+        guard displayState.isSampleRelativeNoteEditable,
+              PlaybackSample.xmRelativeNoteRange.contains(relativeNote),
+              let instrumentSlot = displayState.selectedInstrumentSlot,
+              let sampleSlot = displayState.selectedSampleSlot,
+              instrumentSlot > 0,
+              sampleSlot > 0,
+              sampleRelativeNoteEditHandler?(
+                  instrumentSlot - 1,
+                  sampleSlot - 1,
+                  relativeNote
+              ) == true else {
+            sender.integerValue = displayState.selectedSample?.relativeNote ?? 0
             return
         }
     }

@@ -115,10 +115,130 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
             let harness = EditHarness(context: context)
             XCTAssertFalse(harness.coordinator.setSamplePanning(instrumentAt: 0, sampleAt: 0, panning: 201))
             XCTAssertFalse(harness.coordinator.setSampleVolume(instrumentAt: 0, sampleAt: 0, volume: 17))
+            XCTAssertFalse(harness.coordinator.setSampleRelativeNote(instrumentAt: 0, sampleAt: 0, relativeNote: -12))
             XCTAssertFalse(harness.coordinator.setSampleFinetune(instrumentAt: 0, sampleAt: 0, finetune: -64))
             XCTAssertTrue(harness.appliedDocuments.isEmpty)
             XCTAssertFalse(harness.undoManager.canUndo)
         }
+    }
+
+    func testSampleRelativeNoteMutationPreservesSignedByteRangeAndNeighboringValues() throws {
+        let before = documentWithInstrumentName(
+            "Snapshot",
+            volume: 48,
+            panning: 37,
+            relativeNote: 5,
+            finetune: 12,
+            panningEnvelope: PlaybackPanningEnvelope(
+                enabled: true,
+                points: [PlaybackEnvelopePoint(tick: 0, value: 32)],
+                sustainPointIndex: nil,
+                loopStartPointIndex: nil,
+                loopEndPointIndex: nil,
+                typeFlags: 1
+            ),
+            autoVibrato: PlaybackInstrumentAutoVibrato(waveformType: 3, sweep: 17, depth: 42, rate: 199)
+        )
+        let originalInstrument = try XCTUnwrap(before.instrumentPalette[1])
+        let originalSample = try XCTUnwrap(originalInstrument.samples.first)
+
+        for relativeNote in [-128, -37, 0, 42, 127] {
+            let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+            XCTAssertTrue(harness.coordinator.setSampleRelativeNote(
+                instrumentAt: 0,
+                sampleAt: 0,
+                relativeNote: relativeNote
+            ))
+            let after = try XCTUnwrap(harness.editableDocument)
+            let editedInstrument = try XCTUnwrap(after.instrumentPalette[1])
+            let editedSample = try XCTUnwrap(editedInstrument.samples.first)
+
+            XCTAssertEqual(editedSample.relativeNote, relativeNote)
+            XCTAssertEqual(editedSample.withRelativeNote(originalSample.relativeNote), originalSample)
+            XCTAssertEqual(editedInstrument.name, originalInstrument.name)
+            XCTAssertEqual(editedInstrument.volumeEnvelope, originalInstrument.volumeEnvelope)
+            XCTAssertEqual(editedInstrument.panningEnvelope, originalInstrument.panningEnvelope)
+            XCTAssertEqual(editedInstrument.autoVibrato, originalInstrument.autoVibrato)
+            XCTAssertEqual(editedInstrument.noteSampleMap, originalInstrument.noteSampleMap)
+            XCTAssertEqual(after.selection, before.selection)
+            XCTAssertEqual(after.patterns, before.patterns)
+        }
+    }
+
+    func testSampleRelativeNoteUsesOneUndoActionAndOnlyExistingPitchPaths() throws {
+        var before = documentWithInstrumentName("Playback", panning: 37, relativeNote: 0, finetune: 64)
+        XCTAssertTrue(before.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        let controller = InstrumentEditorWindowController(displayState: .editableDocument(before))
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let harness = EditHarness(
+            context: .editable(document: before, isPlaybackActive: false),
+            onApply: { controller.apply(displayState: .editableDocument($0)) }
+        )
+
+        func plan(for document: BlankTrackerDocument) -> PlaybackSongSyntheticPlan {
+            PlaybackSongSyntheticAdapter.adapt(
+                EditablePlaybackSongBuilder.build(from: document),
+                orderIndex: 0,
+                sampleRate: 8_363
+            )
+        }
+
+        func amigaTarget(for document: BlankTrackerDocument) throws -> PlaybackSongSyntheticAdapter.AmigaPitchTarget {
+            let sample = try XCTUnwrap(document.instrumentPalette[1]?.samples.first)
+            return try XCTUnwrap(PlaybackSongSyntheticAdapter.amigaPitchTarget(
+                note: 49,
+                relativeNote: sample.relativeNote,
+                finetune: sample.finetune,
+                baseSampleRate: sample.baseSampleRate,
+                outputSampleRate: 8_363
+            ))
+        }
+
+        XCTAssertFalse(harness.coordinator.setSampleRelativeNote(instrumentAt: 0, sampleAt: 0, relativeNote: 0))
+        XCTAssertFalse(harness.coordinator.setSampleRelativeNote(instrumentAt: 0, sampleAt: 0, relativeNote: -129))
+        XCTAssertFalse(harness.coordinator.setSampleRelativeNote(instrumentAt: 0, sampleAt: 0, relativeNote: 128))
+        XCTAssertFalse(harness.undoManager.canUndo)
+
+        let originalPlan = plan(for: before)
+        let originalAmiga = try amigaTarget(for: before)
+        XCTAssertTrue(harness.coordinator.setSampleRelativeNote(instrumentAt: 0, sampleAt: 0, relativeNote: 12))
+        let editedDocument = try XCTUnwrap(harness.editableDocument)
+        let editedPlan = plan(for: editedDocument)
+        let editedAmiga = try amigaTarget(for: editedDocument)
+        let originalEvent = try XCTUnwrap(originalPlan.pattern.events.first)
+        let editedEvent = try XCTUnwrap(editedPlan.pattern.events.first)
+
+        XCTAssertEqual(view.displayState.selectedSample?.relativeNoteDisplay, "+12")
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Change Sample Relative Note")
+        XCTAssertEqual(harness.appliedDocuments.count, 1)
+        XCTAssertEqual(editedEvent.playbackStep, originalEvent.playbackStep * 2, accuracy: 0.000_001)
+        XCTAssertEqual(editedAmiga.playbackStep, originalAmiga.playbackStep * 2, accuracy: 0.000_001)
+        XCTAssertEqual(originalPlan.pattern.events.count, editedPlan.pattern.events.count)
+        XCTAssertEqual(originalPlan.pattern.rowCount, editedPlan.pattern.rowCount)
+        XCTAssertEqual(originalPlan.timingConfig, editedPlan.timingConfig)
+        XCTAssertEqual(originalEvent.row, editedEvent.row)
+        XCTAssertEqual(originalEvent.tick, editedEvent.tick)
+        XCTAssertEqual(originalEvent.scheduledStartFrame, editedEvent.scheduledStartFrame)
+        XCTAssertEqual(originalEvent.sample, editedEvent.sample)
+        XCTAssertEqual(originalEvent.gain, editedEvent.gain)
+        XCTAssertEqual(originalEvent.pan, editedEvent.pan)
+        XCTAssertEqual(originalEvent.loop, editedEvent.loop)
+        XCTAssertEqual(originalEvent.initialSourceFrame, editedEvent.initialSourceFrame)
+        XCTAssertEqual(originalEvent.volumeEnvelope, editedEvent.volumeEnvelope)
+        XCTAssertEqual(originalEvent.panEnvelope, editedEvent.panEnvelope)
+        XCTAssertEqual(originalPlan.diagnostics.eventMappings.first?.sampleRelativeNote, 0)
+        XCTAssertEqual(editedPlan.diagnostics.eventMappings.first?.sampleRelativeNote, 12)
+        XCTAssertEqual(originalPlan.diagnostics.eventMappings.first?.sampleFinetune, 64)
+        XCTAssertEqual(editedPlan.diagnostics.eventMappings.first?.sampleFinetune, 64)
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(view.displayState.selectedSample?.relativeNoteDisplay, "0")
+        XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Change Sample Relative Note")
+        XCTAssertEqual(try XCTUnwrap(plan(for: try XCTUnwrap(harness.editableDocument)).pattern.events.first).playbackStep, originalEvent.playbackStep, accuracy: 0.000_001)
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(view.displayState.selectedSample?.relativeNoteDisplay, "+12")
+        XCTAssertEqual(try XCTUnwrap(plan(for: try XCTUnwrap(harness.editableDocument)).pattern.events.first).playbackStep, editedEvent.playbackStep, accuracy: 0.000_001)
+        XCTAssertEqual(harness.appliedDocuments.count, 3)
     }
 
     func testSampleFinetuneMutationPreservesSignedByteRangeAndNeighboringValues() throws {
@@ -521,6 +641,7 @@ private func documentWithInstrumentName(
     _ name: String,
     volume: UInt8 = 64,
     panning: UInt8 = 128,
+    relativeNote: Int = 0,
     finetune: Int = 0,
     panningEnvelope: PlaybackPanningEnvelope = .disabled,
     autoVibrato: PlaybackInstrumentAutoVibrato = .disabled,
@@ -533,7 +654,7 @@ private func documentWithInstrumentName(
         pcm: [0, 0.5, -0.5],
         volume: Float(volume) / 64.0,
         panning: panning,
-        relativeNote: 0,
+        relativeNote: relativeNote,
         finetune: finetune,
         baseSampleRate: 8_363
     )

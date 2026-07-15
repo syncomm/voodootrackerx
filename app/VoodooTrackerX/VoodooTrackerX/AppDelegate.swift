@@ -602,6 +602,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     volume: volume
                 ) ?? false
             },
+            sampleRelativeNoteEditHandler: { [weak self] instrumentIndex, sampleIndex, relativeNote in
+                self?.editableDocumentEditCoordinator.setSampleRelativeNote(
+                    instrumentAt: instrumentIndex,
+                    sampleAt: sampleIndex,
+                    relativeNote: relativeNote
+                ) ?? false
+            },
             sampleFinetuneEditHandler: { [weak self] instrumentIndex, sampleIndex, finetune in
                 self?.editableDocumentEditCoordinator.setSampleFinetune(
                     instrumentAt: instrumentIndex,

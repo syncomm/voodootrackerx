@@ -471,7 +471,14 @@ enum EditorNoteAuditionPreviewOutcome: Equatable {
 
 protocol EditorNoteAuditionPreviewSink: AnyObject {
     func preview(_ event: EditorNoteAuditionPreviewEvent)
+    func releasePreview()
     func cancelPreview()
+}
+
+extension EditorNoteAuditionPreviewSink {
+    func releasePreview() {
+        cancelPreview()
+    }
 }
 
 final class NoopEditorNoteAuditionPreviewSink: EditorNoteAuditionPreviewSink {
@@ -543,7 +550,7 @@ final class EditorNoteAuditionPreviewer {
             return false
         }
         activePreviewToken = nil
-        sink.cancelPreview()
+        sink.releasePreview()
         return true
     }
 

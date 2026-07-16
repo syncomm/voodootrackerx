@@ -663,7 +663,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertTrue(previewer.stopPreview(for: keyIdentity))
 
         XCTAssertNil(previewer.activePreviewToken)
-        XCTAssertEqual(sink.cancelPreviewCount, 1)
+        XCTAssertEqual(sink.releasePreviewCount, 1)
+        XCTAssertEqual(sink.cancelPreviewCount, 0)
     }
 
     func testNoteAuditionPreviewerStopsHeldLoopPreviewForMatchingKeyRelease() throws {
@@ -687,7 +688,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertTrue(previewer.stopPreview(for: keyIdentity))
         XCTAssertNil(previewer.activePreviewToken)
-        XCTAssertEqual(sink.cancelPreviewCount, 1)
+        XCTAssertEqual(sink.releasePreviewCount, 1)
+        XCTAssertEqual(sink.cancelPreviewCount, 0)
         XCTAssertEqual(sink.events.first?.sampleDescriptor.previewLoop, loop)
     }
 
@@ -742,10 +744,12 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertFalse(previewer.stopPreview(for: firstIdentity))
 
         XCTAssertEqual(previewer.activePreviewToken, secondToken)
+        XCTAssertEqual(sink.releasePreviewCount, 0)
         XCTAssertEqual(sink.cancelPreviewCount, 0)
         XCTAssertTrue(previewer.stopPreview(for: secondIdentity))
         XCTAssertNil(previewer.activePreviewToken)
-        XCTAssertEqual(sink.cancelPreviewCount, 1)
+        XCTAssertEqual(sink.releasePreviewCount, 1)
+        XCTAssertEqual(sink.cancelPreviewCount, 0)
     }
 
     func testNoteAuditionPreviewerSkipsRepeatedNoteKeyWithoutRetriggeringSink() {
@@ -944,6 +948,95 @@ final class BlankTrackerDocumentTests: XCTestCase {
             stride(from: 1, to: centerBlock.interleavedPCM.count, by: 2).map { centerBlock.interleavedPCM[$0] }
         )
         XCTAssertTrue(stride(from: 0, to: rightBlock.interleavedPCM.count, by: 2).allSatisfy { rightBlock.interleavedPCM[$0] == 0 })
+    }
+
+    func testPersistentPreviewOutputActivationRouteChangeAndTeardownAreSingleTransitions() {
+        var lifecycle = EditorNoteAuditionPersistentOutputLifecycle()
+        XCTAssertEqual(lifecycle.activate(), .start)
+        XCTAssertEqual(lifecycle.activate(), .none)
+        XCTAssertEqual(lifecycle.routeOrFormatChanged(), .stopReconfigureAndStart)
+        XCTAssertEqual(lifecycle.teardown(), .stopAndDispose)
+        XCTAssertEqual(lifecycle.teardown(), .none)
+
+        var unavailableLifecycle = EditorNoteAuditionPersistentOutputLifecycle()
+        XCTAssertEqual(unavailableLifecycle.routeOrFormatChanged(), .start)
+        unavailableLifecycle.startFailed()
+        XCTAssertEqual(unavailableLifecycle.activate(), .start)
+    }
+
+    func testPersistentPreviewQuickHeldAndCancelledNotesHaveBoundedOrderedLifetimes() throws {
+        let handoff = EditorNoteAuditionPreviewCommandHandoff(sampleRate: 100, queueCapacity: 8)
+        let event = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        XCTAssertNotNil(handoff.publish(event))
+        handoff.cancel()
+        XCTAssertTrue(handoff.renderForTesting(frames: 4).allSatisfy { $0 == 0 })
+        XCTAssertNil(handoff.lastRenderedGeneration)
+
+        let quickGeneration = try XCTUnwrap(handoff.publish(event))
+        XCTAssertEqual(handoff.release(generation: quickGeneration), .queued)
+        XCTAssertTrue(handoff.renderForTesting(frames: 4).contains { $0 != 0 })
+        XCTAssertTrue(handoff.renderForTesting(frames: 4).allSatisfy { $0 == 0 })
+
+        let held = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100,
+                                        previewLoop: MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: 8))
+        let generation = try XCTUnwrap(handoff.publish(held))
+        XCTAssertTrue(handoff.renderForTesting(frames: 4).contains { $0 != 0 })
+        XCTAssertEqual(handoff.release(generation: generation), .queued)
+        XCTAssertTrue(handoff.renderForTesting(frames: 4).allSatisfy { $0 == 0 })
+        XCTAssertEqual(handoff.lastRenderedGeneration, generation)
+    }
+
+    func testPersistentPreviewPreservesRapidNoteOrderAndStaleReleaseIdentity() throws {
+        let handoff = EditorNoteAuditionPreviewCommandHandoff(sampleRate: 100, queueCapacity: 8)
+        let left = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, samplePanning: 0, baseSampleRate: 100)
+        let right = try makePreviewEvent(trackerKey: "s", selectedOctave: 4, samplePanning: 255, baseSampleRate: 100)
+        let firstGeneration = try XCTUnwrap(handoff.publish(left))
+        XCTAssertEqual(handoff.release(generation: firstGeneration), .queued)
+        let secondGeneration = try XCTUnwrap(handoff.publish(right))
+        XCTAssertEqual(handoff.release(generation: firstGeneration), .queued)
+
+        let firstOnset = handoff.renderForTesting(frames: 4)
+        let replacementOnset = handoff.renderForTesting(frames: 4)
+        XCTAssertTrue(stride(from: 1, to: firstOnset.count, by: 2).allSatisfy { firstOnset[$0] == 0 })
+        XCTAssertTrue(stride(from: 0, to: replacementOnset.count, by: 2).allSatisfy { replacementOnset[$0] == 0 })
+        XCTAssertEqual(handoff.lastRenderedGeneration, secondGeneration)
+    }
+
+    func testPersistentPreviewOverflowAndConcurrentRenderingNeverLoseReleaseCancellationOrOwnership() throws {
+        let handoff = EditorNoteAuditionPreviewCommandHandoff(sampleRate: 100, queueCapacity: 2)
+        let first = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        let second = try makePreviewEvent(trackerKey: "s", selectedOctave: 4, baseSampleRate: 100)
+        XCTAssertNotNil(handoff.publish(first))
+        let secondGeneration = try XCTUnwrap(handoff.publish(second))
+        XCTAssertNil(handoff.publish(first))
+        XCTAssertEqual(handoff.rejectedNoteOnCount, 1)
+        XCTAssertEqual(handoff.release(generation: secondGeneration), .atomicFallback)
+
+        XCTAssertTrue(handoff.renderForTesting(frames: 4).contains { $0 != 0 })
+        XCTAssertTrue(handoff.renderForTesting(frames: 4).contains { $0 != 0 })
+        XCTAssertTrue(handoff.renderForTesting(frames: 4).allSatisfy { $0 == 0 })
+        XCTAssertNotNil(handoff.publish(first))
+        XCTAssertNotNil(handoff.publish(second))
+        handoff.cancel()
+        XCTAssertTrue(handoff.renderForTesting(frames: 4).allSatisfy { $0 == 0 })
+
+        let renderStarted = DispatchSemaphore(value: 0)
+        let renderFinished = expectation(description: "bounded render consumer finished")
+        DispatchQueue.global().async {
+            var output = Array(repeating: Float(0), count: 8)
+            renderStarted.wait()
+            for _ in 0..<2_000 { output.withUnsafeMutableBufferPointer { _ = handoff.render(into: $0, frames: 4) } }
+            renderFinished.fulfill()
+        }
+        renderStarted.signal()
+        for _ in 0..<250 {
+            if let generation = handoff.publish(first) { _ = handoff.release(generation: generation) }
+        }
+        wait(for: [renderFinished], timeout: 5)
+        handoff.cancel()
+        _ = handoff.renderForTesting(frames: 4)
+        handoff.shutdownAfterOutputStopped()
+        XCTAssertEqual(handoff.outstandingVoiceCount, 0)
     }
 
     func testNoteAuditionPreviewPitchSemitoneKeysProduceDistinctSteps() throws {
@@ -1432,7 +1525,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
                 editModeEnabled: editModeEnabled,
                 isNoteField: true
             ))
-            XCTAssertEqual(sink.cancelPreviewCount, 1)
+            XCTAssertEqual(sink.releasePreviewCount, 1)
+            XCTAssertEqual(sink.cancelPreviewCount, 0)
             XCTAssertNil(previewer.activePreviewToken)
         }
     }
@@ -4360,10 +4454,15 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
 private final class RecordingEditorNoteAuditionPreviewSink: EditorNoteAuditionPreviewSink {
     private(set) var events = [EditorNoteAuditionPreviewEvent]()
+    private(set) var releasePreviewCount = 0
     private(set) var cancelPreviewCount = 0
 
     func preview(_ event: EditorNoteAuditionPreviewEvent) {
         events.append(event)
+    }
+
+    func releasePreview() {
+        releasePreviewCount += 1
     }
 
     func cancelPreview() {

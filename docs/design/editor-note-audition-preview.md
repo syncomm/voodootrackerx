@@ -76,10 +76,12 @@ presenter releases the controller; reopening installs one fresh router without a
 
 The first routing spike added `EditorNoteAuditionPreviewer`, which consumes an `EditorNoteAuditionRequest` plus an `EditorNoteAuditionAvailability` result. It attempts preview only for note-on requests whose descriptor comes from a loaded module and reports real sample payload with a positive frame count and copied PCM payload. The previewer uses an injected sink so tests can verify request routing and metadata without CoreAudio or audio hardware.
 
-The audible spike adds `EditorNoteAuditionAudioSink` behind the existing `EditorNoteAuditionPreviewSink` boundary. The sink owns a separate preview-only CoreAudio DefaultOutput unit and a separate `CSoftwareMixer` instance. It does not call `PlaybackEngine`, does not call runtime `PlaybackAudioOutput.trigger(_:)`, does not start or stop song transport, does not publish playback-follow positions, does not alter Play/Stop button state, and does not participate in offline render/export behavior.
+The audible spike adds `EditorNoteAuditionAudioSink` behind the existing `EditorNoteAuditionPreviewSink` boundary. The sink owns a separate preview-only CoreAudio DefaultOutput unit and preview-only `CSoftwareMixer` voice slots. It does not call `PlaybackEngine`, does not call runtime `PlaybackAudioOutput.trigger(_:)`, does not start or stop song transport, does not publish playback-follow positions, does not alter Play/Stop button state, and does not participate in offline render/export behavior.
 
-Each new preview note replaces the prior editor preview voice. The preview mixer explicitly clears loaded preview voices before scheduling the new one; this avoids layering stale one-shot voices while keeping full FT2/XM release-envelope behavior deferred.
-The editor previewer tracks the active preview key identity with a generation token. Releasing the matching key stops the active preview through the preview-local cancel path. Releasing an older key after a newer note preview has replaced it is ignored, so stale keyUp events do not cancel the newer audition.
+Each accepted note is prepared off the render thread in an isolated one-voice mixer slot. A fixed-capacity generation-tagged handoff lets the callback activate note-on, release, and replacement commands in order; old slots are reclaimed away from the callback. A full queue rejects a new note before publication, while release and cancellation retain atomic fallback barriers and cannot be lost. This remains monophonic while preventing a quick release or replacement from erasing an accepted onset before its first render.
+The editor previewer tracks the active preview key identity with a generation token. Releasing the matching key uses the preview-local release path. Releasing an older key after a newer note preview has replaced it is ignored, so stale keyUp events do not cancel the newer audition.
+
+The preview output unit starts when the app-owned preview subsystem becomes available, stays running, and emits bounded silence while idle. Normal note release and editor close/deactivation end preview voice state without stopping the output graph; teardown and explicit default-route or output-format changes are the only normal stop/reconfigure boundaries. Bluetooth and other high-latency routes retain their inherent presentation latency, but short taps enter an already-running stream and do not need a long hold while the graph wakes. No device-brand special case exists. Normal song playback, export, and C mixer DSP are unchanged.
 
 The current audible preview is intentionally simple:
 
@@ -94,8 +96,6 @@ The current audible preview is intentionally simple:
   through the existing preview-only `CSoftwareMixer` wrapper
 - playback step maps typed note/octave through `PlaybackPitchCalculator`
 - pan maps the resolved sample-header byte through `PlaybackSamplePanningPolicy`
-- each new preview clears the previous preview voice before scheduling the replacement
-- matching tracker note `keyUp` or graphical release immediately cancels the active preview voice only
 - keyUp does not write pattern `===`; backtick remains the explicit pattern key-off
 - preview gain uses loaded-module adapter sample gain at neutral channel/global volume, default runtime output headroom, and a final preview-only safety cap
 - no full gain/loudness parity with normal Play/song playback yet

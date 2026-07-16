@@ -14,6 +14,7 @@ ALL_FIXTURES = [
     "basic-instrument-sample.xm",
     "multi-pattern-loop-boundary.xm",
     "instrument-sustained-defaults.xm",
+    "instrument-metadata-matrix.xm",
 ]
 
 
@@ -76,6 +77,11 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         self.assertEqual(sustained["xm_output"], "generated/instrument-sustained-defaults.xm")
         self.assertEqual(sustained["xm_size_bytes"], 33_486)
         self.assertEqual(sustained["xm_sha256"], hashlib.sha256(sustained_bytes).hexdigest())
+        matrix = fixtures["instrument-metadata-matrix.xm"]
+        matrix_bytes = generator.fixture_xm_bytes(manifest, matrix["name"])
+        self.assertEqual(matrix["xm_output"], "generated/instrument-metadata-matrix.xm")
+        self.assertEqual(matrix["xm_size_bytes"], 5_635)
+        self.assertEqual(matrix["xm_sha256"], hashlib.sha256(matrix_bytes).hexdigest())
         self.assertEqual(manifest["schema_version"], 2)
         generator.validate_manifest(manifest)
 
@@ -165,6 +171,32 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(), sample["pcm_sha256"])
         self.assertEqual(instrument["volume_envelope"]["points"], [[0, 64], [24, 56], [48, 64]])
 
+    def test_metadata_matrix_has_pinned_pairwise_sample_header_coverage(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        fixture = next(item for item in manifest["fixtures"] if item["name"] == "instrument-metadata-matrix.xm")
+        samples = [instrument["samples"][0] for instrument in fixture["module"]["instruments"]]
+        payload = generator.fixture_xm_bytes(manifest, fixture["name"])
+
+        self.assertEqual(len(payload), 5_635)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), "590e4aaafc71c41130cb1a9a4e768220c38c6e8dcdd3529d9be6e35ec400aef3")
+        self.assertEqual([sample["panning"] for sample in samples], [0, 64, 128, 192, 255])
+        self.assertEqual([sample["volume"] for sample in samples], [0, 16, 32, 48, 64])
+        self.assertEqual([sample["finetune"] for sample in samples], [-96, -32, 0, 48, 96])
+        self.assertEqual([sample["relative_note"] for sample in samples], [-12, 5, -5, 12, 0])
+        self.assertEqual([sample["encoding"] for sample in samples], [
+            "signed_8_bit_delta_pcm",
+            "signed_16_bit_delta_pcm",
+            "signed_8_bit_delta_pcm",
+            "signed_16_bit_delta_pcm",
+            "signed_8_bit_delta_pcm",
+        ])
+        self.assertEqual([sample["loop"]["mode"] for sample in samples], [
+            "none", "forward", "ping_pong", "none", "forward",
+        ])
+        for sample in samples:
+            self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(), sample["pcm_sha256"])
+
     def test_manifest_validation_rejects_invalid_ranges_events_and_duplicate_ids(self):
         generator = load_module()
         manifest = generator.fixture_manifest()
@@ -232,12 +264,14 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "basic-instrument-sample.xm").resolve(),
                     (output_dir / "generated" / "multi-pattern-loop-boundary.xm").resolve(),
                     (output_dir / "generated" / "instrument-sustained-defaults.xm").resolve(),
+                    (output_dir / "generated" / "instrument-metadata-matrix.xm").resolve(),
                 ],
             )
             self.assertEqual(
                 files,
                 [
                     "generated/basic-instrument-sample.xm",
+                    "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                 ],
@@ -274,6 +308,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertFalse((output_dir / "generated" / "basic-instrument-sample.xm").exists())
             self.assertFalse((output_dir / "generated" / "multi-pattern-loop-boundary.xm").exists())
             self.assertFalse((output_dir / "generated" / "instrument-sustained-defaults.xm").exists())
+            self.assertFalse((output_dir / "generated" / "instrument-metadata-matrix.xm").exists())
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
 
@@ -290,6 +325,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 files,
                 [
                     "generated/basic-instrument-sample.xm",
+                    "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                     "source/basic-instrument-sample.manifest.json",
@@ -314,6 +350,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 fixtures["instrument-sustained-defaults.xm"]["xm_sha256"],
                 hashlib.sha256((output_dir / "generated" / "instrument-sustained-defaults.xm").read_bytes()).hexdigest(),
             )
+            self.assertEqual(
+                fixtures["instrument-metadata-matrix.xm"]["xm_sha256"],
+                hashlib.sha256((output_dir / "generated" / "instrument-metadata-matrix.xm").read_bytes()).hexdigest(),
+            )
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.log")), [])
 
@@ -336,6 +376,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:basic-instrument-sample.xm": "generated/basic-instrument-sample.xm",
                     "xm:multi-pattern-loop-boundary.xm": "generated/multi-pattern-loop-boundary.xm",
                     "xm:instrument-sustained-defaults.xm": "generated/instrument-sustained-defaults.xm",
+                    "xm:instrument-metadata-matrix.xm": "generated/instrument-metadata-matrix.xm",
                 },
             )
 

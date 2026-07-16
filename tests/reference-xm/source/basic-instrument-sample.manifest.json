@@ -298,6 +298,258 @@
       "xm_output": "generated/instrument-sustained-defaults.xm",
       "xm_sha256": "babedfc9bd79f7e1ac79dbec6493e2182182700a8855c42cd15405f4eb6f0fde",
       "xm_size_bytes": 33486
+    },
+    {
+      "id": "instrument-metadata-matrix",
+      "intended_tests": [
+        "sample-header exactness",
+        "8-bit and 16-bit PCM",
+        "metadata-only Export XM round-trip"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 1,
+        "instruments": [
+          {
+            "name": "PAN00 VOL00 NEG",
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": -96,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "SILENT SINE 8",
+                "panning": 0,
+                "pcm_recipe": {
+                  "amplitude": 48,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "47a72c66257b66e4f88bb5e0debaf033873db681b1355945de9370f4bac43984",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 0
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "name": "PAN64 VOL16 FWD",
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": -32,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 64
+                },
+                "name": "TRIANGLE FWD 16",
+                "panning": 64,
+                "pcm_recipe": {
+                  "amplitude": 12000,
+                  "frame_count": 512,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "f333231435f182b19ad8e75a6687fa3ee79d963a36ba6a7599e5f9612e49d838",
+                "relative_note": 5,
+                "slot": 0,
+                "volume": 16
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "name": "PAN128 VOL32 PP",
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "ping_pong",
+                  "start_frame": 64
+                },
+                "name": "SAW PINGPONG 8",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 40,
+                  "frame_count": 384,
+                  "period_frames": 16,
+                  "waveform": "saw"
+                },
+                "pcm_sha256": "fad28cc0b65e3ca34d80665310de002cce1ea02327185abae6eb2676945891dc",
+                "relative_note": -5,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "name": "PAN192 VOL48 POS",
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 48,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "PULSE ONESHOT 16",
+                "panning": 192,
+                "pcm_recipe": {
+                  "amplitude": 10000,
+                  "frame_count": 640,
+                  "period_frames": 16,
+                  "waveform": "pulse"
+                },
+                "pcm_sha256": "1bab28408c4d7ac5b9ed7d8d87595ec051ce5f744077487865dbde189b63ab33",
+                "relative_note": 12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "name": "PAN255 VOL64 FWD",
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 96,
+                "loop": {
+                  "length_frames": 512,
+                  "mode": "forward",
+                  "start_frame": 128
+                },
+                "name": "TRIANGLE FWD 8",
+                "panning": 255,
+                "pcm_recipe": {
+                  "amplitude": 56,
+                  "frame_count": 768,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "151d0d127539d5eb8c8a7dbcfb3d1b01434ed30c6f63325d770b05b080e5b147",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 6
+              },
+              {
+                "channel": 0,
+                "instrument": 2,
+                "note": "E-4",
+                "row": 8
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 14
+              },
+              {
+                "channel": 0,
+                "instrument": 3,
+                "note": "G-4",
+                "row": 16
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 22
+              },
+              {
+                "channel": 0,
+                "instrument": 4,
+                "note": "B-4",
+                "row": 24
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 30
+              },
+              {
+                "channel": 0,
+                "instrument": 5,
+                "note": "C-5",
+                "row": 32
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 40
+              }
+            ],
+            "rows": 48
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX META MATRIX",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "instrument-metadata-matrix.xm",
+      "purpose": "Compact pairwise sample-header matrix covering exact metadata, loop modes, bit depths, and waveforms.",
+      "significant_rows": [
+        "rows 0/8/16/24/32 select instruments 1...5",
+        "rows 6/14/22/30/40 key off"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Sample-header panning is preserved and editable but intentionally runtime-inert."
+      ],
+      "xm_output": "generated/instrument-metadata-matrix.xm",
+      "xm_sha256": "590e4aaafc71c41130cb1a9a4e768220c38c6e8dcdd3529d9be6e35ec400aef3",
+      "xm_size_bytes": 5635
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

@@ -293,6 +293,16 @@ final class ModuleCoreTests: XCTestCase {
         XCTAssertEqual(cString(info.first_instrument_name), "SUSTAINED DEFAULTS")
     }
 
+    func testParseGeneratedInstrumentMetadataMatrixXMFixture() throws {
+        let info = mc_parse_file(try referenceXMFixturePath("generated/instrument-metadata-matrix.xm"))
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(cString(info.title), "VTX META MATRIX")
+        XCTAssertEqual(info.instruments, 5)
+        XCTAssertEqual(patternRows(info)[0], 48)
+        XCTAssertEqual(info.xm_event_count, 10)
+        XCTAssertEqual(cString(info.first_instrument_name), "PAN00 VOL00 NEG")
+    }
+
     func testGoldenSnapshotMOD() throws {
         let info = mc_parse_file(try fixturePath("minimal.mod"))
         XCTAssertEqual(normalize(snapshotJSON(info)), normalize(try goldenString("minimal.mod.json")))

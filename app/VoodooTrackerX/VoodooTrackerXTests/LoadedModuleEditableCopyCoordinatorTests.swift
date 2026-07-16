@@ -546,6 +546,124 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(reopenedSong.instrumentsByIndex[1], editedInstrument)
     }
 
+    @MainActor
+    func testMetadataMatrixFixtureLoadsCopiesAndNoEditRoundTripsExactSemantics() throws {
+        let sourceURL = try referenceXMFixtureURL("generated/instrument-metadata-matrix.xm")
+        let sourceData = try Data(contentsOf: sourceURL)
+        let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+        let loadedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+        let samples = try (1...5).map { try XCTUnwrap(loadedSong.instrumentsByIndex[$0]?.samples.first) }
+
+        XCTAssertEqual(metadata.title, "VTX META MATRIX")
+        XCTAssertEqual(metadata.instruments, 5)
+        XCTAssertEqual(metadata.xmPatterns.map(\.rowCount), [48])
+        XCTAssertEqual(samples.map(\.xmVolume), [0, 16, 32, 48, 64])
+        XCTAssertEqual(samples.map(\.panning), [0, 64, 128, 192, 255])
+        XCTAssertEqual(samples.map(\.finetune), [-96, -32, 0, 48, 96])
+        XCTAssertEqual(samples.map(\.relativeNote), [-12, 5, -5, 12, 0])
+        XCTAssertEqual(samples.map(\.sourceBitDepthBits), [8, 16, 8, 16, 8])
+        XCTAssertEqual(samples.map(\.loopType), [0, 1, 2, 0, 1])
+        XCTAssertEqual(samples.map(pcmSHA256), [
+            "47a72c66257b66e4f88bb5e0debaf033873db681b1355945de9370f4bac43984",
+            "f333231435f182b19ad8e75a6687fa3ee79d963a36ba6a7599e5f9612e49d838",
+            "fad28cc0b65e3ca34d80665310de002cce1ea02327185abae6eb2676945891dc",
+            "1bab28408c4d7ac5b9ed7d8d87595ec051ce5f744077487865dbde189b63ab33",
+            "151d0d127539d5eb8c8a7dbcfb3d1b01434ed30c6f63325d770b05b080e5b147",
+        ])
+
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: loadedSong,
+            selection: TrackerEditorSelection(selectedInstrument: 3, selectedSample: 1),
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+        guard case let .copied(document) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected metadata matrix to become editable")
+        }
+        XCTAssertEqual(document.instrumentPalette, loadedSong.instrumentsByIndex)
+
+        let destination = try temporaryDestination(filename: "round-trip-metadata-matrix.xm")
+        try EditableXMWriter().data(from: document).write(to: destination, options: .atomic)
+        let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
+        XCTAssertEqual(reopenedMetadata.xmPatterns, metadata.xmPatterns)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex, loadedSong.instrumentsByIndex)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
+    }
+
+    @MainActor
+    func testMetadataMatrixFocusedMutationPreservesNeighborsAndPanningIsRuntimeInert() throws {
+        let sourceURL = try referenceXMFixtureURL("generated/instrument-metadata-matrix.xm")
+        let sourceData = try Data(contentsOf: sourceURL)
+        let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: song,
+            selection: TrackerEditorSelection(selectedInstrument: 3, selectedSample: 1),
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+        guard case let .copied(sourceDocument) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected metadata matrix to become editable")
+        }
+        let sourceInstrument = try XCTUnwrap(sourceDocument.instrumentPalette[3])
+        let sourceSample = try XCTUnwrap(sourceInstrument.samples.first)
+        let sourcePlan = PlaybackSongSyntheticAdapter.adapt(
+            EditablePlaybackSongBuilder.build(from: sourceDocument),
+            orderIndex: 0,
+            sampleRate: 100
+        )
+        var editedDocument = sourceDocument
+        let coordinator = EditableDocumentEditCoordinator(
+            contextProvider: { .editable(document: editedDocument, isPlaybackActive: false) },
+            documentApplyHandler: { editedDocument = $0 }
+        )
+
+        XCTAssertTrue(coordinator.setSamplePanning(instrumentAt: 2, sampleAt: 0, panning: 37))
+        XCTAssertEqual(PlaybackSongSyntheticAdapter.adapt(
+            EditablePlaybackSongBuilder.build(from: editedDocument),
+            orderIndex: 0,
+            sampleRate: 100
+        ), sourcePlan)
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(editedDocument.instrumentPalette[3]?.samples.first?.panning, 128)
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertTrue(coordinator.setSampleVolume(instrumentAt: 2, sampleAt: 0, volume: 47))
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(editedDocument.instrumentPalette[3]?.samples.first?.xmVolume, 32)
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertTrue(coordinator.setSampleFinetune(instrumentAt: 2, sampleAt: 0, finetune: -17))
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(editedDocument.instrumentPalette[3]?.samples.first?.finetune, 0)
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertTrue(coordinator.setSampleRelativeNote(instrumentAt: 2, sampleAt: 0, relativeNote: 7))
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(editedDocument.instrumentPalette[3]?.samples.first?.relativeNote, -5)
+        XCTAssertTrue(coordinator.redo())
+
+        let editedInstrument = try XCTUnwrap(editedDocument.instrumentPalette[3])
+        let editedSample = try XCTUnwrap(editedInstrument.samples.first)
+        XCTAssertEqual(editedSample.panning, 37)
+        XCTAssertEqual(editedSample.xmVolume, 47)
+        XCTAssertEqual(editedSample.finetune, -17)
+        XCTAssertEqual(editedSample.relativeNote, 7)
+        XCTAssertEqual(editedSample.pcm, sourceSample.pcm)
+        XCTAssertEqual(editedSample.loopRegion, sourceSample.loopRegion)
+        XCTAssertEqual(editedSample.name, sourceSample.name)
+        for instrumentIndex in [1, 2, 4, 5] {
+            XCTAssertEqual(editedDocument.instrumentPalette[instrumentIndex], sourceDocument.instrumentPalette[instrumentIndex])
+        }
+
+        let destination = try temporaryDestination(filename: "edited-metadata-matrix.xm")
+        try EditableXMWriter().data(from: editedDocument).write(to: destination, options: .atomic)
+        let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex, editedDocument.instrumentPalette)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
+    }
+
     private func supportedLoadedContext(isPlaybackActive: Bool) -> LoadedModuleEditableCopyContext {
         let pattern = pattern(
             index: 0,

@@ -2,7 +2,7 @@
 
 This plan governs the public-safe XM fixture pack for parser, editor,
 instrument/sample, preview, and later audio-comparison tests. The current
-foundation adds deterministic fixture assets and generator/test tooling only;
+sustained and metadata-matrix milestones add deterministic fixture assets and generator/test tooling only;
 it does not change backend, parser, writer, mixer, DSP, or editor behavior.
 
 ## Purpose
@@ -63,6 +63,9 @@ Current skeleton:
   committed 16-bit sustained sine fixture with a forward loop, neutral sample
   metadata, and a simple volume envelope for Instrument/Sample Editor,
   audition, editable-copy, and Export XM/reopen checks.
+- `tests/reference-xm/generated/instrument-metadata-matrix.xm` is a committed
+  five-instrument pairwise matrix covering exact panning/volume/tuning values,
+  8/16-bit PCM, no/forward/ping-pong loops, and distinct deterministic waveforms.
 
 The manifest, generator, mathematical PCM, patterns, instrument metadata, and
 generated XMs are original VoodooTracker X project assets and inherit the
@@ -77,10 +80,12 @@ python3 scripts/generate-synthetic-xm-fixtures.py --write-xm
 python3 scripts/generate-synthetic-xm-fixtures.py --verify
 ```
 
-`--fixture instrument-sustained-defaults.xm` scopes generation or verification
-to the new fixture. `--output-dir` confines test generation to a temporary pack
-root. The committed sustained XM is 33,486 bytes with SHA-256
-`babedfc9bd79f7e1ac79dbec6493e2182182700a8855c42cd15405f4eb6f0fde`.
+`--fixture NAME.xm` scopes generation or verification to one fixture.
+`--output-dir` confines test generation to a temporary pack root. The committed
+sustained XM is 33,486 bytes with SHA-256
+`babedfc9bd79f7e1ac79dbec6493e2182182700a8855c42cd15405f4eb6f0fde`;
+the metadata matrix is 5,635 bytes with SHA-256
+`590e4aaafc71c41130cb1a9a4e768220c38c6e8dcdd3529d9be6e35ec400aef3`.
 
 ## Fixture Families
 
@@ -94,8 +99,8 @@ Start with focused fixtures that each prove one behavior class:
   and contains no pattern-loop effect commands.
 - `instrument-sustained-defaults.xm`: landed sustained 16-bit sine with a
   smooth forward loop and ordinary metadata for public editor/audition tests.
-- `instrument-metadata-matrix.xm`: planned second PR in the instrument-pack
-  series for pairwise sample-header, waveform, bit-depth, and loop coverage.
+- `instrument-metadata-matrix.xm`: landed five-instrument pairwise sample-header
+  matrix with waveforms, both bit depths, and all three XM loop modes.
 - `instrument-envelopes-keymap.xm`: planned third PR for multi-sample maps,
   volume/panning envelopes, fadeout, and autovibrato preservation.
 - `note-entry-preview.xm`: tiny loaded-module payload for selected
@@ -233,7 +238,7 @@ viewport math, editor note entry, note audition audio, or file save/export.
 5. Add the manifest-driven generator/verification foundation and
    `instrument-sustained-defaults.xm`. Done.
 6. Add `instrument-metadata-matrix.xm` as the dependent second instrument-pack
-   PR.
+   PR. Done.
 7. Add `instrument-envelopes-keymap.xm` as the dependent third instrument-pack
    PR, preserving unsupported empty/sample-less states honestly.
 8. Add preview, isolated loop, and envelope fixtures where the three landed

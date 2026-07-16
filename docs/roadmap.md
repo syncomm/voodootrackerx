@@ -160,8 +160,9 @@ synthetic generator now consumes a validated schema-v2 manifest and can
 generate or verify one/all approved XMs. The new original MIT-licensed
 sustained fixture covers 16-bit audition/loops plus loader/model/editable-copy/
 current metadata edits/undo/redo and Export XM/reopen without production
-parser/writer/runtime changes. The metadata matrix and envelopes/keymap are the
-dependent second and third fixture PRs.
+parser/writer/runtime changes. The second milestone adds the five-instrument
+metadata matrix with exact pan/volume/tuning, 8/16-bit PCM, and all XM loop
+modes. The envelopes/keymap module remains the dependent third fixture PR.
 
 1. Done: build an Instrument Editor shell/read-only binding.
 2. Done: add the document `applyEdit`/undo funnel needed before instrument and
@@ -715,10 +716,10 @@ Current implemented foundation:
   disabled VIBRATO display and no playback, audition, scheduling, or PCM change
 - exact XM instrument panning-envelope preservation through the same paths,
   with read-only VOL/PAN display and no playback, voice-pan, scheduling, or PCM change
-- deterministic public sustained XM fixture plus pinned manifest and
-  committed-output verification for editor/audition/editable-copy/Export XM
-  work; metadata-matrix and envelope/keymap coverage remain dependent fixture
-  PRs, and the foundation adds no XI or reference audio
+- deterministic public sustained XM and five-instrument metadata-matrix
+  fixtures plus pinned manifest and committed-output verification for
+  editor/audition/editable-copy/Export XM work; envelope/keymap coverage
+  remains the final dependent fixture PR, and the pack adds no XI or reference audio
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:

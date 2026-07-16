@@ -78,6 +78,17 @@ loaded-module direct editing, broader Instrument Editor editing, Sample Editor, 
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 
+The public synthetic XM corpus now includes a deterministic sustained 16-bit
+instrument fixture for audition and loop inspection. A schema-v2 reviewable
+manifest pins PCM/XM hashes and byte counts; the existing generator validates,
+generates one or all approved fixtures, and verifies committed bytes without
+rewriting. Tests cover the C loader, playback model, editable-copy, current
+metadata edits/undo/redo, runtime-inert panning, and Export XM/reopen. The
+metadata-matrix and envelopes/keymap scenarios remain the dependent second and
+third fixture PRs. The pack is original MIT-licensed project data and adds no
+XI, imported audio, runtime, parser, writer, mixer, DSP, scheduling, or UI
+behavior.
+
 ## Backend Architecture
 
 - Runtime playback defaults to the CoreAudio DefaultOutput Audio Unit host
@@ -237,6 +248,12 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
+- The deterministic public XM reference pack now has its sustained instrument
+  foundation: one 16-bit looped fixture backed by a schema-v2 source manifest,
+  pinned PCM/XM hashes, byte-identical regeneration, loader/model/editable-copy/
+  current-edit/Export XM round trips, and tracked-file hygiene. The metadata
+  matrix and envelopes/keymap fixtures remain the next two dependent corpus
+  PRs; production playback and format code are unchanged.
 - The selected represented sample's exact XM signed relative-note and finetune
   bytes (`-128...127`) now edit only in stopped editable documents/copies through
   labeled `applyEdit` actions with undo/redo. Export XM/reopen preserves each

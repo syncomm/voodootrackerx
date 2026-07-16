@@ -48,6 +48,11 @@ VoodooTracker X currently has:
   instrument rename, sample panning, exact `0...64` sample-volume edits, and
   exact signed-byte `-128...127` sample-relative-note and finetune edits; later playback consumes
   edited volume and tuning through the unchanged adapter gain and pitch paths
+- a deterministic, original MIT-licensed sustained 16-bit XM reference
+  fixture; the schema-v2 manifest, generator verification mode, exact PCM/XM
+  expectations, loader/model/editable-copy/edit/Export XM tests, and private-
+  artifact scan make it the default public sustained instrument input. The
+  metadata matrix and envelopes/keymap remain two dependent fixture PRs
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -674,6 +679,10 @@ As semantics remain deferred.
 
 Implemented foundation:
 
+- deterministic sustained 16-bit XM fixture for audition, loop display,
+  editable-copy, and Export XM/reopen; exact sample metadata matrices and
+  multi-sample keymap/envelope/autovibrato coverage remain the next two
+  dependent corpus PRs
 - exact XM sample relative-note and finetune `-128...127` mutation for stopped
   editable documents/copies through applyEdit/undo/redo and Export XM/reopen; later
   playback uses existing pitch behavior with no formula, scheduling, runtime

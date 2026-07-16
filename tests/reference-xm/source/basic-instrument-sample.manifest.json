@@ -1,106 +1,306 @@
 {
   "artifact_policy": {
     "binary_xm_commits_require_explicit_review": true,
-    "generated_wav_json_markdown_logs_stay_under_tmp_by_default": true,
-    "private_corpus_dependencies_allowed": false,
-    "private_modules_allowed": false
-  },
-  "fixture_pack_layout": {
-    "generated_xm": "generated/",
-    "reference_renders": "reference-renders/",
-    "source": "source/"
+    "generated_audio_allowed": false,
+    "private_or_third_party_inputs_allowed": false
   },
   "fixtures": [
     {
-      "name": "basic-instrument-sample.xm",
-      "pattern_plan": {
+      "id": "basic-instrument-sample",
+      "intended_tests": [
+        "parser metadata",
+        "editor preview availability"
+      ],
+      "module": {
+        "bpm": 125,
         "channels": 1,
-        "events": [
+        "flags": 1,
+        "instruments": [
           {
-            "channel": 0,
-            "instrument": 1,
-            "note": "C-4",
-            "row": 0
-          },
-          {
-            "channel": 0,
-            "note": "key-off",
-            "row": 8
+            "name": "BASIC SAMPLE",
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "SINE64",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 48,
+                  "frame_count": 64,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "b63bbb990bf1387c29e6a4aded2f83dc546150c1da8504c9e3a6487091d1dc15",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
           }
         ],
-        "rows": 16
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 8
+              }
+            ],
+            "rows": 16
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX BASIC SAMPLE",
+        "tracker_name": "VTX SYNTH FIXTURE"
       },
-      "purpose": "One instrument, one sample, simple note events, and real synthetic sample payload for parser/editor positive-path tests.",
-      "reference_render_directory": "reference-renders/",
-      "sample_formula": {
-        "format": "signed_8_bit_delta_pcm",
-        "formula": "round(48 * sin(2 * pi * frame / 16))",
-        "length_frames": 64,
-        "loop": null,
-        "normalization": "bounded integer amplitude; no copied sample material"
-      },
+      "name": "basic-instrument-sample.xm",
+      "purpose": "One instrument and one short synthetic sample for parser/editor positive paths.",
+      "significant_rows": [
+        "pattern 0 row 0 C-4",
+        "pattern 0 row 8 key-off"
+      ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
-      "status": "generated",
+      "unsupported_semantics": [],
       "xm_output": "generated/basic-instrument-sample.xm",
       "xm_sha256": "79d1643434db33e9f268cd25ac3135b2b3049ae9f00a46526eec8212bf8ea957",
       "xm_size_bytes": 731
     },
     {
-      "name": "multi-pattern-loop-boundary.xm",
-      "pattern_plan": {
+      "id": "multi-pattern-loop-boundary",
+      "intended_tests": [
+        "order traversal",
+        "adapter-plan event ordering"
+      ],
+      "module": {
+        "bpm": 125,
         "channels": 1,
-        "events": [
+        "flags": 1,
+        "instruments": [
           {
-            "channel": 0,
-            "instrument": 1,
-            "note": "C-4",
-            "order": 0,
-            "pattern": 0,
-            "row": 0
-          },
-          {
-            "channel": 0,
-            "instrument": 1,
-            "note": "E-4",
-            "order": 1,
-            "pattern": 1,
-            "row": 0
-          },
-          {
-            "channel": 0,
-            "instrument": 1,
-            "note": "G-4",
-            "order": 2,
-            "pattern": 2,
-            "row": 0
+            "name": "BOUNDARY SAMPLE",
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "BOUNDARY64",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 40,
+                  "frame_count": 64,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "f84768852e83d648dbb11bfb9ef9642c4e2227a00025182162b7d3343144f877",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
           }
         ],
-        "order_table": [
+        "orders": [
           0,
           1,
           2
         ],
-        "pattern_count": 3,
-        "rows_per_pattern": 4
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 0
+              }
+            ],
+            "rows": 4
+          },
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 0
+              }
+            ],
+            "rows": 4
+          },
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "G-4",
+                "row": 0
+              }
+            ],
+            "rows": 4
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX LOOP BOUNDARY",
+        "tracker_name": "VTX SYNTH FIXTURE"
       },
-      "purpose": "Three short patterns and three order positions with simple row-0 note triggers for adapter-plan order-boundary traversal tests and future adapter-safe pattern-loop design work.",
-      "reference_render_directory": "reference-renders/",
-      "sample_formula": {
-        "format": "signed_8_bit_delta_pcm",
-        "formula": "round(40 * sin(2 * pi * frame / 16))",
-        "length_frames": 64,
-        "loop": null,
-        "normalization": "bounded integer amplitude; no copied sample material"
-      },
+      "name": "multi-pattern-loop-boundary.xm",
+      "purpose": "Three short patterns for public order-boundary traversal tests.",
+      "significant_rows": [
+        "pattern 0 row 0 C-4",
+        "pattern 1 row 0 E-4",
+        "pattern 2 row 0 G-4"
+      ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
-      "status": "generated",
+      "unsupported_semantics": [
+        "This is order traversal, not pattern-loop effect playback."
+      ],
       "xm_output": "generated/multi-pattern-loop-boundary.xm",
       "xm_sha256": "8438e6074df6d4a6e1ec540121b7adeaf96e199166619a0ae00085c7fafd1ca3",
       "xm_size_bytes": 748
+    },
+    {
+      "id": "instrument-sustained-defaults",
+      "intended_tests": [
+        "Instrument Editor audition",
+        "Sample Editor waveform",
+        "editable-copy Export XM"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 1,
+        "instruments": [
+          {
+            "name": "SUSTAINED DEFAULTS",
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 8192,
+                  "mode": "forward",
+                  "start_frame": 4096
+                },
+                "name": "SINE SUSTAIN 16",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 12000,
+                  "frame_count": 16384,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "46c42a0de8820c8b24419c1676b183398d1e7ced677860df1fe0ea45a48779b0",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  24,
+                  56
+                ],
+                [
+                  48,
+                  64
+                ]
+              ],
+              "type_flags": 1
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 16
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "G-4",
+                "row": 24
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 48
+              }
+            ],
+            "rows": 64
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX SUSTAINED",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "instrument-sustained-defaults.xm",
+      "purpose": "Primary sustained, loop-friendly public fixture for editor audition and waveform inspection.",
+      "significant_rows": [
+        "row 0 C-4",
+        "row 16 key-off",
+        "row 24 G-4",
+        "row 48 key-off"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "The sample has no stored sample-rate field; VTX applies its existing 8363 Hz XM base-rate policy."
+      ],
+      "xm_output": "generated/instrument-sustained-defaults.xm",
+      "xm_sha256": "babedfc9bd79f7e1ac79dbec6493e2182182700a8855c42cd15405f4eb6f0fde",
+      "xm_size_bytes": 33486
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",
-  "schema_version": 1,
-  "writes_binary_xm_by_default": false,
-  "writes_reference_renders_by_default": false
+  "license": "MIT; original VoodooTracker X manifests, patterns, PCM recipes, and generated XM binaries",
+  "schema_version": 2
 }

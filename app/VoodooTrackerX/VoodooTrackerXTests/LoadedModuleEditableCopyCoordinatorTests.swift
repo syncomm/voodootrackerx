@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 
 final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
@@ -395,6 +396,156 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertFalse(ExportXMCoordinator.canExport(context: .loadedReadOnly(isPlaybackActive: false)))
     }
 
+    @MainActor
+    func testSustainedFixtureLoadsCopiesAndNoEditRoundTripsExactSemantics() throws {
+        let sourceURL = try referenceXMFixtureURL("generated/instrument-sustained-defaults.xm")
+        let sourceData = try Data(contentsOf: sourceURL)
+        let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+        let loadedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+        let instrument = try XCTUnwrap(loadedSong.instrumentsByIndex[1])
+        let sample = try XCTUnwrap(instrument.samples.first)
+
+        XCTAssertEqual(metadata.title, "VTX SUSTAINED")
+        XCTAssertEqual(metadata.instruments, 1)
+        XCTAssertEqual(metadata.xmPatterns.map(\.rowCount), [64])
+        XCTAssertEqual(instrument.name, "SUSTAINED DEFAULTS")
+        XCTAssertEqual(sample.name, "SINE SUSTAIN 16")
+        XCTAssertEqual(sample.sampleLength, 16_384)
+        XCTAssertEqual(sample.sourceBitDepthBits, 16)
+        XCTAssertEqual(sample.xmVolume, 64)
+        XCTAssertEqual(sample.panning, 128)
+        XCTAssertEqual(sample.finetune, 0)
+        XCTAssertEqual(sample.relativeNote, 0)
+        XCTAssertEqual(sample.loopType, 1)
+        XCTAssertEqual(sample.loopStart, 4_096)
+        XCTAssertEqual(sample.loopLength, 8_192)
+        XCTAssertEqual(pcmSHA256(sample), "46c42a0de8820c8b24419c1676b183398d1e7ced677860df1fe0ea45a48779b0")
+        XCTAssertEqual(instrument.volumeEnvelope.points, [
+            PlaybackEnvelopePoint(tick: 0, value: 64),
+            PlaybackEnvelopePoint(tick: 24, value: 56),
+            PlaybackEnvelopePoint(tick: 48, value: 64),
+        ])
+
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: loadedSong,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+        XCTAssertFalse(ExportXMCoordinator.canExport(context: .loadedReadOnly(isPlaybackActive: false)))
+        guard case let .copied(document) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected sustained fixture to become an editable copy")
+        }
+        guard case .potentiallyAvailable = document.noteAuditionAvailability else {
+            return XCTFail("expected sustained fixture note preview to be available")
+        }
+        XCTAssertEqual(document.instrumentPalette, loadedSong.instrumentsByIndex)
+
+        let destination = try temporaryDestination(filename: "round-trip-sustained.xm")
+        try EditableXMWriter().data(from: document).write(to: destination, options: .atomic)
+        let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
+        XCTAssertEqual(reopenedMetadata.orderTable, metadata.orderTable)
+        XCTAssertEqual(reopenedMetadata.xmPatterns, metadata.xmPatterns)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex, loadedSong.instrumentsByIndex)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
+    }
+
+    @MainActor
+    func testSustainedFixtureSupportsFocusedEditsUndoRedoAndExportReopen() throws {
+        let sourceURL = try referenceXMFixtureURL("generated/instrument-sustained-defaults.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: song,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+        guard case let .copied(sourceDocument) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected sustained fixture to become editable")
+        }
+        let sourceInstrument = try XCTUnwrap(sourceDocument.instrumentPalette[1])
+        let sourceSample = try XCTUnwrap(sourceInstrument.samples.first)
+        let sourcePlan = PlaybackSongSyntheticAdapter.adapt(
+            EditablePlaybackSongBuilder.build(from: sourceDocument),
+            orderIndex: 0,
+            sampleRate: 100
+        )
+        var editedDocument = sourceDocument
+        var playbackActive = false
+        let coordinator = EditableDocumentEditCoordinator(
+            contextProvider: { .editable(document: editedDocument, isPlaybackActive: playbackActive) },
+            documentApplyHandler: { editedDocument = $0 }
+        )
+
+        XCTAssertTrue(coordinator.renameInstrument(at: 0, name: "Edited Sustained"))
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(editedDocument.instrumentPalette[1]?.name, sourceInstrument.name)
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertTrue(coordinator.setSamplePanning(instrumentAt: 0, sampleAt: 0, panning: 201))
+        let panningPlan = PlaybackSongSyntheticAdapter.adapt(
+            EditablePlaybackSongBuilder.build(from: editedDocument),
+            orderIndex: 0,
+            sampleRate: 100
+        )
+        XCTAssertEqual(panningPlan, sourcePlan)
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(editedDocument.instrumentPalette[1]?.samples.first?.panning, 128)
+        XCTAssertTrue(coordinator.redo())
+
+        XCTAssertTrue(coordinator.setSampleVolume(instrumentAt: 0, sampleAt: 0, volume: 17))
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(editedDocument.instrumentPalette[1]?.samples.first?.xmVolume, 64)
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertTrue(coordinator.setSampleFinetune(instrumentAt: 0, sampleAt: 0, finetune: 64))
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(editedDocument.instrumentPalette[1]?.samples.first?.finetune, 0)
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertTrue(coordinator.setSampleRelativeNote(instrumentAt: 0, sampleAt: 0, relativeNote: -12))
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(editedDocument.instrumentPalette[1]?.samples.first?.relativeNote, 0)
+        XCTAssertTrue(coordinator.redo())
+
+        playbackActive = true
+        let previewAvailability = editedDocument.noteAuditionAvailability
+        XCTAssertFalse(coordinator.setSamplePanning(instrumentAt: 0, sampleAt: 0, panning: 17))
+        XCTAssertEqual(editedDocument.noteAuditionAvailability, previewAvailability)
+        playbackActive = false
+
+        let editedInstrument = try XCTUnwrap(editedDocument.instrumentPalette[1])
+        let editedSample = try XCTUnwrap(editedInstrument.samples.first)
+        XCTAssertEqual(editedInstrument.name, "Edited Sustained")
+        XCTAssertEqual(editedSample.panning, 201)
+        XCTAssertEqual(editedSample.xmVolume, 17)
+        XCTAssertEqual(editedSample.finetune, 64)
+        XCTAssertEqual(editedSample.relativeNote, -12)
+        XCTAssertEqual(editedSample.pcm, sourceSample.pcm)
+        XCTAssertEqual(editedSample.loopRegion, sourceSample.loopRegion)
+        XCTAssertEqual(editedInstrument.volumeEnvelope, sourceInstrument.volumeEnvelope)
+        let editedPlan = PlaybackSongSyntheticAdapter.adapt(
+            EditablePlaybackSongBuilder.build(from: editedDocument),
+            orderIndex: 0,
+            sampleRate: 100
+        )
+        let sourceEvent = try XCTUnwrap(sourcePlan.pattern.events.first)
+        let editedEvent = try XCTUnwrap(editedPlan.pattern.events.first)
+        XCTAssertEqual(editedEvent.gain, 17.0 / 64.0, accuracy: 0.000_001)
+        XCTAssertEqual(
+            editedEvent.playbackStep,
+            sourceEvent.playbackStep * pow(2.0, -11.5 / 12.0),
+            accuracy: 0.000_001
+        )
+
+        let destination = try temporaryDestination(filename: "edited-sustained.xm")
+        try EditableXMWriter().data(from: editedDocument).write(to: destination, options: .atomic)
+        let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex[1], editedInstrument)
+    }
+
     private func supportedLoadedContext(isPlaybackActive: Bool) -> LoadedModuleEditableCopyContext {
         let pattern = pattern(
             index: 0,
@@ -515,6 +666,22 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             throw XCTSkip("Missing reference XM fixture \(relativePath)")
         }
         return url
+    }
+
+    private func pcmSHA256(_ sample: PlaybackSample) -> String {
+        var data = Data()
+        if sample.sourceBitDepthBits == 16 {
+            for value in sample.pcm {
+                let quantized = UInt16(truncatingIfNeeded: max(-32_768, min(32_767, Int((value * 32_768).rounded()))))
+                data.append(UInt8(quantized & 0x00FF))
+                data.append(UInt8((quantized >> 8) & 0x00FF))
+            }
+        } else {
+            for value in sample.pcm {
+                data.append(UInt8(truncatingIfNeeded: max(-128, min(127, Int((value * 128).rounded())))))
+            }
+        }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func temporaryDestination(filename: String) throws -> URL {

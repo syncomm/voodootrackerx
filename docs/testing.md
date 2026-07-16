@@ -47,9 +47,9 @@ alongside the tracked-file scan.
 
 ## Fixture Rules
 
-Fixtures live in `tests/fixtures/`.
-Future generated XM reference fixtures live under `tests/reference-xm/` once
-explicitly reviewed.
+Tiny parser fixtures live in `tests/fixtures/`. The reviewed deterministic XM
+corpus lives under `tests/reference-xm/`; its source manifest pins exact module,
+instrument, sample, PCM, hash, and byte-count expectations.
 
 Rules:
 - Use synthetic, tiny fixtures generated for tests.
@@ -58,16 +58,30 @@ Rules:
 - Update `tests/fixtures/README.md` if provenance/generation guidance changes.
 - For `tests/reference-xm/`, follow that directory's README and keep binary XM
   fixture commits explicit and reviewed.
+- Reference XM input must be entirely project-generated and MIT-licensed. Do
+  not use private/third-party modules or imported sample data.
+- Commit only manifest-approved `.xm` files under
+  `tests/reference-xm/generated/`. Do not emit or commit XI, reference audio,
+  screenshots, traces, reports, or benchmark artifacts.
 - The tracked-file leak scan allowlists only the reviewed public tracker module
   fixtures under `tests/fixtures/` and `tests/reference-xm/generated/`.
 
-Regenerate the public synthetic XM reference manifest or approved XM fixtures
-from the repo root with:
+Validate, regenerate, and verify the public synthetic XM pack from the repo
+root with:
 
 ```bash
+python3 scripts/generate-synthetic-xm-fixtures.py --validate
 python3 scripts/generate-synthetic-xm-fixtures.py --write-manifest
 python3 scripts/generate-synthetic-xm-fixtures.py --write-xm
+python3 scripts/generate-synthetic-xm-fixtures.py --verify
 ```
+
+Use `--fixture <approved-name>` for a scoped generate/verify operation and
+`--output-dir` for test-temporary output. `--verify` is the merge gate: it
+regenerates in memory and fails on any byte mismatch without rewriting the
+committed XMs. Generator/schema tests run through the Python tool-test command;
+loader/model/editable-copy/Export XM semantics run in the Swift and Xcode
+suites.
 
 ## Run Core Tests
 

@@ -1,9 +1,9 @@
 # Synthetic XM Reference Fixture Pack Plan
 
-This plan defines a future public-safe XM fixture pack for parser, editor,
-instrument/sample, preview, and audio comparison tests. It does not add fixture
-assets, generator scripts, WAV renders, backend behavior, parser behavior, or
-editor behavior.
+This plan governs the public-safe XM fixture pack for parser, editor,
+instrument/sample, preview, and later audio-comparison tests. The current
+foundation adds deterministic fixture assets and generator/test tooling only;
+it does not change backend, parser, writer, mixer, DSP, or editor behavior.
 
 ## Purpose
 
@@ -51,14 +51,36 @@ Current skeleton:
 - `tests/reference-xm/source/basic-instrument-sample.manifest.json` is the
   deterministic source manifest for the approved generated fixtures.
 - `scripts/generate-synthetic-xm-fixtures.py` prints or writes that manifest
-  and can explicitly write the approved generated binary XM fixtures without
-  emitting reference renders.
+  and can validate, generate one or all approved binary XM fixtures, or verify
+  committed bytes without emitting reference renders.
 - `tests/reference-xm/generated/basic-instrument-sample.xm` is the first
   committed generated fixture: one instrument, one 64-frame synthetic sample,
   and a tiny pattern for parser/editor positive-path tests.
 - `tests/reference-xm/generated/multi-pattern-loop-boundary.xm` is a committed
   generated traversal fixture: three short patterns, three order positions,
   and row-0 note triggers for public-safe order-boundary adapter-plan tests.
+- `tests/reference-xm/generated/instrument-sustained-defaults.xm` is a
+  committed 16-bit sustained sine fixture with a forward loop, neutral sample
+  metadata, and a simple volume envelope for Instrument/Sample Editor,
+  audition, editable-copy, and Export XM/reopen checks.
+
+The manifest, generator, mathematical PCM, patterns, instrument metadata, and
+generated XMs are original VoodooTracker X project assets and inherit the
+repository's MIT license. They are not derived from private modules,
+third-party songs, public XMs, or imported sample material.
+
+Run the corpus workflow from the repository root:
+
+```bash
+python3 scripts/generate-synthetic-xm-fixtures.py --validate
+python3 scripts/generate-synthetic-xm-fixtures.py --write-xm
+python3 scripts/generate-synthetic-xm-fixtures.py --verify
+```
+
+`--fixture instrument-sustained-defaults.xm` scopes generation or verification
+to the new fixture. `--output-dir` confines test generation to a temporary pack
+root. The committed sustained XM is 33,486 bytes with SHA-256
+`babedfc9bd79f7e1ac79dbec6493e2182182700a8855c42cd15405f4eb6f0fde`.
 
 ## Fixture Families
 
@@ -70,6 +92,12 @@ Start with focused fixtures that each prove one behavior class:
   positions with simple row-0 notes, for adapter-plan traversal tests and
   future adapter-safe pattern-loop design work. It is not pattern-loop playback
   and contains no pattern-loop effect commands.
+- `instrument-sustained-defaults.xm`: landed sustained 16-bit sine with a
+  smooth forward loop and ordinary metadata for public editor/audition tests.
+- `instrument-metadata-matrix.xm`: planned second PR in the instrument-pack
+  series for pairwise sample-header, waveform, bit-depth, and loop coverage.
+- `instrument-envelopes-keymap.xm`: planned third PR for multi-sample maps,
+  volume/panning envelopes, fadeout, and autovibrato preservation.
 - `note-entry-preview.xm`: tiny loaded-module payload for selected
   instrument/sample display and future preview availability tests.
 - `looped-sample.xm`: forward loop metadata and a steady loop segment.
@@ -202,12 +230,17 @@ viewport math, editor note entry, note audition audio, or file save/export.
    sample payload can be loaded from a public fixture. Done.
 4. Add `multi-pattern-loop-boundary.xm` plus loader, builder, and runtime
    adapter-plan tests for public-safe multi-pattern order traversal. Done.
-5. Add preview-oriented metadata tests for `note-entry-preview.xm` without
-   adding audible preview playback.
-6. Add loop and envelope fixtures for instrument/sample editor coverage.
-7. Add effect-family fixtures after expected behavior is documented and the
+5. Add the manifest-driven generator/verification foundation and
+   `instrument-sustained-defaults.xm`. Done.
+6. Add `instrument-metadata-matrix.xm` as the dependent second instrument-pack
+   PR.
+7. Add `instrument-envelopes-keymap.xm` as the dependent third instrument-pack
+   PR, preserving unsupported empty/sample-less states honestly.
+8. Add preview, isolated loop, and envelope fixtures where the three landed
+   instrument modules do not already cover the focused test need.
+9. Add effect-family fixtures after expected behavior is documented and the
    backend freeze posture allows the relevant validation work.
-8. Decide separately whether compact metrics or reference WAVs belong in git.
+10. Decide separately whether compact metrics or reference WAVs belong in git.
 
 ## Acceptance Checklist For Future Fixture PRs
 

@@ -1,3 +1,4 @@
+import copy
 import importlib.util
 import hashlib
 import json
@@ -8,6 +9,12 @@ from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "generate-synthetic-xm-fixtures.py"
+PACK_ROOT = SCRIPT_PATH.parents[1] / "tests" / "reference-xm"
+ALL_FIXTURES = [
+    "basic-instrument-sample.xm",
+    "multi-pattern-loop-boundary.xm",
+    "instrument-sustained-defaults.xm",
+]
 
 
 def load_module():
@@ -31,10 +38,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(
             [fixture["name"] for fixture in manifest["fixtures"]],
-            ["basic-instrument-sample.xm", "multi-pattern-loop-boundary.xm"],
+            ALL_FIXTURES,
         )
         self.assertEqual(fixtures["basic-instrument-sample.xm"]["xm_output"], "generated/basic-instrument-sample.xm")
-        self.assertEqual(fixtures["basic-instrument-sample.xm"]["status"], "generated")
+        self.assertEqual(fixtures["basic-instrument-sample.xm"]["id"], "basic-instrument-sample")
         self.assertEqual(
             fixtures["basic-instrument-sample.xm"]["xm_sha256"],
             hashlib.sha256(generator.basic_instrument_sample_xm_bytes()).hexdigest(),
@@ -47,7 +54,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             fixtures["multi-pattern-loop-boundary.xm"]["xm_output"],
             "generated/multi-pattern-loop-boundary.xm",
         )
-        self.assertEqual(fixtures["multi-pattern-loop-boundary.xm"]["status"], "generated")
+        self.assertEqual(fixtures["multi-pattern-loop-boundary.xm"]["id"], "multi-pattern-loop-boundary")
         self.assertEqual(
             fixtures["multi-pattern-loop-boundary.xm"]["xm_sha256"],
             hashlib.sha256(generator.multi_pattern_loop_boundary_xm_bytes()).hexdigest(),
@@ -64,8 +71,13 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             fixtures["multi-pattern-loop-boundary.xm"]["source_manifest"],
             "source/basic-instrument-sample.manifest.json",
         )
-        self.assertFalse(manifest["writes_binary_xm_by_default"])
-        self.assertFalse(manifest["writes_reference_renders_by_default"])
+        sustained = fixtures["instrument-sustained-defaults.xm"]
+        sustained_bytes = generator.fixture_xm_bytes(manifest, sustained["name"])
+        self.assertEqual(sustained["xm_output"], "generated/instrument-sustained-defaults.xm")
+        self.assertEqual(sustained["xm_size_bytes"], 33_486)
+        self.assertEqual(sustained["xm_sha256"], hashlib.sha256(sustained_bytes).hexdigest())
+        self.assertEqual(manifest["schema_version"], 2)
+        generator.validate_manifest(manifest)
 
     def test_manifest_does_not_include_private_or_local_paths(self):
         generator = load_module()
@@ -135,6 +147,77 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         for fragment in forbidden_fragments:
             self.assertNotIn(fragment, first)
 
+    def test_sustained_fixture_has_pinned_pcm_metadata_and_nontrivial_duration(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        fixture = next(item for item in manifest["fixtures"] if item["name"] == "instrument-sustained-defaults.xm")
+        instrument = fixture["module"]["instruments"][0]
+        sample = instrument["samples"][0]
+        payload = generator.fixture_xm_bytes(manifest, fixture["name"])
+
+        self.assertEqual(payload, generator.fixture_xm_bytes(manifest, fixture["name"]))
+        self.assertEqual(len(payload), 33_486)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), "babedfc9bd79f7e1ac79dbec6493e2182182700a8855c42cd15405f4eb6f0fde")
+        self.assertEqual(sample["pcm_recipe"]["frame_count"], 16_384)
+        self.assertGreater(sample["pcm_recipe"]["frame_count"], 8_363)
+        self.assertEqual(sample["encoding"], "signed_16_bit_delta_pcm")
+        self.assertEqual(sample["loop"], {"length_frames": 8_192, "mode": "forward", "start_frame": 4_096})
+        self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(), sample["pcm_sha256"])
+        self.assertEqual(instrument["volume_envelope"]["points"], [[0, 64], [24, 56], [48, 64]])
+
+    def test_manifest_validation_rejects_invalid_ranges_events_and_duplicate_ids(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        sustained = 2
+        sample_path = ["fixtures", sustained, "module", "instruments", 0, "samples", 0]
+        cases = [
+            ("volume", sample_path + ["volume"], 65),
+            ("panning", sample_path + ["panning"], 256),
+            ("finetune", sample_path + ["finetune"], -129),
+            ("relative_note", sample_path + ["relative_note"], 128),
+            ("loop", sample_path + ["loop", "length_frames"], 99_999),
+            ("envelope ordering", ["fixtures", sustained, "module", "instruments", 0, "volume_envelope", "points"], [[8, 64], [4, 32]]),
+        ]
+        for label, path, replacement in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(manifest)
+                target = invalid
+                for component in path[:-1]:
+                    target = target[component]
+                target[path[-1]] = replacement
+                with self.assertRaisesRegex(ValueError, label):
+                    generator.validate_manifest(invalid, verify_derived=False)
+
+        unsupported_event = copy.deepcopy(manifest)
+        unsupported_event["fixtures"][sustained]["module"]["patterns"][0]["events"][0]["ignored"] = 1
+        with self.assertRaisesRegex(ValueError, "unsupported event fields"):
+            generator.validate_manifest(unsupported_event, verify_derived=False)
+        duplicate_id = copy.deepcopy(manifest)
+        duplicate_id["fixtures"][1]["id"] = duplicate_id["fixtures"][0]["id"]
+        with self.assertRaisesRegex(ValueError, "fixture id"):
+            generator.validate_manifest(duplicate_id, verify_derived=False)
+
+    def test_generation_order_scoping_and_committed_verification_are_deterministic(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        first = {name: generator.fixture_xm_bytes(manifest, name) for name in ALL_FIXTURES}
+        reordered = copy.deepcopy(manifest)
+        reordered["fixtures"].reverse()
+
+        for name in ALL_FIXTURES:
+            self.assertEqual(first[name], generator.fixture_xm_bytes(reordered, name))
+        self.assertEqual([item["name"] for item in generator.verify_xm_fixtures(PACK_ROOT, manifest)], ALL_FIXTURES)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp) / "pack"
+            selected = "instrument-sustained-defaults.xm"
+            generator.write_xm_fixtures(output_dir, manifest, [selected])
+            self.assertEqual([path.name for path in (output_dir / "generated").iterdir()], [selected])
+            self.assertEqual(
+                [item["name"] for item in generator.verify_xm_fixtures(output_dir, manifest, [selected])],
+                [selected],
+            )
+
     def test_write_xm_stays_inside_output_dir_and_writes_no_renders(self):
         generator = load_module()
 
@@ -148,12 +231,14 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 [
                     (output_dir / "generated" / "basic-instrument-sample.xm").resolve(),
                     (output_dir / "generated" / "multi-pattern-loop-boundary.xm").resolve(),
+                    (output_dir / "generated" / "instrument-sustained-defaults.xm").resolve(),
                 ],
             )
             self.assertEqual(
                 files,
                 [
                     "generated/basic-instrument-sample.xm",
+                    "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                 ],
             )
@@ -164,6 +249,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertEqual(
                 (output_dir / "generated" / "multi-pattern-loop-boundary.xm").read_bytes(),
                 generator.multi_pattern_loop_boundary_xm_bytes(),
+            )
+            self.assertEqual(
+                (output_dir / "generated" / "instrument-sustained-defaults.xm").read_bytes(),
+                generator.fixture_xm_bytes(generator.fixture_manifest(), "instrument-sustained-defaults.xm"),
             )
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
@@ -184,6 +273,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertEqual(files, ["source/basic-instrument-sample.manifest.json"])
             self.assertFalse((output_dir / "generated" / "basic-instrument-sample.xm").exists())
             self.assertFalse((output_dir / "generated" / "multi-pattern-loop-boundary.xm").exists())
+            self.assertFalse((output_dir / "generated" / "instrument-sustained-defaults.xm").exists())
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
 
@@ -200,6 +290,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 files,
                 [
                     "generated/basic-instrument-sample.xm",
+                    "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                     "source/basic-instrument-sample.manifest.json",
                 ],
@@ -219,6 +310,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 fixtures["multi-pattern-loop-boundary.xm"]["xm_sha256"],
                 hashlib.sha256((output_dir / "generated" / "multi-pattern-loop-boundary.xm").read_bytes()).hexdigest(),
             )
+            self.assertEqual(
+                fixtures["instrument-sustained-defaults.xm"]["xm_sha256"],
+                hashlib.sha256((output_dir / "generated" / "instrument-sustained-defaults.xm").read_bytes()).hexdigest(),
+            )
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.log")), [])
 
@@ -237,10 +332,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertEqual(
                 relative_paths,
                 {
-                    "basic_instrument_sample_xm_output": "generated/basic-instrument-sample.xm",
-                    "multi_pattern_loop_boundary_xm_output": "generated/multi-pattern-loop-boundary.xm",
                     "source_manifest": "source/basic-instrument-sample.manifest.json",
-                    "reference_render_directory": "reference-renders",
+                    "xm:basic-instrument-sample.xm": "generated/basic-instrument-sample.xm",
+                    "xm:multi-pattern-loop-boundary.xm": "generated/multi-pattern-loop-boundary.xm",
+                    "xm:instrument-sustained-defaults.xm": "generated/instrument-sustained-defaults.xm",
                 },
             )
 

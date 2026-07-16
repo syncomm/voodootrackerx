@@ -15,6 +15,7 @@ class ScanTrackedPrivateLeaksTests(unittest.TestCase):
                 "tests/fixtures/minimal.xm",
                 "tests/reference-xm/generated/basic-instrument-sample.xm",
                 "tests/reference-xm/generated/multi-pattern-loop-boundary.xm",
+                "tests/reference-xm/generated/instrument-sustained-defaults.xm",
                 "tests/fixtures/minimal.mod",
             ]:
                 self.write_file(repo, path, b"synthetic public fixture")

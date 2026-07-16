@@ -283,6 +283,16 @@ final class ModuleCoreTests: XCTestCase {
         XCTAssertEqual(cString(info.first_instrument_name), "BOUNDARY SAMPLE")
     }
 
+    func testParseGeneratedInstrumentSustainedDefaultsXMFixture() throws {
+        let info = mc_parse_file(try referenceXMFixturePath("generated/instrument-sustained-defaults.xm"))
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(cString(info.title), "VTX SUSTAINED")
+        XCTAssertEqual(info.instruments, 1)
+        XCTAssertEqual(patternRows(info)[0], 64)
+        XCTAssertEqual(info.xm_event_count, 4)
+        XCTAssertEqual(cString(info.first_instrument_name), "SUSTAINED DEFAULTS")
+    }
+
     func testGoldenSnapshotMOD() throws {
         let info = mc_parse_file(try fixturePath("minimal.mod"))
         XCTAssertEqual(normalize(snapshotJSON(info)), normalize(try goldenString("minimal.mod.json")))

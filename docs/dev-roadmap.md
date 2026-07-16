@@ -54,8 +54,9 @@ VoodooTracker X currently has:
   artifact scan make it the default public sustained instrument input
 - a deterministic five-instrument XM metadata matrix covering exact pan,
   volume, signed tuning, 8/16-bit PCM, no/forward/ping-pong loops, editable-copy,
-  mutation/undo/redo, runtime-inert panning, and Export XM/reopen. The
-  envelopes/keymap module remains the final dependent fixture PR
+  mutation/undo/redo, runtime-inert panning, and Export XM/reopen
+- a deterministic two-sample XM with a split keymap, volume/panning envelopes,
+  fadeout, and autovibrato preserved through editable copy and Export XM/reopen
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -682,9 +683,8 @@ As semantics remain deferred.
 
 Implemented foundation:
 
-- deterministic sustained 16-bit XM fixture for audition and loop display,
-  plus the exact five-instrument sample metadata matrix; multi-sample
-  keymap/envelope/autovibrato coverage remains the final dependent corpus PR
+- deterministic sustained 16-bit, five-instrument metadata-matrix, and
+  two-sample keymap/envelope/autovibrato XM fixtures for public editor coverage
 - exact XM sample relative-note and finetune `-128...127` mutation for stopped
   editable documents/copies through applyEdit/undo/redo and Export XM/reopen; later
   playback uses existing pitch behavior with no formula, scheduling, runtime

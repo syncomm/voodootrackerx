@@ -248,13 +248,14 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
-- The deterministic public XM reference pack now has its sustained foundation
-  and five-instrument metadata matrix, backed by a schema-v2 source manifest,
+- The deterministic public XM reference pack now has its sustained foundation,
+  five-instrument metadata matrix, and two-sample envelopes/keymap fixture,
+  backed by a schema-v2 source manifest,
   pinned PCM/XM hashes, byte-identical regeneration, loader/model/editable-copy/
-  current-edit/Export XM round trips, and tracked-file hygiene. The matrix pins
-  panning, volume, signed tuning, 8/16-bit PCM, and all XM loop modes. The
-  envelopes/keymap fixture remains the final dependent corpus PR; production
-  playback and format code are unchanged.
+  current-edit/Export XM round trips, and tracked-file hygiene. The pack pins
+  panning, volume, signed tuning, 8/16-bit PCM, all XM loop modes, split note
+  mapping, both envelope headers, fadeout, and autovibrato. Production playback
+  and format code are unchanged; named empty/sample-less cases remain deferred.
 - The selected represented sample's exact XM signed relative-note and finetune
   bytes (`-128...127`) now edit only in stopped editable documents/copies through
   labeled `applyEdit` actions with undo/redo. Export XM/reopen preserves each

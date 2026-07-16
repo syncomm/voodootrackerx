@@ -155,12 +155,21 @@ Rows 0/8/16/24/32 select instruments 1...5, with key-off events at rows
 editable-copy, metadata mutation/undo/redo, runtime-inert panning, and Export
 XM/reopen preservation.
 
-The third PR adds
-`instrument-envelopes-keymap.xm` for a split multi-sample map, volume/panning
-envelopes, fadeout, and autovibrato. Later focused fixtures cover isolated
-loops, preview, traversal, pitch/volume effects, retrigger/cut/delay/key-off,
-effect memory, and volume-column effects only after their expected semantics
-are documented.
+`generated/instrument-envelopes-keymap.xm` is the third fixture and completes
+the series. It is 6,870 bytes with XM SHA-256
+`02c195c97ea64b0be56f75c86e4b2a5e565690cff39500f09dadc3441eeeee09`.
+Its one instrument maps notes 1...48 to an 8-bit forward-looped pulse sample
+and 49...96 to a 16-bit forward-looped triangle sample. It preserves exact
+volume and panning envelope points, sustain/loop indices, fadeout 2,048, and
+autovibrato type/sweep/depth/rate `2/8/6/24`; pattern notes on rows 0 and 12
+cross the sample-map split. Tests pin both PCM hashes and verify loader/model,
+editable-copy, and Export XM/reopen preservation.
+
+Named empty sample slots and named sample-less instruments remain intentionally
+absent because the current loader/writer model cannot round-trip their names
+honestly. Later focused fixtures cover isolated loops, preview, traversal,
+pitch/volume effects, retrigger/cut/delay/key-off, effect memory, and
+volume-column effects only after their expected semantics are documented.
 
 Binary XM fixture commits must remain explicit, small, deterministic, and
 reviewed as test asset changes.

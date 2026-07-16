@@ -127,7 +127,8 @@ Recently completed target:
    Editor note keys now reuse the shared mapping and isolated preview pipeline;
    the Song/Order-aligned utility panel activates and closes normally, preview is
    distinct from transport gating, and editable-copy confirmation remains a main-
-   tracker document sheet that stays visible when invoked from the editor.
+   tracker document sheet that stays visible when invoked from the editor. The graphical keyboard
+   now auditions exact pitches through XM note maps with drag and lifecycle-safe cancellation.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
@@ -170,8 +171,9 @@ Recently completed narrow target:
   note-keymap hierarchy. It follows File New, module load, Make Editable Copy,
   Clear Song transitions, and main control-panel instrument/sample selection;
   shows represented metadata, immutable volume-envelope and keymap-range data,
-  and clean empty states. Future editing/XI/audition/keymap controls are
-  disabled. It adds no mutation, envelope/keymap editing, or waveform display;
+  and clean empty states. XI, envelope/keymap assignment, and waveform controls
+  remain disabled; isolated computer and graphical audition are now implemented.
+  It adds no audition mutation or envelope/keymap editing;
   playback, parser, writer, and export behavior remain unchanged.
 - App M4A export now reuses the existing whole-song product WAV plan and
   completed scaled Float32 temp output, then encodes fixed 192 kbps AAC through
@@ -695,8 +697,8 @@ Implemented foundation:
   editable documents, editable copies, and the current instrument/sample
   selection; represented instrument NAME and selected-sample PAN are editable
   in stopped editable documents through applyEdit/undo; focused computer note
-  keys audition through the existing isolated preview path while text editing,
-  shortcuts, and the on-screen keyboard remain inert
+  keys and the fixed on-screen keyboard audition through the existing isolated
+  preview path while text editing and shortcuts retain normal precedence
 - exact XM sample panning byte representation, loaded/editable-copy/snapshot/
   Export XM preservation, and eligible Instrument Editor PAN mutation; loaded
   modules stay read-only and runtime playback/render output remain unchanged

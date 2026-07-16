@@ -43,8 +43,8 @@ through snapshots and Export XM. Loaded modules, playing documents, missing or
 empty sample slots, and all unimplemented mutation controls remain read-only/inert.
 The floating Instrument Editor closes through its red close button or Command-W without
 closing the main app window, and `Window > Instrument Editor` recreates one clean
-controller/router afterward. Its audition router inspects only keyDown/keyUp events, leaving
-mouse activation and standard traffic-light handling entirely to AppKit. Editable-copy feedback
+controller/router afterward. Its computer-key audition router inspects only keyDown/keyUp events;
+the local on-screen keyboard handles only primary-pointer presses on its rendered keys. Editable-copy feedback
 remains a document-level sheet on the main tracker window; when invoked from the key Instrument
 Editor, that floating panel is temporarily ordered behind the sheet and restored after dismissal.
 Open/reopen starts on the non-editing content responder rather than selecting NAME; NAME
@@ -53,8 +53,9 @@ When the Instrument Editor is the key window, unmodified tracker note keys outsi
 responders use the shared note map, current octave/selection, availability resolver, and
 preview sink. This window-scoped path is audition-only and its active preview is not transport
 playback: supported controls remain editable while previewing, edits apply to the next trigger,
-and closing the window cancels its preview and detaches its handlers. Loaded modules stay
-read-only and the on-screen keyboard stays inert.
+and closing the window cancels its preview and detaches its handlers. The fixed C-2...B-4 on-screen keyboard auditions exact pitches through the same path; dragging crosses with release/press semantics.
+Mouse-up, outside drag, selection/document transitions, deactivation, and close clear its voice and pressed state. XM note maps select the clicked note's sample without changing editor selection.
+Loaded modules stay read-only; audition creates no document or undo mutation.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
 adapter gain mapping without runtime engine, DSP, or scheduling changes.
@@ -283,13 +284,10 @@ Recently completed narrow targets:
   undo/redo; source paths are absent from the edit context, Save/Save As stay
   disabled, and broader instrument/sample editing remains future work.
 - `Window > Instrument Editor` now opens one reusable fixed 920 × 638 utility
-  window aligned to `assets/mockups/instrument-editor-v1.html`: header,
-  instrument/sample lists, envelope preview, vibrato/defaults clusters, and
-  note-keymap placeholder/range strip. It remains bound to the current document
-  and instrument/sample selection; only represented NAME supports stopped
-  editable rename. XI/audition/sample/envelope/keymap controls stay disabled,
-  loaded modules stay read-only, and no waveform, playback, parser, or broad
-  writer/export behavior changed.
+  window aligned to `assets/mockups/instrument-editor-v1.html`, bound to the current document and selection.
+  Supported stopped-editable metadata routes through undo, and computer/graphical keys use isolated preview.
+  XI, envelope/keymap assignment, and waveform controls stay disabled; loaded modules stay read-only,
+  and no parser, runtime transport, or broad writer/export behavior changed.
 - `File > Export Audio > M4A...` now reuses the stopped product WAV plan and
   scaled Float32 temp output for loaded modules, editable documents, and
   editable copies, then encodes fixed 192 kbps AAC through a narrow

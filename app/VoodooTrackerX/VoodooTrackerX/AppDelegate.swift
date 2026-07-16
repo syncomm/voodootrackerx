@@ -592,6 +592,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func showInstrumentEditor(_ sender: Any?) {
         instrumentEditorWindowPresenter.show(
             displayState: currentInstrumentEditorDisplayState(),
+            instrumentSelectionHandler: { [weak self] in self?.selectInstrumentSlot($0) ?? false },
+            sampleSelectionHandler: { [weak self] in self?.selectSampleSlot($0) ?? false },
             instrumentNameEditHandler: { [weak self] index, name in
                 self?.editableDocumentEditCoordinator.renameInstrument(at: index, name: name) ?? false
             },
@@ -896,8 +898,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func applyEditableDocumentSnapshot(_ document: BlankTrackerDocument) {
-        guard blankDocument != nil, loadedMetadata == nil else {
+        guard let previousDocument = blankDocument, loadedMetadata == nil else {
             return
+        }
+        if previousDocument.selection != document.selection {
+            cancelPreviewForSelectionChange()
         }
         blankDocument = document
         selectedSongPositionIndex = document.currentPosition
@@ -1218,58 +1223,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func instrumentSelectionChanged(_ sender: NSPopUpButton) {
-        if var document = blankDocument,
-           loadedMetadata == nil,
-           document.hasInstrumentSamplePalette {
-            let selectedInstrument = selectedPopupSlot(sender) ?? sender.indexOfSelectedItem + 1
-            document.selectInstrument(selectedInstrument)
-            blankDocument = document
-            syncControlPanelView()
-            restoreTrackerEditorFocus()
-            return
-        }
-
-        guard let metadata = loadedMetadata,
-              metadata.type == "XM",
-              metadata.instruments > 0 else {
-            return
-        }
-
-        let selectedInstrument = selectedPopupSlot(sender) ?? min(max(1, sender.indexOfSelectedItem + 1), metadata.instruments)
-        let proposedSelection = TrackerEditorSelection(
-            selectedInstrument: selectedInstrument,
-            selectedSample: loadedModuleSelection.selectedSample
-        )
-        loadedModuleSelection = clampedLoadedModuleSelection(
-            proposedSelection
-        )
-        syncControlPanelView()
+        let selectedInstrument = selectedPopupSlot(sender) ?? sender.indexOfSelectedItem + 1
+        _ = selectInstrumentSlot(selectedInstrument)
         restoreTrackerEditorFocus()
     }
 
     @objc
     private func sampleSelectionChanged(_ sender: NSPopUpButton) {
-        if var document = blankDocument,
-           loadedMetadata == nil,
-           document.hasInstrumentSamplePalette {
-            let selectedSample = selectedPopupSlot(sender) ?? sender.indexOfSelectedItem + 1
-            document.selectSample(selectedSample)
+        let selectedSample = selectedPopupSlot(sender) ?? sender.indexOfSelectedItem + 1
+        _ = selectSampleSlot(selectedSample)
+        restoreTrackerEditorFocus()
+    }
+
+    @discardableResult
+    private func selectInstrumentSlot(_ selectedInstrument: Int) -> Bool {
+        if var document = blankDocument, loadedMetadata == nil,
+           document.instrument(forInstrument: selectedInstrument) != nil {
+            let previousSelection = document.selection
+            document.selectInstrument(selectedInstrument)
+            guard document.selection != previousSelection else { return false }
+            cancelPreviewForSelectionChange()
             blankDocument = document
             syncControlPanelView()
-            restoreTrackerEditorFocus()
-            return
+            return true
         }
 
         guard let metadata = loadedMetadata,
               metadata.type == "XM",
-              metadata.instruments > 0 else {
-            return
+              metadata.instruments > 0,
+              (1...metadata.instruments).contains(selectedInstrument) else { return false }
+        let proposedSelection = clampedLoadedModuleSelection(TrackerEditorSelection(
+            selectedInstrument: selectedInstrument,
+            selectedSample: loadedModuleSelection.selectedSample
+        ))
+        guard proposedSelection != loadedModuleSelection else { return false }
+        cancelPreviewForSelectionChange()
+        loadedModuleSelection = proposedSelection
+        syncControlPanelView()
+        return true
+    }
+
+    @discardableResult
+    private func selectSampleSlot(_ selectedSample: Int) -> Bool {
+        if var document = blankDocument, loadedMetadata == nil,
+           document.availableSampleSlots(forInstrument: document.selection.selectedInstrument).contains(selectedSample) {
+            let previousSelection = document.selection
+            document.selectSample(selectedSample)
+            guard document.selection != previousSelection else { return false }
+            cancelPreviewForSelectionChange()
+            blankDocument = document
+            syncControlPanelView()
+            return true
         }
 
-        let selectedSample = selectedPopupSlot(sender) ?? sender.indexOfSelectedItem + 1
-        loadedModuleSelection = loadedModuleSelection.withSelectedSample(selectedSample)
+        guard loadedMetadata?.type == "XM",
+              playbackEngine.song?
+                  .instrument(forInstrument: loadedModuleSelection.selectedInstrument)?
+                  .availableSampleSlots.contains(selectedSample) == true else { return false }
+        let proposedSelection = loadedModuleSelection.withSelectedSample(selectedSample)
+        guard proposedSelection != loadedModuleSelection else { return false }
+        cancelPreviewForSelectionChange()
+        loadedModuleSelection = proposedSelection
         syncControlPanelView()
-        restoreTrackerEditorFocus()
+        return true
+    }
+
+    private func cancelPreviewForSelectionChange() {
+        InstrumentEditorPreviewLifecycle.cancelForSelectionChange(
+            cancelOnScreenNote: { [instrumentEditorWindowPresenter] in instrumentEditorWindowPresenter.cancelOnScreenNoteAudition() },
+            hasActivePreview: { [noteAuditionPreviewer] in noteAuditionPreviewer.activePreviewToken != nil },
+            cancelPreview: { [noteAuditionPreviewer] in noteAuditionPreviewer.cancelPreview() }
+        )
     }
 
     @objc

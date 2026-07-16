@@ -102,6 +102,175 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(second.keymapRanges.map(\.isSelected), [false, true])
     }
 
+    func testInstrumentRowsSelectMetadataMatrixThroughCanonicalStateWithoutUndo() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/instrument-metadata-matrix.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let songBefore = song
+        let undoManager = UndoManager()
+        var selection = TrackerEditorSelection.default
+        var controller: InstrumentEditorWindowController!
+        controller = InstrumentEditorWindowController(
+            displayState: .loadedModule(playbackSong: song, selection: selection),
+            instrumentSelectionHandler: { slot in
+                guard let instrument = song.instrument(forInstrument: slot) else { return false }
+                let updated = selection.withSelectedInstrument(
+                    slot,
+                    availableSampleSlots: instrument.availableSampleSlots
+                )
+                guard updated != selection else { return false }
+                selection = updated
+                return controller.apply(displayState: .loadedModule(playbackSong: song, selection: selection))
+            }
+        )
+
+        let names = ["PAN00 VOL00 NEG", "PAN64 VOL16 FWD", "PAN128 VOL32 PP", "PAN192 VOL48 POS", "PAN255 VOL64 FWD"]
+        let volumes = [0, 16, 32, 48, 64]
+        let pannings: [UInt8] = [0, 64, 128, 192, 255]
+        let relativeNotes = [-12, 5, -5, 12, 0]
+        let finetunes = [-96, -32, 0, 48, 96]
+        let loopTypes = [0, 1, 2, 0, 1]
+        let bitDepths = [8, 16, 8, 16, 8]
+        let loopRanges = ["—", "64..<320", "64..<320", "—", "128..<640"]
+
+        for slot in 1...5 {
+            let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+            XCTAssertTrue(try view.instrumentRow(slot: slot).accessibilityPerformPress())
+            let selected = try XCTUnwrap(view.displayState.selectedSample)
+            XCTAssertEqual(selection, TrackerEditorSelection(selectedInstrument: slot, selectedSample: 1))
+            XCTAssertEqual(view.displayState.instrumentName, names[slot - 1])
+            XCTAssertEqual(selected.volumeLevel, volumes[slot - 1])
+            XCTAssertEqual(selected.panning, pannings[slot - 1])
+            XCTAssertEqual(selected.relativeNote, relativeNotes[slot - 1])
+            XCTAssertEqual(selected.finetune, finetunes[slot - 1])
+            XCTAssertEqual(selected.loopType, loopTypes[slot - 1])
+            XCTAssertEqual(selected.sourceBitDepthBits, bitDepths[slot - 1])
+            XCTAssertEqual(selected.loopRangeDisplay, loopRanges[slot - 1])
+            XCTAssertEqual(view.displayState.instrumentSlots.filter(\.isSelected).map(\.slot), [slot])
+            XCTAssertEqual(view.displayState.sampleSlots.filter(\.isSelected).map(\.slot), [1])
+            XCTAssertTrue(view.displayState.isReadOnly)
+        }
+
+        XCTAssertEqual(song, songBefore)
+        XCTAssertFalse(undoManager.canUndo)
+    }
+
+    func testSampleRowsSelectKeymapFixtureWithoutChangingNoteDrivenSelection() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/instrument-envelopes-keymap.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let instrument = try XCTUnwrap(song.instrument(forInstrument: 1))
+        var selection = TrackerEditorSelection.default
+        var controller: InstrumentEditorWindowController!
+        controller = InstrumentEditorWindowController(
+            displayState: .loadedModule(playbackSong: song, selection: selection),
+            sampleSelectionHandler: { slot in
+                guard instrument.availableSampleSlots.contains(slot) else { return false }
+                let updated = selection.withSelectedSample(slot)
+                guard updated != selection else { return false }
+                selection = updated
+                return controller.apply(displayState: .loadedModule(playbackSong: song, selection: selection))
+            }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+
+        XCTAssertTrue(try view.sampleRow(slot: 2).accessibilityPerformPress())
+        XCTAssertEqual(selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        XCTAssertEqual(view.displayState.selectedSample?.name, "HIGH TRIANGLE 16")
+        XCTAssertEqual(view.displayState.sampleSlots.map(\.isSelected), [false, true])
+        XCTAssertEqual(view.displayState.keymapRanges.map(\.isSelected), [false, true])
+
+        _ = InstrumentEditorOnScreenAuditionRequestFactory.request(
+            noteValue: 48,
+            selection: selection,
+            instrument: instrument,
+            sourceContext: .loadedModule(patternIndex: 0)
+        )
+        XCTAssertEqual(selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+    }
+
+    func testListRowsStaySelectionEnabledWhileMutationIsLoadedOrPlayingReadOnly() throws {
+        let palette = makeInstrumentPalette()
+        let states = [
+            InstrumentEditorDisplayState.loadedModule(
+                playbackSong: makePlaybackSong(instruments: palette),
+                selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+            ),
+            InstrumentEditorDisplayState.editableDocument(
+                makeEditableDocument(palette: palette),
+                isPlaybackActive: true
+            ),
+        ]
+
+        for state in states {
+            var instrumentIntents: [Int] = []
+            var sampleIntents: [Int] = []
+            let controller = InstrumentEditorWindowController(
+                displayState: state,
+                instrumentSelectionHandler: { instrumentIntents.append($0); return true },
+                sampleSelectionHandler: { sampleIntents.append($0); return true }
+            )
+            let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+            let instrumentRow = try view.instrumentRow(slot: 1)
+            let sampleRow = try view.sampleRow(slot: 1)
+
+            XCTAssertTrue(instrumentRow.isEnabled)
+            XCTAssertTrue(sampleRow.isEnabled)
+            XCTAssertTrue(instrumentRow.performPrimarySelection())
+            XCTAssertTrue(sampleRow.performPrimarySelection())
+            XCTAssertEqual(instrumentIntents, [1])
+            XCTAssertEqual(sampleIntents, [1])
+            XCTAssertTrue(view.displayState.isReadOnly)
+            XCTAssertTrue(controller.window?.makeFirstResponder(sampleRow) == true)
+            XCTAssertTrue(controller.window?.firstResponder === sampleRow)
+        }
+    }
+
+    func testSelectedInstrumentRowScrollsIntoView() throws {
+        let palette = Dictionary(uniqueKeysWithValues: (1...12).map { slot in
+            (slot, PlaybackInstrument(
+                index: slot,
+                name: "Instrument \(slot)",
+                samples: [makeInstrumentEditorSample(instrument: slot, sample: 0, name: "Sample \(slot)")]
+            ))
+        })
+        let controller = InstrumentEditorWindowController(displayState: .loadedModule(
+            playbackSong: makePlaybackSong(instruments: palette),
+            selection: TrackerEditorSelection(selectedInstrument: 12, selectedSample: 1)
+        ))
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let row = try view.instrumentRow(slot: 12)
+        let scrollView = try XCTUnwrap(row.enclosingScrollView)
+
+        scrollView.layoutSubtreeIfNeeded()
+        XCTAssertTrue(scrollView.documentVisibleRect.intersects(row.frame))
+    }
+
+    func testSelectionPreviewLifecycleUsesOneCancellationPath() {
+        var onScreenCancelCount = 0
+        var fallbackCancelCount = 0
+        for (onScreenNote, activePreview) in [(true, true), (false, true), (false, false)] {
+            InstrumentEditorPreviewLifecycle.cancelForSelectionChange(
+                cancelOnScreenNote: { onScreenCancelCount += 1; return onScreenNote },
+                hasActivePreview: { activePreview },
+                cancelPreview: { fallbackCancelCount += 1 }
+            )
+        }
+        XCTAssertEqual(onScreenCancelCount, 3)
+        XCTAssertEqual(fallbackCancelCount, 1)
+    }
+
+    func testListClickPolicyAndKeymapCopyRemainNonMutatingAndAccurate() {
+        XCTAssertTrue(InstrumentEditorListRowControl.acceptsPrimarySelection(buttonNumber: 0, clickCount: 1))
+        XCTAssertFalse(InstrumentEditorListRowControl.acceptsPrimarySelection(buttonNumber: 0, clickCount: 2))
+        XCTAssertFalse(InstrumentEditorListRowControl.acceptsPrimarySelection(buttonNumber: 1, clickCount: 1))
+        XCTAssertEqual(
+            InstrumentEditorCopy.keymapSummary,
+            "FULL 96-NOTE MAP SUMMARY · ASSIGNMENT READ-ONLY · CLICK/DRAG KEYS TO AUDITION"
+        )
+        XCTAssertEqual(InstrumentEditorCopy.auditionKeyboard, "AUDITION KEYBOARD · CLICK / DRAG TO PREVIEW")
+    }
+
     func testRepresentedEnvelopeAndKeymapRangesRemainReadOnlyDisplayData() throws {
         let song = makePlaybackSong(instruments: makeInstrumentPalette())
         let before = song
@@ -1697,6 +1866,21 @@ private extension NSView {
 
     func envelopeGraph() throws -> InstrumentEditorEnvelopeGraphView {
         try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? InstrumentEditorEnvelopeGraphView }.first)
+    }
+
+    func instrumentRow(slot: Int) throws -> InstrumentEditorListRowControl {
+        try listRow(prefix: InstrumentEditorViewIdentifier.instrumentRowPrefix, label: "I", slot: slot)
+    }
+
+    func sampleRow(slot: Int) throws -> InstrumentEditorListRowControl {
+        try listRow(prefix: InstrumentEditorViewIdentifier.sampleRowPrefix, label: "S", slot: slot)
+    }
+
+    private func listRow(prefix: String, label: String, slot: Int) throws -> InstrumentEditorListRowControl {
+        let identifier = prefix + String(format: "%@%02X", label, slot)
+        return try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? InstrumentEditorListRowControl }.first {
+            $0.identifier?.rawValue == identifier
+        })
     }
 }
 

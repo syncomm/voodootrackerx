@@ -83,8 +83,8 @@ What works today:
   `Transport > Play Current Pattern` for focused pattern audition.
 - Song / Order editor floating utility window with order-list navigation and a
   paginated Pattern Bank.
-- `Window > Instrument Editor` opens the fixed v1-mockup editor with represented
-  instrument/sample metadata, stopped-editable metadata controls, read-only
+- `Window > Instrument Editor` opens the fixed v1-mockup editor with selectable
+  represented instrument/sample rows, stopped-editable metadata controls, read-only
   envelope/keymap displays, and isolated computer/on-screen keyboard audition.
 - Pattern Bank single-click viewing/navigation and double-click assignment for
   editable documents.

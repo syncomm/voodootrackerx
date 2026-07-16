@@ -40,7 +40,9 @@ VoodooTracker X currently has:
   read-only XM modules, with public-safe byte-level model tests and
   temporary-file reload/header smoke tests through existing parser/render
   paths, plus a reusable `Window > Instrument Editor` shell bound to the
-  current palette and selected instrument/sample, with represented instrument
+  current palette and selected instrument/sample, with selectable represented
+  rows sharing the control-panel selection in loaded/editable and stopped/playing states
+  without document mutation or undo, and represented instrument
   NAME and selected-sample PAN editing for stopped editable documents only,
   exact XM sample panning plus instrument autovibrato preservation, exact runtime-inert XM panning-
   envelope metadata preserved through editable copy and Export XM, plus a capped

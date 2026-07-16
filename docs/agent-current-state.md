@@ -41,6 +41,9 @@ editable copies; all use labeled whole-document `applyEdit` undo/redo. Sample pa
 editable sample metadata field and preserves the exact XM `0...255` byte
 through snapshots and Export XM. Loaded modules, playing documents, missing or
 empty sample slots, and all unimplemented mutation controls remain read-only/inert.
+Represented instrument/sample rows share the main control-panel selection in loaded or editable
+documents, including during playback. Row selection is non-mutating, creates no undo, cancels stale
+preview before switching context, and drives metadata and the next audition; transport gates mutation only.
 The floating Instrument Editor closes through its red close button or Command-W without
 closing the main app window, and `Window > Instrument Editor` recreates one clean
 controller/router afterward. Its computer-key audition router inspects only keyDown/keyUp events;

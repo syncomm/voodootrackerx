@@ -30,6 +30,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/basic-instrument-sample.xm | \
     tests/reference-xm/generated/multi-pattern-loop-boundary.xm | \
     tests/reference-xm/generated/instrument-sustained-defaults.xm | \
+    tests/reference-xm/generated/instrument-metadata-matrix.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

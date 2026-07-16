@@ -61,7 +61,7 @@ The default command prints the manifest to stdout and writes no files.
 `--write-xm` writes only approved generated XM files under
 `tests/reference-xm/generated/`. `--verify` regenerates in memory and fails if
 any committed XM differs without rewriting it. Use
-`--fixture instrument-sustained-defaults.xm` for scoped generation or
+`--fixture NAME.xm` for scoped generation or
 verification and `--output-dir` for test-temporary output. Generation reports
 the filename, byte count, instrument/sample counts, and SHA-256. No command
 emits reference audio.
@@ -137,8 +137,25 @@ Sample Editor waveform/loop inspection, Make Editable Copy, focused metadata
 edits, and Export XM/reopen. Sample-header panning remains editable and
 round-trippable but runtime-inert.
 
-The dependent second PR adds `instrument-metadata-matrix.xm` for compact
-pairwise sample-header, waveform, bit-depth, and loop coverage. The third adds
+`generated/instrument-metadata-matrix.xm` is the second fixture in the series.
+It is 5,635 bytes with XM SHA-256
+`590e4aaafc71c41130cb1a9a4e768220c38c6e8dcdd3529d9be6e35ec400aef3`.
+Its five one-sample instruments provide compact pairwise coverage:
+
+| Instrument | Pan | Vol | Finetune | Relative | PCM | Loop | Waveform |
+| --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+| I01 | 0 | 0 | -96 | -12 | 8-bit | none | sine |
+| I02 | 64 | 16 | -32 | +5 | 16-bit | forward | triangle |
+| I03 | 128 | 32 | 0 | -5 | 8-bit | ping-pong | saw |
+| I04 | 192 | 48 | +48 | +12 | 16-bit | none | pulse |
+| I05 | 255 | 64 | +96 | 0 | 8-bit | forward | triangle |
+
+Rows 0/8/16/24/32 select instruments 1...5, with key-off events at rows
+6/14/22/30/40. Tests pin every sample's PCM hash and verify exact loader/model,
+editable-copy, metadata mutation/undo/redo, runtime-inert panning, and Export
+XM/reopen preservation.
+
+The third PR adds
 `instrument-envelopes-keymap.xm` for a split multi-sample map, volume/panning
 envelopes, fadeout, and autovibrato. Later focused fixtures cover isolated
 loops, preview, traversal, pitch/volume effects, retrigger/cut/delay/key-off,

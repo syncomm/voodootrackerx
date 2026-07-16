@@ -1,6 +1,6 @@
 # Editor Note Audition Preview Plan
 
-This note defines the editor-side request shape and input policy for note audition preview. The current implementation supports isolated represented-sample audition from tracker note keys in both the tracker and focused Instrument Editor, plus the Instrument Editor's fixed C-2...B-4 on-screen keyboard, when real sample payload is available. Runtime song playback, transport state, backend selection, parser architecture, tracker viewport behavior, and loaded-module pattern mutability remain unchanged.
+This note defines the editor-side request shape and input policy for note audition preview. The current implementation supports isolated represented-sample audition from tracker note keys in both the tracker and focused Instrument Editor, plus its octave-shiftable three-octave on-screen keyboard, when real sample payload is available. Focused computer and mouse audition share the active generation token and one visible pressed-key treatment; range changes only change whether that sounding monophonic note is visible. Runtime song playback, transport state, backend selection, parser architecture, tracker viewport behavior, loaded-module pattern mutability, keymap assignment, and runtime-inert sample-header panning remain unchanged.
 
 ## Request Meaning
 

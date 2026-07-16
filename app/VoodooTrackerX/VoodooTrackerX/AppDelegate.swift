@@ -638,7 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 self?.handleInstrumentEditorNoteAuditionKeyUp(character) ?? false
             },
             noteAuditionCancelHandler: { [weak self] in
-                self?.noteAuditionPreviewer.cancelPreview()
+                self?.cancelInstrumentEditorNoteAudition()
             }
         )
     }
@@ -656,6 +656,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func cancelNoteAuditionForDocumentTransition() {
         noteAuditionPreviewer.cancelPreview()
         instrumentEditorWindowPresenter.clearOnScreenPressedState()
+    }
+
+    private func synchronizeInstrumentEditorPreviewVisual() {
+        instrumentEditorWindowPresenter.synchronizeActivePreviewToken(noteAuditionPreviewer.activePreviewToken)
+    }
+
+    private func cancelInstrumentEditorNoteAudition() {
+        noteAuditionPreviewer.cancelPreview()
+        synchronizeInstrumentEditorPreviewVisual()
     }
 
     private func selectSongOrderEditorOrder(_ orderPosition: Int) {
@@ -1294,6 +1303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             hasActivePreview: { [noteAuditionPreviewer] in noteAuditionPreviewer.activePreviewToken != nil },
             cancelPreview: { [noteAuditionPreviewer] in noteAuditionPreviewer.cancelPreview() }
         )
+        synchronizeInstrumentEditorPreviewVisual()
     }
 
     @objc
@@ -1940,6 +1950,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 sourceContext: sourceContext
             )
             : .skipped(.missingRequest)
+        synchronizeInstrumentEditorPreviewVisual()
         return route.shouldConsumeNonMutatingInput(previewOutcome: previewOutcome)
     }
 
@@ -1947,7 +1958,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let keyIdentity = EditorNoteAuditionKeyIdentity(trackerKey: character) else {
             return false
         }
-        return noteAuditionPreviewer.stopPreview(for: keyIdentity)
+        let stopped = noteAuditionPreviewer.stopPreview(for: keyIdentity)
+        synchronizeInstrumentEditorPreviewVisual()
+        return stopped
     }
 
     private func handleInstrumentEditorOnScreenNotePress(_ noteValue: UInt8) -> Bool {
@@ -1979,11 +1992,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             availability = .unavailable(.blankDocumentMissingInstrumentSamplePayload)
         }
-        return noteAuditionPreviewer.preview(
+        let outcome = noteAuditionPreviewer.preview(
             request: request,
             availability: availability,
             keyIdentity: .instrumentEditorKeyboard
-        ).didAttemptPreview
+        )
+        synchronizeInstrumentEditorPreviewVisual()
+        return outcome.didAttemptPreview
     }
 
     private func handleInstrumentEditorOnScreenNoteRelease(_ noteValue: UInt8) -> Bool {
@@ -1992,7 +2007,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               token.noteValue == noteValue else {
             return false
         }
-        return noteAuditionPreviewer.stopPreview(for: token)
+        let stopped = noteAuditionPreviewer.stopPreview(for: token)
+        synchronizeInstrumentEditorPreviewVisual()
+        return stopped
     }
 
     private func noteAuditionInputKind(for input: PatternEditInput) -> EditorNoteAuditionInputKind {

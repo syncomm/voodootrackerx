@@ -459,6 +459,213 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(state.keymapRanges.map(\.colorIndex), [0, 1, 0])
     }
 
+    func testKeyboardVisibleRangeShiftsOneOctaveAndStopsAtXMMapBounds() throws {
+        var range = InstrumentKeyboardVisibleRange.defaultRange
+        XCTAssertEqual(range.noteRange, UInt8(25)...UInt8(60)); XCTAssertEqual(range.noteCount, 36)
+        XCTAssertEqual(range.startLabel, "C-2"); XCTAssertEqual(range.endLabel, "B-4")
+
+        range = range.shifted(.lower); XCTAssertEqual(range.startNote, 13)
+        range = range.shifted(.lower); XCTAssertEqual(range.startNote, 1)
+        XCTAssertFalse(range.canShift(.lower))
+        XCTAssertEqual(range.shifted(.lower), range)
+
+        for _ in 0..<5 { range = range.shifted(.higher) }
+        XCTAssertEqual(range.noteRange, UInt8(61)...UInt8(96))
+        XCTAssertEqual(range.startLabel, "C-5"); XCTAssertEqual(range.endLabel, "B-7")
+        XCTAssertFalse(range.canShift(.higher))
+        XCTAssertEqual(range.shifted(.higher), range)
+        XCTAssertNil(InstrumentKeyboardVisibleRange(startNote: 2)); XCTAssertNil(InstrumentKeyboardVisibleRange(startNote: 73))
+    }
+
+    func testShiftedKeyboardGeometryAndKeymapProjectionUseOneVisibleRange() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/instrument-envelopes-keymap.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let state = InstrumentEditorDisplayState.loadedModule(playbackSong: song, selection: .default)
+        let c4Range = try XCTUnwrap(InstrumentKeyboardVisibleRange(startNote: 49))
+        let projection = InstrumentEditorKeymapProjection.visibleRanges(state.keymapRanges, in: c4Range)
+
+        XCTAssertEqual(projection.map(\.startNote), [49]); XCTAssertEqual(projection.map(\.endNote), [84])
+        XCTAssertEqual(projection.map(\.sampleSlot), [2])
+        XCTAssertEqual(state.keymapRanges.map(\.startNote), [1, 49]); XCTAssertEqual(state.keymapRanges.map(\.endNote), [48, 96])
+
+        let layout = InstrumentEditorKeyboardLayout(
+            bounds: NSRect(x: 0, y: 0, width: 876, height: 96),
+            visibleRange: c4Range
+        )
+        XCTAssertEqual(layout.keys.map(\.noteValue).min(), 49); XCTAssertEqual(layout.keys.map(\.noteValue).max(), 84)
+        XCTAssertEqual(layout.whiteKeys.count, 21); XCTAssertEqual(layout.blackKeys.count, 15)
+        XCTAssertTrue(layout.keys.allSatisfy {
+            layout.noteValue(at: NSPoint(x: $0.frame.midX, y: $0.frame.midY)) == $0.noteValue
+        })
+    }
+
+    func testRangeControlsAreAccessibleNonMutatingAndPersistForPresenterSession() throws {
+        let document = makeEditableDocument(palette: makeInstrumentPalette())
+        let before = document
+        let undoManager = UndoManager()
+        let presenter = InstrumentEditorWindowPresenter()
+        var controller = presenter.show(displayState: .editableDocument(document))
+        var view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+
+        XCTAssertEqual(view.keyboardVisibleRange, .defaultRange)
+        var lower = try view.keyboardRangeButton(.lower)
+        var higher = try view.keyboardRangeButton(.higher)
+        XCTAssertEqual(lower.title, "\u{25C0} C-2")
+        XCTAssertEqual(higher.title, "B-4 \u{25B6}")
+        XCTAssertTrue(lower.isEnabled)
+        XCTAssertTrue(higher.isEnabled)
+        XCTAssertEqual(lower.accessibilityLabel(), "Shift piano range down one octave")
+        XCTAssertEqual(higher.accessibilityLabel(), "Shift piano range up one octave")
+
+        XCTAssertTrue(view.shiftKeyboardVisibleRange(.higher))
+        XCTAssertTrue(view.shiftKeyboardVisibleRange(.higher))
+        XCTAssertEqual(view.keyboardVisibleRange.startLabel, "C-4")
+        presenter.refresh(displayState: .editableDocument(document))
+        XCTAssertEqual(view.keyboardVisibleRange.startNote, 49)
+        controller.window?.close()
+
+        controller = presenter.show(displayState: .editableDocument(document))
+        view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        XCTAssertEqual(view.keyboardVisibleRange.startNote, 49)
+        for _ in 0..<8 { _ = view.shiftKeyboardVisibleRange(.higher) }
+        lower = try view.keyboardRangeButton(.lower)
+        higher = try view.keyboardRangeButton(.higher)
+        XCTAssertTrue(lower.isEnabled)
+        XCTAssertFalse(higher.isEnabled)
+        XCTAssertEqual(document, before)
+        XCTAssertFalse(undoManager.canUndo)
+        controller.window?.close()
+    }
+
+    func testAcceptedPreviewTokenDrivesOneVisibleHighlightAcrossSourcesAndRangeChanges() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/instrument-sustained-defaults.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let state = InstrumentEditorDisplayState.loadedModule(playbackSong: song, selection: .default)
+        let sink = InstrumentEditorRecordingAuditionSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let presenter = InstrumentEditorWindowPresenter()
+
+        func synchronize() { presenter.synchronizeActivePreviewToken(previewer.activePreviewToken) }
+        func pressComputer(_ key: Character, octave: Int, repeatKey: Bool = false) -> EditorNoteAuditionPreviewOutcome {
+            let request = EditorNoteAuditionRequest.noteOn(
+                trackerKey: key, selectedOctave: octave, selection: .default,
+                sourceContext: .loadedModule(patternIndex: 0), isRepeatedKeyDown: repeatKey
+            )
+            let outcome = previewer.preview(
+                request: request,
+                availability: request.map { EditorNoteAuditionAvailabilityResolver.availability(for: $0, loadedPlaybackSong: song) }
+                    ?? .unavailable(.selectedInstrumentSampleNotPlayable),
+                keyIdentity: EditorNoteAuditionKeyIdentity(trackerKey: key)
+            )
+            synchronize()
+            return outcome
+        }
+        func releaseComputer(_ key: Character) -> Bool {
+            let stopped = EditorNoteAuditionKeyIdentity(trackerKey: key).map(previewer.stopPreview(for:)) ?? false
+            synchronize()
+            return stopped
+        }
+
+        let controller = presenter.show(
+            displayState: state,
+            onScreenNoteHandler: { intent in
+                switch intent {
+                case let .press(note):
+                    let request = InstrumentEditorOnScreenAuditionRequestFactory.request(
+                        noteValue: note, selection: .default, instrument: song.instrument(forInstrument: 1),
+                        sourceContext: .loadedModule(patternIndex: 0)
+                    )
+                    let accepted = previewer.preview(
+                        request: request,
+                        availability: request.map { EditorNoteAuditionAvailabilityResolver.availability(for: $0, loadedPlaybackSong: song) }
+                            ?? .unavailable(.selectedInstrumentSampleNotPlayable),
+                        keyIdentity: .instrumentEditorKeyboard
+                    ).didAttemptPreview
+                    synchronize()
+                    return accepted
+                case let .release(note):
+                    guard let token = previewer.activePreviewToken,
+                          token.keyIdentity == .instrumentEditorKeyboard,
+                          token.noteValue == note else { return false }
+                    let stopped = previewer.stopPreview(for: token)
+                    synchronize()
+                    return stopped
+                }
+            },
+            noteAuditionCancelHandler: { previewer.cancelPreview(); synchronize() }
+        )
+        var keyboard = try instrumentEditorKeyboard(in: controller)
+
+        XCTAssertTrue(pressComputer("z", octave: 2).didAttemptPreview)
+        XCTAssertEqual(keyboard.highlightedNoteValue, 25)
+        let computerToken = try XCTUnwrap(previewer.activePreviewToken)
+        XCTAssertEqual(pressComputer("z", octave: 2, repeatKey: true), .skipped(.repeatedKeyDown))
+        XCTAssertEqual(previewer.activePreviewToken, computerToken)
+        XCTAssertEqual(sink.events.count, 1)
+
+        let mouseKey = keyboard.keyboardLayout.blackKeys[0]
+        XCTAssertTrue(keyboard.handlePointerDown(
+            at: NSPoint(x: mouseKey.frame.midX, y: mouseKey.frame.midY), buttonNumber: 0
+        ))
+        XCTAssertEqual(keyboard.highlightedNoteValue, mouseKey.noteValue)
+        XCTAssertFalse(releaseComputer("z"), "stale computer release must not clear the mouse preview")
+        XCTAssertEqual(keyboard.highlightedNoteValue, mouseKey.noteValue)
+        XCTAssertTrue(keyboard.handlePointerUp())
+        XCTAssertNil(keyboard.highlightedNoteValue)
+
+        let whiteKey = keyboard.keyboardLayout.whiteKeys[0]
+        XCTAssertTrue(keyboard.handlePointerDown(
+            at: NSPoint(x: whiteKey.frame.midX, y: whiteKey.frame.midY), buttonNumber: 0
+        ))
+        XCTAssertTrue(pressComputer("s", octave: 2).didAttemptPreview)
+        XCTAssertEqual(keyboard.highlightedNoteValue, 26)
+        XCTAssertFalse(keyboard.handlePointerUp(), "stale mouse release must not clear the computer preview")
+        XCTAssertEqual(keyboard.highlightedNoteValue, 26)
+        XCTAssertTrue(releaseComputer("s"))
+
+        let rejectedRequest = EditorNoteAuditionRequest.noteOn(
+            trackerKey: "z", selectedOctave: 2, selection: .default,
+            sourceContext: .loadedModule(patternIndex: 0)
+        )
+        XCTAssertEqual(previewer.preview(
+            request: rejectedRequest,
+            availability: .unavailable(.selectedInstrumentSampleNotPlayable),
+            keyIdentity: EditorNoteAuditionKeyIdentity(trackerKey: "z")
+        ), .skipped(.unavailable(.selectedInstrumentSampleNotPlayable)))
+        synchronize()
+        XCTAssertNil(keyboard.highlightedNoteValue)
+
+        XCTAssertTrue(pressComputer("z", octave: 5).didAttemptPreview)
+        XCTAssertNil(keyboard.highlightedNoteValue, "C-5 auditions outside the default visible range")
+        let soundingToken = previewer.activePreviewToken
+        let cancellationCountBeforeRangeShift = sink.cancelPreviewCount
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        for _ in 0..<3 { XCTAssertTrue(view.shiftKeyboardVisibleRange(.higher)) }
+        keyboard = try instrumentEditorKeyboard(in: controller)
+        XCTAssertEqual(keyboard.highlightedNoteValue, 61)
+        XCTAssertEqual(previewer.activePreviewToken, soundingToken)
+        XCTAssertEqual(sink.cancelPreviewCount, cancellationCountBeforeRangeShift)
+        for _ in 0..<3 { XCTAssertTrue(view.shiftKeyboardVisibleRange(.lower)) }
+        XCTAssertNil(try instrumentEditorKeyboard(in: controller).highlightedNoteValue)
+        XCTAssertTrue(view.shiftKeyboardVisibleRange(.higher))
+        XCTAssertEqual(try instrumentEditorKeyboard(in: controller).highlightedNoteValue, 61)
+        XCTAssertTrue(releaseComputer("z"))
+        XCTAssertNil(try instrumentEditorKeyboard(in: controller).highlightedNoteValue)
+
+        XCTAssertTrue(pressComputer("z", octave: 3).didAttemptPreview)
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        XCTAssertNil(previewer.activePreviewToken)
+        XCTAssertNil(try instrumentEditorKeyboard(in: controller).highlightedNoteValue)
+        XCTAssertTrue(pressComputer("z", octave: 3).didAttemptPreview)
+        controller.window?.close()
+        XCTAssertNil(previewer.activePreviewToken)
+        let reopened = presenter.show(displayState: state)
+        XCTAssertNil(try instrumentEditorKeyboard(in: reopened).highlightedNoteValue)
+        reopened.window?.close()
+    }
+
     func testKeyboardLayoutUsesOneScaledGeometryForDrawingAndHitTesting() {
         let bounds = NSRect(x: 0, y: 0, width: 876, height: 96)
         let layout = InstrumentEditorKeyboardLayout(bounds: bounds)
@@ -800,7 +1007,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(futureControls.allSatisfy { !$0.isEnabled && $0.target == nil && $0.action == nil })
         XCTAssertEqual(
             Set(futureControls.compactMap { ($0 as? NSButton)?.title }),
-            ["IMPORT XI", "EXPORT XI", "▶", "+ ADD PT", "DEL PT", "ON", "∿", "⊓", "⊿", "◺", "◀ C-2", "C-4 ▶"]
+            ["IMPORT XI", "EXPORT XI", "▶", "+ ADD PT", "DEL PT", "ON", "∿", "⊓", "⊿", "◺"]
         )
         XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorKnobControl }.count, 3)
         XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorPanSliderControl }.count, 0)
@@ -1866,6 +2073,15 @@ private extension NSView {
 
     func envelopeGraph() throws -> InstrumentEditorEnvelopeGraphView {
         try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? InstrumentEditorEnvelopeGraphView }.first)
+    }
+
+    func keyboardRangeButton(_ direction: InstrumentKeyboardRangeShift) throws -> VTXEditorButton {
+        let identifier = direction == .lower
+            ? InstrumentEditorViewIdentifier.keymapPreviousOctave
+            : InstrumentEditorViewIdentifier.keymapNextOctave
+        return try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? VTXEditorButton }.first {
+            $0.identifier?.rawValue == identifier
+        })
     }
 
     func instrumentRow(slot: Int) throws -> InstrumentEditorListRowControl {

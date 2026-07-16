@@ -56,7 +56,11 @@ When the Instrument Editor is the key window, unmodified tracker note keys outsi
 responders use the shared note map, current octave/selection, availability resolver, and
 preview sink. This window-scoped path is audition-only and its active preview is not transport
 playback: supported controls remain editable while previewing, edits apply to the next trigger,
-and closing the window cancels its preview and detaches its handlers. The fixed C-2...B-4 on-screen keyboard auditions exact pitches through the same path; dragging crosses with release/press semantics.
+and closing the window cancels its preview and detaches its handlers. The on-screen keyboard keeps a
+three-octave window that defaults to C-2...B-4 and shifts by octave across the 96-note map without
+document or undo mutation. Focused computer-key and mouse audition share one generation-token
+pressed visual when the active note is visible; both remain monophonic. Dragging crosses with
+release/press semantics.
 Mouse-up, outside drag, selection/document transitions, deactivation, and close clear its voice and pressed state. XM note maps select the clicked note's sample without changing editor selection.
 Loaded modules stay read-only; audition creates no document or undo mutation.
 Selected-sample volume now likewise preserves exact XM `0...64` values through

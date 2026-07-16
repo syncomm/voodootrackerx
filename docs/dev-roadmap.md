@@ -49,7 +49,9 @@ VoodooTracker X currently has:
   whole-document applyEdit/undo funnel used by Clear Current Pattern and
   instrument rename, sample panning, exact `0...64` sample-volume edits, and
   exact signed-byte `-128...127` sample-relative-note and finetune edits; later playback consumes
-  edited volume and tuning through the unchanged adapter gain and pitch paths
+  edited volume and tuning through the unchanged adapter gain and pitch paths; the Instrument Editor
+  piano range shifts across the read-only 96-note map and focused computer audition shares its
+  visible monophonic pressed-key state with mouse audition without document/undo mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
   fixture; the schema-v2 manifest, generator verification mode, exact PCM/XM
   expectations, loader/model/editable-copy/edit/Export XM tests, and private-

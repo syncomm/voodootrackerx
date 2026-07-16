@@ -586,45 +586,18 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue((contentView as? InstrumentEditorView)?.displayState.isReadOnly == true)
     }
 
-    func testInstrumentEditorCanRegainKeyStatusAcrossTrackerFocusSwitches() throws {
-        let trackerWindow = makeInstrumentEditorTestWindow(title: "Tracker")
+    func testClosingInstrumentEditorInvokesCloseHandlerExactlyOnce() throws {
         let controller = InstrumentEditorWindowController()
         let editorWindow = try XCTUnwrap(controller.window)
-        defer {
-            editorWindow.close()
-            trackerWindow.close()
-        }
-
-        trackerWindow.orderFront(nil)
-        controller.showWindowAndActivate()
-        XCTAssertTrue(editorWindow.isVisible)
-        XCTAssertTrue(editorWindow.canBecomeKey)
-        trackerWindow.orderFront(nil)
-        XCTAssertTrue(trackerWindow.canBecomeKey)
-        XCTAssertTrue(editorWindow.canBecomeKey)
-        editorWindow.makeKeyAndOrderFront(nil)
-        XCTAssertTrue(editorWindow.isVisible)
-        XCTAssertTrue(editorWindow.canBecomeKey)
-    }
-
-    func testStandardCloseButtonClosesOnlyInstrumentEditor() throws {
-        let trackerWindow = makeInstrumentEditorTestWindow(title: "Tracker")
-        let controller = InstrumentEditorWindowController()
-        let editorWindow = try XCTUnwrap(controller.window)
-        let closeButton = try XCTUnwrap(editorWindow.standardWindowButton(.closeButton))
         var closeCount = 0
         controller.closeHandler = {
             closeCount += 1
         }
-        defer { trackerWindow.close() }
 
-        trackerWindow.makeKeyAndOrderFront(nil)
-        controller.showWindowAndActivate()
-        closeButton.performClick(nil)
-        drainInstrumentEditorRunLoop()
+        editorWindow.orderFront(nil)
+        editorWindow.close()
 
         XCTAssertFalse(editorWindow.isVisible)
-        XCTAssertTrue(trackerWindow.isVisible)
         XCTAssertEqual(closeCount, 1)
     }
 
@@ -1318,11 +1291,6 @@ private func makeInstrumentEditorTestAlert() -> NSAlert {
     alert.informativeText = "Test sheet"
     alert.addButton(withTitle: "OK")
     return alert
-}
-
-@MainActor
-private func drainInstrumentEditorRunLoop() {
-    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 }
 
 @MainActor

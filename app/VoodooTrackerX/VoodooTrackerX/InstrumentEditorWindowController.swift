@@ -1,5 +1,191 @@
 import AppKit
 
+typealias InstrumentEditorNoteAuditionKeyDownHandler = (_ trackerKey: Character, _ isRepeat: Bool) -> Bool
+typealias InstrumentEditorNoteAuditionKeyUpHandler = (_ trackerKey: Character) -> Bool
+typealias InstrumentEditorNoteAuditionCancelHandler = () -> Void
+
+@MainActor
+enum LoadedModuleEditableCopyAlertHostPolicy {
+    struct Presentation {
+        let hostWindow: NSWindow?
+        let auxiliaryWindowToRestore: NSWindow?
+    }
+
+    static func presentation(keyWindow: NSWindow?, mainWindow: NSWindow?) -> Presentation {
+        let hostWindow = mainWindow ?? keyWindow
+        let auxiliaryWindow = keyWindow is NSPanel && keyWindow !== hostWindow
+            ? keyWindow
+            : nil
+        return Presentation(
+            hostWindow: hostWindow,
+            auxiliaryWindowToRestore: auxiliaryWindow
+        )
+    }
+}
+
+@MainActor
+enum LoadedModuleEditableCopyAlertPresenter {
+    @MainActor
+    struct Actions {
+        let orderBack: (NSWindow) -> Void
+        let makeKeyAndOrderFront: (NSWindow) -> Void
+        let beginSheet: (NSAlert, NSWindow, @escaping (NSApplication.ModalResponse) -> Void) -> Void
+        let runModal: (NSAlert) -> Void
+
+        static var appKit: Actions {
+            Actions(
+                orderBack: { $0.orderBack(nil) },
+                makeKeyAndOrderFront: { $0.makeKeyAndOrderFront(nil) },
+                beginSheet: { alert, hostWindow, completionHandler in
+                    alert.beginSheetModal(for: hostWindow, completionHandler: completionHandler)
+                },
+                runModal: { _ = $0.runModal() }
+            )
+        }
+    }
+
+    static func present(
+        _ alert: NSAlert,
+        keyWindow: NSWindow?,
+        mainWindow: NSWindow?,
+        actions: Actions? = nil
+    ) {
+        let actions = actions ?? .appKit
+        let presentation = LoadedModuleEditableCopyAlertHostPolicy.presentation(
+            keyWindow: keyWindow,
+            mainWindow: mainWindow
+        )
+        guard let hostWindow = presentation.hostWindow else {
+            actions.runModal(alert)
+            return
+        }
+
+        let auxiliaryWasFloating = (presentation.auxiliaryWindowToRestore as? NSPanel)?.isFloatingPanel
+        if let auxiliaryWindow = presentation.auxiliaryWindowToRestore {
+            // Floating utility panels remain above main-window sheets even after orderBack.
+            // Temporarily use normal panel ordering so the document sheet stays visible.
+            (auxiliaryWindow as? NSPanel)?.isFloatingPanel = false
+            actions.orderBack(auxiliaryWindow)
+            actions.makeKeyAndOrderFront(hostWindow)
+        }
+        actions.beginSheet(alert, hostWindow) { [weak auxiliaryWindow = presentation.auxiliaryWindowToRestore] _ in
+            guard let auxiliaryWindow else {
+                return
+            }
+            if let auxiliaryPanel = auxiliaryWindow as? NSPanel,
+               let auxiliaryWasFloating {
+                auxiliaryPanel.isFloatingPanel = auxiliaryWasFloating
+            }
+            guard auxiliaryWindow.isVisible,
+                  auxiliaryWindow.sheetParent == nil else {
+                return
+            }
+            actions.makeKeyAndOrderFront(auxiliaryWindow)
+        }
+    }
+}
+
+enum InstrumentEditorNoteAuditionRoutingAction: Equatable {
+    case noteKeyDown(Character, isRepeat: Bool)
+    case noteKeyUp(Character)
+}
+
+enum InstrumentEditorWindowEventRoutingPolicy {
+    static func shouldInspectForNoteAudition(_ eventType: NSEvent.EventType) -> Bool {
+        eventType == .keyDown || eventType == .keyUp
+    }
+}
+
+@MainActor
+enum InstrumentEditorNoteAuditionRoutingPolicy {
+    private static let protectedKeyCodes: Set<UInt16> = [
+        36, 76, // Return and keypad Enter
+        48, // Tab
+        51, 117, // Backspace and forward Delete
+        53, // Escape
+        64, 79, 80, 90, 96, 97, 98, 99, 100, 101, 103, 105, 106, 107, 109, 111, 113, 118, 120, 122, // F1...F20
+        114, 115, 116, 119, 121, 123, 124, 125, 126, // Help and navigation
+    ]
+
+    static func action(
+        eventType: NSEvent.EventType,
+        keyCode: UInt16,
+        charactersIgnoringModifiers: String?,
+        modifierFlags: NSEvent.ModifierFlags,
+        isARepeat: Bool,
+        isKeyWindow: Bool,
+        firstResponder: NSResponder?
+    ) -> InstrumentEditorNoteAuditionRoutingAction? {
+        guard isKeyWindow,
+              eventType == .keyDown || eventType == .keyUp,
+              !isTextEditingResponder(firstResponder),
+              !protectedKeyCodes.contains(keyCode) else {
+            return nil
+        }
+
+        let protectedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .function]
+        guard modifierFlags.intersection(protectedModifiers).isEmpty,
+              let character = charactersIgnoringModifiers?.first,
+              TrackerNoteKeyMap.isTrackerNoteKey(character) else {
+            return nil
+        }
+
+        return eventType == .keyDown
+            ? .noteKeyDown(character, isRepeat: isARepeat)
+            : .noteKeyUp(character)
+    }
+
+    private static func isTextEditingResponder(_ responder: NSResponder?) -> Bool {
+        responder is NSTextView || responder is NSTextField
+    }
+}
+
+@MainActor
+final class InstrumentEditorKeyboardAuditionRouter {
+    var noteKeyDownHandler: InstrumentEditorNoteAuditionKeyDownHandler?
+    var noteKeyUpHandler: InstrumentEditorNoteAuditionKeyUpHandler?
+
+    func handle(_ event: NSEvent, isKeyWindow: Bool, firstResponder: NSResponder?) -> Bool {
+        switch InstrumentEditorNoteAuditionRoutingPolicy.action(
+            eventType: event.type,
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            modifierFlags: event.modifierFlags,
+            isARepeat: event.isARepeat,
+            isKeyWindow: isKeyWindow,
+            firstResponder: firstResponder
+        ) {
+        case let .noteKeyDown(character, isRepeat):
+            return noteKeyDownHandler?(character, isRepeat) == true
+        case let .noteKeyUp(character):
+            return noteKeyUpHandler?(character) == true
+        case nil:
+            return false
+        }
+    }
+}
+
+@MainActor
+final class InstrumentEditorPanel: NSPanel {
+    let keyboardAuditionRouter = InstrumentEditorKeyboardAuditionRouter()
+
+    override func sendEvent(_ event: NSEvent) {
+        // Title-bar, traffic-light, and activation events must reach NSPanel untouched.
+        guard InstrumentEditorWindowEventRoutingPolicy.shouldInspectForNoteAudition(event.type) else {
+            super.sendEvent(event)
+            return
+        }
+        if keyboardAuditionRouter.handle(
+            event,
+            isKeyWindow: isKeyWindow,
+            firstResponder: firstResponder
+        ) {
+            return
+        }
+        super.sendEvent(event)
+    }
+}
+
 enum InstrumentEditorViewIdentifier {
     static let contentView = "instrumentEditor.contentView"
     static let headerPanel = "instrumentEditor.headerPanel"
@@ -462,7 +648,10 @@ final class InstrumentEditorWindowPresenter {
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
-        samplePanningEditHandler: SamplePanningEditHandler? = nil
+        samplePanningEditHandler: SamplePanningEditHandler? = nil,
+        noteAuditionKeyDownHandler: InstrumentEditorNoteAuditionKeyDownHandler? = nil,
+        noteAuditionKeyUpHandler: InstrumentEditorNoteAuditionKeyUpHandler? = nil,
+        noteAuditionCancelHandler: InstrumentEditorNoteAuditionCancelHandler? = nil
     ) -> InstrumentEditorWindowController {
         if let windowController {
             windowController.instrumentNameEditHandler = instrumentNameEditHandler
@@ -470,6 +659,9 @@ final class InstrumentEditorWindowPresenter {
             windowController.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
             windowController.sampleFinetuneEditHandler = sampleFinetuneEditHandler
             windowController.samplePanningEditHandler = samplePanningEditHandler
+            windowController.noteAuditionKeyDownHandler = noteAuditionKeyDownHandler
+            windowController.noteAuditionKeyUpHandler = noteAuditionKeyUpHandler
+            windowController.noteAuditionCancelHandler = noteAuditionCancelHandler
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
             return windowController
@@ -481,7 +673,10 @@ final class InstrumentEditorWindowPresenter {
             sampleVolumeEditHandler: sampleVolumeEditHandler,
             sampleRelativeNoteEditHandler: sampleRelativeNoteEditHandler,
             sampleFinetuneEditHandler: sampleFinetuneEditHandler,
-            samplePanningEditHandler: samplePanningEditHandler
+            samplePanningEditHandler: samplePanningEditHandler,
+            noteAuditionKeyDownHandler: noteAuditionKeyDownHandler,
+            noteAuditionKeyUpHandler: noteAuditionKeyUpHandler,
+            noteAuditionCancelHandler: noteAuditionCancelHandler
         )
         controller.closeHandler = { [weak self, weak controller] in
             guard let self, let controller, self.windowController === controller else { return }
@@ -500,6 +695,7 @@ final class InstrumentEditorWindowPresenter {
 @MainActor
 final class InstrumentEditorWindowController: NSWindowController, NSWindowDelegate {
     static let contentSize = NSSize(width: 920, height: 638)
+    private var didInstallInitialFirstResponder = false
     var closeHandler: (() -> Void)?
     var instrumentNameEditHandler: InstrumentNameEditHandler? {
         didSet {
@@ -526,6 +722,17 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             (window?.contentView as? InstrumentEditorView)?.samplePanningEditHandler = samplePanningEditHandler
         }
     }
+    var noteAuditionKeyDownHandler: InstrumentEditorNoteAuditionKeyDownHandler? {
+        didSet {
+            (window as? InstrumentEditorPanel)?.keyboardAuditionRouter.noteKeyDownHandler = noteAuditionKeyDownHandler
+        }
+    }
+    var noteAuditionKeyUpHandler: InstrumentEditorNoteAuditionKeyUpHandler? {
+        didSet {
+            (window as? InstrumentEditorPanel)?.keyboardAuditionRouter.noteKeyUpHandler = noteAuditionKeyUpHandler
+        }
+    }
+    var noteAuditionCancelHandler: InstrumentEditorNoteAuditionCancelHandler?
 
     init(
         displayState: InstrumentEditorDisplayState = .empty,
@@ -533,13 +740,19 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
-        samplePanningEditHandler: SamplePanningEditHandler? = nil
+        samplePanningEditHandler: SamplePanningEditHandler? = nil,
+        noteAuditionKeyDownHandler: InstrumentEditorNoteAuditionKeyDownHandler? = nil,
+        noteAuditionKeyUpHandler: InstrumentEditorNoteAuditionKeyUpHandler? = nil,
+        noteAuditionCancelHandler: InstrumentEditorNoteAuditionCancelHandler? = nil
     ) {
         self.instrumentNameEditHandler = instrumentNameEditHandler
         self.sampleVolumeEditHandler = sampleVolumeEditHandler
         self.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
         self.sampleFinetuneEditHandler = sampleFinetuneEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
+        self.noteAuditionKeyDownHandler = noteAuditionKeyDownHandler
+        self.noteAuditionKeyUpHandler = noteAuditionKeyUpHandler
+        self.noteAuditionCancelHandler = noteAuditionCancelHandler
         let contentView = InstrumentEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
             displayState: displayState,
@@ -549,7 +762,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             sampleFinetuneEditHandler: sampleFinetuneEditHandler,
             samplePanningEditHandler: samplePanningEditHandler
         )
-        let panel = NSPanel(
+        let panel = InstrumentEditorPanel(
             contentRect: contentView.frame,
             styleMask: [.titled, .closable, .utilityWindow],
             backing: .buffered,
@@ -566,6 +779,9 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.fullScreenAuxiliary]
+        panel.keyboardAuditionRouter.noteKeyDownHandler = noteAuditionKeyDownHandler
+        panel.keyboardAuditionRouter.noteKeyUpHandler = noteAuditionKeyUpHandler
+        panel.initialFirstResponder = contentView
         panel.center()
         super.init(window: panel)
         panel.delegate = self
@@ -582,6 +798,12 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         NSRunningApplication.current.activate(options: [.activateAllWindows])
+        if !didInstallInitialFirstResponder {
+            didInstallInitialFirstResponder = true
+            if let contentView = window.contentView {
+                window.makeFirstResponder(contentView)
+            }
+        }
     }
 
     @discardableResult
@@ -590,12 +812,19 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
     }
 
     func windowWillClose(_ notification: Notification) {
+        window?.makeFirstResponder(nil)
+        noteAuditionCancelHandler?()
+        noteAuditionCancelHandler = nil
+        noteAuditionKeyDownHandler = nil
+        noteAuditionKeyUpHandler = nil
         closeHandler?()
     }
 }
 
 @MainActor
 final class InstrumentEditorView: FlippedEditorView {
+    override var acceptsFirstResponder: Bool { true }
+
     private(set) var displayState: InstrumentEditorDisplayState
     private(set) var envelopeDisplayMode: InstrumentEnvelopeDisplayMode = .volume
     private(set) var rebuildCount = 0
@@ -777,6 +1006,8 @@ final class InstrumentEditorView: FlippedEditorView {
             ? "Edit the selected instrument name and press Return"
             : "Instrument names are editable only in stopped editable documents"
         addControl(field, to: parent, frame: frame)
+        nextKeyView = field
+        field.nextKeyView = self
     }
 
     @objc

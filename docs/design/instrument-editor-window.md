@@ -15,8 +15,12 @@ The existing FINETUNE knob now follows the same policy for the exact XM signed-b
 The existing REL NOTE stepper now edits the same signed-byte range through one labeled applyEdit
 commit per click and uses that unchanged pitch adaptation.
 Represented XM autovibrato bytes are shown on the disabled VIBRATO controls. Loaded modules,
-playing documents, and every unimplemented mutation control remain read-only. Broader sample/XI, envelope/keymap, waveform,
-autovibrato playback, and audition work remains future scope. Represented XM panning-envelope data is
+playing documents, and every unimplemented mutation control remain read-only. Focused unmodified
+computer note keys outside text responders reuse the tracker map and isolated preview path;
+the on-screen keyboard remains inert. The editor closes normally through its red close button
+or Command-W and reopens as one clean presenter-owned window. Broader sample/XI,
+envelope/keymap, waveform, and
+autovibrato playback work remains future scope. Represented XM panning-envelope data is
 shown through a local display-only VOL/PAN selector using the shared graph and readouts, while
 document/undo and playback state remain untouched. Parser architecture,
 broad writer/export behavior, tracker viewport, and audio backend behavior are unchanged.
@@ -43,7 +47,21 @@ gain-law, or scheduling logic changed.
 Undo/redo refresh this window and the main control panel. Sample panning and instrument autovibrato
 remain runtime-inert. Panning-envelope metadata is preserved but not yet
 applied to playback; its VOL/PAN selector changes only local display mode, and every envelope edit
-control remains disabled/inert alongside XI, keymap, audition, and loaded-module NAME.
+control remains disabled/inert alongside XI, graphical keymap interaction, and loaded-module NAME.
+
+The close lifecycle remains standard AppKit behavior: the red close button and Command-W close only
+the utility window, the Window menu recreates one controller/router when asked, and close cancels any
+focused-key preview before detaching the router handlers. The panel matches the Song/Order Editor's
+activating utility-window configuration, and its audition router inspects only keyboard events so
+AppKit handles mouse activation and the standard traffic lights without interception. Editable-copy
+confirmation remains a document-level sheet on the main tracker window. When invoked while the
+Instrument Editor is key, the floating panel is temporarily ordered behind the sheet and restored
+after dismissal rather than becoming the sheet owner. Open/reopen installs the content view as the non-editing initial
+responder, leaving NAME unselected and audition immediately eligible; explicit NAME focus still uses
+the normal field editor and suppresses audition until editing ends. Preview activity is independent of transport playback, so it
+does not alter NAME/PAN/VOLUME/FINETUNE/REL NOTE eligibility. Metadata changed during or after a
+preview is read on the next audition trigger; held-note live modulation and automatic retrigger remain
+out of scope. Sample-header panning remains editable/exportable but runtime-inert.
 
 ---
 
@@ -204,10 +222,11 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 9. Done: selected represented sample VOLUME mutation behind applyEdit/undo.
 10. Done: selected represented sample FINETUNE mutation behind applyEdit/undo.
 11. Done: selected represented sample REL NOTE mutation behind applyEdit/undo.
-12. Envelope editing (points, sustain, loop, add/del) wired.
-13. Vibrato + remaining defaults controls wired.
-14. Note-keymap audition through the isolated preview path.
-15. Keymap drag-to-assign-range.
+12. Done: focused-window computer-keyboard audition through the isolated preview path.
+13. Audition-only on-screen keyboard interaction.
+14. Envelope editing (points, sustain, loop, add/del) wired.
+15. Vibrato + remaining defaults controls wired.
+16. Keymap drag-to-assign-range.
 
 ---
 
@@ -220,6 +239,9 @@ supported represented instrument to a temporary XM and reload its name. For samp
 a non-center value displays exactly, PAN stays disabled for loaded/playing/empty states, and an edit
 survives Export XM/reopen. For relative note and finetune, confirm signed endpoints and intermediate values survive,
 editing is blocked during playback, and undo/redo restore the corresponding later playback pitch.
+With the Instrument Editor focused outside NAME, verify both note-key rows, octave and
+sample selection, repeat suppression, and matching key release; confirm NAME typing and standard
+shortcuts win, pattern/cursor/undo state does not change, and the on-screen keyboard is inert.
 Verify autovibrato likewise survives while VIBRATO remains disabled
 and playback/audition output is unchanged. Verify panning-envelope graph/readouts in loaded and
 editable-copy states, clean disabled/empty states, local VOL/PAN switching across undo/redo, and

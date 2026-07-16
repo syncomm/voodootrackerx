@@ -490,20 +490,41 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         let controller = InstrumentEditorWindowController(
             displayState: .editableDocument(makeEditableDocument(palette: makeInstrumentPalette()))
         )
+        let songOrderController = SongOrderEditorWindowController()
         let window = try XCTUnwrap(controller.window)
-        let panel = try XCTUnwrap(window as? NSPanel)
+        let panel = try XCTUnwrap(window as? InstrumentEditorPanel)
+        let songOrderPanel = try XCTUnwrap(songOrderController.window as? NSPanel)
         let contentView = try XCTUnwrap(window.contentView)
         let descendants = contentView.instrumentEditorDescendants
         let identifiers = Set(descendants.compactMap { $0.identifier?.rawValue })
         let fieldValues = Set(descendants.compactMap { ($0 as? NSTextField)?.stringValue })
 
         XCTAssertEqual(window.title, "Instrument Editor")
+        XCTAssertTrue(window.styleMask.contains(.titled))
         XCTAssertTrue(window.styleMask.contains(.utilityWindow))
         XCTAssertTrue(window.styleMask.contains(.closable))
+        XCTAssertFalse(window.styleMask.contains(.nonactivatingPanel))
+        XCTAssertFalse(window.styleMask.contains(.fullSizeContentView))
+        XCTAssertTrue(window.standardWindowButton(.closeButton)?.isEnabled == true)
+        XCTAssertNotNil(window.standardWindowButton(.closeButton)?.target)
+        XCTAssertNotNil(window.standardWindowButton(.closeButton)?.action)
         XCTAssertFalse(window.styleMask.contains(.resizable))
         XCTAssertEqual(window.contentMinSize, InstrumentEditorWindowController.contentSize)
         XCTAssertEqual(window.contentMaxSize, InstrumentEditorWindowController.contentSize)
         XCTAssertTrue(panel.isFloatingPanel)
+        XCTAssertFalse(panel.hidesOnDeactivate)
+        XCTAssertFalse(panel.becomesKeyOnlyIfNeeded)
+        XCTAssertFalse(panel.worksWhenModal)
+        XCTAssertTrue(panel.canBecomeKey)
+        XCTAssertFalse(panel.canBecomeMain)
+        XCTAssertFalse(panel.isReleasedWhenClosed)
+        XCTAssertEqual(panel.level, songOrderPanel.level)
+        XCTAssertEqual(panel.collectionBehavior, songOrderPanel.collectionBehavior)
+        XCTAssertEqual(panel.hidesOnDeactivate, songOrderPanel.hidesOnDeactivate)
+        XCTAssertEqual(panel.becomesKeyOnlyIfNeeded, songOrderPanel.becomesKeyOnlyIfNeeded)
+        XCTAssertEqual(panel.worksWhenModal, songOrderPanel.worksWhenModal)
+        XCTAssertEqual(panel.canBecomeKey, songOrderPanel.canBecomeKey)
+        XCTAssertEqual(panel.canBecomeMain, songOrderPanel.canBecomeMain)
         XCTAssertEqual(InstrumentEditorWindowController.contentSize, NSSize(width: 920, height: 638))
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.headerPanel))
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.instrumentListPanel))
@@ -563,6 +584,48 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(nameField.isEditable)
         XCTAssertEqual(nameField.stringValue, "Lead")
         XCTAssertTrue((contentView as? InstrumentEditorView)?.displayState.isReadOnly == true)
+    }
+
+    func testInstrumentEditorCanRegainKeyStatusAcrossTrackerFocusSwitches() throws {
+        let trackerWindow = makeInstrumentEditorTestWindow(title: "Tracker")
+        let controller = InstrumentEditorWindowController()
+        let editorWindow = try XCTUnwrap(controller.window)
+        defer {
+            editorWindow.close()
+            trackerWindow.close()
+        }
+
+        trackerWindow.orderFront(nil)
+        controller.showWindowAndActivate()
+        XCTAssertTrue(editorWindow.isVisible)
+        XCTAssertTrue(editorWindow.canBecomeKey)
+        trackerWindow.orderFront(nil)
+        XCTAssertTrue(trackerWindow.canBecomeKey)
+        XCTAssertTrue(editorWindow.canBecomeKey)
+        editorWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(editorWindow.isVisible)
+        XCTAssertTrue(editorWindow.canBecomeKey)
+    }
+
+    func testStandardCloseButtonClosesOnlyInstrumentEditor() throws {
+        let trackerWindow = makeInstrumentEditorTestWindow(title: "Tracker")
+        let controller = InstrumentEditorWindowController()
+        let editorWindow = try XCTUnwrap(controller.window)
+        let closeButton = try XCTUnwrap(editorWindow.standardWindowButton(.closeButton))
+        var closeCount = 0
+        controller.closeHandler = {
+            closeCount += 1
+        }
+        defer { trackerWindow.close() }
+
+        trackerWindow.makeKeyAndOrderFront(nil)
+        controller.showWindowAndActivate()
+        closeButton.performClick(nil)
+        drainInstrumentEditorRunLoop()
+
+        XCTAssertFalse(editorWindow.isVisible)
+        XCTAssertTrue(trackerWindow.isVisible)
+        XCTAssertEqual(closeCount, 1)
     }
 
     func testEditableNameFieldSubmitsSelectedZeroBasedInstrumentIndex() throws {
@@ -728,19 +791,658 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(document, before)
     }
 
-    func testPresenterReusesOneControllerForRepeatedOpenCommands() throws {
-        let presenter = InstrumentEditorWindowPresenter()
-        let state = InstrumentEditorDisplayState.editableDocument(.makeDefault())
+    func testEditableCopyMessageUsesMainDocumentWindowAndTracksKeyAuxiliaryForRestoration() throws {
+        let mainWindow = NSWindow()
+        let editorWindow = try XCTUnwrap(InstrumentEditorWindowController().window)
 
-        let first = presenter.show(displayState: state)
-        let second = presenter.show(displayState: state)
+        let fromMain = LoadedModuleEditableCopyAlertHostPolicy.presentation(
+            keyWindow: mainWindow,
+            mainWindow: mainWindow
+        )
+        XCTAssertTrue(fromMain.hostWindow === mainWindow)
+        XCTAssertNil(fromMain.auxiliaryWindowToRestore)
+
+        let fromEditor = LoadedModuleEditableCopyAlertHostPolicy.presentation(
+            keyWindow: editorWindow,
+            mainWindow: mainWindow
+        )
+        XCTAssertTrue(fromEditor.hostWindow === mainWindow)
+        XCTAssertTrue(fromEditor.auxiliaryWindowToRestore === editorWindow)
+
+        let fallback = LoadedModuleEditableCopyAlertHostPolicy.presentation(
+            keyWindow: editorWindow,
+            mainWindow: nil
+        )
+        XCTAssertTrue(fallback.hostWindow === editorWindow)
+        XCTAssertNil(fallback.auxiliaryWindowToRestore)
+        let missing = LoadedModuleEditableCopyAlertHostPolicy.presentation(
+            keyWindow: nil,
+            mainWindow: nil
+        )
+        XCTAssertNil(missing.hostWindow)
+        XCTAssertNil(missing.auxiliaryWindowToRestore)
+    }
+
+    func testEditableCopySheetFromMainLeavesNoAttachedSheetOrModalStateAfterDismissal() throws {
+        let mainWindow = makeInstrumentEditorTestWindow(title: "Tracker")
+        let alert = makeInstrumentEditorTestAlert()
+        var sheetHost: NSWindow?
+        var dismissalHandler: ((NSApplication.ModalResponse) -> Void)?
+        var orderedWindows: [NSWindow] = []
+        var activatedWindows: [NSWindow] = []
+        var runModalCount = 0
+        let actions = LoadedModuleEditableCopyAlertPresenter.Actions(
+            orderBack: { orderedWindows.append($0) },
+            makeKeyAndOrderFront: { activatedWindows.append($0) },
+            beginSheet: { _, hostWindow, completionHandler in
+                sheetHost = hostWindow
+                dismissalHandler = completionHandler
+            },
+            runModal: { _ in runModalCount += 1 }
+        )
+
+        LoadedModuleEditableCopyAlertPresenter.present(
+            alert,
+            keyWindow: mainWindow,
+            mainWindow: mainWindow,
+            actions: actions
+        )
+
+        XCTAssertTrue(sheetHost === mainWindow)
+        XCTAssertTrue(orderedWindows.isEmpty)
+        XCTAssertTrue(activatedWindows.isEmpty)
+        XCTAssertEqual(runModalCount, 0)
+        XCTAssertNil(NSApp.modalWindow)
+        dismissalHandler?(.OK)
+        XCTAssertTrue(activatedWindows.isEmpty)
+        XCTAssertNil(mainWindow.attachedSheet)
+        XCTAssertNil(alert.window.sheetParent)
+        XCTAssertNil(NSApp.modalWindow)
+    }
+
+    func testEditableCopySheetFromKeyInstrumentEditorRestoresActivationAndCloseBehavior() throws {
+        let mainWindow = makeInstrumentEditorTestWindow(title: "Tracker")
+        let controller = InstrumentEditorWindowController()
+        let editorWindow = try XCTUnwrap(controller.window)
+        let editorPanel = try XCTUnwrap(editorWindow as? NSPanel)
+        let closeButton = try XCTUnwrap(editorWindow.standardWindowButton(.closeButton))
+        var sheetHost: NSWindow?
+        var dismissalHandler: ((NSApplication.ModalResponse) -> Void)?
+        var orderedWindows: [NSWindow] = []
+        var activatedWindows: [NSWindow] = []
+        var runModalCount = 0
+        defer {
+            editorWindow.close()
+            mainWindow.close()
+        }
+        editorWindow.orderFront(nil)
+        let actions = LoadedModuleEditableCopyAlertPresenter.Actions(
+            orderBack: { orderedWindows.append($0) },
+            makeKeyAndOrderFront: { activatedWindows.append($0) },
+            beginSheet: { _, hostWindow, completionHandler in
+                sheetHost = hostWindow
+                dismissalHandler = completionHandler
+            },
+            runModal: { _ in runModalCount += 1 }
+        )
+
+        let alert = makeInstrumentEditorTestAlert()
+        LoadedModuleEditableCopyAlertPresenter.present(
+            alert,
+            keyWindow: editorWindow,
+            mainWindow: mainWindow,
+            actions: actions
+        )
+
+        XCTAssertTrue(sheetHost === mainWindow)
+        XCTAssertEqual(orderedWindows.count, 1)
+        XCTAssertTrue(orderedWindows.first === editorWindow)
+        XCTAssertEqual(activatedWindows.count, 1)
+        XCTAssertTrue(activatedWindows.first === mainWindow)
+        XCTAssertEqual(runModalCount, 0)
+        XCTAssertFalse(editorPanel.isFloatingPanel)
+        XCTAssertNil(editorWindow.attachedSheet)
+        XCTAssertTrue(closeButton.isEnabled)
+        dismissalHandler?(.OK)
+        XCTAssertEqual(activatedWindows.count, 2)
+        XCTAssertTrue(activatedWindows.last === editorWindow)
+        XCTAssertTrue(editorPanel.isFloatingPanel)
+        XCTAssertNil(mainWindow.attachedSheet)
+        XCTAssertNil(alert.window.sheetParent)
+        XCTAssertNil(NSApp.modalWindow)
+        XCTAssertTrue(closeButton.isEnabled)
+
+        closeButton.performClick(nil)
+        XCTAssertFalse(editorWindow.isVisible)
+    }
+
+    func testPresenterReusesOneControllerAndCloseCancelsAndDetachesAuditionBeforeReopen() throws {
+        let presenter = InstrumentEditorWindowPresenter()
+        let document = makeEditableDocument(palette: makeInstrumentPalette())
+        let state = InstrumentEditorDisplayState.editableDocument(document)
+        let harness = InstrumentEditorAuditionHarness(
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            selectedOctave: 4,
+            availability: { _ in document.noteAuditionAvailability }
+        )
+        var handlerMarker = 0
+        let first = presenter.show(displayState: state, noteAuditionKeyDownHandler: { _, _ in
+            handlerMarker = 1
+            return true
+        })
+        let router = try XCTUnwrap((first.window as? InstrumentEditorPanel)?.keyboardAuditionRouter)
+        let second = presenter.show(displayState: state, noteAuditionKeyDownHandler: { character, isRepeat in
+            handlerMarker = 2
+            return harness.router.noteKeyDownHandler?(character, isRepeat) == true
+        }, noteAuditionKeyUpHandler: { character in
+            harness.router.noteKeyUpHandler?(character) == true
+        }, noteAuditionCancelHandler: {
+            harness.previewer.cancelPreview()
+        })
 
         XCTAssertTrue(first === second)
         XCTAssertTrue(first.window === second.window)
         XCTAssertTrue(first.window?.isVisible == true)
+        XCTAssertTrue(router === (second.window as? InstrumentEditorPanel)?.keyboardAuditionRouter)
+        XCTAssertTrue(router.handle(makeInstrumentEditorKeyEvent(keyCode: 6, characters: "z"),
+                                    isKeyWindow: true, firstResponder: NSButton()))
+        XCTAssertEqual(handlerMarker, 2)
+        XCTAssertNotNil(harness.previewer.activePreviewToken)
+        XCTAssertEqual(harness.sink.events.count, 1)
 
         first.window?.close()
         XCTAssertNil(presenter.windowController)
+        XCTAssertNil(harness.previewer.activePreviewToken)
+        XCTAssertEqual(harness.sink.cancelPreviewCount, 1)
+        XCTAssertNil(first.noteAuditionKeyDownHandler)
+        XCTAssertNil(first.noteAuditionKeyUpHandler)
+        XCTAssertNil(router.noteKeyDownHandler)
+        XCTAssertNil(router.noteKeyUpHandler)
+        first.window?.close()
+        XCTAssertEqual(harness.sink.cancelPreviewCount, 1)
+        let reopened = presenter.show(displayState: state)
+        XCTAssertFalse(reopened === first)
+        XCTAssertFalse((reopened.window as? InstrumentEditorPanel)?.keyboardAuditionRouter === router)
+        let reopenedView = try XCTUnwrap(reopened.window?.contentView as? InstrumentEditorView)
+        XCTAssertTrue(reopenedView.displayState.isInstrumentNameEditable)
+        XCTAssertTrue(reopenedView.displayState.isSampleVolumeEditable)
+        XCTAssertTrue(reopenedView.displayState.isSampleRelativeNoteEditable)
+        XCTAssertTrue(reopenedView.displayState.isSampleFinetuneEditable)
+        XCTAssertTrue(reopenedView.displayState.isSamplePanningEditable)
+        reopened.window?.close()
+    }
+
+    func testRepeatedCloseReopenCyclesCreateOneFreshControllerAndRouterPerCycle() throws {
+        let presenter = InstrumentEditorWindowPresenter()
+        let state = InstrumentEditorDisplayState.editableDocument(
+            makeEditableDocument(palette: makeInstrumentPalette())
+        )
+        var controllers = Set<ObjectIdentifier>()
+        var routers = Set<ObjectIdentifier>()
+
+        for _ in 0..<3 {
+            let controller = presenter.show(displayState: state)
+            let router = try XCTUnwrap((controller.window as? InstrumentEditorPanel)?.keyboardAuditionRouter)
+            controllers.insert(ObjectIdentifier(controller))
+            routers.insert(ObjectIdentifier(router))
+            XCTAssertTrue(presenter.windowController === controller)
+            XCTAssertTrue(controller.window?.isVisible == true)
+            controller.window?.close()
+            XCTAssertNil(presenter.windowController)
+        }
+
+        XCTAssertEqual(controllers.count, 3)
+        XCTAssertEqual(routers.count, 3)
+    }
+
+    func testOpenAndReopenStartOutsideNameEditingAndExplicitFocusSuppressesThenRestoresAudition() throws {
+        let presenter = InstrumentEditorWindowPresenter()
+        let state = InstrumentEditorDisplayState.editableDocument(
+            makeEditableDocument(palette: makeInstrumentPalette())
+        )
+        var auditionCount = 0
+        let noteHandler: InstrumentEditorNoteAuditionKeyDownHandler = { _, _ in
+            auditionCount += 1
+            return true
+        }
+        let controller = presenter.show(displayState: state, noteAuditionKeyDownHandler: noteHandler)
+        let window = try XCTUnwrap(controller.window)
+        let contentView = try XCTUnwrap(window.contentView as? InstrumentEditorView)
+        let nameField = try XCTUnwrap(window.contentView?.instrumentEditorNameField)
+        let router = try XCTUnwrap((window as? InstrumentEditorPanel)?.keyboardAuditionRouter)
+
+        XCTAssertTrue(window.firstResponder === contentView)
+        XCTAssertNil(nameField.currentEditor())
+        XCTAssertEqual(nameField.stringValue, "Lead")
+        XCTAssertTrue(contentView.nextKeyView === nameField)
+        XCTAssertTrue(nameField.nextKeyView === contentView)
+        XCTAssertTrue(router.handle(makeInstrumentEditorKeyEvent(keyCode: 6, characters: "z"),
+                                    isKeyWindow: true, firstResponder: window.firstResponder))
+        XCTAssertEqual(auditionCount, 1)
+
+        nameField.selectText(nil)
+        XCTAssertTrue(window.firstResponder is NSTextView)
+        XCTAssertFalse(router.handle(makeInstrumentEditorKeyEvent(keyCode: 6, characters: "z"),
+                                     isKeyWindow: true, firstResponder: window.firstResponder))
+        XCTAssertEqual(auditionCount, 1)
+        presenter.show(displayState: state, noteAuditionKeyDownHandler: noteHandler)
+        XCTAssertTrue(window.firstResponder is NSTextView)
+
+        XCTAssertTrue(window.makeFirstResponder(contentView))
+        XCTAssertNil(nameField.currentEditor())
+        XCTAssertTrue(router.handle(makeInstrumentEditorKeyEvent(keyCode: 6, characters: "z"),
+                                    isKeyWindow: true, firstResponder: window.firstResponder))
+        XCTAssertEqual(auditionCount, 2)
+        nameField.selectText(nil)
+
+        window.close()
+
+        XCTAssertNil(nameField.currentEditor())
+        XCTAssertNil(presenter.windowController)
+        let reopened = presenter.show(displayState: state, noteAuditionKeyDownHandler: noteHandler)
+        let reopenedWindow = try XCTUnwrap(reopened.window)
+        let reopenedView = try XCTUnwrap(reopened.window?.contentView as? InstrumentEditorView)
+        let reopenedNameField = try XCTUnwrap(reopenedWindow.contentView?.instrumentEditorNameField)
+        let reopenedRouter = try XCTUnwrap((reopenedWindow as? InstrumentEditorPanel)?.keyboardAuditionRouter)
+        XCTAssertTrue(reopenedWindow.firstResponder === reopenedView)
+        XCTAssertNil(reopenedNameField.currentEditor())
+        XCTAssertEqual(reopenedNameField.stringValue, "Lead")
+        XCTAssertTrue(reopenedView.nextKeyView === reopenedNameField)
+        XCTAssertTrue(reopenedNameField.nextKeyView === reopenedView)
+        XCTAssertTrue(reopenedView.displayState.isInstrumentNameEditable)
+        XCTAssertTrue(reopenedView.displayState.isSampleVolumeEditable)
+        XCTAssertTrue(reopenedRouter.handle(makeInstrumentEditorKeyEvent(keyCode: 6, characters: "z"),
+                                            isKeyWindow: true, firstResponder: reopenedWindow.firstResponder))
+        XCTAssertEqual(auditionCount, 3)
+        reopened.window?.close()
+    }
+
+    func testNoteAuditionRoutingPolicyUsesSharedLowerAndUpperTrackerKeyMap() throws {
+        let cases: [(Character, UInt16, UInt8)] = [("z", 6, 49), ("q", 12, 61)]
+        for testCase in cases {
+            XCTAssertEqual(instrumentEditorAuditionAction(keyCode: testCase.1, characters: String(testCase.0)),
+                           .noteKeyDown(testCase.0, isRepeat: false))
+            XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: testCase.0, octave: 4), testCase.2)
+        }
+    }
+
+    func testInstrumentEditorPanelInspectsOnlyKeyboardEventsForAudition() {
+        XCTAssertTrue(InstrumentEditorWindowEventRoutingPolicy.shouldInspectForNoteAudition(.keyDown))
+        XCTAssertTrue(InstrumentEditorWindowEventRoutingPolicy.shouldInspectForNoteAudition(.keyUp))
+        for eventType: NSEvent.EventType in [
+            .leftMouseDown,
+            .leftMouseUp,
+            .leftMouseDragged,
+            .mouseMoved,
+            .scrollWheel,
+        ] {
+            XCTAssertFalse(
+                InstrumentEditorWindowEventRoutingPolicy.shouldInspectForNoteAudition(eventType),
+                "\(eventType) must go directly to NSPanel.sendEvent"
+            )
+        }
+    }
+
+    func testNoteAuditionRoutingPolicyRejectsUnsupportedCommandsNavigationAndFunctionKeys() {
+        XCTAssertNil(instrumentEditorAuditionAction(keyCode: 34, characters: "i"))
+
+        let protectedKeyCodes: [UInt16] = [48, 53, 36, 76, 51, 117, 115, 119, 116, 121,
+                                              123, 124, 125, 126, 122]
+        for keyCode in protectedKeyCodes {
+            XCTAssertNil(instrumentEditorAuditionAction(keyCode: keyCode, characters: "z"),
+                         "keyCode \(keyCode) must remain in the normal responder chain")
+        }
+    }
+
+    func testNoteAuditionRoutingPolicyRejectsCommandControlAndOptionModifiers() {
+        for modifier: NSEvent.ModifierFlags in [.command, .control, .option] {
+            XCTAssertNil(instrumentEditorAuditionAction(keyCode: 6, characters: "z", modifierFlags: modifier))
+        }
+
+        XCTAssertEqual(instrumentEditorAuditionAction(keyCode: 6, characters: "Z", modifierFlags: .shift),
+                       .noteKeyDown("Z", isRepeat: false))
+        for character in ["z", "x", "c", "v", "a", "w"] {
+            XCTAssertNil(instrumentEditorAuditionAction(keyCode: 6, characters: character,
+                                                        modifierFlags: .command))
+        }
+        XCTAssertNil(instrumentEditorAuditionAction(keyCode: 6, characters: "z",
+                                                    modifierFlags: [.command, .shift]))
+    }
+
+    func testCommandWRemainsInTheNormalResponderChain() {
+        let router = InstrumentEditorKeyboardAuditionRouter()
+        var handlerWasCalled = false
+        router.noteKeyDownHandler = { _, _ in
+            handlerWasCalled = true
+            return true
+        }
+
+        XCTAssertFalse(router.handle(
+            makeInstrumentEditorKeyEvent(keyCode: 13, characters: "w", modifierFlags: .command),
+            isKeyWindow: true,
+            firstResponder: NSButton()
+        ))
+        XCTAssertFalse(handlerWasCalled)
+    }
+
+    func testNoteAuditionRoutingPolicyRequiresKeyWindowAndDefersToTextEditingResponders() {
+        let textView = NSTextView(frame: .zero)
+        let editableNameField = NSTextField(frame: .zero)
+        editableNameField.isEditable = true
+
+        XCTAssertNil(instrumentEditorAuditionAction(keyCode: 6, characters: "z", isKeyWindow: false))
+        XCTAssertNil(instrumentEditorAuditionAction(keyCode: 6, characters: "z", firstResponder: textView))
+        XCTAssertNil(instrumentEditorAuditionAction(keyCode: 6, characters: "z",
+                                                    firstResponder: editableNameField))
+        XCTAssertEqual(instrumentEditorAuditionAction(keyCode: 6, characters: "z",
+                                                      firstResponder: NSButton()),
+                       .noteKeyDown("z", isRepeat: false))
+    }
+
+    func testRoutedEditableDocumentAuditionUsesExistingPipelineWithoutMutationOrUndo() throws {
+        let document = makeEditableDocument(palette: makeInstrumentPalette())
+        let documentBefore = document
+        let cursor = PatternCursor(row: 9, channel: 3, field: .note)
+        let cursorBefore = cursor
+        let undoManager = UndoManager()
+        let harness = InstrumentEditorAuditionHarness(
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            selectedOctave: 4,
+            channelIndex: cursor.channel,
+            rowIndex: cursor.row,
+            availability: { _ in document.noteAuditionAvailability }
+        )
+
+        XCTAssertTrue(harness.send(keyCode: 12, characters: "q"))
+        let event = try XCTUnwrap(harness.sink.events.first)
+
+        XCTAssertEqual(event.noteValue, 61)
+        XCTAssertEqual(event.selectedOctave, 4)
+        XCTAssertEqual(event.request.selectedInstrumentIndex, 2)
+        XCTAssertEqual(event.request.selectedSampleIndex, 2)
+        XCTAssertEqual(event.request.sourceContext, .blankDocument)
+        XCTAssertEqual(event.request.channelIndex, 3)
+        XCTAssertEqual(event.request.rowIndex, 9)
+        XCTAssertEqual(event.sampleDescriptor.instrumentIndex, 2)
+        XCTAssertEqual(event.sampleDescriptor.sampleIndex, 1)
+        XCTAssertEqual(document, documentBefore)
+        XCTAssertEqual(cursor, cursorBefore)
+        XCTAssertFalse(undoManager.canUndo)
+    }
+
+    func testRoutedLoadedModuleAuditionUsesSelectedSampleAndSuppressesRepeat() throws {
+        let song = makePlaybackSong(instruments: makeInstrumentPalette())
+        let songBefore = song
+        let selection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+        let sourceContext = EditorNoteAuditionSourceContext.loadedModule(patternIndex: 7)
+        let harness = InstrumentEditorAuditionHarness(
+            selection: selection,
+            sourceContext: sourceContext,
+            selectedOctave: 5,
+            availability: { EditorNoteAuditionAvailabilityResolver.availability(for: $0, loadedPlaybackSong: song) }
+        )
+
+        XCTAssertTrue(harness.send(keyCode: 6, characters: "z"))
+        XCTAssertTrue(harness.send(keyCode: 6, characters: "z", isARepeat: true))
+
+        let preview = try XCTUnwrap(harness.sink.events.first)
+        XCTAssertEqual(harness.sink.events.count, 1)
+        XCTAssertEqual(preview.request.selectedInstrumentIndex, 2)
+        XCTAssertEqual(preview.request.selectedSampleIndex, 2)
+        XCTAssertEqual(preview.request.sourceContext, sourceContext)
+        XCTAssertEqual(preview.sampleDescriptor.sampleIndex, 1)
+        XCTAssertEqual(song, songBefore)
+    }
+
+    func testUnavailableInstrumentEditorAuditionDoesNotTriggerPreview() {
+        let document = BlankTrackerDocument.makeDefault()
+        let harness = InstrumentEditorAuditionHarness(
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            selectedOctave: 4,
+            availability: { _ in document.noteAuditionAvailability }
+        )
+
+        XCTAssertFalse(harness.send(keyCode: 6, characters: "z"))
+        XCTAssertTrue(harness.sink.events.isEmpty)
+        XCTAssertEqual(harness.sink.cancelPreviewCount, 0)
+    }
+
+    func testInstrumentEditorKeyUpCancelsOnlyMatchingPreviewWithoutMutation() throws {
+        let document = makeEditableDocument(palette: makeInstrumentPalette())
+        let before = document
+        let harness = InstrumentEditorAuditionHarness(
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            selectedOctave: 4,
+            availability: { _ in document.noteAuditionAvailability }
+        )
+        XCTAssertTrue(harness.send(keyCode: 6, characters: "z"))
+
+        XCTAssertFalse(harness.send(type: .keyUp, keyCode: 12, characters: "q"))
+        XCTAssertTrue(harness.send(type: .keyUp, keyCode: 6, characters: "z"))
+        XCTAssertEqual(harness.sink.cancelPreviewCount, 1)
+        XCTAssertNil(harness.previewer.activePreviewToken)
+        XCTAssertEqual(document, before)
+    }
+
+    func testActiveAuditionPreviewDoesNotDisableStoppedEditableMetadataControls() throws {
+        let document = makeEditableDocument(palette: makeInstrumentPalette())
+        let controller = InstrumentEditorWindowController(displayState: .editableDocument(document))
+        let descendants = try XCTUnwrap(controller.window?.contentView).instrumentEditorDescendants
+        let harness = InstrumentEditorAuditionHarness(
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            selectedOctave: 4,
+            availability: { _ in document.noteAuditionAvailability }
+        )
+
+        XCTAssertTrue(harness.send(keyCode: 6, characters: "z"))
+        XCTAssertNotNil(harness.previewer.activePreviewToken)
+        XCTAssertTrue(try XCTUnwrap(controller.window?.contentView?.instrumentEditorNameField).isEnabled)
+        XCTAssertTrue(try XCTUnwrap(descendants.sampleVolumeControl).isEnabled)
+        XCTAssertTrue(try XCTUnwrap(descendants.sampleRelativeNoteControl).isEnabled)
+        XCTAssertTrue(try XCTUnwrap(descendants.sampleFinetuneControl).isEnabled)
+        XCTAssertTrue(try XCTUnwrap(descendants.samplePanningControl).isEnabled)
+        XCTAssertTrue(harness.send(type: .keyUp, keyCode: 6, characters: "z"))
+    }
+
+    func testNextAuditionRebuildsVolumeAndPitchAfterMetadataEditsWithoutLiveRetriggerOrPanning() throws {
+        var document = makeEditableDocument(palette: makeInstrumentPalette())
+        let undoManager = UndoManager()
+        let coordinator = EditableDocumentEditCoordinator(
+            undoManager: undoManager,
+            contextProvider: { .editable(document: document, isPlaybackActive: false) },
+            documentApplyHandler: { document = $0 }
+        )
+        let harness = InstrumentEditorAuditionHarness(
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            selectedOctave: 4,
+            availability: { _ in document.noteAuditionAvailability }
+        )
+
+        func triggerAndRelease() throws -> EditorNoteAuditionPreviewRenderParameters {
+            XCTAssertTrue(harness.send(keyCode: 6, characters: "z"))
+            let event = try XCTUnwrap(harness.sink.events.last)
+            XCTAssertTrue(harness.send(type: .keyUp, keyCode: 6, characters: "z"))
+            return try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: event, sampleRate: 8_363))
+        }
+
+        let original = try triggerAndRelease()
+        XCTAssertTrue(coordinator.setSampleVolume(instrumentAt: 1, sampleAt: 1, volume: 16))
+        XCTAssertEqual(harness.sink.events.count, 1)
+        let quieter = try triggerAndRelease()
+        XCTAssertEqual(quieter.gain, EditorNoteAuditionPreviewGainPolicy.gain(sampleVolume: 0.25), accuracy: 0.000_001)
+        XCTAssertLessThan(quieter.gain, original.gain)
+
+        XCTAssertTrue(coordinator.setSampleFinetune(instrumentAt: 1, sampleAt: 1, finetune: 64))
+        XCTAssertEqual(harness.sink.events.count, 2)
+        let retuned = try triggerAndRelease()
+        XCTAssertNotEqual(retuned.playbackStep, quieter.playbackStep, accuracy: 0.000_001)
+
+        XCTAssertTrue(coordinator.setSampleRelativeNote(instrumentAt: 1, sampleAt: 1, relativeNote: 12))
+        XCTAssertEqual(harness.sink.events.count, 3)
+        let transposed = try triggerAndRelease()
+        XCTAssertGreaterThan(transposed.playbackStep, retuned.playbackStep)
+
+        XCTAssertTrue(coordinator.setSamplePanning(instrumentAt: 1, sampleAt: 1, panning: 201))
+        XCTAssertEqual(harness.sink.events.count, 4)
+        XCTAssertEqual(document.instrumentPalette[2]?.samples[1].panning, 201)
+        let panningStillInert = try triggerAndRelease()
+        XCTAssertEqual(panningStillInert, transposed)
+        XCTAssertTrue(undoManager.canUndo)
+        XCTAssertEqual(coordinator.undoMenuItemTitle, "Undo Change Sample Panning")
+    }
+
+}
+
+@MainActor
+private func makeInstrumentEditorTestWindow(title: String) -> NSWindow {
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+    )
+    window.title = title
+    return window
+}
+
+@MainActor
+private func makeInstrumentEditorTestAlert() -> NSAlert {
+    let alert = NSAlert()
+    alert.messageText = "Editable copy created"
+    alert.informativeText = "Test sheet"
+    alert.addButton(withTitle: "OK")
+    return alert
+}
+
+@MainActor
+private func drainInstrumentEditorRunLoop() {
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+}
+
+@MainActor
+private func instrumentEditorAuditionAction(
+    type: NSEvent.EventType = .keyDown,
+    keyCode: UInt16,
+    characters: String,
+    modifierFlags: NSEvent.ModifierFlags = [],
+    isARepeat: Bool = false,
+    isKeyWindow: Bool = true,
+    firstResponder: NSResponder? = nil
+) -> InstrumentEditorNoteAuditionRoutingAction? {
+    InstrumentEditorNoteAuditionRoutingPolicy.action(
+        eventType: type,
+        keyCode: keyCode,
+        charactersIgnoringModifiers: characters,
+        modifierFlags: modifierFlags,
+        isARepeat: isARepeat,
+        isKeyWindow: isKeyWindow,
+        firstResponder: firstResponder
+    )
+}
+
+private func makeInstrumentEditorKeyEvent(
+    type: NSEvent.EventType = .keyDown,
+    keyCode: UInt16,
+    characters: String,
+    modifierFlags: NSEvent.ModifierFlags = [],
+    isARepeat: Bool = false
+) -> NSEvent {
+    NSEvent.keyEvent(
+        with: type,
+        location: .zero,
+        modifierFlags: modifierFlags,
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: characters,
+        charactersIgnoringModifiers: characters,
+        isARepeat: isARepeat,
+        keyCode: keyCode
+    )!
+}
+
+private final class InstrumentEditorRecordingAuditionSink: EditorNoteAuditionPreviewSink {
+    private(set) var events: [EditorNoteAuditionPreviewEvent] = []
+    private(set) var cancelPreviewCount = 0
+
+    func preview(_ event: EditorNoteAuditionPreviewEvent) {
+        events.append(event)
+    }
+
+    func cancelPreview() {
+        cancelPreviewCount += 1
+    }
+}
+
+@MainActor
+private final class InstrumentEditorAuditionHarness {
+    let sink = InstrumentEditorRecordingAuditionSink()
+    let previewer: EditorNoteAuditionPreviewer
+    let router: InstrumentEditorKeyboardAuditionRouter
+
+    init(
+        selection: TrackerEditorSelection,
+        sourceContext: EditorNoteAuditionSourceContext,
+        selectedOctave: Int,
+        channelIndex: Int? = nil,
+        rowIndex: Int? = nil,
+        availability: @escaping (EditorNoteAuditionRequest) -> EditorNoteAuditionAvailability
+    ) {
+        previewer = EditorNoteAuditionPreviewer(sink: sink)
+        router = InstrumentEditorKeyboardAuditionRouter()
+        router.noteKeyDownHandler = { [previewer] character, isRepeat in
+            let route = EditorNoteAuditionInputPolicy.route(
+                input: .noteKey(isRepeat: isRepeat),
+                editModeEnabled: false,
+                sourceContext: sourceContext,
+                isNoteField: true
+            )
+            guard route.shouldAttemptPreview else {
+                return route.shouldConsumeNonMutatingInput(previewOutcome: .skipped(.missingRequest))
+            }
+            let request = EditorNoteAuditionRequest.noteOn(
+                trackerKey: character,
+                selectedOctave: selectedOctave,
+                selection: selection,
+                sourceContext: sourceContext,
+                channelIndex: channelIndex,
+                rowIndex: rowIndex,
+                isRepeatedKeyDown: isRepeat
+            )
+            let outcome = previewer.preview(
+                request: request,
+                availability: request.map(availability) ?? .unavailable(.selectedInstrumentSampleNotPlayable),
+                keyIdentity: EditorNoteAuditionKeyIdentity(trackerKey: character)
+            )
+            return route.shouldConsumeNonMutatingInput(previewOutcome: outcome)
+        }
+        router.noteKeyUpHandler = { [previewer] character in
+            EditorNoteAuditionKeyIdentity(trackerKey: character).map(previewer.stopPreview(for:)) ?? false
+        }
+    }
+
+    func send(
+        type: NSEvent.EventType = .keyDown,
+        keyCode: UInt16,
+        characters: String,
+        isARepeat: Bool = false
+    ) -> Bool {
+        router.handle(
+            makeInstrumentEditorKeyEvent(
+                type: type,
+                keyCode: keyCode,
+                characters: characters,
+                isARepeat: isARepeat
+            ),
+            isKeyWindow: true,
+            firstResponder: NSButton()
+        )
     }
 }
 

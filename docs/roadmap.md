@@ -165,7 +165,14 @@ Recommended next PR sequence:
    mapping on subsequent playback. Selected-sample FINETUNE likewise edits the
    exact XM signed byte `-128...127`; REL NOTE now follows the same boundary.
    Export XM/reopen preserves both, and later playback uses the unchanged pitch behavior.
-4. Continue explicit loaded-module copy/import flows before broader
+   Focused Instrument Editor note keys now reuse the shared map, octave/selection,
+   availability resolver, and isolated preview sink. The editor closes/reopens through
+   normal Song/Order-aligned AppKit lifecycle, its router leaves non-key window events to AppKit,
+   and preview activity does not change stopped-editable control eligibility. Editable-copy
+   confirmation remains a tracker-window document sheet even when invoked from the editor.
+4. Add audition-only on-screen Instrument Editor keyboard interaction next;
+   follow it with a separately designed compatibility slice for audible sample-header
+   panning, then continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
@@ -425,8 +432,8 @@ Recommended next product PR:
   document applyEdit/undo funnel, plus sample-panning, panning-envelope, and
   autovibrato round-trip support, read-only envelope display, and editable
   selected-sample panning, volume, signed-byte relative note, and finetune behind `applyEdit`
-  are in place. Continue with a
-  separately scoped sample/instrument slice.
+  are in place, as is focused-window computer-keyboard audition. Continue with
+  audition-only on-screen Instrument Editor keyboard interaction.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -727,7 +734,9 @@ The editor selection state should remain independent from parser internals and
 audio backends. Planned sequencing is:
 
 - keep selected 1-based instrument/sample slots as editor state first
-- add the optional upper keyboard row before preview behavior
+- focused Instrument Editor computer-keyboard routing reuses the shared note
+  map, current octave/selection, availability resolver, and preview sink
+- add audition-only on-screen Instrument Editor keyboard interaction next
 - continue note audition using the selected instrument/sample source; the
   editor-side request and preview sink exist for loaded-module sample payloads
 - treat key release as preview key-off only

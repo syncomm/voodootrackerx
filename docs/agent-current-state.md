@@ -41,6 +41,20 @@ editable copies; all use labeled whole-document `applyEdit` undo/redo. Sample pa
 editable sample metadata field and preserves the exact XM `0...255` byte
 through snapshots and Export XM. Loaded modules, playing documents, missing or
 empty sample slots, and all unimplemented mutation controls remain read-only/inert.
+The floating Instrument Editor closes through its red close button or Command-W without
+closing the main app window, and `Window > Instrument Editor` recreates one clean
+controller/router afterward. Its audition router inspects only keyDown/keyUp events, leaving
+mouse activation and standard traffic-light handling entirely to AppKit. Editable-copy feedback
+remains a document-level sheet on the main tracker window; when invoked from the key Instrument
+Editor, that floating panel is temporarily ordered behind the sheet and restored after dismissal.
+Open/reopen starts on the non-editing content responder rather than selecting NAME; NAME
+enters normal AppKit text editing only after explicit focus, temporarily suppressing audition.
+When the Instrument Editor is the key window, unmodified tracker note keys outside text
+responders use the shared note map, current octave/selection, availability resolver, and
+preview sink. This window-scoped path is audition-only and its active preview is not transport
+playback: supported controls remain editable while previewing, edits apply to the next trigger,
+and closing the window cancels its preview and detaches its handlers. Loaded modules stay
+read-only and the on-screen keyboard stays inert.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
 adapter gain mapping without runtime engine, DSP, or scheduling changes.

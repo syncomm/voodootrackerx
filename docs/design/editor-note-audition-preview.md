@@ -1,6 +1,6 @@
 # Editor Note Audition Preview Plan
 
-This note defines the editor-side request shape and input policy for note audition preview. The current implementation supports isolated loaded-module sample audition from tracker note keys in both Edit mode and non-Edit mode when real public fixture sample payload is available, with explicit selected instrument and selected sample-slot routing. Runtime song playback, transport state, backend selection, parser architecture, tracker viewport behavior, and loaded-module pattern mutability remain unchanged.
+This note defines the editor-side request shape and input policy for note audition preview. The current implementation supports isolated represented-sample audition from tracker note keys in both the tracker and focused Instrument Editor when real sample payload is available, with explicit selected instrument and selected sample-slot routing. Runtime song playback, transport state, backend selection, parser architecture, tracker viewport behavior, and loaded-module pattern mutability remain unchanged.
 
 ## Request Meaning
 
@@ -51,8 +51,22 @@ sample rate of 8,363 Hz. Loaded modules remain read-only.
 - Delete/Backspace and `.` clear note data only when editing is allowed.
 - Tracker note-key `keyUp` stops/cancels the matching active preview in both Edit and non-Edit modes.
 - Tracker note-key `keyUp` does not write pattern data and never inserts `===`.
+- The Instrument Editor uses a window-scoped responder path only while it is key;
+  text responders, modified shortcuts, navigation, and menu commands win.
+- Open/reopen starts with the non-editing content responder, so audition is immediately eligible;
+  NAME uses the normal field editor only after explicit focus and suppresses audition until focus leaves.
+- Instrument Editor audition reuses the current octave/selection and availability/preview pipeline,
+  and never mutates patterns, cursor/edit-step state, undo history, or document data.
 
 Spacebar Play/Stop remains transport routing before edit input. Note audition does not call `PlaybackEngine`, does not toggle transport state, does not start runtime song playback, and does not move playback-follow or row-follow position.
+
+An active Instrument Editor preview is therefore not transport playback and does not disable
+otherwise eligible NAME, PAN, VOLUME, FINETUNE, or REL NOTE controls. Volume, finetune, and relative
+note edits are resolved from current document/selection state on the next trigger through the existing
+gain and pitch mappings; no held-note modulation or automatic retrigger is implied. Sample-header
+panning remains editable/exportable but intentionally absent from preview/runtime pan. Closing the
+Instrument Editor cancels any focused-key preview and detaches its window-local handlers before the
+presenter releases the controller; reopening installs one fresh router without a global event monitor.
 
 ## First Preview Spike
 
@@ -90,6 +104,8 @@ Preview is not attempted for blank documents without real sample payload, key-of
 
 ## Deferred Work
 
+- Audition-only click/drag interaction for the currently inert Instrument Editor keyboard.
+- A separately scoped compatibility/design task for audible sample-header panning in playback and audition.
 - Full preview gain/loudness parity with normal Play/song playback, including global volume, channel volume, volume-column state, envelopes, and effect-derived gain changes.
 - Full FT2/XM release, key-off envelope, fadeout, envelope, effect, and loop parity beyond simple sample-loop sustain.
 - XI import, sample loading, instrument editor, sample editor, and save/export behavior.

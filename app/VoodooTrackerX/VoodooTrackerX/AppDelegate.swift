@@ -522,11 +522,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.alertStyle = .informational
         alert.messageText = title
         alert.informativeText = message
-        if let mainWindow {
-            alert.beginSheetModal(for: mainWindow)
-        } else {
-            alert.runModal()
-        }
+        LoadedModuleEditableCopyAlertPresenter.present(
+            alert,
+            keyWindow: NSApp.keyWindow,
+            mainWindow: mainWindow
+        )
     }
 
     @objc
@@ -622,6 +622,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     sampleAt: sampleIndex,
                     panning: panning
                 ) ?? false
+            },
+            noteAuditionKeyDownHandler: { [weak self] character, isRepeat in
+                self?.handleInstrumentEditorNoteAuditionKeyDown(character, isRepeat: isRepeat) ?? false
+            },
+            noteAuditionKeyUpHandler: { [weak self] character in
+                self?.handleInstrumentEditorNoteAuditionKeyUp(character) ?? false
+            },
+            noteAuditionCancelHandler: { [weak self] in
+                self?.noteAuditionPreviewer.cancelPreview()
             }
         )
     }
@@ -1880,6 +1889,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             editModeEnabled: isEditModeEnabled,
             isNoteField: cursor.field == .note
         )
+    }
+
+    private func handleInstrumentEditorNoteAuditionKeyDown(_ character: Character, isRepeat: Bool) -> Bool {
+        let sourceContext = currentEditorNoteAuditionSourceContext()
+        let route = EditorNoteAuditionInputPolicy.route(
+            input: .noteKey(isRepeat: isRepeat),
+            editModeEnabled: false,
+            sourceContext: sourceContext,
+            isNoteField: true
+        )
+        let previewOutcome = route.shouldAttemptPreview
+            ? attemptEditorNoteAuditionPreview(
+                for: .noteKey(character, isRepeat: isRepeat),
+                sourceContext: sourceContext
+            )
+            : .skipped(.missingRequest)
+        return route.shouldConsumeNonMutatingInput(previewOutcome: previewOutcome)
+    }
+
+    private func handleInstrumentEditorNoteAuditionKeyUp(_ character: Character) -> Bool {
+        guard let keyIdentity = EditorNoteAuditionKeyIdentity(trackerKey: character) else {
+            return false
+        }
+        return noteAuditionPreviewer.stopPreview(for: keyIdentity)
     }
 
     private func noteAuditionInputKind(for input: PatternEditInput) -> EditorNoteAuditionInputKind {

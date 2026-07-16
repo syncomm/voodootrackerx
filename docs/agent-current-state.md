@@ -17,6 +17,12 @@ source path.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 
+The post-v1 priority is VTX as an AUv3 tracker instrument before a general
+Audio Unit host: native macOS AUv3 first, then iPadOS AUv3 after the headless
+engine and contained UI are proven. AUv3 is the only approved format in this
+direction; it does not expand v1, add a target, or change the runtime. See
+`docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
+
 Release status: `v0.2.0-alpha.5` is the released Rendered Audio Export Alpha.
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
 `File > Export Audio` for stopped loaded modules, editable documents, and

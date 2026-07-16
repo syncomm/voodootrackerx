@@ -877,11 +877,11 @@ struct BlankTrackerDocument: Equatable {
     }
 
     mutating func selectInstrument(_ instrumentIndex: Int) {
-        let proposed = TrackerEditorSelection(
-            selectedInstrument: instrumentIndex,
-            selectedSample: selection.selectedSample
+        guard let instrument = instrument(forInstrument: instrumentIndex) else { return }
+        selection = selection.withSelectedInstrument(
+            instrumentIndex,
+            availableSampleSlots: instrument.availableSampleSlots
         )
-        selection = Self.clampedSelection(proposed, instrumentPalette: instrumentPalette)
     }
 
     mutating func selectSample(_ sampleIndex: Int) {
@@ -1509,8 +1509,7 @@ struct BlankTrackerDocument: Equatable {
         _ selection: TrackerEditorSelection,
         instrumentPalette: [Int: PlaybackInstrument]
     ) -> TrackerEditorSelection {
-        if let instrument = instrumentPalette[selection.selectedInstrument],
-           !instrument.availableSampleSlots.isEmpty {
+        if let instrument = instrumentPalette[selection.selectedInstrument] {
             return selection.clampedToAvailableSampleSlots(instrument.availableSampleSlots)
         }
         guard let firstInstrument = instrumentPalette.values

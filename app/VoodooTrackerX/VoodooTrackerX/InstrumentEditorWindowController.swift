@@ -3,6 +3,24 @@ import AppKit
 typealias InstrumentEditorNoteAuditionKeyDownHandler = (_ trackerKey: Character, _ isRepeat: Bool) -> Bool
 typealias InstrumentEditorNoteAuditionKeyUpHandler = (_ trackerKey: Character) -> Bool
 typealias InstrumentEditorNoteAuditionCancelHandler = () -> Void
+typealias InstrumentEditorInstrumentSelectionHandler = (_ oneBasedInstrumentSlot: Int) -> Bool
+typealias InstrumentEditorSampleSelectionHandler = (_ oneBasedSampleSlot: Int) -> Bool
+
+enum InstrumentEditorCopy {
+    static let keymapSummary = "FULL 96-NOTE MAP SUMMARY · ASSIGNMENT READ-ONLY · CLICK/DRAG KEYS TO AUDITION"
+    static let auditionKeyboard = "AUDITION KEYBOARD · CLICK / DRAG TO PREVIEW"
+}
+
+enum InstrumentEditorPreviewLifecycle {
+    static func cancelForSelectionChange(
+        cancelOnScreenNote: () -> Bool,
+        hasActivePreview: () -> Bool,
+        cancelPreview: () -> Void
+    ) {
+        guard !cancelOnScreenNote(), hasActivePreview() else { return }
+        cancelPreview()
+    }
+}
 
 enum InstrumentEditorOnScreenNoteIntent: Equatable {
     case press(UInt8)
@@ -247,6 +265,48 @@ enum InstrumentEditorViewIdentifier {
     static let futureControlPrefix = "instrumentEditor.futureControl."
 }
 
+@MainActor
+final class InstrumentEditorListRowControl: NSControl {
+    let slot: Int
+
+    init(frame frameRect: NSRect, slot: Int, isSelected: Bool) {
+        self.slot = slot
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = (isSelected
+            ? VTXEditorControlTheme.indigoSelection
+            : VTXEditorControlTheme.recessedReadoutBackground).cgColor
+        focusRingType = .none
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { event?.type == .leftMouseDown }
+    override func accessibilityPerformPress() -> Bool { performPrimarySelection() }
+
+    @discardableResult
+    func performPrimarySelection() -> Bool {
+        guard isEnabled else { return false }
+        window?.makeFirstResponder(self)
+        return sendAction(action, to: target)
+    }
+
+    static func acceptsPrimarySelection(buttonNumber: Int, clickCount: Int) -> Bool { buttonNumber == 0 && clickCount == 1 }
+    override func mouseDown(with event: NSEvent) {
+        guard Self.acceptsPrimarySelection(buttonNumber: event.buttonNumber, clickCount: event.clickCount) else { return }
+        _ = performPrimarySelection()
+    }
+
+    override func mouseDragged(with event: NSEvent) {}
+}
+
 enum InstrumentEnvelopeDisplayMode: Equatable {
     case volume
     case panning
@@ -364,6 +424,7 @@ struct InstrumentEditorDisplayState: Equatable {
         let panning: UInt8
         let relativeNote: Int
         let finetune: Int
+        let sourceBitDepthBits: Int?
         let isSelected: Bool
 
         var slotDisplay: String { String(format: "S%02X", min(255, max(1, slot))) }
@@ -414,6 +475,7 @@ struct InstrumentEditorDisplayState: Equatable {
         }
         var relativeNoteDisplay: String { Self.signed(relativeNote) }
         var finetuneDisplay: String { Self.signed(finetune) }
+        var bitDepthDisplay: String { sourceBitDepthBits.map { "\($0)-BIT" } ?? "BIT —" }
 
         init(sample: PlaybackSample, selectedSampleSlot: Int) {
             slot = min(254, max(0, sample.sampleIndex)) + 1
@@ -426,6 +488,7 @@ struct InstrumentEditorDisplayState: Equatable {
             panning = sample.panning
             relativeNote = sample.relativeNote
             finetune = sample.finetune
+            sourceBitDepthBits = sample.sourceBitDepthBits
             isSelected = slot == selectedSampleSlot
         }
 
@@ -676,6 +739,8 @@ final class InstrumentEditorWindowPresenter {
     @discardableResult
     func show(
         displayState: InstrumentEditorDisplayState,
+        instrumentSelectionHandler: InstrumentEditorInstrumentSelectionHandler? = nil,
+        sampleSelectionHandler: InstrumentEditorSampleSelectionHandler? = nil,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
@@ -687,6 +752,8 @@ final class InstrumentEditorWindowPresenter {
         noteAuditionCancelHandler: InstrumentEditorNoteAuditionCancelHandler? = nil
     ) -> InstrumentEditorWindowController {
         if let windowController {
+            windowController.instrumentSelectionHandler = instrumentSelectionHandler
+            windowController.sampleSelectionHandler = sampleSelectionHandler
             windowController.instrumentNameEditHandler = instrumentNameEditHandler
             windowController.sampleVolumeEditHandler = sampleVolumeEditHandler
             windowController.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
@@ -703,6 +770,8 @@ final class InstrumentEditorWindowPresenter {
 
         let controller = InstrumentEditorWindowController(
             displayState: displayState,
+            instrumentSelectionHandler: instrumentSelectionHandler,
+            sampleSelectionHandler: sampleSelectionHandler,
             instrumentNameEditHandler: instrumentNameEditHandler,
             sampleVolumeEditHandler: sampleVolumeEditHandler,
             sampleRelativeNoteEditHandler: sampleRelativeNoteEditHandler,
@@ -726,6 +795,11 @@ final class InstrumentEditorWindowPresenter {
         windowController?.apply(displayState: displayState)
     }
 
+    @discardableResult
+    func cancelOnScreenNoteAudition() -> Bool {
+        windowController?.cancelOnScreenNoteAudition() ?? false
+    }
+
     func clearOnScreenPressedState() { windowController?.clearOnScreenPressedState() }
 }
 
@@ -734,6 +808,12 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
     static let contentSize = NSSize(width: 920, height: 638)
     private var didInstallInitialFirstResponder = false
     var closeHandler: (() -> Void)?
+    var instrumentSelectionHandler: InstrumentEditorInstrumentSelectionHandler? {
+        didSet { (window?.contentView as? InstrumentEditorView)?.instrumentSelectionHandler = instrumentSelectionHandler }
+    }
+    var sampleSelectionHandler: InstrumentEditorSampleSelectionHandler? {
+        didSet { (window?.contentView as? InstrumentEditorView)?.sampleSelectionHandler = sampleSelectionHandler }
+    }
     var instrumentNameEditHandler: InstrumentNameEditHandler? {
         didSet {
             (window?.contentView as? InstrumentEditorView)?.instrumentNameEditHandler = instrumentNameEditHandler
@@ -778,6 +858,8 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
 
     init(
         displayState: InstrumentEditorDisplayState = .empty,
+        instrumentSelectionHandler: InstrumentEditorInstrumentSelectionHandler? = nil,
+        sampleSelectionHandler: InstrumentEditorSampleSelectionHandler? = nil,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
@@ -788,6 +870,8 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         noteAuditionKeyUpHandler: InstrumentEditorNoteAuditionKeyUpHandler? = nil,
         noteAuditionCancelHandler: InstrumentEditorNoteAuditionCancelHandler? = nil
     ) {
+        self.instrumentSelectionHandler = instrumentSelectionHandler
+        self.sampleSelectionHandler = sampleSelectionHandler
         self.instrumentNameEditHandler = instrumentNameEditHandler
         self.sampleVolumeEditHandler = sampleVolumeEditHandler
         self.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
@@ -800,6 +884,8 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         let contentView = InstrumentEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
             displayState: displayState,
+            instrumentSelectionHandler: instrumentSelectionHandler,
+            sampleSelectionHandler: sampleSelectionHandler,
             instrumentNameEditHandler: instrumentNameEditHandler,
             sampleVolumeEditHandler: sampleVolumeEditHandler,
             sampleRelativeNoteEditHandler: sampleRelativeNoteEditHandler,
@@ -864,6 +950,11 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
 
     func clearOnScreenPressedState() { (window?.contentView as? InstrumentEditorView)?.clearOnScreenPressedState() }
 
+    @discardableResult
+    func cancelOnScreenNoteAudition() -> Bool {
+        (window?.contentView as? InstrumentEditorView)?.cancelOnScreenNoteAudition() ?? false
+    }
+
     func windowWillClose(_ notification: Notification) {
         window?.makeFirstResponder(nil)
         let hadOnScreenNote = (window?.contentView as? InstrumentEditorView)?.cancelOnScreenNoteAudition() == true
@@ -872,6 +963,8 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         }
         noteAuditionCancelHandler = nil
         onScreenNoteHandler = nil
+        instrumentSelectionHandler = nil
+        sampleSelectionHandler = nil
         noteAuditionKeyDownHandler = nil
         noteAuditionKeyUpHandler = nil
         closeHandler?()
@@ -892,6 +985,10 @@ final class InstrumentEditorView: FlippedEditorView {
     private(set) var rebuildCount = 0
     private var envelopePanelView: NSView?
     private weak var onScreenKeyboardView: InstrumentEditorKeyboardPlaceholderView?
+    private var instrumentRowControls: [Int: InstrumentEditorListRowControl] = [:]
+    private var sampleRowControls: [Int: InstrumentEditorListRowControl] = [:]
+    var instrumentSelectionHandler: InstrumentEditorInstrumentSelectionHandler?
+    var sampleSelectionHandler: InstrumentEditorSampleSelectionHandler?
     var instrumentNameEditHandler: InstrumentNameEditHandler?
     var sampleVolumeEditHandler: SampleVolumeEditHandler?
     var sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler?
@@ -902,6 +999,8 @@ final class InstrumentEditorView: FlippedEditorView {
     init(
         frame frameRect: NSRect,
         displayState: InstrumentEditorDisplayState = .empty,
+        instrumentSelectionHandler: InstrumentEditorInstrumentSelectionHandler? = nil,
+        sampleSelectionHandler: InstrumentEditorSampleSelectionHandler? = nil,
         instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
@@ -910,6 +1009,8 @@ final class InstrumentEditorView: FlippedEditorView {
         onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler? = nil
     ) {
         self.displayState = displayState
+        self.instrumentSelectionHandler = instrumentSelectionHandler
+        self.sampleSelectionHandler = sampleSelectionHandler
         self.instrumentNameEditHandler = instrumentNameEditHandler
         self.sampleVolumeEditHandler = sampleVolumeEditHandler
         self.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
@@ -943,6 +1044,8 @@ final class InstrumentEditorView: FlippedEditorView {
         self.displayState = displayState
         rebuildCount += 1
         subviews.forEach { $0.removeFromSuperview() }
+        instrumentRowControls.removeAll()
+        sampleRowControls.removeAll()
         buildShell()
         return true
     }
@@ -1111,15 +1214,22 @@ final class InstrumentEditorView: FlippedEditorView {
                 let row = listRow(
                     in: rowsView,
                     frame: NSRect(x: 0, y: CGFloat(index) * rowHeight, width: frame.width, height: rowHeight),
+                    slot: instrument.slot,
                     isSelected: instrument.isSelected,
                     identifier: InstrumentEditorViewIdentifier.instrumentRowPrefix + instrument.slotDisplay
                 )
+                row.target = self
+                row.action = #selector(selectInstrumentRow(_:))
+                row.setAccessibilityLabel("\(instrument.slotDisplay) \(instrument.name)")
+                instrumentRowControls[instrument.slot] = row
                 addLabel(instrument.slotDisplay, to: row, frame: NSRect(x: 8, y: 4, width: 30, height: 12), color: codeColor(selected: instrument.isSelected), size: 9, weight: .semibold)
                 addLabel(instrument.name, to: row, frame: NSRect(x: 42, y: 4, width: 82, height: 12), color: rowTextColor(selected: instrument.isSelected), size: 9)
                 addLabel("\(instrument.sampleCount)", to: row, frame: NSRect(x: 128, y: 4, width: 14, height: 12), color: rowTextColor(selected: instrument.isSelected).withAlphaComponent(0.68), size: 8, alignment: .right)
             }
         }
-        addScrollView(to: panel, frame: frame, documentView: rowsView, rowCount: displayState.instrumentSlots.count, rowHeight: rowHeight)
+        addScrollView(to: panel, frame: frame, documentView: rowsView,
+                      rowCount: displayState.instrumentSlots.count, rowHeight: rowHeight,
+                      selectedRowIndex: displayState.instrumentSlots.firstIndex(where: \.isSelected))
     }
 
     private func buildSampleSlots(_ panel: NSView) {
@@ -1136,14 +1246,35 @@ final class InstrumentEditorView: FlippedEditorView {
                 let row = listRow(
                     in: rowsView,
                     frame: NSRect(x: 0, y: CGFloat(index) * rowHeight, width: frame.width, height: rowHeight),
+                    slot: sample.slot,
                     isSelected: sample.isSelected,
                     identifier: InstrumentEditorViewIdentifier.sampleRowPrefix + sample.slotDisplay
                 )
+                row.target = self
+                row.action = #selector(selectSampleRow(_:))
+                row.setAccessibilityLabel("\(sample.slotDisplay) \(sample.name)")
+                sampleRowControls[sample.slot] = row
                 addLabel(sample.slotDisplay, to: row, frame: NSRect(x: 8, y: 4, width: 30, height: 12), color: codeColor(selected: sample.isSelected), size: 9, weight: .semibold)
                 addLabel(sample.name, to: row, frame: NSRect(x: 42, y: 4, width: 100, height: 12), color: rowTextColor(selected: sample.isSelected), size: 9)
             }
         }
-        addScrollView(to: panel, frame: frame, documentView: rowsView, rowCount: displayState.sampleSlots.count, rowHeight: rowHeight)
+        addScrollView(to: panel, frame: frame, documentView: rowsView,
+                      rowCount: displayState.sampleSlots.count, rowHeight: rowHeight,
+                      selectedRowIndex: displayState.sampleSlots.firstIndex(where: \.isSelected))
+    }
+
+    @objc
+    private func selectInstrumentRow(_ sender: InstrumentEditorListRowControl) {
+        guard displayState.instrumentSlots.contains(where: { $0.slot == sender.slot }) else { return }
+        _ = instrumentSelectionHandler?(sender.slot)
+        window?.makeFirstResponder(instrumentRowControls[sender.slot] ?? sender)
+    }
+
+    @objc
+    private func selectSampleRow(_ sender: InstrumentEditorListRowControl) {
+        guard displayState.sampleSlots.contains(where: { $0.slot == sender.slot }) else { return }
+        _ = sampleSelectionHandler?(sender.slot)
+        window?.makeFirstResponder(sampleRowControls[sender.slot] ?? sender)
     }
 
     private func buildEnvelope(_ panel: NSView) {
@@ -1422,7 +1553,7 @@ final class InstrumentEditorView: FlippedEditorView {
     }
 
     private func buildKeymap(_ panel: NSView) {
-        addLabel("FULL 96-NOTE MAP SUMMARY · ASSIGNMENT READ-ONLY · CLICK/DRAG KEYS TO AUDITION", to: panel, frame: NSRect(x: 91, y: 9, width: 560, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.32), size: 8)
+        addLabel(InstrumentEditorCopy.keymapSummary, to: panel, frame: NSRect(x: 91, y: 9, width: 560, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.32), size: 8)
         addDisabledButton("◀ C-2", id: "keymapPreviousOctave", to: panel, frame: NSRect(x: 722, y: 5, width: 78, height: 25))
         addDisabledButton("C-4 ▶", id: "keymapNextOctave", to: panel, frame: NSRect(x: 806, y: 5, width: 80, height: 25))
 
@@ -1459,7 +1590,7 @@ final class InstrumentEditorView: FlippedEditorView {
         guard let sample = displayState.selectedSample else {
             return displayState.emptyMessage.isEmpty ? "NO REPRESENTED SAMPLE SELECTED" : displayState.emptyMessage.uppercased()
         }
-        return "\(sample.slotDisplay) · \(sample.name) · LEN \(sample.lengthDisplay) · LOOP \(sample.loopModeDisplay.uppercased()) \(sample.loopRangeDisplay) · VOL \(sample.volumeDisplay) · REL \(sample.relativeNoteDisplay) · FINE \(sample.finetuneDisplay)"
+        return "\(sample.slotDisplay) · \(sample.name) · \(sample.bitDepthDisplay) · LEN \(sample.lengthDisplay) · LOOP \(sample.loopModeDisplay.uppercased()) \(sample.loopRangeDisplay) · VOL \(sample.volumeDisplay) · REL \(sample.relativeNoteDisplay) · FINE \(sample.finetuneDisplay)"
     }
 
     private func pointDisplay(_ pointIndex: Int?) -> String {
@@ -1544,15 +1675,13 @@ final class InstrumentEditorView: FlippedEditorView {
     private func listRow(
         in parent: NSView,
         frame: NSRect,
+        slot: Int,
         isSelected: Bool,
         identifier: String
-    ) -> NSView {
-        let row = addSurface(
-            in: parent,
-            frame: frame,
-            background: isSelected ? VTXEditorControlTheme.indigoSelection : VTXEditorControlTheme.recessedReadoutBackground
-        )
+    ) -> InstrumentEditorListRowControl {
+        let row = InstrumentEditorListRowControl(frame: frame, slot: slot, isSelected: isSelected)
         row.identifier = NSUserInterfaceItemIdentifier(identifier)
+        parent.addSubview(row)
         addSurface(
             in: parent,
             frame: NSRect(x: 0, y: frame.maxY - 1, width: frame.width, height: 1),
@@ -1576,7 +1705,8 @@ final class InstrumentEditorView: FlippedEditorView {
         frame: NSRect,
         documentView: NSView,
         rowCount: Int,
-        rowHeight: CGFloat
+        rowHeight: CGFloat,
+        selectedRowIndex: Int?
     ) {
         let scrollView = NSScrollView(frame: frame)
         scrollView.drawsBackground = false
@@ -1585,6 +1715,10 @@ final class InstrumentEditorView: FlippedEditorView {
         scrollView.autohidesScrollers = true
         scrollView.documentView = documentView
         parent.addSubview(scrollView)
+        if let selectedRowIndex {
+            documentView.scrollToVisible(NSRect(x: 0, y: CGFloat(selectedRowIndex) * rowHeight,
+                                                width: documentView.bounds.width, height: rowHeight))
+        }
     }
 
     private func codeColor(selected: Bool) -> NSColor {
@@ -2076,7 +2210,7 @@ final class InstrumentEditorKeyboardPlaceholderView: FlippedEditorView {
 
         let style = NSMutableParagraphStyle()
         style.alignment = .center
-        "AUDITION KEYBOARD · CLICK / DRAG TO PREVIEW".draw(
+        InstrumentEditorCopy.auditionKeyboard.draw(
             in: NSRect(x: 0, y: bounds.height - 18, width: bounds.width, height: 11),
             withAttributes: [
                 .font: NSFont.monospacedSystemFont(ofSize: 7.5, weight: .bold),

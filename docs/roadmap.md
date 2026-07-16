@@ -701,7 +701,9 @@ Current implemented foundation:
 - Export XM v1 for stopped editable documents, scoped to the current editable
   subset and supported existing palette/sample payloads
 - v1-mockup-aligned Instrument Editor utility-window shell bound to the current
-  document palette and selected instrument/sample; represented instrument NAME
+  document palette and selected instrument/sample; represented rows share canonical
+  selection with the control panel, stay selectable while loaded or playing, create
+  no undo, and drive metadata/audition context; represented instrument NAME
   editing is enabled only for stopped editable documents and editable copies
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing

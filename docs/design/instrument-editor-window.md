@@ -18,7 +18,10 @@ Represented XM autovibrato bytes are shown on the disabled VIBRATO controls. Loa
 playing documents, and every unimplemented mutation control remain read-only. Focused unmodified
 computer note keys outside text responders reuse the tracker map and isolated preview path;
 the fixed C-2...B-4 on-screen keyboard now auditions exact primary-click pitches through the same
-path and uses the instrument note map without changing selection. The editor closes normally through its red close button
+path and uses the instrument note map without changing selection. Represented instrument/sample
+rows share canonical control-panel selection in loaded/editable and stopped/playing states. Selection
+is non-mutating, creates no undo, cancels stale preview before context changes, and drives metadata
+and audition; transport gates mutation only, and keymap assignment remains read-only. The editor closes normally through its red close button
 or Command-W and reopens as one clean presenter-owned window. Broader sample/XI,
 envelope/keymap, waveform, and
 autovibrato playback work remains future scope. Represented XM panning-envelope data is
@@ -224,9 +227,10 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 11. Done: selected represented sample REL NOTE mutation behind applyEdit/undo.
 12. Done: focused-window computer-keyboard audition through the isolated preview path.
 13. Done: audition-only on-screen keyboard interaction.
-14. Envelope editing (points, sustain, loop, add/del) wired.
-15. Vibrato + remaining defaults controls wired.
-16. Keymap drag-to-assign-range.
+14. Done: canonical instrument/sample list selection without document or undo mutation.
+15. Envelope editing (points, sustain, loop, add/del) wired.
+16. Vibrato + remaining defaults controls wired.
+17. Keymap drag-to-assign-range.
 
 ---
 
@@ -244,6 +248,9 @@ sample selection, repeat suppression, and matching key release; confirm NAME typ
 shortcuts win and pattern/cursor/undo state does not change. On the on-screen keyboard, verify white
 and black clicks, boundary precedence, drag within/between/outside keys, matching mouse-up, pressed
 visuals, note-map sample splits, and cleanup on selection/deactivation/close.
+Click every represented row in loaded, editable-copy, stopped, and playing states; confirm shared
+highlights, metadata, honest empty sample states, preview cancellation, and no undo. Transport must
+gate mutation, never row selection. Graphical keys must not change the explicit sample selection.
 Verify autovibrato likewise survives while VIBRATO remains disabled
 and playback/audition output is unchanged. Verify panning-envelope graph/readouts in loaded and
 editable-copy states, clean disabled/empty states, local VOL/PAN switching across undo/redo, and

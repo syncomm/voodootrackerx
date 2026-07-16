@@ -48,6 +48,26 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(resetToDefault, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
     }
 
+    func testSelectingRepresentedSamplelessInstrumentKeepsInstrumentAndHonestDefaultSample() {
+        let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var document = makeBlankDocument(
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, name: "Playable", samples: [sample]),
+                2: PlaybackInstrument(index: 2, name: "Sampleless", samples: []),
+            ]
+        )
+
+        document.selectInstrument(2)
+        let state = InstrumentEditorDisplayState.editableDocument(document)
+
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
+        XCTAssertTrue(document.availableSampleSlots(forInstrument: 2).isEmpty)
+        XCTAssertEqual(state.instrumentName, "Sampleless")
+        XCTAssertTrue(state.sampleSlots.isEmpty)
+        XCTAssertNil(state.selectedSample)
+        XCTAssertFalse(state.isSampleVolumeEditable || state.isSampleRelativeNoteEditable || state.isSampleFinetuneEditable || state.isSamplePanningEditable)
+    }
+
     func testEditorNoteAuditionRequestCapturesNoteSelectionAndSourceContext() {
         let selection = TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3)
         let request = EditorNoteAuditionRequest.noteOn(

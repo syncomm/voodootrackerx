@@ -225,8 +225,9 @@ Recently completed:
   selected represented sample's exact `UInt8` value can change only in stopped
   editable documents/copies, through one labeled `applyEdit` undo action; the
   PAN control stays disabled for loaded modules, playback, and empty slots.
-  Export XM/reopen preserves edits, while adapter plans, voice pan, rendered
-  PCM, audition, and loaded-source read-only behavior remain unchanged.
+  Export XM/reopen preserves edits. Focused audition, normal playback, and
+  product audio export initialize each new voice from the resolved sample's
+  byte (`0` left, `128` exact center, `255` right); loaded sources remain read-only.
 - XM instrument panning envelopes now preserve up to 12 points, point ticks/
   values, counts, sustain/loop indices, and supported flags through loading,
   editable copy, snapshots, undo/redo, and Export XM. The Instrument Editor's
@@ -456,7 +457,8 @@ Recommended next product PR:
   autovibrato round-trip support, read-only envelope display, and editable
   selected-sample panning, volume, signed-byte relative note, and finetune behind `applyEdit`
   are in place, as are focused-window computer-keyboard and graphical-keyboard
-  audition. Continue with the separately scoped audible sample-header panning design.
+  audition and shared sample-header panning planning. Continue with separately
+  scoped editor work without changing the C mixer DSP or runtime backend.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -722,7 +724,8 @@ Current implemented foundation:
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
 - exact XM sample panning preservation plus stopped editable-document mutation
-  through applyEdit/undo/redo; loaded modules and runtime behavior stay unchanged
+  through applyEdit/undo/redo, plus resolved-sample panning in focused audition,
+  runtime playback, and product audio export; loaded modules stay read-only
 - exact XM signed-byte sample finetune preservation plus stopped editable-
   document mutation through applyEdit/undo/redo; subsequent playback uses the
   existing pitch path and loaded modules stay read-only

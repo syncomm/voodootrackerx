@@ -109,10 +109,23 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertTrue(mapping.pitchMappingUsedNeutralStep)
     }
 
-    func testSampleHeaderPanningIsRuntimeInertForAdapterPlansVoicePanAndPCM() throws {
+    func testSampleHeaderPanningMapsExactCenterAndMonotonicEndpoints() {
+        let values: [UInt8] = [0, 64, 128, 192, 255]
+        let pans = values.map(PlaybackSamplePanningPolicy.plannedPan)
+
+        XCTAssertEqual(pans[0], -1)
+        XCTAssertEqual(pans[1], -0.5)
+        XCTAssertEqual(pans[2], 0)
+        XCTAssertEqual(pans[3], 64.0 / 127.0, accuracy: 0.000_001)
+        XCTAssertEqual(pans[4], 1)
+        XCTAssertEqual(pans, pans.sorted())
+        XCTAssertEqual(values, [0, 64, 128, 192, 255])
+    }
+
+    func testSampleHeaderPanningFlowsThroughAdapterRuntimePlanAndOfflineStereo() throws {
         func song(samplePanning: UInt8) -> PlaybackSong {
             let sample = makePlaybackSample(
-                pcm: [0, 1, 0.5, -0.5],
+                pcm: [1, 0.75, 0.5, 0.25],
                 volume: 1,
                 panning: samplePanning,
                 baseSampleRate: 100
@@ -124,32 +137,70 @@ final class PlaybackSongAdapterTests: XCTestCase {
             )
         }
 
-        let leftSong = song(samplePanning: 0)
-        let rightSong = song(samplePanning: 255)
-        let leftAdapterPlan = PlaybackSongSyntheticAdapter.adapt(leftSong, orderIndex: 0, sampleRate: 100)
-        let rightAdapterPlan = PlaybackSongSyntheticAdapter.adapt(rightSong, orderIndex: 0, sampleRate: 100)
-        let leftRuntimePlan = RuntimeCMixerAdapterEventPlan.make(song: leftSong, sampleRate: 100)
-        let rightRuntimePlan = RuntimeCMixerAdapterEventPlan.make(song: rightSong, sampleRate: 100)
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 2)
         let renderer = PlaybackSongOfflineRenderer()
-        let leftRender = renderer.render(PlaybackSongOfflineRenderRequest(
-            song: leftSong,
-            orderIndex: 0,
-            config: config,
-            frames: 6
-        ))
-        let rightRender = renderer.render(PlaybackSongOfflineRenderRequest(
-            song: rightSong,
-            orderIndex: 0,
-            config: config,
-            frames: 6
-        ))
+        let values: [UInt8] = [0, 64, 128, 192, 255]
+        var balances: [Float] = []
 
-        XCTAssertEqual(leftAdapterPlan, rightAdapterPlan)
-        XCTAssertEqual(try XCTUnwrap(leftAdapterPlan.pattern.events.first).pan, 0)
-        XCTAssertEqual(try XCTUnwrap(rightAdapterPlan.pattern.events.first).pan, 0)
-        XCTAssertEqual(leftRuntimePlan, rightRuntimePlan)
-        XCTAssertEqual(leftRender.block.interleavedPCM.map(\.bitPattern), rightRender.block.interleavedPCM.map(\.bitPattern))
+        for value in values {
+            let candidate = song(samplePanning: value)
+            let expectedPan = PlaybackSamplePanningPolicy.plannedPan(value)
+            let adapterPlan = PlaybackSongSyntheticAdapter.adapt(candidate, orderIndex: 0, sampleRate: 100)
+            let event = try XCTUnwrap(adapterPlan.pattern.events.first)
+            let runtimePlan = RuntimeCMixerAdapterEventPlan.make(song: candidate, sampleRate: 100)
+            guard case let .noteTrigger(_, runtimeEvent, _) = try XCTUnwrap(runtimePlan.events.first).action else {
+                return XCTFail("expected runtime note trigger")
+            }
+            let render = renderer.render(PlaybackSongOfflineRenderRequest(
+                song: candidate,
+                orderIndex: 0,
+                config: config,
+                frames: 4
+            ))
+            let leftEnergy = stride(from: 0, to: render.block.interleavedPCM.count, by: 2)
+                .reduce(Float.zero) { $0 + abs(render.block.interleavedPCM[$1]) }
+            let rightEnergy = stride(from: 1, to: render.block.interleavedPCM.count, by: 2)
+                .reduce(Float.zero) { $0 + abs(render.block.interleavedPCM[$1]) }
+
+            XCTAssertEqual(event.pan, expectedPan, accuracy: 0.000_001)
+            XCTAssertEqual(runtimeEvent.pan, expectedPan, accuracy: 0.000_001)
+            XCTAssertEqual(event.row, 0)
+            XCTAssertEqual(event.tick, 0)
+            XCTAssertEqual(event.gain, 1)
+            XCTAssertEqual(event.playbackStep, 1)
+            balances.append(rightEnergy - leftEnergy)
+        }
+
+        XCTAssertEqual(balances, balances.sorted())
+        XCTAssertLessThan(balances[0], 0)
+        XCTAssertEqual(balances[2], 0, accuracy: 0.000_001)
+        XCTAssertGreaterThan(balances[4], 0)
+    }
+
+    func testSampleHeaderPanningInitializesBeforeSameRowPanningCommands() throws {
+        func event(samplePanning: UInt8, volumeColumn: UInt8, effectPanning: UInt8? = nil) throws -> SyntheticTrackerEvent {
+            let sample = makePlaybackSample(pcm: [1, 0.5], volume: 1, panning: samplePanning, baseSampleRate: 100)
+            let row = makePlaybackRow(
+                index: 0,
+                note: 49,
+                instrument: 1,
+                volumeColumn: volumeColumn,
+                effectType: effectPanning == nil ? 0 : 0x08,
+                effectParam: effectPanning ?? 0
+            )
+            let song = makePlaybackSong(
+                orderPatternIndices: [0],
+                patternRowsByIndex: [0: [row]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            )
+            return try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).pattern.events.first)
+        }
+
+        let sampleRelativeSlide = try event(samplePanning: 64, volumeColumn: 0xEF)
+        let effectOverride = try event(samplePanning: 0, volumeColumn: 0xCF, effectPanning: 192)
+
+        XCTAssertEqual(sampleRelativeSlide.pan, PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: 79), accuracy: 0.000_001)
+        XCTAssertEqual(effectOverride.pan, PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: 192), accuracy: 0.000_001)
     }
 
     func testInstrumentAutoVibratoIsRuntimeInertForAdapterPlansPitchSchedulingAndPCM() throws {
@@ -4862,11 +4913,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(mapping.sampleSelectionMethod, .sampleMap)
         XCTAssertEqual(mapping.playbackStep, 2, accuracy: 0.000000001)
         XCTAssertEqual(mapping.effectiveVolumeValue, 32)
-        XCTAssertEqual(mapping.effectivePan, 1)
+        XCTAssertEqual(mapping.effectivePan, 0)
         XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
         XCTAssertEqual(mapping.sampleOffset.status, .notPresent)
         XCTAssertEqual(event.gain, 0.25)
-        XCTAssertEqual(event.pan, 1)
+        XCTAssertEqual(event.pan, 0)
     }
 
     func testPlaybackSongAdapterNoteDelayEDxWithoutNoteIsDiagnosedAndDoesNotSchedule() throws {
@@ -5272,12 +5323,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(result.plan.pattern.events.map(\.playbackStep), [2, 2])
         XCTAssertEqual(result.plan.pattern.events.map(\.gain), [0.25, 0.25])
-        XCTAssertEqual(result.plan.pattern.events.map(\.pan), [1, 1])
+        XCTAssertEqual(result.plan.pattern.events.map(\.pan), [0, 0])
         XCTAssertEqual(try XCTUnwrap(retrigger.playbackStep), 2, accuracy: 0.000000001)
         XCTAssertEqual(retrigger.gain, 0.25)
-        XCTAssertEqual(retrigger.pan, 1)
+        XCTAssertEqual(retrigger.pan, 0)
         XCTAssertEqual(retriggerMapping.effectiveVolumeValue, 32)
-        XCTAssertEqual(retriggerMapping.effectivePan, 1)
+        XCTAssertEqual(retriggerMapping.effectivePan, 0)
         XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0, 0.25, 0.25])
     }
 
@@ -6653,6 +6704,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
     func testPlaybackSongAdapterPanningSlidesChangeStereoBalanceAndClampSafely() throws {
         let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
+        let fullLeftSample = makePlaybackSample(pcm: [1], volume: 1, panning: 0, baseSampleRate: 100)
+        let fullRightSample = makePlaybackSample(pcm: [1], volume: 1, panning: 255, baseSampleRate: 100)
         let leftSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xDF)]],
@@ -6671,7 +6724,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0xDF)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [fullLeftSample])],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let clampRightSong = makePlaybackSong(
@@ -6682,7 +6735,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0xEF)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [fullRightSample])],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let setThenSlideSong = makePlaybackSong(
@@ -6711,22 +6764,24 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let setThenSlideMapping = try XCTUnwrap(setThenSlide.diagnostics.eventMappings.first)
 
         XCTAssertEqual(left.block.interleavedPCM[0], 1, accuracy: 0.0001)
-        XCTAssertEqual(left.block.interleavedPCM[1], 0.88235295, accuracy: 0.0001)
+        XCTAssertEqual(left.block.interleavedPCM[1], 0.8862745, accuracy: 0.0001)
         XCTAssertEqual(leftMapping.volumeColumn.command, .panningSlideLeft(amount: 15))
         XCTAssertEqual(leftMapping.volumeColumn.slideDirection, .panningLeft)
-        XCTAssertEqual(leftMapping.volumeColumn.effectivePanAfter ?? 0, -0.11764705, accuracy: 0.0001)
-        XCTAssertEqual(right.block.interleavedPCM[0], 0.88235295, accuracy: 0.0001)
+        XCTAssertEqual(leftMapping.volumeColumn.effectivePanBefore, 0)
+        XCTAssertEqual(leftMapping.volumeColumn.effectivePanAfter ?? 0, -0.11372548, accuracy: 0.0001)
+        XCTAssertEqual(right.block.interleavedPCM[0], 0.8784313, accuracy: 0.0001)
         XCTAssertEqual(right.block.interleavedPCM[1], 1, accuracy: 0.0001)
         XCTAssertEqual(rightMapping.volumeColumn.command, .panningSlideRight(amount: 15))
-        XCTAssertEqual(rightMapping.volumeColumn.effectivePanAfter ?? 0, 0.11764705, accuracy: 0.0001)
+        XCTAssertEqual(rightMapping.volumeColumn.effectivePanBefore, 0)
+        XCTAssertEqual(rightMapping.volumeColumn.effectivePanAfter ?? 0, 0.12156868, accuracy: 0.0001)
         XCTAssertEqual(clampLeft.block.interleavedPCM, [0, 0, 1, 0])
         XCTAssertEqual(clampLeftMapping.volumeColumn.effectivePanAfter, -1)
         XCTAssertEqual(clampRight.block.interleavedPCM, [0, 0, 0, 1])
         XCTAssertEqual(clampRightMapping.volumeColumn.effectivePanAfter, 1)
-        XCTAssertEqual(setThenSlide.block.interleavedPCM[2], 1, accuracy: 0.0001)
-        XCTAssertEqual(setThenSlide.block.interleavedPCM[3], 0.11764705, accuracy: 0.0001)
-        XCTAssertEqual(setThenSlideMapping.volumeColumn.effectivePanBefore, -1)
-        XCTAssertEqual(setThenSlideMapping.volumeColumn.effectivePanAfter ?? 0, -0.88235295, accuracy: 0.0001)
+        XCTAssertEqual(setThenSlide.block.interleavedPCM[2], 0.8784313, accuracy: 0.0001)
+        XCTAssertEqual(setThenSlide.block.interleavedPCM[3], 1, accuracy: 0.0001)
+        XCTAssertEqual(setThenSlideMapping.volumeColumn.effectivePanBefore, 0)
+        XCTAssertEqual(setThenSlideMapping.volumeColumn.effectivePanAfter ?? 0, 0.12156868, accuracy: 0.0001)
         XCTAssertEqual(clampRight.diagnostics.deferredCellFields.map(\.field), [])
     }
 
@@ -7723,7 +7778,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(panUpdate.effectivePanAfter, 1)
     }
 
-    func testPlaybackSongAdapterStateUpdatesFeedSubsequentNoteTriggers() throws {
+    func testPlaybackSongAdapterVolumeStateCarriesButSampleHeaderPanningResetsSubsequentTrigger() throws {
         let sample = makePlaybackSample(pcm: [1, 1], volume: 1, baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -7746,9 +7801,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 0.5, 0, 0.5])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0.5, 0.5, 0.5, 0.5])
         XCTAssertEqual(mapping.effectiveVolumeValue, 32)
-        XCTAssertEqual(mapping.effectivePan, 1)
+        XCTAssertEqual(mapping.effectivePan, 0)
         XCTAssertTrue(result.diagnostics.voiceStateUpdates.allSatisfy { !$0.activeVoiceUpdated })
     }
 

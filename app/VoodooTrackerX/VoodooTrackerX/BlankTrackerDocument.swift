@@ -374,6 +374,7 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
     let sourceContext: EditorNoteAuditionSourceContext
     let previewPCM: [Float]
     let previewVolume: Float
+    let previewPanning: UInt8
     let previewBaseSampleRate: Double
     let previewRelativeNote: Int
     let previewFinetune: Int
@@ -388,6 +389,7 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
         sourceContext: EditorNoteAuditionSourceContext,
         previewPCM: [Float] = [],
         previewVolume: Float = 1,
+        previewPanning: UInt8 = PlaybackSample.xmCenterPanning,
         previewBaseSampleRate: Double = 8_363,
         previewRelativeNote: Int = 0,
         previewFinetune: Int = 0
@@ -403,6 +405,7 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
         self.sourceContext = sourceContext
         self.previewPCM = previewPCM.map { $0.isFinite ? $0 : 0 }
         self.previewVolume = previewVolume.isFinite ? min(1, max(0, previewVolume)) : 1
+        self.previewPanning = previewPanning
         self.previewBaseSampleRate = previewBaseSampleRate.isFinite && previewBaseSampleRate > 0
             ? previewBaseSampleRate
             : 8_363
@@ -629,6 +632,7 @@ enum EditorNoteAuditionAvailabilityResolver {
             sourceContext: request.sourceContext,
             previewPCM: Array(sample.pcm.prefix(frameCount)),
             previewVolume: sample.volume,
+            previewPanning: sample.panning,
             previewBaseSampleRate: sample.baseSampleRate,
             previewRelativeNote: sample.relativeNote,
             previewFinetune: sample.finetune
@@ -847,6 +851,7 @@ struct BlankTrackerDocument: Equatable {
             sourceContext: noteAuditionSourceContext,
             previewPCM: Array(sample.pcm.prefix(frameCount)),
             previewVolume: sample.volume,
+            previewPanning: sample.panning,
             previewBaseSampleRate: sample.baseSampleRate,
             previewRelativeNote: sample.relativeNote,
             previewFinetune: sample.finetune

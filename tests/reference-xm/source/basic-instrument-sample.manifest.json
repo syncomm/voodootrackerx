@@ -545,7 +545,7 @@
       ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
-        "Sample-header panning is preserved and editable but intentionally runtime-inert."
+        "Instrument panning-envelope playback remains deferred; sample-header panning is planned independently."
       ],
       "xm_output": "generated/instrument-metadata-matrix.xm",
       "xm_sha256": "590e4aaafc71c41130cb1a9a4e768220c38c6e8dcdd3529d9be6e35ec400aef3",

@@ -926,6 +926,26 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(parameters.playbackStep, 2, accuracy: 0.000_001)
     }
 
+    func testNoteAuditionPreviewUsesSharedSampleHeaderPanningPlan() throws {
+        let left = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, samplePanning: 0, baseSampleRate: 100)
+        let center = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, samplePanning: 128, baseSampleRate: 100)
+        let right = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, samplePanning: 255, baseSampleRate: 100)
+        let leftParameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: left, sampleRate: 100))
+        let centerParameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: center, sampleRate: 100))
+        let rightParameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: right, sampleRate: 100))
+        let leftBlock = try XCTUnwrap(EditorNoteAuditionAudioSink.renderPreviewBlock(for: left, sampleRate: 100, frames: 4))
+        let centerBlock = try XCTUnwrap(EditorNoteAuditionAudioSink.renderPreviewBlock(for: center, sampleRate: 100, frames: 4))
+        let rightBlock = try XCTUnwrap(EditorNoteAuditionAudioSink.renderPreviewBlock(for: right, sampleRate: 100, frames: 4))
+
+        XCTAssertEqual([leftParameters.pan, centerParameters.pan, rightParameters.pan], [-1, 0, 1])
+        XCTAssertTrue(stride(from: 1, to: leftBlock.interleavedPCM.count, by: 2).allSatisfy { leftBlock.interleavedPCM[$0] == 0 })
+        XCTAssertEqual(
+            stride(from: 0, to: centerBlock.interleavedPCM.count, by: 2).map { centerBlock.interleavedPCM[$0] },
+            stride(from: 1, to: centerBlock.interleavedPCM.count, by: 2).map { centerBlock.interleavedPCM[$0] }
+        )
+        XCTAssertTrue(stride(from: 0, to: rightBlock.interleavedPCM.count, by: 2).allSatisfy { rightBlock.interleavedPCM[$0] == 0 })
+    }
+
     func testNoteAuditionPreviewPitchSemitoneKeysProduceDistinctSteps() throws {
         let c4 = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
         let cSharp4 = try makePreviewEvent(trackerKey: "s", selectedOctave: 4, baseSampleRate: 100)
@@ -4222,6 +4242,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         trackerKey: Character,
         selectedOctave: Int,
         sampleVolume: Float = 1,
+        samplePanning: UInt8 = PlaybackSample.xmCenterPanning,
         baseSampleRate: Double,
         instrumentIndex: Int = 1,
         sampleIndex: Int = 0,
@@ -4256,6 +4277,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             sourceContext: .loadedModule(patternIndex: 0),
             previewPCM: previewPCM,
             previewVolume: sampleVolume,
+            previewPanning: samplePanning,
             previewBaseSampleRate: baseSampleRate
         )
         return EditorNoteAuditionPreviewEvent(

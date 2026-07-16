@@ -1,6 +1,28 @@
 import Foundation
 
 extension PlaybackSongSyntheticAdapter {
+    /// A resolved trigger starts from its sample header, then the already-supported row commands
+    /// keep their existing order: volume-column panning first, effect-column `8xx` second.
+    static func applyTriggeredSamplePanning(
+        _ samplePanning: UInt8,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        cell: PlaybackCell,
+        to state: inout ChannelState
+    ) -> PlaybackSongSyntheticVolumeColumnDiagnostic {
+        state.initializePanning(fromSampleHeader: samplePanning)
+        let appliedVolumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
+        switch volumeColumn.command {
+        case .setPanning, .panningSlideLeft, .panningSlideRight:
+            appliedVolumeColumn = applyVolumeColumn(volumeColumn, to: &state)
+        default:
+            appliedVolumeColumn = volumeColumn
+        }
+        if cell.effectType == 0x08 {
+            state.applyChannelPanningValue(Double(cell.effectParam))
+        }
+        return appliedVolumeColumn
+    }
+
     static func isTonePortamentoVolumeColumn(
         _ volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
     ) -> Bool {
@@ -52,7 +74,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         case let .setPanning(value):
             let before = state.pan
-            state.panningValue = clampedPanningValue(Double(value))
+            state.applyChannelPanningValue(Double(value))
             return volumeColumn.withAppliedState(
                 appliedPanningValue: Int(state.panningValue.rounded()),
                 appliedPan: state.pan,
@@ -62,7 +84,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         case let .panningSlideLeft(amount):
             let before = state.pan
-            state.panningValue = clampedPanningValue(state.panningValue - Double(amount))
+            state.applyChannelPanningValue(state.panningValue - Double(amount))
             return volumeColumn.withAppliedState(
                 appliedPanningValue: Int(state.panningValue.rounded()),
                 appliedPan: state.pan,
@@ -72,7 +94,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         case let .panningSlideRight(amount):
             let before = state.pan
-            state.panningValue = clampedPanningValue(state.panningValue + Double(amount))
+            state.applyChannelPanningValue(state.panningValue + Double(amount))
             return volumeColumn.withAppliedState(
                 appliedPanningValue: Int(state.panningValue.rounded()),
                 appliedPan: state.pan,

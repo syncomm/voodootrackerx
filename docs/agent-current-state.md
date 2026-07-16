@@ -77,8 +77,11 @@ through the same paths; later playback uses the existing pitch adaptation.
 Selected-sample finetune preserves the exact XM signed byte `-128...127` through
 the same paths; later playback uses the existing pitch adaptation with no pitch
 formula, runtime engine, DSP, or scheduling architecture change.
-Sample panning remains runtime-inert and
-does not change adapter plans, voice pan, or render output. XM instrument
+Sample-header panning now initializes preview, runtime, and product-export
+voices from the resolved sample. Its monotonic mapping is exact at byte `0`
+(`-1`), `128` (`0`), and `255` (`+1`); existing volume/effect panning then
+keeps its established mapping and precedence. Edits affect the next trigger,
+not a held voice, with no backend or C mixer DSP change. XM instrument
 autovibrato type/sweep/depth/rate bytes are likewise preserved through editable
 copy, snapshots, and Export XM, shown on disabled VIBRATO controls, and remain
 runtime/audition-inert. XM instrument panning-envelope points, counts, sustain/
@@ -98,7 +101,7 @@ manifest pins PCM/XM hashes and byte counts; the existing generator validates,
 generates one or all approved fixtures, and verifies committed bytes without
 rewriting. Tests cover the C loader, playback model, editable-copy, current
 metadata edits/undo/redo, 8/16-bit PCM, no/forward/ping-pong loops,
-runtime-inert panning, and Export XM/reopen. The envelopes/keymap scenario
+exact panning preservation/planning, and Export XM/reopen. The envelopes/keymap scenario
 remains the dependent third fixture PR. The pack is original MIT-licensed project data and adds no
 XI, imported audio, runtime, parser, writer, mixer, DSP, scheduling, or UI
 behavior.

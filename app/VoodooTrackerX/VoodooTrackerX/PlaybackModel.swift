@@ -8,6 +8,23 @@ struct PlaybackCell: Equatable {
     let effectParam: UInt8
 }
 
+/// Converts an exact XM sample-header panning byte into the mixer's planned `-1...1` pan.
+enum PlaybackSamplePanningPolicy {
+    /// XM's nominal center byte, 128, is exact center. The asymmetric divisors preserve both
+    /// byte endpoints as full left/right while keeping every intermediate value monotonic.
+    static func plannedPan(_ xmValue: UInt8) -> Float {
+        plannedPan(Int(xmValue))
+    }
+
+    static func plannedPan(_ xmValue: Int) -> Float {
+        let clamped = min(255, max(0, xmValue))
+        let mapped = clamped <= Int(PlaybackSample.xmCenterPanning)
+            ? Float(clamped - 128) / 128.0
+            : Float(clamped - 128) / 127.0
+        return min(1, max(-1, mapped))
+    }
+}
+
 struct PlaybackSample: Equatable {
     static let xmMaximumVolume: UInt8 = 64
     static let xmDefaultVolume: UInt8 = xmMaximumVolume

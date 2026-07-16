@@ -27,6 +27,7 @@ enum PlaybackSongSyntheticAdapter {
         var volumeValue = 64
         var volumeValueZeroedByAxy = false
         var panningValue = 127.5
+        var pan: Float = 0
         var activeEventIndex: Int?
         var activeEventMappingIndex: Int?
         var activeInstrumentIndex: Int?
@@ -59,8 +60,14 @@ enum PlaybackSongSyntheticAdapter {
         var vibratoControl: VibratoControlState?
         var vibratoPhase: Double = 0
 
-        var pan: Float {
-            PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: panningValue)
+        mutating func initializePanning(fromSampleHeader value: UInt8) {
+            panningValue = Double(value)
+            pan = PlaybackSamplePanningPolicy.plannedPan(value)
+        }
+
+        mutating func applyChannelPanningValue(_ value: Double) {
+            panningValue = PlaybackSongSyntheticAdapter.clampedPanningValue(value)
+            pan = PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: panningValue)
         }
     }
 
@@ -1580,6 +1587,15 @@ enum PlaybackSongSyntheticAdapter {
                 context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
                 context.channelStates[channelIndex] = channelState
                 continue
+            }
+
+            if !handlesTonePortamento {
+                volumeColumn = applyTriggeredSamplePanning(
+                    sample.panning,
+                    volumeColumn: volumeColumn,
+                    cell: cell,
+                    to: &channelState
+                )
             }
 
             if handlesTonePortamento {

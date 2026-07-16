@@ -75,14 +75,15 @@ enum InstrumentEditorOnScreenNoteIntent: Equatable {
 
 typealias InstrumentEditorOnScreenNoteHandler = (InstrumentEditorOnScreenNoteIntent) -> Bool
 
-enum InstrumentEditorOnScreenAuditionRequestFactory {
+enum InstrumentEditorAuditionRequestFactory {
     static func request(
         noteValue: UInt8,
         selection: TrackerEditorSelection,
         instrument: PlaybackInstrument?,
         sourceContext: EditorNoteAuditionSourceContext,
         channelIndex: Int? = nil,
-        rowIndex: Int? = nil
+        rowIndex: Int? = nil,
+        isRepeatedKeyDown: Bool = false
     ) -> EditorNoteAuditionRequest? {
         guard (1...96).contains(noteValue) else { return nil }
         let mappedSampleSlot = instrument?.mappedSampleIndex(forNote: noteValue).map { $0 + 1 }
@@ -95,7 +96,32 @@ enum InstrumentEditorOnScreenAuditionRequestFactory {
             selection: previewSelection,
             sourceContext: sourceContext,
             channelIndex: channelIndex,
-            rowIndex: rowIndex
+            rowIndex: rowIndex,
+            isRepeatedKeyDown: isRepeatedKeyDown
+        )
+    }
+
+    static func request(
+        trackerKey: Character,
+        selectedOctave: Int,
+        selection: TrackerEditorSelection,
+        instrument: PlaybackInstrument?,
+        sourceContext: EditorNoteAuditionSourceContext,
+        channelIndex: Int? = nil,
+        rowIndex: Int? = nil,
+        isRepeatedKeyDown: Bool = false
+    ) -> EditorNoteAuditionRequest? {
+        guard let noteValue = TrackerNoteKeyMap.noteValue(forTrackerKey: trackerKey, octave: selectedOctave) else {
+            return nil
+        }
+        return request(
+            noteValue: noteValue,
+            selection: selection,
+            instrument: instrument,
+            sourceContext: sourceContext,
+            channelIndex: channelIndex,
+            rowIndex: rowIndex,
+            isRepeatedKeyDown: isRepeatedKeyDown
         )
     }
 }

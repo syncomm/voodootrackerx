@@ -51,8 +51,8 @@ modules and active playback keep it disabled. FINETUNE commits one exact `Change
 action at mouse-up; REL NOTE commits `Change Sample Relative Note` with the same gating and signed
 readout. No pitch formula, runtime engine, DSP,
 gain-law, or scheduling logic changed.
-Undo/redo refresh this window and the main control panel. Sample panning and instrument autovibrato
-remain runtime-inert. Panning-envelope metadata is preserved but not yet
+Undo/redo refresh this window and the main control panel. Sample-header panning initializes the next
+focused preview/runtime/export trigger; instrument autovibrato remains runtime-inert. Panning-envelope metadata is preserved but not yet
 applied to playback; its VOL/PAN selector changes only local display mode, and every envelope edit
 control remains disabled/inert alongside XI, keymap assignment, and loaded-module NAME.
 
@@ -68,7 +68,7 @@ responder, leaving NAME unselected and audition immediately eligible; explicit N
 the normal field editor and suppresses audition until editing ends. Preview activity is independent of transport playback, so it
 does not alter NAME/PAN/VOLUME/FINETUNE/REL NOTE eligibility. Metadata changed during or after a
 preview is read on the next audition trigger; held-note live modulation and automatic retrigger remain
-out of scope. Sample-header panning remains editable/exportable but runtime-inert.
+out of scope. Focused computer and graphical audition resolve the XM keymap sample before applying its pan.
 
 ---
 
@@ -250,9 +250,10 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 12. Done: focused-window computer-keyboard audition through the isolated preview path.
 13. Done: audition-only on-screen keyboard interaction.
 14. Done: canonical instrument/sample list selection without document or undo mutation.
-15. Envelope editing (points, sustain, loop, add/del) wired.
-16. Vibrato + remaining defaults controls wired.
-17. Keymap drag-to-assign-range.
+15. Done: resolved-sample panning in focused audition, runtime playback, and product audio export.
+16. Envelope editing (points, sustain, loop, add/del) wired.
+17. Vibrato + remaining defaults controls wired.
+18. Keymap drag-to-assign-range.
 
 ---
 
@@ -263,7 +264,8 @@ selection-change states; confirm NAME and represented-sample VOLUME, FINETUNE, a
 editable document; and confirm edit/undo/redo refresh both the window and control panel. Export a
 supported represented instrument to a temporary XM and reload its name. For sample panning, confirm
 a non-center value displays exactly, PAN stays disabled for loaded/playing/empty states, and an edit
-survives Export XM/reopen. For relative note and finetune, confirm signed endpoints and intermediate values survive,
+survives Export XM/reopen. Confirm left/center/right samples are audible in focused computer and graphical
+audition and normal playback, and that an edit changes only the next trigger. For relative note and finetune, confirm signed endpoints and intermediate values survive,
 editing is blocked during playback, and undo/redo restore the corresponding later playback pitch.
 With the Instrument Editor focused outside NAME, verify both note-key rows, octave and
 sample selection, repeat suppression, and matching key release; confirm NAME typing and standard

@@ -135,7 +135,7 @@ Contents:
 This is the default public fixture for sustained Instrument Editor audition,
 Sample Editor waveform/loop inspection, Make Editable Copy, focused metadata
 edits, and Export XM/reopen. Sample-header panning remains editable and
-round-trippable but runtime-inert.
+round-trippable and initializes each newly triggered preview/playback voice.
 
 `generated/instrument-metadata-matrix.xm` is the second fixture in the series.
 It is 5,635 bytes with XM SHA-256
@@ -152,7 +152,7 @@ Its five one-sample instruments provide compact pairwise coverage:
 
 Rows 0/8/16/24/32 select instruments 1...5, with key-off events at rows
 6/14/22/30/40. Tests pin every sample's PCM hash and verify exact loader/model,
-editable-copy, metadata mutation/undo/redo, runtime-inert panning, and Export
+editable-copy, metadata mutation/undo/redo, planned panning, and Export
 XM/reopen preservation.
 
 `generated/instrument-envelopes-keymap.xm` is the third fixture and completes

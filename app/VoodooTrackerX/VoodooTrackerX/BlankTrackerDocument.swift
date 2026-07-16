@@ -424,7 +424,7 @@ struct EditorNoteAuditionPreviewEvent: Equatable {
 }
 
 struct EditorNoteAuditionKeyIdentity: Equatable {
-    let trackerKey: Character
+    let trackerKey: Character?
 
     init?(trackerKey character: Character) {
         guard let normalized = String(character).lowercased().first,
@@ -433,6 +433,10 @@ struct EditorNoteAuditionKeyIdentity: Equatable {
         }
         trackerKey = normalized
     }
+
+    static let instrumentEditorKeyboard = EditorNoteAuditionKeyIdentity()
+
+    private init() { trackerKey = nil }
 }
 
 struct EditorNoteAuditionPreviewToken: Equatable {
@@ -816,6 +820,10 @@ struct BlankTrackerDocument: Equatable {
     }
 
     var noteAuditionAvailability: EditorNoteAuditionAvailability {
+        noteAuditionAvailability(for: selection)
+    }
+
+    func noteAuditionAvailability(for selection: TrackerEditorSelection) -> EditorNoteAuditionAvailability {
         guard let instrument = instrument(forInstrument: selection.selectedInstrument) else {
             return .unavailable(hasInstrumentSamplePalette ? .selectedInstrumentUnavailable : .blankDocumentMissingInstrumentSamplePayload)
         }

@@ -4,6 +4,38 @@ typealias InstrumentEditorNoteAuditionKeyDownHandler = (_ trackerKey: Character,
 typealias InstrumentEditorNoteAuditionKeyUpHandler = (_ trackerKey: Character) -> Bool
 typealias InstrumentEditorNoteAuditionCancelHandler = () -> Void
 
+enum InstrumentEditorOnScreenNoteIntent: Equatable {
+    case press(UInt8)
+    case release(UInt8)
+}
+
+typealias InstrumentEditorOnScreenNoteHandler = (InstrumentEditorOnScreenNoteIntent) -> Bool
+
+enum InstrumentEditorOnScreenAuditionRequestFactory {
+    static func request(
+        noteValue: UInt8,
+        selection: TrackerEditorSelection,
+        instrument: PlaybackInstrument?,
+        sourceContext: EditorNoteAuditionSourceContext,
+        channelIndex: Int? = nil,
+        rowIndex: Int? = nil
+    ) -> EditorNoteAuditionRequest? {
+        guard (1...96).contains(noteValue) else { return nil }
+        let mappedSampleSlot = instrument?.mappedSampleIndex(forNote: noteValue).map { $0 + 1 }
+        let previewSelection = TrackerEditorSelection(
+            selectedInstrument: selection.selectedInstrument,
+            selectedSample: mappedSampleSlot ?? selection.selectedSample
+        )
+        return EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: noteValue, selectedOctave: (Int(noteValue) - 1) / 12),
+            selection: previewSelection,
+            sourceContext: sourceContext,
+            channelIndex: channelIndex,
+            rowIndex: rowIndex
+        )
+    }
+}
+
 @MainActor
 enum LoadedModuleEditableCopyAlertHostPolicy {
     struct Presentation {
@@ -649,6 +681,7 @@ final class InstrumentEditorWindowPresenter {
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil,
+        onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler? = nil,
         noteAuditionKeyDownHandler: InstrumentEditorNoteAuditionKeyDownHandler? = nil,
         noteAuditionKeyUpHandler: InstrumentEditorNoteAuditionKeyUpHandler? = nil,
         noteAuditionCancelHandler: InstrumentEditorNoteAuditionCancelHandler? = nil
@@ -659,6 +692,7 @@ final class InstrumentEditorWindowPresenter {
             windowController.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
             windowController.sampleFinetuneEditHandler = sampleFinetuneEditHandler
             windowController.samplePanningEditHandler = samplePanningEditHandler
+            windowController.onScreenNoteHandler = onScreenNoteHandler
             windowController.noteAuditionKeyDownHandler = noteAuditionKeyDownHandler
             windowController.noteAuditionKeyUpHandler = noteAuditionKeyUpHandler
             windowController.noteAuditionCancelHandler = noteAuditionCancelHandler
@@ -674,6 +708,7 @@ final class InstrumentEditorWindowPresenter {
             sampleRelativeNoteEditHandler: sampleRelativeNoteEditHandler,
             sampleFinetuneEditHandler: sampleFinetuneEditHandler,
             samplePanningEditHandler: samplePanningEditHandler,
+            onScreenNoteHandler: onScreenNoteHandler,
             noteAuditionKeyDownHandler: noteAuditionKeyDownHandler,
             noteAuditionKeyUpHandler: noteAuditionKeyUpHandler,
             noteAuditionCancelHandler: noteAuditionCancelHandler
@@ -690,6 +725,8 @@ final class InstrumentEditorWindowPresenter {
     func refresh(displayState: InstrumentEditorDisplayState) {
         windowController?.apply(displayState: displayState)
     }
+
+    func clearOnScreenPressedState() { windowController?.clearOnScreenPressedState() }
 }
 
 @MainActor
@@ -722,6 +759,11 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             (window?.contentView as? InstrumentEditorView)?.samplePanningEditHandler = samplePanningEditHandler
         }
     }
+    var onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler? {
+        didSet {
+            (window?.contentView as? InstrumentEditorView)?.onScreenNoteHandler = onScreenNoteHandler
+        }
+    }
     var noteAuditionKeyDownHandler: InstrumentEditorNoteAuditionKeyDownHandler? {
         didSet {
             (window as? InstrumentEditorPanel)?.keyboardAuditionRouter.noteKeyDownHandler = noteAuditionKeyDownHandler
@@ -741,6 +783,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil,
+        onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler? = nil,
         noteAuditionKeyDownHandler: InstrumentEditorNoteAuditionKeyDownHandler? = nil,
         noteAuditionKeyUpHandler: InstrumentEditorNoteAuditionKeyUpHandler? = nil,
         noteAuditionCancelHandler: InstrumentEditorNoteAuditionCancelHandler? = nil
@@ -750,6 +793,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         self.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
         self.sampleFinetuneEditHandler = sampleFinetuneEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
+        self.onScreenNoteHandler = onScreenNoteHandler
         self.noteAuditionKeyDownHandler = noteAuditionKeyDownHandler
         self.noteAuditionKeyUpHandler = noteAuditionKeyUpHandler
         self.noteAuditionCancelHandler = noteAuditionCancelHandler
@@ -760,7 +804,8 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             sampleVolumeEditHandler: sampleVolumeEditHandler,
             sampleRelativeNoteEditHandler: sampleRelativeNoteEditHandler,
             sampleFinetuneEditHandler: sampleFinetuneEditHandler,
-            samplePanningEditHandler: samplePanningEditHandler
+            samplePanningEditHandler: samplePanningEditHandler,
+            onScreenNoteHandler: onScreenNoteHandler
         )
         let panel = InstrumentEditorPanel(
             contentRect: contentView.frame,
@@ -808,16 +853,32 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
 
     @discardableResult
     func apply(displayState: InstrumentEditorDisplayState) -> Bool {
-        (window?.contentView as? InstrumentEditorView)?.apply(displayState: displayState) ?? false
+        guard let view = window?.contentView as? InstrumentEditorView else { return false }
+        if view.displayState.source != displayState.source ||
+            view.displayState.selectedInstrumentSlot != displayState.selectedInstrumentSlot ||
+            view.displayState.selectedSampleSlot != displayState.selectedSampleSlot {
+            _ = view.cancelOnScreenNoteAudition()
+        }
+        return view.apply(displayState: displayState)
     }
+
+    func clearOnScreenPressedState() { (window?.contentView as? InstrumentEditorView)?.clearOnScreenPressedState() }
 
     func windowWillClose(_ notification: Notification) {
         window?.makeFirstResponder(nil)
-        noteAuditionCancelHandler?()
+        let hadOnScreenNote = (window?.contentView as? InstrumentEditorView)?.cancelOnScreenNoteAudition() == true
+        if !hadOnScreenNote {
+            noteAuditionCancelHandler?()
+        }
         noteAuditionCancelHandler = nil
+        onScreenNoteHandler = nil
         noteAuditionKeyDownHandler = nil
         noteAuditionKeyUpHandler = nil
         closeHandler?()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        _ = (window?.contentView as? InstrumentEditorView)?.cancelOnScreenNoteAudition()
     }
 }
 
@@ -827,13 +888,16 @@ final class InstrumentEditorView: FlippedEditorView {
 
     private(set) var displayState: InstrumentEditorDisplayState
     private(set) var envelopeDisplayMode: InstrumentEnvelopeDisplayMode = .volume
+    private(set) var activeOnScreenNoteValue: UInt8?
     private(set) var rebuildCount = 0
     private var envelopePanelView: NSView?
+    private weak var onScreenKeyboardView: InstrumentEditorKeyboardPlaceholderView?
     var instrumentNameEditHandler: InstrumentNameEditHandler?
     var sampleVolumeEditHandler: SampleVolumeEditHandler?
     var sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler?
     var sampleFinetuneEditHandler: SampleFinetuneEditHandler?
     var samplePanningEditHandler: SamplePanningEditHandler?
+    var onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler?
 
     init(
         frame frameRect: NSRect,
@@ -842,7 +906,8 @@ final class InstrumentEditorView: FlippedEditorView {
         sampleVolumeEditHandler: SampleVolumeEditHandler? = nil,
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
-        samplePanningEditHandler: SamplePanningEditHandler? = nil
+        samplePanningEditHandler: SamplePanningEditHandler? = nil,
+        onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler? = nil
     ) {
         self.displayState = displayState
         self.instrumentNameEditHandler = instrumentNameEditHandler
@@ -850,10 +915,21 @@ final class InstrumentEditorView: FlippedEditorView {
         self.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
         self.sampleFinetuneEditHandler = sampleFinetuneEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
+        self.onScreenNoteHandler = onScreenNoteHandler
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.contentView)
         style(background: VTXEditorControlTheme.windowBackground)
         buildShell()
+    }
+
+    @discardableResult
+    func cancelOnScreenNoteAudition() -> Bool {
+        onScreenKeyboardView?.cancelActiveNote() ?? false
+    }
+
+    func clearOnScreenPressedState() {
+        activeOnScreenNoteValue = nil
+        onScreenKeyboardView?.clearActiveNote()
     }
 
     @available(*, unavailable)
@@ -1346,7 +1422,7 @@ final class InstrumentEditorView: FlippedEditorView {
     }
 
     private func buildKeymap(_ panel: NSView) {
-        addLabel("FULL 96-NOTE MAP SUMMARY · READ-ONLY · ASSIGNMENT/AUDITION LATER", to: panel, frame: NSRect(x: 91, y: 9, width: 560, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.32), size: 8)
+        addLabel("FULL 96-NOTE MAP SUMMARY · ASSIGNMENT READ-ONLY · CLICK/DRAG KEYS TO AUDITION", to: panel, frame: NSRect(x: 91, y: 9, width: 560, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.32), size: 8)
         addDisabledButton("◀ C-2", id: "keymapPreviousOctave", to: panel, frame: NSRect(x: 722, y: 5, width: 78, height: 25))
         addDisabledButton("C-4 ▶", id: "keymapNextOctave", to: panel, frame: NSRect(x: 806, y: 5, width: 80, height: 25))
 
@@ -1359,10 +1435,22 @@ final class InstrumentEditorView: FlippedEditorView {
 
         let keyboard = InstrumentEditorKeyboardPlaceholderView(
             frame: NSRect(x: 10, y: 52, width: 876, height: 96),
-            hasKeymapData: !displayState.keymapRanges.isEmpty
+            hasKeymapData: !displayState.keymapRanges.isEmpty,
+            activeNoteValue: activeOnScreenNoteValue,
+            noteIntentHandler: { [weak self] intent in
+                guard let self else { return false }
+                let accepted = self.onScreenNoteHandler?(intent) == true
+                switch intent {
+                case let .press(noteValue) where accepted: self.activeOnScreenNoteValue = noteValue
+                case .release: self.activeOnScreenNoteValue = nil
+                default: break
+                }
+                return accepted
+            }
         )
         keyboard.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.keyboardPlaceholder)
         panel.addSubview(keyboard)
+        onScreenKeyboardView = keyboard
 
         addLabel(sampleMetadataSummary, to: panel, frame: NSRect(x: 10, y: 157, width: 876, height: 13), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.52), size: 8.5, alignment: .center)
     }
@@ -1806,11 +1894,90 @@ final class InstrumentEditorKeymapRangeView: FlippedEditorView {
     }
 }
 
+struct InstrumentEditorKeyboardLayout {
+    struct Key {
+        let noteValue: UInt8
+        let frame: NSRect
+    }
+
+    static let displayedNoteRange: ClosedRange<UInt8> = 25...60 // C-2...B-4
+    let whiteKeys: [Key]
+    let blackKeys: [Key]
+    var keys: [Key] { whiteKeys + blackKeys }
+
+    init(bounds: NSRect) {
+        let content = bounds.insetBy(dx: 1, dy: 1)
+        guard content.width > 0, content.height > 0 else {
+            whiteKeys = []
+            blackKeys = []
+            return
+        }
+
+        let whitePitchClasses = Set([0, 2, 4, 5, 7, 9, 11])
+        let whiteKeyWidth = content.width / 21
+        let blackKeyWidth = whiteKeyWidth * 0.58
+        var whites: [Key] = []
+        var blacks: [Key] = []
+        var whiteIndex = 0
+        for noteValue in Self.displayedNoteRange {
+            let pitchClass = (Int(noteValue) - 1) % 12
+            if whitePitchClasses.contains(pitchClass) {
+                whites.append(Key(
+                    noteValue: noteValue,
+                    frame: NSRect(
+                        x: content.minX + (CGFloat(whiteIndex) * whiteKeyWidth),
+                        y: content.minY,
+                        width: whiteKeyWidth,
+                        height: content.height
+                    )
+                ))
+                whiteIndex += 1
+            } else {
+                blacks.append(Key(
+                    noteValue: noteValue,
+                    frame: NSRect(
+                        x: content.minX + (CGFloat(whiteIndex) * whiteKeyWidth) - (blackKeyWidth * 0.5),
+                        y: content.minY,
+                        width: blackKeyWidth,
+                        height: content.height * 0.60
+                    )
+                ))
+            }
+        }
+        whiteKeys = whites
+        blackKeys = blacks
+    }
+
+    func noteValue(at point: NSPoint) -> UInt8? {
+        // Half-open rectangles make shared white-key boundaries deterministic.
+        (blackKeys.first { contains(point, in: $0.frame) } ??
+            whiteKeys.first { contains(point, in: $0.frame) })?.noteValue
+    }
+
+    private func contains(_ point: NSPoint, in frame: NSRect) -> Bool {
+        point.x >= frame.minX && point.x < frame.maxX &&
+            point.y >= frame.minY && point.y < frame.maxY
+    }
+}
+
 final class InstrumentEditorKeyboardPlaceholderView: FlippedEditorView {
     private let hasKeymapData: Bool
+    private var noteIntentHandler: InstrumentEditorOnScreenNoteHandler?
+    private(set) var activeNoteValue: UInt8?
 
-    init(frame frameRect: NSRect, hasKeymapData: Bool) {
+    var keyboardLayout: InstrumentEditorKeyboardLayout {
+        InstrumentEditorKeyboardLayout(bounds: bounds)
+    }
+
+    init(
+        frame frameRect: NSRect,
+        hasKeymapData: Bool,
+        activeNoteValue: UInt8? = nil,
+        noteIntentHandler: InstrumentEditorOnScreenNoteHandler? = nil
+    ) {
         self.hasKeymapData = hasKeymapData
+        self.activeNoteValue = activeNoteValue
+        self.noteIntentHandler = noteIntentHandler
         super.init(frame: frameRect)
         style(
             background: VTXEditorControlTheme.recessedReadoutBackground,
@@ -1825,45 +1992,91 @@ final class InstrumentEditorKeyboardPlaceholderView: FlippedEditorView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        let localPoint = superview.map { convert(point, from: $0) } ?? point
+        return keyboardLayout.noteValue(at: localPoint) == nil ? nil : self
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { event?.type == .leftMouseDown }
+
+    override func mouseDown(with event: NSEvent) {
+        _ = handlePointerDown(at: convert(event.locationInWindow, from: nil), buttonNumber: event.buttonNumber)
+    }
+
+    override func mouseDragged(with event: NSEvent) { _ = handlePointerDrag(to: convert(event.locationInWindow, from: nil)) }
+
+    override func mouseUp(with event: NSEvent) { _ = handlePointerUp() }
+
+    @discardableResult
+    func handlePointerDown(at point: NSPoint, buttonNumber: Int) -> Bool {
+        guard buttonNumber == 0 else { return false }
+        let noteValue = keyboardLayout.noteValue(at: point)
+        let hadActiveNote = releaseActiveNote()
+        guard let noteValue else { return hadActiveNote }
+        if noteIntentHandler?(.press(noteValue)) == true {
+            activeNoteValue = noteValue
+            needsDisplay = true
+        }
+        return true
+    }
+
+    @discardableResult
+    func handlePointerDrag(to point: NSPoint) -> Bool {
+        let noteValue = keyboardLayout.noteValue(at: point)
+        guard noteValue != activeNoteValue else { return activeNoteValue != nil }
+        let hadActiveNote = releaseActiveNote()
+        guard let noteValue else { return hadActiveNote }
+        if noteIntentHandler?(.press(noteValue)) == true {
+            activeNoteValue = noteValue
+            needsDisplay = true
+        }
+        return true
+    }
+
+    @discardableResult func handlePointerUp() -> Bool { releaseActiveNote() }
+
+    @discardableResult func cancelActiveNote() -> Bool { releaseActiveNote() }
+
+    func clearActiveNote() {
+        guard activeNoteValue != nil else { return }
+        activeNoteValue = nil
+        needsDisplay = true
+    }
+
+    @discardableResult
+    private func releaseActiveNote() -> Bool {
+        guard let noteValue = activeNoteValue else { return false }
+        activeNoteValue = nil
+        needsDisplay = true
+        return noteIntentHandler?(.release(noteValue)) == true
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let content = bounds.insetBy(dx: 1, dy: 1)
-        let whiteKeyCount = 21
-        let keyWidth = content.width / CGFloat(whiteKeyCount)
+        let layout = keyboardLayout
         let whiteFill = VTXEditorControlTheme.warmValueText.withAlphaComponent(hasKeymapData ? 0.78 : 0.46)
 
-        for index in 0..<whiteKeyCount {
-            let rect = NSRect(
-                x: content.minX + (CGFloat(index) * keyWidth),
-                y: content.minY,
-                width: keyWidth,
-                height: content.height
+        for key in layout.whiteKeys {
+            drawKey(
+                key,
+                normalFill: whiteFill,
+                normalStroke: VTXEditorControlTheme.recessedReadoutBackground.withAlphaComponent(0.72)
             )
-            whiteFill.setFill()
-            VTXEditorControlTheme.recessedReadoutBackground.withAlphaComponent(0.72).setStroke()
-            let path = NSBezierPath(rect: rect)
-            path.fill()
-            path.stroke()
+        }
+        for key in layout.blackKeys {
+            drawKey(
+                key,
+                normalFill: VTXEditorControlTheme.interactiveFieldBackground.withAlphaComponent(hasKeymapData ? 1 : 0.82),
+                normalStroke: VTXEditorControlTheme.recessedReadoutBackground
+            )
         }
 
-        let blackWidth = keyWidth * 0.58
-        let blackHeight = content.height * 0.60
-        let blackAfterWhite = Set([0, 1, 3, 4, 5])
-        for index in 0..<(whiteKeyCount - 1) where blackAfterWhite.contains(index % 7) {
-            let x = content.minX + (CGFloat(index + 1) * keyWidth) - (blackWidth * 0.5)
-            VTXEditorControlTheme.interactiveFieldBackground.withAlphaComponent(hasKeymapData ? 1 : 0.82).setFill()
-            NSBezierPath(rect: NSRect(x: x, y: content.minY, width: blackWidth, height: blackHeight)).fill()
-        }
-
+        let content = bounds.insetBy(dx: 1, dy: 1)
         VTXEditorControlTheme.accentGold.withAlphaComponent(0.38).setFill()
         NSBezierPath(rect: NSRect(x: content.minX, y: content.maxY - 5, width: content.width, height: 5)).fill()
 
         let style = NSMutableParagraphStyle()
         style.alignment = .center
-        "KEYMAP PREVIEW · READ-ONLY".draw(
+        "AUDITION KEYBOARD · CLICK / DRAG TO PREVIEW".draw(
             in: NSRect(x: 0, y: bounds.height - 18, width: bounds.width, height: 11),
             withAttributes: [
                 .font: NSFont.monospacedSystemFont(ofSize: 7.5, weight: .bold),
@@ -1871,5 +2084,15 @@ final class InstrumentEditorKeyboardPlaceholderView: FlippedEditorView {
                 .paragraphStyle: style,
             ]
         )
+    }
+
+    private func drawKey(_ key: InstrumentEditorKeyboardLayout.Key, normalFill: NSColor, normalStroke: NSColor) {
+        let isPressed = key.noteValue == activeNoteValue
+        (isPressed ? VTXEditorControlTheme.indigoSelection : normalFill).setFill()
+        (isPressed ? VTXEditorControlTheme.accentGold : normalStroke).setStroke()
+        let path = NSBezierPath(rect: key.frame)
+        path.lineWidth = isPressed ? 2 : 1
+        path.fill()
+        path.stroke()
     }
 }

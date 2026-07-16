@@ -486,7 +486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        noteAuditionPreviewer.cancelPreview()
+        cancelNoteAuditionForDocumentTransition()
         playbackEngine.load(song: nil)
         applyUntitledEditableCopy(document)
         presentLoadedModuleEditableCopyMessage(result)
@@ -623,6 +623,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     panning: panning
                 ) ?? false
             },
+            onScreenNoteHandler: { [weak self] intent in
+                switch intent {
+                case let .press(noteValue): self?.handleInstrumentEditorOnScreenNotePress(noteValue) ?? false
+                case let .release(noteValue): self?.handleInstrumentEditorOnScreenNoteRelease(noteValue) ?? false
+                }
+            },
             noteAuditionKeyDownHandler: { [weak self] character, isRepeat in
                 self?.handleInstrumentEditorNoteAuditionKeyDown(character, isRepeat: isRepeat) ?? false
             },
@@ -643,6 +649,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return .loadedModule(playbackSong: playbackEngine.song, selection: loadedModuleSelection)
         }
         return .empty
+    }
+
+    private func cancelNoteAuditionForDocumentTransition() {
+        noteAuditionPreviewer.cancelPreview()
+        instrumentEditorWindowPresenter.clearOnScreenPressedState()
     }
 
     private func selectSongOrderEditorOrder(_ orderPosition: Int) {
@@ -1009,7 +1020,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        noteAuditionPreviewer.cancelPreview()
+        cancelNoteAuditionForDocumentTransition()
         playbackEngine.load(song: nil)
         blankDocument = document
         loadedMetadata = nil
@@ -1060,7 +1071,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             )
 
             let stateUpdateStart = timingSession?.beginPhase()
-            noteAuditionPreviewer.cancelPreview()
+            cancelNoteAuditionForDocumentTransition()
             blankDocument = nil
             loadedMetadata = metadata
             editableDocumentEditCoordinator.discardUndoHistory()
@@ -1150,7 +1161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func resetToBlankTrackerDocument() {
         discardHiddenSongOrderEditorController()
-        noteAuditionPreviewer.cancelPreview()
+        cancelNoteAuditionForDocumentTransition()
         let document = BlankTrackerDocument.makeDefault()
         blankDocument = document
         loadedMetadata = nil
@@ -1913,6 +1924,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return false
         }
         return noteAuditionPreviewer.stopPreview(for: keyIdentity)
+    }
+
+    private func handleInstrumentEditorOnScreenNotePress(_ noteValue: UInt8) -> Bool {
+        let selection = currentEditorSelection()
+        let instrument = loadedMetadata != nil
+            ? playbackEngine.song?.instrument(forInstrument: selection.selectedInstrument)
+            : blankDocument?.instrument(forInstrument: selection.selectedInstrument)
+        guard let request = InstrumentEditorOnScreenAuditionRequestFactory.request(
+            noteValue: noteValue,
+            selection: selection,
+            instrument: instrument,
+            sourceContext: currentEditorNoteAuditionSourceContext(),
+            channelIndex: cursor.channel,
+            rowIndex: cursor.row
+        ) else {
+            return false
+        }
+        let availability: EditorNoteAuditionAvailability
+        if loadedMetadata != nil {
+            availability = EditorNoteAuditionAvailabilityResolver.availability(
+                for: request,
+                loadedPlaybackSong: playbackEngine.song
+            )
+        } else if let document = blankDocument {
+            availability = document.noteAuditionAvailability(for: TrackerEditorSelection(
+                selectedInstrument: request.selectedInstrumentIndex,
+                selectedSample: request.selectedSampleIndex
+            ))
+        } else {
+            availability = .unavailable(.blankDocumentMissingInstrumentSamplePayload)
+        }
+        return noteAuditionPreviewer.preview(
+            request: request,
+            availability: availability,
+            keyIdentity: .instrumentEditorKeyboard
+        ).didAttemptPreview
+    }
+
+    private func handleInstrumentEditorOnScreenNoteRelease(_ noteValue: UInt8) -> Bool {
+        guard let token = noteAuditionPreviewer.activePreviewToken,
+              token.keyIdentity == .instrumentEditorKeyboard,
+              token.noteValue == noteValue else {
+            return false
+        }
+        return noteAuditionPreviewer.stopPreview(for: token)
     }
 
     private func noteAuditionInputKind(for input: PatternEditInput) -> EditorNoteAuditionInputKind {

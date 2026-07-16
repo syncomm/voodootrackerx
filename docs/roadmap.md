@@ -180,8 +180,8 @@ fadeout, and autovibrato without production playback or format changes.
    normal Song/Order-aligned AppKit lifecycle, its router leaves non-key window events to AppKit,
    and preview activity does not change stopped-editable control eligibility. Editable-copy
    confirmation remains a tracker-window document sheet even when invoked from the editor.
-4. Add audition-only on-screen Instrument Editor keyboard interaction next;
-   follow it with a separately designed compatibility slice for audible sample-header
+4. Done: the on-screen Instrument Editor keyboard uses exact pitches, note-map routing,
+   pointer drag/release lifecycle, and isolated preview. Follow it with a separately designed compatibility slice for audible sample-header
    panning, then continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before
@@ -442,8 +442,8 @@ Recommended next product PR:
   document applyEdit/undo funnel, plus sample-panning, panning-envelope, and
   autovibrato round-trip support, read-only envelope display, and editable
   selected-sample panning, volume, signed-byte relative note, and finetune behind `applyEdit`
-  are in place, as is focused-window computer-keyboard audition. Continue with
-  audition-only on-screen Instrument Editor keyboard interaction.
+  are in place, as are focused-window computer-keyboard and graphical-keyboard
+  audition. Continue with the separately scoped audible sample-header panning design.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -750,7 +750,8 @@ audio backends. Planned sequencing is:
 - keep selected 1-based instrument/sample slots as editor state first
 - focused Instrument Editor computer-keyboard routing reuses the shared note
   map, current octave/selection, availability resolver, and preview sink
-- add audition-only on-screen Instrument Editor keyboard interaction next
+- the on-screen Instrument Editor keyboard now auditions exact clicked pitches,
+  including release/press transitions while dragging, through the shared preview sink
 - continue note audition using the selected instrument/sample source; the
   editor-side request and preview sink exist for loaded-module sample payloads
 - treat key release as preview key-off only

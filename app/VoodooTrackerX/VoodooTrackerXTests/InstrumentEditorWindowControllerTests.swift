@@ -290,6 +290,86 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(state.keymapRanges.map(\.colorIndex), [0, 1, 0])
     }
 
+    func testKeyboardLayoutUsesOneScaledGeometryForDrawingAndHitTesting() {
+        let bounds = NSRect(x: 0, y: 0, width: 876, height: 96)
+        let layout = InstrumentEditorKeyboardLayout(bounds: bounds)
+        XCTAssertEqual(layout.whiteKeys.map(\.noteValue), [25, 27, 29, 30, 32, 34, 36, 37, 39, 41, 42, 44, 46, 48, 49, 51, 53, 54, 56, 58, 60])
+        XCTAssertEqual(layout.blackKeys.map(\.noteValue), [26, 28, 31, 33, 35, 38, 40, 43, 45, 47, 50, 52, 55, 57, 59])
+        let firstBlack = layout.blackKeys[0]
+        XCTAssertEqual(layout.noteValue(at: NSPoint(x: firstBlack.frame.midX, y: firstBlack.frame.midY)), 26)
+        XCTAssertEqual(layout.noteValue(at: NSPoint(x: layout.whiteKeys[0].frame.maxX, y: bounds.maxY - 4)), 27)
+        XCTAssertNil(layout.noteValue(at: .zero))
+        XCTAssertNil(layout.noteValue(at: NSPoint(x: bounds.maxX, y: bounds.midY)))
+        let scaled = InstrumentEditorKeyboardLayout(bounds: NSRect(x: 0, y: 0, width: 438, height: 144))
+        XCTAssertTrue(scaled.keys.allSatisfy {
+            scaled.noteValue(at: NSPoint(x: $0.frame.midX, y: $0.frame.midY)) == $0.noteValue
+        })
+    }
+
+    func testKeyboardPrimaryPointerPressDragAndReleaseEmitMatchingIntents() {
+        var intents: [InstrumentEditorOnScreenNoteIntent] = []
+        var acceptsPress = true
+        let keyboard = InstrumentEditorKeyboardPlaceholderView(
+            frame: NSRect(x: 0, y: 0, width: 876, height: 96),
+            hasKeymapData: true,
+            noteIntentHandler: {
+                if case .press = $0, !acceptsPress { return false }
+                intents.append($0)
+                return true
+            }
+        )
+        let first = keyboard.keyboardLayout.whiteKeys[0]
+        let second = keyboard.keyboardLayout.blackKeys[0]
+        let firstPoint = NSPoint(x: first.frame.midX, y: first.frame.midY)
+        let secondPoint = NSPoint(x: second.frame.midX, y: second.frame.midY)
+
+        XCTAssertFalse(keyboard.handlePointerDown(at: firstPoint, buttonNumber: 1))
+        XCTAssertFalse(keyboard.handlePointerDown(at: .zero, buttonNumber: 0))
+        XCTAssertTrue(keyboard.handlePointerDown(at: firstPoint, buttonNumber: 0)); XCTAssertEqual(keyboard.activeNoteValue, first.noteValue)
+        XCTAssertTrue(keyboard.handlePointerDrag(to: firstPoint))
+        XCTAssertEqual(intents, [.press(first.noteValue)])
+        XCTAssertTrue(keyboard.handlePointerDrag(to: secondPoint)); XCTAssertEqual(keyboard.activeNoteValue, second.noteValue)
+        XCTAssertEqual(intents, [.press(first.noteValue), .release(first.noteValue), .press(second.noteValue)])
+        XCTAssertTrue(keyboard.handlePointerDrag(to: .zero)); XCTAssertNil(keyboard.activeNoteValue)
+        XCTAssertTrue(keyboard.handlePointerDrag(to: firstPoint)); XCTAssertEqual(keyboard.activeNoteValue, first.noteValue)
+        XCTAssertTrue(keyboard.handlePointerUp()); XCTAssertNil(keyboard.activeNoteValue)
+        XCTAssertEqual(intents.suffix(3), [.release(second.noteValue), .press(first.noteValue), .release(first.noteValue)])
+        XCTAssertTrue(keyboard.handlePointerDown(at: firstPoint, buttonNumber: 0))
+        XCTAssertTrue(keyboard.handlePointerDown(at: firstPoint, buttonNumber: 0))
+        XCTAssertEqual(intents.suffix(3), [.press(first.noteValue), .release(first.noteValue), .press(first.noteValue)])
+        XCTAssertTrue(keyboard.handlePointerUp())
+        acceptsPress = false
+        XCTAssertTrue(keyboard.handlePointerDown(at: firstPoint, buttonNumber: 0))
+        XCTAssertNil(keyboard.activeNoteValue)
+        XCTAssertFalse(keyboard.handlePointerUp())
+    }
+
+    func testOnScreenRequestUsesExactPitchAndPublicFixtureKeymapWithoutSelectionMutation() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/instrument-envelopes-keymap.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let instrument = try XCTUnwrap(song.instrumentsByIndex[1])
+        let selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
+
+        let requests = try [UInt8(48), 49].map { note in
+            try XCTUnwrap(InstrumentEditorOnScreenAuditionRequestFactory.request(
+                noteValue: note, selection: selection, instrument: instrument,
+                sourceContext: .loadedModule(patternIndex: 0)
+            ))
+        }
+        let availabilities = requests.map {
+            EditorNoteAuditionAvailabilityResolver.availability(for: $0, loadedPlaybackSong: song)
+        }
+        XCTAssertEqual(requests.map(\.kind), [.noteOn(noteValue: 48, selectedOctave: 3), .noteOn(noteValue: 49, selectedOctave: 4)])
+        XCTAssertEqual(requests.map(\.selectedSampleIndex), [1, 2])
+        XCTAssertEqual(availabilities.compactMap { if case let .potentiallyAvailable(value) = $0 { value.sampleIndex } else { nil } }, [0, 1])
+        XCTAssertEqual(selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        let previewer = EditorNoteAuditionPreviewer(sink: InstrumentEditorRecordingAuditionSink())
+        XCTAssertTrue(previewer.preview(request: requests[1], availability: availabilities[1],
+                                        keyIdentity: .instrumentEditorKeyboard).didAttemptPreview)
+        XCTAssertTrue(previewer.stopPreview(for: .instrumentEditorKeyboard))
+    }
+
     func testSampleMetadataUsesRepresentedLengthLoopVolumeAndTuning() throws {
         let state = InstrumentEditorDisplayState.loadedModule(
             playbackSong: makePlaybackSong(instruments: makeInstrumentPalette()),
@@ -599,6 +679,41 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
 
         XCTAssertFalse(editorWindow.isVisible)
         XCTAssertEqual(closeCount, 1)
+    }
+
+    func testGraphicalPressedStateCancelsOnSelectionTransitionDeactivationAndClose() throws {
+        let palette = makeInstrumentPalette()
+        let presenter = InstrumentEditorWindowPresenter()
+        var intents: [InstrumentEditorOnScreenNoteIntent] = []
+        var fallbackCancelCount = 0
+        let controller = presenter.show(
+            displayState: .loadedModule(playbackSong: makePlaybackSong(instruments: palette),
+                                        selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1)),
+            onScreenNoteHandler: { intents.append($0); return true },
+            noteAuditionCancelHandler: { fallbackCancelCount += 1 }
+        )
+        var keyboard = try instrumentEditorKeyboard(in: controller)
+        var key = keyboard.keyboardLayout.whiteKeys[0]
+
+        XCTAssertTrue(keyboard.handlePointerDown(at: NSPoint(x: key.frame.midX, y: key.frame.midY), buttonNumber: 0))
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        XCTAssertEqual(intents, [.press(key.noteValue), .release(key.noteValue)])
+        intents.removeAll()
+        XCTAssertTrue(keyboard.handlePointerDown(at: NSPoint(x: key.frame.midX, y: key.frame.midY), buttonNumber: 0))
+        XCTAssertTrue(controller.apply(displayState: .loadedModule(
+            playbackSong: makePlaybackSong(instruments: palette),
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+        )))
+        XCTAssertEqual(intents, [.press(key.noteValue), .release(key.noteValue)])
+        keyboard = try instrumentEditorKeyboard(in: controller)
+        XCTAssertNil(keyboard.activeNoteValue)
+
+        key = keyboard.keyboardLayout.blackKeys[0]
+        XCTAssertTrue(keyboard.handlePointerDown(at: NSPoint(x: key.frame.midX, y: key.frame.midY), buttonNumber: 0))
+        controller.window?.close()
+        XCTAssertEqual(intents.suffix(2), [.press(key.noteValue), .release(key.noteValue)])
+        XCTAssertEqual(fallbackCancelCount, 0, "the matching graphical release path cancels exactly once")
+        XCTAssertNil(presenter.windowController)
     }
 
     func testEditableNameFieldSubmitsSelectedZeroBasedInstrumentIndex() throws {
@@ -1268,6 +1383,19 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(panningStillInert, transposed)
         XCTAssertTrue(undoManager.canUndo)
         XCTAssertEqual(coordinator.undoMenuItemTitle, "Undo Change Sample Panning")
+    }
+
+    private func referenceXMFixtureURL(_ relativePath: String) throws -> URL {
+        let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let url = repoRoot.appendingPathComponent("tests/reference-xm").appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: url.path) else { throw XCTSkip("Missing reference XM fixture \(relativePath)") }
+        return url
+    }
+
+    private func instrumentEditorKeyboard(in controller: InstrumentEditorWindowController) throws -> InstrumentEditorKeyboardPlaceholderView {
+        try XCTUnwrap(controller.window?.contentView?.instrumentEditorDescendants
+            .compactMap { $0 as? InstrumentEditorKeyboardPlaceholderView }.first)
     }
 
 }

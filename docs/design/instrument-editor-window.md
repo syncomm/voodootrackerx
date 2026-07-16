@@ -17,7 +17,8 @@ commit per click and uses that unchanged pitch adaptation.
 Represented XM autovibrato bytes are shown on the disabled VIBRATO controls. Loaded modules,
 playing documents, and every unimplemented mutation control remain read-only. Focused unmodified
 computer note keys outside text responders reuse the tracker map and isolated preview path;
-the on-screen keyboard remains inert. The editor closes normally through its red close button
+the fixed C-2...B-4 on-screen keyboard now auditions exact primary-click pitches through the same
+path and uses the instrument note map without changing selection. The editor closes normally through its red close button
 or Command-W and reopens as one clean presenter-owned window. Broader sample/XI,
 envelope/keymap, waveform, and
 autovibrato playback work remains future scope. Represented XM panning-envelope data is
@@ -47,11 +48,11 @@ gain-law, or scheduling logic changed.
 Undo/redo refresh this window and the main control panel. Sample panning and instrument autovibrato
 remain runtime-inert. Panning-envelope metadata is preserved but not yet
 applied to playback; its VOL/PAN selector changes only local display mode, and every envelope edit
-control remains disabled/inert alongside XI, graphical keymap interaction, and loaded-module NAME.
+control remains disabled/inert alongside XI, keymap assignment, and loaded-module NAME.
 
 The close lifecycle remains standard AppKit behavior: the red close button and Command-W close only
 the utility window, the Window menu recreates one controller/router when asked, and close cancels any
-focused-key preview before detaching the router handlers. The panel matches the Song/Order Editor's
+computer or graphical preview before detaching its handlers. The panel matches the Song/Order Editor's
 activating utility-window configuration, and its audition router inspects only keyboard events so
 AppKit handles mouse activation and the standard traffic lights without interception. Editable-copy
 confirmation remains a document-level sheet on the main tracker window. When invoked while the
@@ -175,8 +176,8 @@ the window does not own separate file semantics.
 - The VOL/PAN switch swaps which envelope the canvas + envelope controls operate on.
 - Knobs: vertical drag, double-click to type; every knob has an exact numeric segment. Pan uses the
   center-detent slider.
-- Keymap: click = audition that note with the current instrument; drag across keys = assign the
-  selected sample slot to that note range; the color band updates live.
+- Keymap: primary press auditions that exact note with the current instrument; dragging across keys
+  releases/presses notes for audition. Note-range assignment and its live color-band update remain separate future work.
 - All audition goes through the isolated preview path — never full-song playback.
 
 ---
@@ -200,9 +201,8 @@ name → sample slots → envelope → vibrato → defaults → keymap.
   per-point subviews.
 - **Knobs / pan slider / LEDs / switches / segments:** reuse the shared control library
   (`docs/design/editor-control-vocabulary.md`).
-- **Keymap:** the current custom views draw the keyboard placeholder + represented per-range color
-  band but return no hit target. Future click/drag behavior may add isolated-preview audition and
-  assign-range handling.
+- **Keymap:** one shared scaled key geometry drives drawing and black-key-first hit testing. The
+  keyboard exposes semantic press/release intents to isolated preview; assignment remains deferred.
 - All future edits must submit a new whole document through
   `EditableDocumentEditCoordinator.applyEdit`; direct palette write-back is not
   an editor integration path; the implemented name field follows this rule.
@@ -223,7 +223,7 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 10. Done: selected represented sample FINETUNE mutation behind applyEdit/undo.
 11. Done: selected represented sample REL NOTE mutation behind applyEdit/undo.
 12. Done: focused-window computer-keyboard audition through the isolated preview path.
-13. Audition-only on-screen keyboard interaction.
+13. Done: audition-only on-screen keyboard interaction.
 14. Envelope editing (points, sustain, loop, add/del) wired.
 15. Vibrato + remaining defaults controls wired.
 16. Keymap drag-to-assign-range.
@@ -241,7 +241,9 @@ survives Export XM/reopen. For relative note and finetune, confirm signed endpoi
 editing is blocked during playback, and undo/redo restore the corresponding later playback pitch.
 With the Instrument Editor focused outside NAME, verify both note-key rows, octave and
 sample selection, repeat suppression, and matching key release; confirm NAME typing and standard
-shortcuts win, pattern/cursor/undo state does not change, and the on-screen keyboard is inert.
+shortcuts win and pattern/cursor/undo state does not change. On the on-screen keyboard, verify white
+and black clicks, boundary precedence, drag within/between/outside keys, matching mouse-up, pressed
+visuals, note-map sample splits, and cleanup on selection/deactivation/close.
 Verify autovibrato likewise survives while VIBRATO remains disabled
 and playback/audition output is unchanged. Verify panning-envelope graph/readouts in loaded and
 editable-copy states, clean disabled/empty states, local VOL/PAN switching across undo/redo, and
@@ -253,8 +255,8 @@ For later interactive slices, screenshot before/after per PR and verify the surf
 fixed size. Envelope: points
 add/drag/delete; sustain/loop markers track point indices; VOL/PAN swaps cleanly; fadeout maps
 correctly. Knobs ↔ segments stay in sync; double-click entry clamps to valid ranges; relative note +
-fine tune affect audition pitch. Keymap: color band matches assignments; drag-assign updates the right
-range; clicking auditions via the preview path (assert no full-song path is triggered). No change to
+fine tune affect audition pitch. Keymap assignment: color band matches assignments and drag-assign
+updates the right range; click audition already uses the preview path. No change to
 mixer timing, audio backend, or tracker viewport while open.
 
 ---

@@ -97,7 +97,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recently completed target:
-`instrument: add editable sample relative-note mutation behind applyEdit`.
+`instrument: align Instrument Editor window lifecycle with Song/Order Editor`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -114,7 +114,11 @@ Recently completed target:
 7. Instrument NAME plus selected-sample PAN, VOLUME, signed-byte REL NOTE, and FINETUNE
    editing behind `applyEdit` are done. Loaded modules and playback remain
    read-only; panning remains runtime-inert, while later playback consumes
-   volume and tuning through existing gain and pitch behavior.
+   volume and tuning through existing gain and pitch behavior. Focused Instrument
+   Editor note keys now reuse the shared mapping and isolated preview pipeline;
+   the Song/Order-aligned utility panel activates and closes normally, preview is
+   distinct from transport gating, and editable-copy confirmation remains a main-
+   tracker document sheet that stays visible when invoked from the editor.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
@@ -679,8 +683,9 @@ Implemented foundation:
 - v1-mockup-aligned Instrument Editor shell bound to loaded modules,
   editable documents, editable copies, and the current instrument/sample
   selection; represented instrument NAME and selected-sample PAN are editable
-  in stopped editable documents through applyEdit/undo, with future broader
-  sample/import/envelope/keymap/audition controls inert
+  in stopped editable documents through applyEdit/undo; focused computer note
+  keys audition through the existing isolated preview path while text editing,
+  shortcuts, and the on-screen keyboard remain inert
 - exact XM sample panning byte representation, loaded/editable-copy/snapshot/
   Export XM preservation, and eligible Instrument Editor PAN mutation; loaded
   modules stay read-only and runtime playback/render output remain unchanged

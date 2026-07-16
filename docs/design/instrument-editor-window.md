@@ -17,8 +17,11 @@ commit per click and uses that unchanged pitch adaptation.
 Represented XM autovibrato bytes are shown on the disabled VIBRATO controls. Loaded modules,
 playing documents, and every unimplemented mutation control remain read-only. Focused unmodified
 computer note keys outside text responders reuse the tracker map and isolated preview path;
-the fixed C-2...B-4 on-screen keyboard now auditions exact primary-click pitches through the same
-path and uses the instrument note map without changing selection. Represented instrument/sample
+the three-octave on-screen keyboard defaults to C-2...B-4, shifts by octave across the 96-note map,
+and auditions exact primary-click pitches through the same path without changing selection. Accepted
+focused computer notes use that same pressed-key visual only while visible; generation identity keeps
+mouse/computer replacement monophonic and stale releases harmless. Range navigation is session UI
+state with no document/undo mutation, and keymap assignment remains read-only. Represented instrument/sample
 rows share canonical control-panel selection in loaded/editable and stopped/playing states. Selection
 is non-mutating, creates no undo, cancels stale preview before context changes, and drives metadata
 and audition; transport gates mutation only, and keymap assignment remains read-only. The editor closes normally through its red close button

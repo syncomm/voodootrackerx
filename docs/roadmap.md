@@ -181,7 +181,8 @@ fadeout, and autovibrato without production playback or format changes.
    and preview activity does not change stopped-editable control eligibility. Editable-copy
    confirmation remains a tracker-window document sheet even when invoked from the editor.
 4. Done: the on-screen Instrument Editor keyboard uses exact pitches, note-map routing,
-   pointer drag/release lifecycle, and isolated preview. Follow it with a separately designed compatibility slice for audible sample-header
+   pointer drag/release lifecycle, isolated preview, shared visible mouse/computer pressed state,
+   and UI-only octave range navigation across the read-only 96-note map. Follow it with a separately designed compatibility slice for audible sample-header
    panning, then continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before

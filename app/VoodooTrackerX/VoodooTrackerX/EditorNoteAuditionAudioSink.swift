@@ -51,6 +51,7 @@ final class EditorNoteAuditionAudioSink: EditorNoteAuditionPreviewSink {
         EditorNoteAuditionPreviewRenderPlan(event: event, sampleRate: sampleRate).map {
             EditorNoteAuditionPreviewRenderParameters(
                 gain: $0.gain,
+                pan: $0.pan,
                 playbackStep: $0.playbackStep,
                 loop: $0.loop,
                 instrumentIndex: $0.instrumentIndex,
@@ -62,6 +63,7 @@ final class EditorNoteAuditionAudioSink: EditorNoteAuditionPreviewSink {
 
 struct EditorNoteAuditionPreviewRenderParameters: Equatable {
     let gain: Float
+    let pan: Float
     let playbackStep: Double
     let loop: MixerSampleLoop
     let instrumentIndex: Int
@@ -71,6 +73,7 @@ struct EditorNoteAuditionPreviewRenderParameters: Equatable {
 private struct EditorNoteAuditionPreviewRenderPlan {
     let sample: MixerSampleBuffer
     let gain: Float
+    let pan: Float
     let playbackStep: Double
     let loop: MixerSampleLoop
     let instrumentIndex: Int
@@ -87,6 +90,7 @@ private struct EditorNoteAuditionPreviewRenderPlan {
 
         sample = MixerSampleBuffer(monoPCM: Array(descriptor.previewPCM.prefix(frameCount)))
         gain = EditorNoteAuditionPreviewGainPolicy.gain(sampleVolume: descriptor.previewVolume)
+        pan = PlaybackSamplePanningPolicy.plannedPan(descriptor.previewPanning)
         loop = descriptor.previewLoop.sanitized(sampleFrameCount: frameCount)
         instrumentIndex = descriptor.instrumentIndex
         sampleIndex = descriptor.sampleIndex
@@ -131,12 +135,13 @@ final class EditorNoteAuditionPreviewMixer {
         mixer.addVoice(
             sample: plan.sample,
             gain: plan.gain,
-            pan: 0,
+            pan: plan.pan,
             playbackStep: plan.playbackStep,
             loop: plan.loop
         )
         lastRenderParameters = EditorNoteAuditionPreviewRenderParameters(
             gain: plan.gain,
+            pan: plan.pan,
             playbackStep: plan.playbackStep,
             loop: plan.loop,
             instrumentIndex: plan.instrumentIndex,

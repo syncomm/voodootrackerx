@@ -491,7 +491,16 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             orderIndex: 0,
             sampleRate: 100
         )
-        XCTAssertEqual(panningPlan, sourcePlan)
+        XCTAssertEqual(panningPlan.pattern.events.map(\.pan), Array(
+            repeating: PlaybackSamplePanningPolicy.plannedPan(201),
+            count: sourcePlan.pattern.events.count
+        ))
+        XCTAssertEqual(panningPlan.pattern.events.map(\.row), sourcePlan.pattern.events.map(\.row))
+        XCTAssertEqual(panningPlan.pattern.events.map(\.tick), sourcePlan.pattern.events.map(\.tick))
+        XCTAssertEqual(panningPlan.pattern.events.map(\.gain), sourcePlan.pattern.events.map(\.gain))
+        XCTAssertEqual(panningPlan.pattern.events.map(\.playbackStep), sourcePlan.pattern.events.map(\.playbackStep))
+        XCTAssertEqual(panningPlan.pattern.events.map(\.sample), sourcePlan.pattern.events.map(\.sample))
+        XCTAssertEqual(panningPlan.pattern.events.map(\.loop), sourcePlan.pattern.events.map(\.loop))
         XCTAssertTrue(coordinator.undo())
         XCTAssertEqual(editedDocument.instrumentPalette[1]?.samples.first?.panning, 128)
         XCTAssertTrue(coordinator.redo())
@@ -593,7 +602,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testMetadataMatrixFocusedMutationPreservesNeighborsAndPanningIsRuntimeInert() throws {
+    func testMetadataMatrixFocusedMutationPreservesNeighborsAndPanningAffectsNextPlan() throws {
         let sourceURL = try referenceXMFixtureURL("generated/instrument-metadata-matrix.xm")
         let sourceData = try Data(contentsOf: sourceURL)
         let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
@@ -622,11 +631,22 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         )
 
         XCTAssertTrue(coordinator.setSamplePanning(instrumentAt: 2, sampleAt: 0, panning: 37))
-        XCTAssertEqual(PlaybackSongSyntheticAdapter.adapt(
+        let editedPanningPlan = PlaybackSongSyntheticAdapter.adapt(
             EditablePlaybackSongBuilder.build(from: editedDocument),
             orderIndex: 0,
             sampleRate: 100
-        ), sourcePlan)
+        )
+        let sourceMapping = try XCTUnwrap(sourcePlan.diagnostics.eventMappings.first { $0.instrumentIndex == 3 })
+        let editedMapping = try XCTUnwrap(editedPanningPlan.diagnostics.eventMappings.first { $0.instrumentIndex == 3 })
+        let sourceEvent = sourcePlan.pattern.events[sourceMapping.eventIndex]
+        let editedEvent = editedPanningPlan.pattern.events[editedMapping.eventIndex]
+        XCTAssertEqual(sourceEvent.pan, 0)
+        XCTAssertEqual(editedEvent.pan, PlaybackSamplePanningPolicy.plannedPan(37), accuracy: 0.000_001)
+        XCTAssertEqual(sourceEvent.row, editedEvent.row)
+        XCTAssertEqual(sourceEvent.tick, editedEvent.tick)
+        XCTAssertEqual(sourceEvent.gain, editedEvent.gain)
+        XCTAssertEqual(sourceEvent.playbackStep, editedEvent.playbackStep)
+        XCTAssertEqual(sourcePlan.pattern.events.count, editedPanningPlan.pattern.events.count)
         XCTAssertTrue(coordinator.undo())
         XCTAssertEqual(editedDocument.instrumentPalette[3]?.samples.first?.panning, 128)
         XCTAssertTrue(coordinator.redo())

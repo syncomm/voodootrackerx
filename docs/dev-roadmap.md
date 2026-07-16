@@ -58,7 +58,7 @@ VoodooTracker X currently has:
   artifact scan make it the default public sustained instrument input
 - a deterministic five-instrument XM metadata matrix covering exact pan,
   volume, signed tuning, 8/16-bit PCM, no/forward/ping-pong loops, editable-copy,
-  mutation/undo/redo, runtime-inert panning, and Export XM/reopen
+  mutation/undo/redo, planned panning, and Export XM/reopen
 - a deterministic two-sample XM with a split keymap, volume/panning envelopes,
   fadeout, and autovibrato preserved through editable copy and Export XM/reopen
 
@@ -126,8 +126,8 @@ Recently completed target:
    Done.
 7. Instrument NAME plus selected-sample PAN, VOLUME, signed-byte REL NOTE, and FINETUNE
    editing behind `applyEdit` are done. Loaded modules and playback remain
-   read-only; panning remains runtime-inert, while later playback consumes
-   volume and tuning through existing gain and pitch behavior. Focused Instrument
+   read-only; later playback consumes sample-header panning, volume, and tuning
+   through existing planning, gain, and pitch behavior. Focused Instrument
    Editor note keys now reuse the shared mapping and isolated preview pipeline;
    the Song/Order-aligned utility panel activates and closes normally, preview is
    distinct from transport gating, and editable-copy confirmation remains a main-
@@ -708,7 +708,8 @@ Implemented foundation:
   preview path while text editing and shortcuts retain normal precedence
 - exact XM sample panning byte representation, loaded/editable-copy/snapshot/
   Export XM preservation, and eligible Instrument Editor PAN mutation; loaded
-  modules stay read-only and runtime playback/render output remain unchanged
+  modules stay read-only, while focused audition, runtime playback, and product
+  export initialize each new voice from the keymap-resolved sample's pan
 - exact XM autovibrato byte preservation and disabled VIBRATO display;
   playback, audition, adapter plans, and render output remain unchanged
 - exact XM panning-envelope point/count/index/flag preservation through loaded

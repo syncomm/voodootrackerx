@@ -180,13 +180,42 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(view.displayState.sampleSlots.map(\.isSelected), [false, true])
         XCTAssertEqual(view.displayState.keymapRanges.map(\.isSelected), [false, true])
 
-        _ = InstrumentEditorOnScreenAuditionRequestFactory.request(
+        let lowGraphicalRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
             noteValue: 48,
             selection: selection,
             instrument: instrument,
             sourceContext: .loadedModule(patternIndex: 0)
-        )
+        ))
+        let lowFocusedRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
+            trackerKey: "z",
+            selectedOctave: 3,
+            selection: selection,
+            instrument: instrument,
+            sourceContext: .loadedModule(patternIndex: 0)
+        ))
+        let highFocusedRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
+            trackerKey: "q",
+            selectedOctave: 4,
+            selection: selection,
+            instrument: instrument,
+            sourceContext: .loadedModule(patternIndex: 0)
+        ))
+        let lowAvailability = EditorNoteAuditionAvailabilityResolver.availability(for: lowFocusedRequest, loadedPlaybackSong: song)
+        let highAvailability = EditorNoteAuditionAvailabilityResolver.availability(for: highFocusedRequest, loadedPlaybackSong: song)
+        guard case let .potentiallyAvailable(lowDescriptor) = lowAvailability,
+              case let .potentiallyAvailable(highDescriptor) = highAvailability else {
+            return XCTFail("expected both mapped samples to be previewable")
+        }
+
+        XCTAssertEqual(lowGraphicalRequest.selectedSampleIndex, 1)
+        XCTAssertEqual(lowFocusedRequest.selectedSampleIndex, 1)
+        XCTAssertEqual(highFocusedRequest.selectedSampleIndex, 2)
+        XCTAssertEqual(lowDescriptor.previewPanning, 64)
+        XCTAssertEqual(highDescriptor.previewPanning, 192)
+        XCTAssertEqual(PlaybackSamplePanningPolicy.plannedPan(lowDescriptor.previewPanning), -0.5)
+        XCTAssertEqual(PlaybackSamplePanningPolicy.plannedPan(highDescriptor.previewPanning), 64.0 / 127.0, accuracy: 0.000_001)
         XCTAssertEqual(selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        XCTAssertEqual(song, try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path))
     }
 
     func testListRowsStaySelectionEnabledWhileMutationIsLoadedOrPlayingReadOnly() throws {
@@ -573,7 +602,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             onScreenNoteHandler: { intent in
                 switch intent {
                 case let .press(note):
-                    let request = InstrumentEditorOnScreenAuditionRequestFactory.request(
+                    let request = InstrumentEditorAuditionRequestFactory.request(
                         noteValue: note, selection: .default, instrument: song.instrument(forInstrument: 1),
                         sourceContext: .loadedModule(patternIndex: 0)
                     )
@@ -728,7 +757,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         let selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
 
         let requests = try [UInt8(48), 49].map { note in
-            try XCTUnwrap(InstrumentEditorOnScreenAuditionRequestFactory.request(
+            try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
                 noteValue: note, selection: selection, instrument: instrument,
                 sourceContext: .loadedModule(patternIndex: 0)
             ))
@@ -1713,7 +1742,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(harness.send(type: .keyUp, keyCode: 6, characters: "z"))
     }
 
-    func testNextAuditionRebuildsVolumeAndPitchAfterMetadataEditsWithoutLiveRetriggerOrPanning() throws {
+    func testNextAuditionRebuildsVolumePitchAndPanningAfterMetadataEditsWithoutLiveRetrigger() throws {
         var document = makeEditableDocument(palette: makeInstrumentPalette())
         let undoManager = UndoManager()
         let coordinator = EditableDocumentEditCoordinator(
@@ -1755,8 +1784,11 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(coordinator.setSamplePanning(instrumentAt: 1, sampleAt: 1, panning: 201))
         XCTAssertEqual(harness.sink.events.count, 4)
         XCTAssertEqual(document.instrumentPalette[2]?.samples[1].panning, 201)
-        let panningStillInert = try triggerAndRelease()
-        XCTAssertEqual(panningStillInert, transposed)
+        let repanned = try triggerAndRelease()
+        XCTAssertEqual(repanned.pan, PlaybackSamplePanningPolicy.plannedPan(201), accuracy: 0.000_001)
+        XCTAssertEqual(repanned.gain, transposed.gain)
+        XCTAssertEqual(repanned.playbackStep, transposed.playbackStep)
+        XCTAssertEqual(repanned.loop, transposed.loop)
         XCTAssertTrue(undoManager.canUndo)
         XCTAssertEqual(coordinator.undoMenuItemTitle, "Undo Change Sample Panning")
     }

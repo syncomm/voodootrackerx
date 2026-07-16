@@ -226,7 +226,7 @@ extension PlaybackSongSyntheticAdapter {
         case 0x08:
             let before = channelState
             let panningValue = clampedPanningValue(Double(Int(cell.effectParam)))
-            channelState.panningValue = panningValue
+            channelState.applyChannelPanningValue(panningValue)
             return voiceStateUpdateDiagnostic(
                 source: source,
                 channelIndex: channelIndex,

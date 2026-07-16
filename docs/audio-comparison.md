@@ -253,6 +253,10 @@ and runtime playback are unchanged.
   Linear comparisons. It applies equal-power center panning and the ft2-clone
   Linear output scale inside the offline render block before WAV export gain.
 
+Both profiles receive resolved sample-header panning through the shared event
+plan: byte `0` maps to `-1`, `128` exactly to `0`, and `255` to `+1` with
+monotonic piecewise interpolation. Existing downstream profile laws are unchanged.
+
 Use `--mix-profile ft2` for FT2-style XM parity comparisons. Use
 `--mix-profile vtx` when validating default VTX output behavior or checking
 that a change did not alter the project profile.

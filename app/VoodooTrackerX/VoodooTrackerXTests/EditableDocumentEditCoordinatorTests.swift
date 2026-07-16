@@ -373,7 +373,10 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
             XCTAssertEqual(editedInstrument.noteSampleMap, originalInstrument.noteSampleMap)
             XCTAssertEqual(after.selection, before.selection)
             XCTAssertEqual(after.patterns, before.patterns)
-            XCTAssertEqual(after.noteAuditionAvailability, before.noteAuditionAvailability)
+            guard case let .potentiallyAvailable(descriptor) = after.noteAuditionAvailability else {
+                return XCTFail("expected edited sample to remain previewable")
+            }
+            XCTAssertEqual(descriptor.previewPanning, panning)
         }
     }
 

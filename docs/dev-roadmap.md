@@ -133,6 +133,9 @@ Recently completed target:
    distinct from transport gating, and editable-copy confirmation remains a main-
    tracker document sheet that stays visible when invoked from the editor. The graphical keyboard
    now auditions exact pitches through XM note maps with drag and lifecycle-safe cancellation.
+   A later polish slice should update numeric readouts continuously during
+   continuous-control drags while committing only one document mutation at the
+   existing boundary.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
@@ -747,11 +750,24 @@ Likely v1.x or later work includes MIDI keyboard or pad input, recording and
 sample-capture improvements, richer resampling tools, and plugin/audio-input to
 sample experiments.
 
-Future Pro or native-format work may explore AUv3/VST-style plugin hosting,
-plugin instruments/effects, plugin-to-sample rendering, automation, a native
-VTX project format or XM3-style extended format, and AI-assisted
-instruments/samples/patterns. These are not VTX 1.0 requirements, and classic
-XM compatibility should not require live plugin playback.
+The accepted post-v1 priority is a narrow native macOS AUv3 tracker instrument
+before general third-party Audio Unit hosting inside VTX. The first concept is
+`VoodooTracker X Player AU`; iPadOS AUv3 follows only after the headless engine
+and contained UI are proven, and a deeper `VoodooTracker X Tracker AU` may
+follow. AUv3 is the only approved format. Major implementation starts only
+after a separate post-v1 approval milestone. Current work should preserve
+model, playback-plan, state-ownership, and mixer seams without adding AU scope
+or changing the runtime path. See
+`docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
+
+VST3, AUv2, Windows, JUCE, CMake, and cross-platform plug-in targets are not
+planned or authorized by this roadmap.
+
+Other future Pro or native-format work may explore plug-in-to-sample rendering,
+automation, a native VTX project format or XM3-style extended format,
+AI-assisted instruments/samples/patterns, and separately scoped third-party
+plug-in hosting. These are not VTX 1.0 requirements, and classic XM
+compatibility must not require live plug-in playback.
 
 ## Phase 7: Release Hardening
 

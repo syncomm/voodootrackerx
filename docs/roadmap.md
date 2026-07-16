@@ -52,12 +52,20 @@ Likely v1.x or later work includes MIDI keyboard or pad input, recording and
 sample-capture improvements, richer resampling tools, and plugin/audio-input to
 sample experiments.
 
-Future Pro or native-format work may explore AUv3/VST-style plugin hosting,
-plugin instruments/effects, plugin-to-sample rendering, automation, a native
-VTX project format or XM3-style extended format, and AI-assisted
-instruments/samples/patterns. Classic XM compatibility should not depend on
-live plugin playback; any plugin bridge should likely start as render-to-sample
-or import-to-sample workflow.
+The accepted post-v1 priority is VTX as an AUv3 tracker instrument inside host
+DAWs before VTX attempts to become a general Audio Unit plug-in host. Native
+macOS AUv3 comes first; iPadOS AUv3 follows only after the headless engine and
+contained UI are proven. AUv3 is the only approved plug-in format in this
+direction. The first concept is a narrow Player AU; a Tracker AU may follow.
+This is architecture direction, not current feature scope, and major AU
+implementation begins only after an explicit post-v1 approval milestone. See
+`docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
+
+Other future Pro or native-format work may still explore plugin-to-sample
+rendering, automation, a native VTX project format or XM3-style extended
+format, AI-assisted instruments/samples/patterns, and separately scoped
+third-party plug-in hosting. Classic XM compatibility must not depend on live
+plug-in playback.
 
 ## Milestone 0: Foundation / CI
 
@@ -185,6 +193,10 @@ fadeout, and autovibrato without production playback or format changes.
    and UI-only octave range navigation across the read-only 96-note map. Follow it with a separately designed compatibility slice for audible sample-header
    panning, then continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
+   A separate deferred polish slice should make continuous controls update their
+   numeric readouts during drag while preserving one `applyEdit` mutation at
+   the existing commit boundary; see
+   `docs/design/instrument-editor-window.md`.
 5. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
 6. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
@@ -794,11 +806,25 @@ Potential scope:
 
 ## Future Pro / Native-Format Concepts
 
-Post-1.0 Pro or native-format work may explore live AUv3/VST-style plugin
-hosting, plugin instruments/effects, plugin-to-sample rendering, automation, a
-native VTX project format or XM3-style extended format, and AI-assisted
-instruments/samples/patterns. These are not v1.0 requirements and should not
-change classic XM compatibility assumptions.
+Post-v1, prioritize a narrow macOS `VoodooTracker X Player AU` built with
+native AUv3 APIs. A later iPadOS AUv3 phase follows only after the headless
+engine and contained UI are proven; a `VoodooTracker X Tracker AU` may then add
+deeper contained editing. General third-party Audio Unit hosting inside
+standalone VTX remains possible but is lower priority and separately scoped.
+
+AU preparation before that approval milestone means preserving reusable
+document, playback-plan, state-ownership, audition/transport, and C mixer seams;
+it does not mean adding AU targets or changing the current runtime. The
+decision, phased outline, deferrals, and open questions are recorded in
+`docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
+
+AUv3 is the only approved format in this direction. VST3, AUv2, Windows,
+JUCE, CMake, and cross-platform plug-in targets are not planned by this roadmap.
+
+Other future Pro or native-format concepts may include plug-in-to-sample
+rendering, automation, a native VTX project format or XM3-style extended
+format, and AI-assisted instruments/samples/patterns. None are VTX 1.0
+requirements or reasons to weaken classic XM compatibility.
 
 ## Ready To Expand Gate
 

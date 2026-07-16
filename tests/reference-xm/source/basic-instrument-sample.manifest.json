@@ -550,6 +550,188 @@
       "xm_output": "generated/instrument-metadata-matrix.xm",
       "xm_sha256": "590e4aaafc71c41130cb1a9a4e768220c38c6e8dcdd3529d9be6e35ec400aef3",
       "xm_size_bytes": 5635
+    },
+    {
+      "id": "instrument-envelopes-keymap",
+      "intended_tests": [
+        "split keymap",
+        "envelope and autovibrato preservation",
+        "multi-sample Export XM round-trip"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 6,
+              "rate": 24,
+              "sweep": 8,
+              "type": 2
+            },
+            "fadeout": 2048,
+            "name": "SPLIT ENV KEYMAP",
+            "note_sample_map": [
+              {
+                "end_note": 48,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 96,
+                "sample": 1,
+                "start_note": 49
+              }
+            ],
+            "panning_envelope": {
+              "enabled": true,
+              "loop_end_point": 3,
+              "loop_start_point": 0,
+              "points": [
+                [
+                  0,
+                  32
+                ],
+                [
+                  8,
+                  48
+                ],
+                [
+                  16,
+                  16
+                ],
+                [
+                  24,
+                  32
+                ]
+              ],
+              "sustain_point": 2,
+              "type_flags": 7
+            },
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": -16,
+                "loop": {
+                  "length_frames": 1536,
+                  "mode": "forward",
+                  "start_frame": 256
+                },
+                "name": "LOW PULSE 8",
+                "panning": 64,
+                "pcm_recipe": {
+                  "amplitude": 56,
+                  "frame_count": 2048,
+                  "period_frames": 16,
+                  "waveform": "pulse"
+                },
+                "pcm_sha256": "405470958403dee4c1dbd41c888b2f8f6cb7c8eb5d950dcf1f4fcf09e447fc33",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 64
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 24,
+                "loop": {
+                  "length_frames": 1536,
+                  "mode": "forward",
+                  "start_frame": 256
+                },
+                "name": "HIGH TRIANGLE 16",
+                "panning": 192,
+                "pcm_recipe": {
+                  "amplitude": 12000,
+                  "frame_count": 2048,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "24d3e9d895e34280cf17e78111b7c5d14c035996c8c88d8bd3a0d78c5077b46b",
+                "relative_note": 12,
+                "slot": 1,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "loop_end_point": 3,
+              "loop_start_point": 1,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  8,
+                  48
+                ],
+                [
+                  16,
+                  32
+                ],
+                [
+                  24,
+                  64
+                ]
+              ],
+              "sustain_point": 1,
+              "type_flags": 7
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-3",
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 8
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 24
+              }
+            ],
+            "rows": 32
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX ENV KEYMAP",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "instrument-envelopes-keymap.xm",
+      "purpose": "Two audibly distinct samples split at C-4 with supported volume/panning envelopes, fadeout, and autovibrato metadata.",
+      "significant_rows": [
+        "row 0 C-3 maps sample 0",
+        "row 12 C-4 maps sample 1",
+        "rows 8 and 24 key off"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Named empty sample slots are omitted because the current loader/writer compacts zero-length samples.",
+        "Named sample-less instruments are omitted because the current playback model does not preserve their names through editable-copy Export XM."
+      ],
+      "xm_output": "generated/instrument-envelopes-keymap.xm",
+      "xm_sha256": "02c195c97ea64b0be56f75c86e4b2a5e565690cff39500f09dadc3441eeeee09",
+      "xm_size_bytes": 6870
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

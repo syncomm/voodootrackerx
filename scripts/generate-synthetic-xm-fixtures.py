@@ -83,9 +83,13 @@ def _note_byte(note: Any) -> int:
 
 
 def _validate_envelope(envelope: dict[str, Any], label: str) -> None:
-    expected = {"enabled", "points", "type_flags"}
-    if set(envelope) != expected:
-        raise ValueError(f"{label} fields must be exactly {sorted(expected)}")
+    required = {"enabled", "points", "type_flags"}
+    index_fields = {"sustain_point", "loop_start_point", "loop_end_point"}
+    fields = set(envelope)
+    if not required <= fields or not fields <= required | index_fields:
+        raise ValueError(f"{label} fields are unsupported")
+    if fields & index_fields and not index_fields <= fields:
+        raise ValueError(f"{label} envelope indices must be provided together")
     points = envelope["points"]
     if not isinstance(points, list) or len(points) > 12:
         raise ValueError(f"{label} point count must be in 0...12")
@@ -98,11 +102,22 @@ def _validate_envelope(envelope: dict[str, Any], label: str) -> None:
         if tick <= previous_tick:
             raise ValueError(f"{label} ordering must use strictly increasing ticks")
         previous_tick = tick
-    flags = _require_int(envelope["type_flags"], 0, 1, f"{label} type flags")
+    flags = _require_int(envelope["type_flags"], 0, 7, f"{label} type flags")
     if not isinstance(envelope["enabled"], bool):
         raise ValueError(f"{label} enabled must be boolean")
     if envelope["enabled"] != bool(flags & 0x01):
         raise ValueError(f"{label} enabled must match type flags")
+    for field, bit in (("sustain_point", 0x02), ("loop_start_point", 0x04), ("loop_end_point", 0x04)):
+        value = envelope.get(field)
+        if value is None:
+            if flags & bit:
+                raise ValueError(f"{label} envelope index {field} is required by type flags")
+        elif not flags & bit:
+            raise ValueError(f"{label} envelope index {field} is disabled by type flags")
+        elif not isinstance(value, int) or isinstance(value, bool) or not 0 <= value < len(points):
+            raise ValueError(f"{label} envelope index {field} is outside the point list")
+    if envelope.get("loop_start_point") is not None and envelope["loop_end_point"] < envelope["loop_start_point"]:
+        raise ValueError(f"{label} loop envelope indices are reversed")
 
 
 def _validate_sample(sample: dict[str, Any], expected_slot: int, label: str) -> None:
@@ -209,8 +224,13 @@ def _validate_manifest_structure(manifest: dict[str, Any]) -> None:
         for instrument_index, instrument in enumerate(module["instruments"]):
             instrument_label = f"{label} instrument {instrument_index}"
             required_instrument = {"name", "samples", "volume_envelope"}
-            if set(instrument) != required_instrument:
+            advanced_instrument = {"note_sample_map", "panning_envelope", "fadeout", "autovibrato"}
+            instrument_fields = set(instrument)
+            if not required_instrument <= instrument_fields or not instrument_fields <= required_instrument | advanced_instrument:
                 raise ValueError(f"{instrument_label} fields are unsupported")
+            present_advanced = instrument_fields & advanced_instrument
+            if present_advanced and present_advanced != advanced_instrument:
+                raise ValueError(f"{instrument_label} advanced fields must be provided together")
             _require_ascii(instrument["name"], 22, f"{instrument_label} name")
             samples = instrument["samples"]
             if not isinstance(samples, list) or len(samples) > 16:
@@ -218,6 +238,27 @@ def _validate_manifest_structure(manifest: dict[str, Any]) -> None:
             for sample_index, sample in enumerate(samples):
                 _validate_sample(sample, sample_index, f"{instrument_label} sample {sample_index}")
             _validate_envelope(instrument["volume_envelope"], f"{instrument_label} volume envelope")
+            if not present_advanced:
+                continue
+            if not samples:
+                raise ValueError(f"{instrument_label} advanced metadata requires represented samples")
+            _validate_envelope(instrument["panning_envelope"], f"{instrument_label} panning envelope")
+            _require_int(instrument["fadeout"], 0, 65_535, f"{instrument_label} fadeout")
+            vibrato = instrument["autovibrato"]
+            if set(vibrato) != {"type", "sweep", "depth", "rate"}:
+                raise ValueError(f"{instrument_label} autovibrato fields are unsupported")
+            for field, value in vibrato.items():
+                _require_int(value, 0, 255, f"{instrument_label} autovibrato {field}")
+            mapped_notes: set[int] = set()
+            for entry in instrument["note_sample_map"]:
+                if set(entry) != {"start_note", "end_note", "sample"}:
+                    raise ValueError(f"{instrument_label} keymap fields are unsupported")
+                start = _require_int(entry["start_note"], 1, 96, f"{instrument_label} keymap start")
+                end = _require_int(entry["end_note"], start, 96, f"{instrument_label} keymap end")
+                _require_int(entry["sample"], 0, len(samples) - 1, f"{instrument_label} keymap target")
+                if mapped_notes.intersection(range(start, end + 1)):
+                    raise ValueError(f"{instrument_label} keymap ranges overlap")
+                mapped_notes.update(range(start, end + 1))
 
 
 def validate_manifest(manifest: dict[str, Any], verify_derived: bool = True) -> None:
@@ -317,6 +358,14 @@ def _append_envelope(instrument: bytearray, offset: int, envelope: dict[str, Any
         instrument[point_offset + 2:point_offset + 4] = _u16(point[1])
 
 
+def _note_sample_map(instrument: dict[str, Any]) -> bytes:
+    mapping = [0] * 96
+    for entry in instrument.get("note_sample_map", []):
+        for note in range(entry["start_note"], entry["end_note"] + 1):
+            mapping[note - 1] = entry["sample"]
+    return bytes(mapping)
+
+
 def _instrument_bytes(instrument_spec: dict[str, Any]) -> bytes:
     samples = instrument_spec["samples"]
     if not samples:
@@ -329,11 +378,23 @@ def _instrument_bytes(instrument_spec: dict[str, Any]) -> bytes:
     header[4:26] = _fixed_ascii(instrument_spec["name"], 22)
     header[27:29] = _u16(len(samples))
     header[29:33] = _u32(40)
-    header[33:129] = bytes(96)
+    header[33:129] = _note_sample_map(instrument_spec)
     volume = instrument_spec["volume_envelope"]
+    panning = instrument_spec.get("panning_envelope", {"points": [], "type_flags": 0})
     _append_envelope(header, 129, volume)
+    _append_envelope(header, 177, panning)
     header[225] = len(volume["points"])
+    header[226] = len(panning["points"])
+    for offset, envelope, field in (
+        (227, volume, "sustain_point"), (228, volume, "loop_start_point"), (229, volume, "loop_end_point"),
+        (230, panning, "sustain_point"), (231, panning, "loop_start_point"), (232, panning, "loop_end_point"),
+    ):
+        header[offset] = envelope.get(field) or 0
     header[233] = volume["type_flags"]
+    header[234] = panning["type_flags"]
+    vibrato = instrument_spec.get("autovibrato", {"type": 0, "sweep": 0, "depth": 0, "rate": 0})
+    header[235:239] = bytes([vibrato["type"], vibrato["sweep"], vibrato["depth"], vibrato["rate"]])
+    header[239:241] = _u16(instrument_spec.get("fadeout", 0))
     sample_headers = bytearray()
     payloads = bytearray()
     for sample in samples:

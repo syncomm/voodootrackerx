@@ -664,6 +664,80 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
     }
 
+    @MainActor
+    func testEnvelopesKeymapFixtureLoadsCopiesAndRoundTripsExactSemantics() throws {
+        let sourceURL = try referenceXMFixtureURL("generated/instrument-envelopes-keymap.xm")
+        let sourceData = try Data(contentsOf: sourceURL)
+        let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+        let loadedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+        let instrument = try XCTUnwrap(loadedSong.instrumentsByIndex[1])
+
+        XCTAssertEqual(metadata.title, "VTX ENV KEYMAP")
+        XCTAssertEqual(metadata.xmPatterns.map(\.rowCount), [32])
+        XCTAssertEqual(instrument.name, "SPLIT ENV KEYMAP")
+        XCTAssertEqual(instrument.samples.map(\.name), ["LOW PULSE 8", "HIGH TRIANGLE 16"])
+        XCTAssertEqual(instrument.samples.map(\.sourceBitDepthBits), [8, 16])
+        XCTAssertEqual(instrument.samples.map(\.loopType), [1, 1])
+        XCTAssertEqual(instrument.samples.map(\.loopStart), [256, 256])
+        XCTAssertEqual(instrument.samples.map(\.loopLength), [1_536, 1_536])
+        XCTAssertEqual(instrument.samples.map(pcmSHA256), [
+            "405470958403dee4c1dbd41c888b2f8f6cb7c8eb5d950dcf1f4fcf09e447fc33",
+            "24d3e9d895e34280cf17e78111b7c5d14c035996c8c88d8bd3a0d78c5077b46b",
+        ])
+        let noteSampleMap = try XCTUnwrap(instrument.noteSampleMap)
+        XCTAssertEqual(Array(noteSampleMap.prefix(48)), Array(repeating: 0, count: 48))
+        XCTAssertEqual(Array(noteSampleMap.suffix(48)), Array(repeating: 1, count: 48))
+        XCTAssertEqual(instrument.mappedSampleIndex(forNote: 48), 0)
+        XCTAssertEqual(instrument.mappedSampleIndex(forNote: 49), 1)
+        XCTAssertEqual(instrument.volumeEnvelope.points, [
+            PlaybackEnvelopePoint(tick: 0, value: 64),
+            PlaybackEnvelopePoint(tick: 8, value: 48),
+            PlaybackEnvelopePoint(tick: 16, value: 32),
+            PlaybackEnvelopePoint(tick: 24, value: 64),
+        ])
+        XCTAssertEqual(instrument.volumeEnvelope.sustainPointIndex, 1)
+        XCTAssertEqual(instrument.volumeEnvelope.loopStartPointIndex, 1)
+        XCTAssertEqual(instrument.volumeEnvelope.loopEndPointIndex, 3)
+        XCTAssertEqual(instrument.volumeEnvelope.typeFlags, 7)
+        XCTAssertEqual(instrument.volumeEnvelope.fadeout, 2_048)
+        XCTAssertEqual(instrument.panningEnvelope.points, [
+            PlaybackEnvelopePoint(tick: 0, value: 32),
+            PlaybackEnvelopePoint(tick: 8, value: 48),
+            PlaybackEnvelopePoint(tick: 16, value: 16),
+            PlaybackEnvelopePoint(tick: 24, value: 32),
+        ])
+        XCTAssertEqual(instrument.panningEnvelope.sustainPointIndex, 2)
+        XCTAssertEqual(instrument.panningEnvelope.loopStartPointIndex, 0)
+        XCTAssertEqual(instrument.panningEnvelope.loopEndPointIndex, 3)
+        XCTAssertEqual(instrument.panningEnvelope.typeFlags, 7)
+        XCTAssertEqual(instrument.autoVibrato, PlaybackInstrumentAutoVibrato(
+            waveformType: 2,
+            sweep: 8,
+            depth: 6,
+            rate: 24
+        ))
+
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: loadedSong,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+        guard case let .copied(document) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected envelopes/keymap fixture to become editable")
+        }
+        XCTAssertEqual(document.instrumentPalette, loadedSong.instrumentsByIndex)
+
+        let destination = try temporaryDestination(filename: "round-trip-envelopes-keymap.xm")
+        try EditableXMWriter().data(from: document).write(to: destination, options: .atomic)
+        let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
+        XCTAssertEqual(reopenedMetadata.xmPatterns, metadata.xmPatterns)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex, loadedSong.instrumentsByIndex)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
+    }
+
     private func supportedLoadedContext(isPlaybackActive: Bool) -> LoadedModuleEditableCopyContext {
         let pattern = pattern(
             index: 0,

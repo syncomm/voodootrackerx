@@ -1,8 +1,8 @@
 # Synthetic XM Reference Fixture Pack Plan
 
 This plan governs the public-safe XM fixture pack for parser, editor,
-instrument/sample, preview, and later audio-comparison tests. The current
-sustained and metadata-matrix milestones add deterministic fixture assets and generator/test tooling only;
+instrument/sample, preview, and later audio-comparison tests. The completed
+three-fixture instrument series adds deterministic fixture assets and generator/test tooling only;
 it does not change backend, parser, writer, mixer, DSP, or editor behavior.
 
 ## Purpose
@@ -66,6 +66,9 @@ Current skeleton:
 - `tests/reference-xm/generated/instrument-metadata-matrix.xm` is a committed
   five-instrument pairwise matrix covering exact panning/volume/tuning values,
   8/16-bit PCM, no/forward/ping-pong loops, and distinct deterministic waveforms.
+- `tests/reference-xm/generated/instrument-envelopes-keymap.xm` is a committed
+  two-sample split-keymap fixture covering volume/panning envelopes, fadeout,
+  autovibrato metadata, and exact editable-copy/Export XM preservation.
 
 The manifest, generator, mathematical PCM, patterns, instrument metadata, and
 generated XMs are original VoodooTracker X project assets and inherit the
@@ -85,7 +88,9 @@ python3 scripts/generate-synthetic-xm-fixtures.py --verify
 sustained XM is 33,486 bytes with SHA-256
 `babedfc9bd79f7e1ac79dbec6493e2182182700a8855c42cd15405f4eb6f0fde`;
 the metadata matrix is 5,635 bytes with SHA-256
-`590e4aaafc71c41130cb1a9a4e768220c38c6e8dcdd3529d9be6e35ec400aef3`.
+`590e4aaafc71c41130cb1a9a4e768220c38c6e8dcdd3529d9be6e35ec400aef3`;
+the envelopes/keymap fixture is 6,870 bytes with SHA-256
+`02c195c97ea64b0be56f75c86e4b2a5e565690cff39500f09dadc3441eeeee09`.
 
 ## Fixture Families
 
@@ -101,8 +106,8 @@ Start with focused fixtures that each prove one behavior class:
   smooth forward loop and ordinary metadata for public editor/audition tests.
 - `instrument-metadata-matrix.xm`: landed five-instrument pairwise sample-header
   matrix with waveforms, both bit depths, and all three XM loop modes.
-- `instrument-envelopes-keymap.xm`: planned third PR for multi-sample maps,
-  volume/panning envelopes, fadeout, and autovibrato preservation.
+- `instrument-envelopes-keymap.xm`: landed multi-sample map with volume/panning
+  envelopes, fadeout, and autovibrato preservation.
 - `note-entry-preview.xm`: tiny loaded-module payload for selected
   instrument/sample display and future preview availability tests.
 - `looped-sample.xm`: forward loop metadata and a steady loop segment.
@@ -240,7 +245,7 @@ viewport math, editor note entry, note audition audio, or file save/export.
 6. Add `instrument-metadata-matrix.xm` as the dependent second instrument-pack
    PR. Done.
 7. Add `instrument-envelopes-keymap.xm` as the dependent third instrument-pack
-   PR, preserving unsupported empty/sample-less states honestly.
+   PR, preserving unsupported empty/sample-less states honestly. Done.
 8. Add preview, isolated loop, and envelope fixtures where the three landed
    instrument modules do not already cover the focused test need.
 9. Add effect-family fixtures after expected behavior is documented and the

@@ -15,6 +15,7 @@ ALL_FIXTURES = [
     "multi-pattern-loop-boundary.xm",
     "instrument-sustained-defaults.xm",
     "instrument-metadata-matrix.xm",
+    "instrument-envelopes-keymap.xm",
 ]
 
 
@@ -82,6 +83,11 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         self.assertEqual(matrix["xm_output"], "generated/instrument-metadata-matrix.xm")
         self.assertEqual(matrix["xm_size_bytes"], 5_635)
         self.assertEqual(matrix["xm_sha256"], hashlib.sha256(matrix_bytes).hexdigest())
+        keymap = fixtures["instrument-envelopes-keymap.xm"]
+        keymap_bytes = generator.fixture_xm_bytes(manifest, keymap["name"])
+        self.assertEqual(keymap["xm_output"], "generated/instrument-envelopes-keymap.xm")
+        self.assertEqual(keymap["xm_size_bytes"], 6_870)
+        self.assertEqual(keymap["xm_sha256"], hashlib.sha256(keymap_bytes).hexdigest())
         self.assertEqual(manifest["schema_version"], 2)
         generator.validate_manifest(manifest)
 
@@ -197,6 +203,59 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         for sample in samples:
             self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(), sample["pcm_sha256"])
 
+    def test_envelopes_keymap_has_pinned_split_and_advanced_metadata(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        fixture = next(item for item in manifest["fixtures"] if item["name"] == "instrument-envelopes-keymap.xm")
+        instrument = fixture["module"]["instruments"][0]
+        payload = generator.fixture_xm_bytes(manifest, fixture["name"])
+
+        self.assertEqual(len(payload), 6_870)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), "02c195c97ea64b0be56f75c86e4b2a5e565690cff39500f09dadc3441eeeee09")
+        self.assertEqual([sample["name"] for sample in instrument["samples"]], ["LOW PULSE 8", "HIGH TRIANGLE 16"])
+        self.assertEqual(instrument["note_sample_map"], [
+            {"end_note": 48, "sample": 0, "start_note": 1},
+            {"end_note": 96, "sample": 1, "start_note": 49},
+        ])
+        self.assertEqual(instrument["volume_envelope"]["type_flags"], 7)
+        self.assertEqual(instrument["volume_envelope"]["sustain_point"], 1)
+        self.assertEqual(instrument["volume_envelope"]["loop_start_point"], 1)
+        self.assertEqual(instrument["volume_envelope"]["loop_end_point"], 3)
+        self.assertEqual(instrument["panning_envelope"]["type_flags"], 7)
+        self.assertEqual(instrument["panning_envelope"]["sustain_point"], 2)
+        self.assertEqual(instrument["panning_envelope"]["loop_start_point"], 0)
+        self.assertEqual(instrument["panning_envelope"]["loop_end_point"], 3)
+        self.assertEqual(instrument["fadeout"], 2_048)
+        self.assertEqual(instrument["autovibrato"], {"depth": 6, "rate": 24, "sweep": 8, "type": 2})
+        limitations = " ".join(fixture["unsupported_semantics"])
+        self.assertIn("empty sample slots", limitations)
+        self.assertIn("sample-less instruments", limitations)
+        for sample in instrument["samples"]:
+            self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(), sample["pcm_sha256"])
+
+    def test_advanced_instrument_validation_rejects_invalid_indices_keymaps_and_partial_fields(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        instrument_path = ["fixtures", 4, "module", "instruments", 0]
+        cases = [
+            ("envelope index", instrument_path + ["volume_envelope", "sustain_point"], 99),
+            ("keymap target", instrument_path + ["note_sample_map", 1, "sample"], 2),
+        ]
+        for label, path, replacement in cases:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(manifest)
+                target = invalid
+                for component in path[:-1]:
+                    target = target[component]
+                target[path[-1]] = replacement
+                with self.assertRaisesRegex(ValueError, label):
+                    generator.validate_manifest(invalid, verify_derived=False)
+
+        partial = copy.deepcopy(manifest)
+        del partial["fixtures"][4]["module"]["instruments"][0]["autovibrato"]
+        with self.assertRaisesRegex(ValueError, "advanced fields"):
+            generator.validate_manifest(partial, verify_derived=False)
+
     def test_manifest_validation_rejects_invalid_ranges_events_and_duplicate_ids(self):
         generator = load_module()
         manifest = generator.fixture_manifest()
@@ -265,12 +324,14 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "multi-pattern-loop-boundary.xm").resolve(),
                     (output_dir / "generated" / "instrument-sustained-defaults.xm").resolve(),
                     (output_dir / "generated" / "instrument-metadata-matrix.xm").resolve(),
+                    (output_dir / "generated" / "instrument-envelopes-keymap.xm").resolve(),
                 ],
             )
             self.assertEqual(
                 files,
                 [
                     "generated/basic-instrument-sample.xm",
+                    "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
@@ -309,6 +370,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertFalse((output_dir / "generated" / "multi-pattern-loop-boundary.xm").exists())
             self.assertFalse((output_dir / "generated" / "instrument-sustained-defaults.xm").exists())
             self.assertFalse((output_dir / "generated" / "instrument-metadata-matrix.xm").exists())
+            self.assertFalse((output_dir / "generated" / "instrument-envelopes-keymap.xm").exists())
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
 
@@ -325,6 +387,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 files,
                 [
                     "generated/basic-instrument-sample.xm",
+                    "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
@@ -354,6 +417,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 fixtures["instrument-metadata-matrix.xm"]["xm_sha256"],
                 hashlib.sha256((output_dir / "generated" / "instrument-metadata-matrix.xm").read_bytes()).hexdigest(),
             )
+            self.assertEqual(
+                fixtures["instrument-envelopes-keymap.xm"]["xm_sha256"],
+                hashlib.sha256((output_dir / "generated" / "instrument-envelopes-keymap.xm").read_bytes()).hexdigest(),
+            )
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.log")), [])
 
@@ -377,6 +444,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:multi-pattern-loop-boundary.xm": "generated/multi-pattern-loop-boundary.xm",
                     "xm:instrument-sustained-defaults.xm": "generated/instrument-sustained-defaults.xm",
                     "xm:instrument-metadata-matrix.xm": "generated/instrument-metadata-matrix.xm",
+                    "xm:instrument-envelopes-keymap.xm": "generated/instrument-envelopes-keymap.xm",
                 },
             )
 

@@ -134,7 +134,9 @@ current runtime path. Later design work must preserve these principles:
    semantics, supported XM behavior, deterministic fixture coverage, and state
    versioning.
 5. The AU adapter does not require AppKit application-singleton ownership.
-6. Host transport state and preview/audition state remain separate concepts.
+6. Host transport state and preview/audition state remain separate concepts;
+   preview render adapters consume immutable prepared voices through the same
+   fixed-capacity ordered handoff rather than an output-API-specific UI bridge.
 7. Host project state embeds a versioned serialized VTX document snapshot
    rather than depending only on an external source path.
 8. File provenance and source-path ownership remain distinct from document

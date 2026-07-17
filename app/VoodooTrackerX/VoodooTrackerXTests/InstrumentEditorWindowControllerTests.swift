@@ -286,7 +286,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             )
         }
         XCTAssertEqual(onScreenCancelCount, 3)
-        XCTAssertEqual(fallbackCancelCount, 1)
+        XCTAssertEqual(fallbackCancelCount, 2)
     }
 
     func testListClickPolicyAndKeymapCopyRemainNonMutatingAndAccurate() {
@@ -1117,7 +1117,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(keyboard.handlePointerDown(at: NSPoint(x: key.frame.midX, y: key.frame.midY), buttonNumber: 0))
         controller.window?.close()
         XCTAssertEqual(intents.suffix(2), [.press(key.noteValue), .release(key.noteValue)])
-        XCTAssertEqual(fallbackCancelCount, 0, "the matching graphical release path cancels exactly once")
+        XCTAssertEqual(fallbackCancelCount, 3, "lifecycle releases also publish cancellation barriers")
         XCTAssertNil(presenter.windowController)
     }
 
@@ -1447,12 +1447,14 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         first.window?.close()
         XCTAssertNil(presenter.windowController)
         XCTAssertNil(harness.previewer.activePreviewToken)
+        XCTAssertEqual(harness.sink.releasePreviewCount, 0)
         XCTAssertEqual(harness.sink.cancelPreviewCount, 1)
         XCTAssertNil(first.noteAuditionKeyDownHandler)
         XCTAssertNil(first.noteAuditionKeyUpHandler)
         XCTAssertNil(router.noteKeyDownHandler)
         XCTAssertNil(router.noteKeyUpHandler)
         first.window?.close()
+        XCTAssertEqual(harness.sink.releasePreviewCount, 0)
         XCTAssertEqual(harness.sink.cancelPreviewCount, 1)
         let reopened = presenter.show(displayState: state)
         XCTAssertFalse(reopened === first)
@@ -1716,7 +1718,8 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
 
         XCTAssertFalse(harness.send(type: .keyUp, keyCode: 12, characters: "q"))
         XCTAssertTrue(harness.send(type: .keyUp, keyCode: 6, characters: "z"))
-        XCTAssertEqual(harness.sink.cancelPreviewCount, 1)
+        XCTAssertEqual(harness.sink.releasePreviewCount, 1)
+        XCTAssertEqual(harness.sink.cancelPreviewCount, 0)
         XCTAssertNil(harness.previewer.activePreviewToken)
         XCTAssertEqual(document, before)
     }
@@ -1873,10 +1876,15 @@ private func makeInstrumentEditorKeyEvent(
 
 private final class InstrumentEditorRecordingAuditionSink: EditorNoteAuditionPreviewSink {
     private(set) var events: [EditorNoteAuditionPreviewEvent] = []
+    private(set) var releasePreviewCount = 0
     private(set) var cancelPreviewCount = 0
 
     func preview(_ event: EditorNoteAuditionPreviewEvent) {
         events.append(event)
+    }
+
+    func releasePreview() {
+        releasePreviewCount += 1
     }
 
     func cancelPreview() {

@@ -1,5 +1,7 @@
 import AudioToolbox
+import CoreAudio
 import Foundation
+import Synchronization
 
 private let editorNoteAuditionAudioSinkRenderCallback: AURenderCallback = { userData, _, _, _, frameCount, ioData in
     guard let ioData else {
@@ -26,6 +28,10 @@ final class EditorNoteAuditionAudioSink: EditorNoteAuditionPreviewSink {
 
     func preview(_ event: EditorNoteAuditionPreviewEvent) {
         outputHost.preview(event)
+    }
+
+    func releasePreview() {
+        outputHost.releasePreview()
     }
 
     func cancelPreview() {
@@ -216,153 +222,489 @@ enum EditorNoteAuditionPreviewPitchPolicy {
     }
 }
 
+struct EditorNoteAuditionPersistentOutputLifecycle {
+    enum Command: Equatable { case none, start, stopReconfigureAndStart, stopAndDispose }
+    private var isRunning = false
+    private var isDisposed = false
+    mutating func activate() -> Command {
+        guard !isDisposed, !isRunning else { return .none }
+        isRunning = true
+        return .start
+    }
+    mutating func routeOrFormatChanged() -> Command {
+        guard !isDisposed else { return .none }
+        defer { isRunning = true }
+        return isRunning ? .stopReconfigureAndStart : .start
+    }
+    mutating func startFailed() { isRunning = false }
+    mutating func teardown() -> Command {
+        guard !isDisposed else { return .none }
+        let command: Command = isRunning ? .stopAndDispose : .none
+        isDisposed = true
+        return command
+    }
+}
+
+/// One off-thread-built mixer voice. Its configuration is immutable after publication;
+/// only the render consumer advances its private mixer cursor.
+private final class EditorNoteAuditionPreparedVoiceSlot: @unchecked Sendable {
+    let mixer: EditorNoteAuditionPreviewMixer
+    init?(event: EditorNoteAuditionPreviewEvent, sampleRate: Double) {
+        mixer = EditorNoteAuditionPreviewMixer(sampleRate: sampleRate)
+        guard mixer.replacePreview(with: event) else { return nil }
+    }
+}
+
+private struct EditorNoteAuditionRawCommand {
+    static let empty = EditorNoteAuditionRawCommand(kind: 0, generation: 0, voiceAddress: 0)
+    static let noteOnKind: UInt64 = 1, releaseKind: UInt64 = 2
+    let kind: UInt64, generation: UInt64
+    let voiceAddress: UInt
+}
+
+enum EditorNoteAuditionReleaseDelivery: Equatable { case queued, atomicFallback }
+
+/// Fixed-capacity SPSC storage. Payload publication uses release/acquire ordering;
+/// the audio callback only reads preallocated trivial values.
+private final class EditorNoteAuditionCommandQueue: @unchecked Sendable {
+    let capacity: Int
+    private let storage: UnsafeMutablePointer<EditorNoteAuditionRawCommand>
+    private let producerIndex = Atomic(UInt64(0))
+    private let consumerIndex = Atomic(UInt64(0))
+
+    init(capacity: Int) {
+        self.capacity = max(2, capacity)
+        storage = .allocate(capacity: self.capacity)
+        storage.initialize(repeating: .empty, count: self.capacity)
+    }
+    deinit { storage.deinitialize(count: capacity); storage.deallocate() }
+    func enqueue(_ command: EditorNoteAuditionRawCommand) -> Bool {
+        let write = producerIndex.load(ordering: .relaxed)
+        let read = consumerIndex.load(ordering: .acquiring)
+        guard write &- read < UInt64(capacity) else { return false }
+        storage[Int(write % UInt64(capacity))] = command
+        producerIndex.store(write &+ 1, ordering: .releasing)
+        return true
+    }
+    func peek() -> EditorNoteAuditionRawCommand? {
+        let read = consumerIndex.load(ordering: .relaxed)
+        guard read != producerIndex.load(ordering: .acquiring) else { return nil }
+        return storage[Int(read % UInt64(capacity))]
+    }
+    @discardableResult
+    func removeFirst() -> EditorNoteAuditionRawCommand? {
+        guard let command = peek() else { return nil }
+        let read = consumerIndex.load(ordering: .relaxed)
+        consumerIndex.store(read &+ 1, ordering: .releasing)
+        return command
+    }
+}
+
+/// Publishes fully prepared voices off the audio thread and consumes ordered commands in the callback.
+/// Fixed permits make retirement infallibly bounded; the callback never allocates, locks, waits, logs,
+/// or reclaims objects. One serialized control producer owns command publication and reclamation.
+final class EditorNoteAuditionPreviewCommandHandoff: @unchecked Sendable {
+    private let sampleRate: Double
+    private let commands: EditorNoteAuditionCommandQueue
+    private let retiredVoices: EditorNoteAuditionCommandQueue
+    private let voicePermitCapacity: UInt64
+    private let latestPublishedGeneration = Atomic(UInt64(0))
+    private let cancelledThroughGeneration = Atomic(UInt64(0))
+    private let releasedThroughGeneration = Atomic(UInt64(0))
+    private let rejectedNoteOnCountValue = Atomic(UInt64(0))
+    private let lastRenderedGenerationValue = Atomic(UInt64(0))
+    private let outstandingVoiceCountValue = Atomic(UInt64(0))
+    private var producerGeneration: UInt64 = 0, renderVoiceAddress: UInt = 0, renderGeneration: UInt64 = 0
+    private var producerActiveGeneration: UInt64?
+    private var renderHasProducedOnset = false, releaseAfterRender = false
+
+    var lastRenderedGeneration: UInt64? {
+        let value = lastRenderedGenerationValue.load(ordering: .acquiring)
+        return value == 0 ? nil : value
+    }
+    var rejectedNoteOnCount: UInt64 { rejectedNoteOnCountValue.load(ordering: .acquiring) }
+    var outstandingVoiceCount: UInt64 { outstandingVoiceCountValue.load(ordering: .acquiring) }
+
+    init(sampleRate: Double, queueCapacity: Int = 256) {
+        self.sampleRate = sampleRate
+        commands = EditorNoteAuditionCommandQueue(capacity: queueCapacity)
+        retiredVoices = EditorNoteAuditionCommandQueue(capacity: queueCapacity + 1)
+        voicePermitCapacity = UInt64(retiredVoices.capacity)
+    }
+    deinit { shutdownAfterOutputStopped() }
+
+    @discardableResult
+    func publish(_ event: EditorNoteAuditionPreviewEvent) -> UInt64? {
+        reclaimRetiredVoices()
+        guard reserveVoicePermit() else {
+            rejectedNoteOnCountValue.wrappingAdd(1, ordering: .releasing)
+            return nil
+        }
+        guard let voice = EditorNoteAuditionPreparedVoiceSlot(event: event, sampleRate: sampleRate) else {
+            releaseVoicePermit()
+            return nil
+        }
+        producerGeneration &+= 1
+        let generation = producerGeneration
+        latestPublishedGeneration.store(generation, ordering: .releasing)
+        let address = UInt(bitPattern: Unmanaged.passRetained(voice).toOpaque())
+        let command = EditorNoteAuditionRawCommand(
+            kind: EditorNoteAuditionRawCommand.noteOnKind,
+            generation: generation,
+            voiceAddress: address
+        )
+        guard commands.enqueue(command) else {
+            releaseRetainedVoice(address)
+            releaseVoicePermit()
+            rejectedNoteOnCountValue.wrappingAdd(1, ordering: .releasing)
+            return nil
+        }
+        producerActiveGeneration = generation
+        return generation
+    }
+
+    @discardableResult
+    func release(generation: UInt64) -> EditorNoteAuditionReleaseDelivery {
+        reclaimRetiredVoices()
+        let command = EditorNoteAuditionRawCommand(
+            kind: EditorNoteAuditionRawCommand.releaseKind,
+            generation: generation,
+            voiceAddress: 0
+        )
+        if commands.enqueue(command) { return .queued }
+        publishRelease(through: generation)
+        return .atomicFallback
+    }
+
+    func releaseActivePreview() {
+        guard let generation = producerActiveGeneration else { return }
+        _ = release(generation: generation)
+        producerActiveGeneration = nil
+    }
+
+    func cancel() { reclaimRetiredVoices(); producerActiveGeneration = nil; cancelAllPublishedPreviews() }
+    func cancelAllPublishedPreviews() {
+        publishCancellation(through: latestPublishedGeneration.load(ordering: .acquiring))
+    }
+
+    @discardableResult
+    func render(into output: UnsafeMutableBufferPointer<Float>, frames: Int) -> Int {
+        let frameCount = min(max(0, frames), output.count / 2)
+        for index in 0..<(frameCount * 2) { output[index] = 0 }
+        guard frameCount > 0 else { return 0 }
+
+        var processedCommandCount = 0
+        while processedCommandCount <= commands.capacity {
+            if releaseAfterRender && renderHasProducedOnset,
+               !retireCurrentVoice() { return 0 }
+            if renderVoiceAddress == 0 {
+                guard let command = commands.removeFirst() else { break }
+                processedCommandCount += 1
+                guard command.kind == EditorNoteAuditionRawCommand.noteOnKind else { continue }
+                renderVoiceAddress = command.voiceAddress
+                renderGeneration = command.generation
+                renderHasProducedOnset = false
+                releaseAfterRender = false
+            }
+
+            if renderGeneration <= cancelledThroughGeneration.load(ordering: .acquiring) {
+                guard retireCurrentVoice() else { return 0 }
+                continue
+            }
+            if renderGeneration <= releasedThroughGeneration.load(ordering: .acquiring) {
+                if renderHasProducedOnset {
+                    guard retireCurrentVoice() else { return 0 }
+                    continue
+                }
+                releaseAfterRender = true
+                break
+            }
+            guard let next = commands.peek() else { break }
+            if next.kind == EditorNoteAuditionRawCommand.noteOnKind {
+                if renderHasProducedOnset {
+                    guard retireCurrentVoice() else { return 0 }
+                    continue
+                }
+                break
+            }
+
+            _ = commands.removeFirst()
+            processedCommandCount += 1
+            guard next.generation == renderGeneration else { continue }
+            if renderHasProducedOnset {
+                releaseAfterRender = true
+                guard retireCurrentVoice() else { return 0 }
+                continue
+            }
+            releaseAfterRender = true
+            break
+        }
+
+        guard let pointer = UnsafeRawPointer(bitPattern: renderVoiceAddress) else { return 0 }
+        let voice = Unmanaged<EditorNoteAuditionPreparedVoiceSlot>.fromOpaque(pointer).takeUnretainedValue()
+        _ = voice.mixer.render(into: output, frames: frameCount)
+        renderHasProducedOnset = true
+        lastRenderedGenerationValue.store(renderGeneration, ordering: .releasing)
+        if releaseAfterRender { _ = retireCurrentVoice() }
+        return frameCount
+    }
+
+    func renderForTesting(frames: Int) -> [Float] {
+        var output = Array(repeating: Float(0), count: max(0, frames) * 2)
+        output.withUnsafeMutableBufferPointer { _ = render(into: $0, frames: frames) }
+        return output
+    }
+
+    func reclaimRetiredVoices() {
+        while let command = retiredVoices.removeFirst() {
+            releaseRetainedVoice(command.voiceAddress)
+            releaseVoicePermit()
+        }
+    }
+
+    func discardCurrentVoiceAfterOutputStopped() {
+        guard renderVoiceAddress != 0 else { return }
+        releaseRetainedVoice(renderVoiceAddress)
+        releaseVoicePermit()
+        clearCurrentVoice()
+    }
+
+    /// The owning render adapter must stop its callback and detach its producer before shutdown.
+    func shutdownAfterOutputStopped() {
+        cancelAllPublishedPreviews()
+        discardCurrentVoiceAfterOutputStopped()
+        while let command = commands.removeFirst() {
+            if command.kind == EditorNoteAuditionRawCommand.noteOnKind {
+                releaseRetainedVoice(command.voiceAddress)
+                releaseVoicePermit()
+            }
+        }
+        reclaimRetiredVoices()
+        lastRenderedGenerationValue.store(0, ordering: .releasing)
+    }
+
+    private func publishCancellation(through generation: UInt64) {
+        var current = cancelledThroughGeneration.load(ordering: .acquiring)
+        while generation > current {
+            let result = cancelledThroughGeneration.compareExchange(
+                expected: current, desired: generation, ordering: .acquiringAndReleasing
+            )
+            if result.exchanged { return }
+            current = result.original
+        }
+    }
+
+    private func publishRelease(through generation: UInt64) {
+        var current = releasedThroughGeneration.load(ordering: .acquiring)
+        while generation > current {
+            let result = releasedThroughGeneration.compareExchange(
+                expected: current, desired: generation, ordering: .acquiringAndReleasing
+            )
+            if result.exchanged { return }
+            current = result.original
+        }
+    }
+
+    private func reserveVoicePermit() -> Bool {
+        var count = outstandingVoiceCountValue.load(ordering: .acquiring)
+        while count < voicePermitCapacity {
+            let result = outstandingVoiceCountValue.compareExchange(
+                expected: count, desired: count + 1, ordering: .acquiringAndReleasing
+            )
+            if result.exchanged { return true }
+            count = result.original
+        }
+        return false
+    }
+
+    private func releaseVoicePermit() { outstandingVoiceCountValue.wrappingSubtract(1, ordering: .releasing) }
+
+    private func retireCurrentVoice() -> Bool {
+        guard renderVoiceAddress != 0 else { return true }
+        guard retireVoice(renderVoiceAddress) else { return false }
+        clearCurrentVoice()
+        return true
+    }
+
+    private func clearCurrentVoice() {
+        renderVoiceAddress = 0
+        renderGeneration = 0
+        renderHasProducedOnset = false
+        releaseAfterRender = false
+    }
+
+    private func retireVoice(_ address: UInt) -> Bool {
+        guard address != 0 else { return true }
+        return retiredVoices.enqueue(EditorNoteAuditionRawCommand(kind: 0, generation: 0, voiceAddress: address))
+    }
+
+    private func releaseRetainedVoice(_ address: UInt) {
+        guard let pointer = UnsafeRawPointer(bitPattern: address) else { return }
+        Unmanaged<EditorNoteAuditionPreparedVoiceSlot>.fromOpaque(pointer).release()
+    }
+}
+
 private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
     private let sampleRate: Double
     private let channelCount = 2
-    private let lock = NSLock()
     private let lifecycleQueue = DispatchQueue(label: "com.voodootrackerx.editor-note-audition-preview")
-    private let previewMixer: EditorNoteAuditionPreviewMixer
+    private let lifecycleQueueKey = DispatchSpecificKey<UInt8>()
+    private let handoff: EditorNoteAuditionPreviewCommandHandoff
+    private var outputLifecycle = EditorNoteAuditionPersistentOutputLifecycle()
     private var outputUnit: AudioUnit?
     private var isRunning = false
-    private var previewGeneration: UInt64 = 0
-    private var idleStopTimer: DispatchSourceTimer?
-    private var scratch = [Float]()
+    private var defaultOutputDeviceID: AudioObjectID?
+    private var defaultOutputSampleRate: Double?
+    private var defaultOutputListener: AudioObjectPropertyListenerBlock?
+    private var outputFormatListener: AudioObjectPropertyListenerBlock?
+    private let scratch: UnsafeMutablePointer<Float>
 
     init(sampleRate: Double) {
         self.sampleRate = sampleRate.isFinite && sampleRate > 0
             ? sampleRate
             : EditorNoteAuditionAudioSink.defaultSampleRate
-        previewMixer = EditorNoteAuditionPreviewMixer(sampleRate: self.sampleRate)
-        scratch = Array(repeating: 0, count: 4096 * channelCount)
+        handoff = EditorNoteAuditionPreviewCommandHandoff(sampleRate: self.sampleRate)
+        scratch = .allocate(capacity: 4096 * channelCount)
+        scratch.initialize(repeating: 0, count: 4096 * channelCount)
+        lifecycleQueue.setSpecific(key: lifecycleQueueKey, value: 1)
+        lifecycleQueue.sync {
+            activateOutput()
+            installDefaultOutputListener()
+        }
     }
 
     deinit {
-        lifecycleQueue.sync {
-            idleStopTimer?.cancel()
-            idleStopTimer = nil
-            resetOutputUnit()
+        performOnLifecycleQueue {
+            removeOutputFormatListener()
+            removeDefaultOutputListener()
+            handoff.cancelAllPublishedPreviews()
+            if outputLifecycle.teardown() == .stopAndDispose { resetOutputUnit() }
+            handoff.shutdownAfterOutputStopped()
         }
+        scratch.deinitialize(count: 4096 * channelCount)
+        scratch.deallocate()
     }
 
-    func preview(_ event: EditorNoteAuditionPreviewEvent) {
-        let generation = nextPreviewGeneration()
-        stopCurrentOutputBeforeReplacement()
-        lock.lock()
-        let didSchedule = previewMixer.replacePreview(with: event)
-        lock.unlock()
-
-        guard didSchedule else {
-            return
-        }
-        startAndScheduleIdleStop(for: generation)
+    private func performOnLifecycleQueue(_ operation: () -> Void) {
+        if DispatchQueue.getSpecific(key: lifecycleQueueKey) != nil { operation() }
+        else { lifecycleQueue.sync(execute: operation) }
     }
 
-    func cancelPreview() {
-        _ = nextPreviewGeneration()
-        lock.lock()
-        previewMixer.cancelPreview()
-        lock.unlock()
-
-        lifecycleQueue.async { [weak self] in
-            guard let self else {
-                return
-            }
-            idleStopTimer?.cancel()
-            idleStopTimer = nil
-            stopRunningOutputUnit()
-        }
-    }
+    func preview(_ event: EditorNoteAuditionPreviewEvent) { _ = handoff.publish(event) }
+    func releasePreview() { handoff.releaseActivePreview() }
+    func cancelPreview() { handoff.cancel() }
 
     fileprivate func render(
         frameCount: UInt32,
         ioData: UnsafeMutablePointer<AudioBufferList>
     ) -> OSStatus {
         let frames = Int(frameCount)
-        let sampleCount = max(0, frames * channelCount)
-        guard sampleCount > 0 else {
-            return noErr
-        }
-        let renderFrames = min(frames, scratch.count / channelCount)
-
-        lock.lock()
-        scratch.withUnsafeMutableBufferPointer { buffer in
-            buffer.initialize(repeating: 0)
-            _ = previewMixer.render(into: buffer, frames: renderFrames)
-        }
+        guard frames > 0 else { return noErr }
+        let renderFrames = min(frames, 4096)
+        let scratchBuffer = UnsafeMutableBufferPointer(start: scratch, count: renderFrames * channelCount)
+        _ = handoff.render(into: scratchBuffer, frames: renderFrames)
         copyScratchToAudioBuffers(
             requestedFrameCount: frames,
             renderedFrameCount: renderFrames,
             ioData: ioData
         )
-        lock.unlock()
         return noErr
     }
 
-    private func nextPreviewGeneration() -> UInt64 {
-        lifecycleQueue.sync {
-            previewGeneration &+= 1
-            return previewGeneration
+    private func activateOutput() {
+        guard outputLifecycle.activate() == .start else { return }
+        if start() != noErr {
+            resetOutputUnit()
+            outputLifecycle.startFailed()
         }
     }
 
-    private func startAndScheduleIdleStop(for generation: UInt64) {
-        lifecycleQueue.async { [weak self] in
-            guard let self,
-                  generation == previewGeneration else {
-                return
-            }
-            _ = start()
-            scheduleIdleStopTimer(for: generation)
+    private func defaultOutputDidChange() {
+        let output = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
+        guard output.deviceID != defaultOutputDeviceID else { return }
+        removeOutputFormatListener()
+        defaultOutputDeviceID = output.deviceID
+        defaultOutputSampleRate = output.nominalSampleRate
+        installOutputFormatListener()
+        reconfigureOutputForRouteOrFormatChange()
+    }
+
+    private func outputFormatDidChange() {
+        let output = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
+        guard output.deviceID == defaultOutputDeviceID,
+              output.nominalSampleRate != defaultOutputSampleRate else { return }
+        defaultOutputSampleRate = output.nominalSampleRate
+        reconfigureOutputForRouteOrFormatChange()
+    }
+
+    private func reconfigureOutputForRouteOrFormatChange() {
+        handoff.cancelAllPublishedPreviews()
+        switch outputLifecycle.routeOrFormatChanged() {
+        case .stopReconfigureAndStart:
+            resetOutputUnit()
+            handoff.discardCurrentVoiceAfterOutputStopped()
+        case .start: break
+        case .none, .stopAndDispose: return
+        }
+        if start() != noErr {
+            resetOutputUnit()
+            outputLifecycle.startFailed()
         }
     }
 
-    private func scheduleIdleStopTimer(for generation: UInt64) {
-        idleStopTimer?.cancel()
-
-        let timer = DispatchSource.makeTimerSource(queue: lifecycleQueue)
-        timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(100))
-        timer.setEventHandler { [weak self] in
-            self?.stopIfIdle(generation: generation)
-        }
-        idleStopTimer = timer
-        timer.resume()
+    private func installDefaultOutputListener() {
+        let output = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
+        defaultOutputDeviceID = output.deviceID
+        defaultOutputSampleRate = output.nominalSampleRate
+        var address = Self.defaultOutputPropertyAddress
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.defaultOutputDidChange() }
+        guard AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, lifecycleQueue, listener
+        ) == noErr else { return }
+        defaultOutputListener = listener
+        installOutputFormatListener()
     }
 
-    private func stopIfIdle(generation: UInt64) {
-        guard generation == previewGeneration else {
-            return
-        }
-
-        lock.lock()
-        let isIdle = previewMixer.activeVoiceCount == 0
-        lock.unlock()
-
-        guard isIdle else {
-            return
-        }
-        idleStopTimer?.cancel()
-        idleStopTimer = nil
-        stopRunningOutputUnit()
+    private func removeDefaultOutputListener() {
+        guard let defaultOutputListener else { return }
+        var address = Self.defaultOutputPropertyAddress
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, lifecycleQueue, defaultOutputListener
+        )
+        self.defaultOutputListener = nil
     }
 
-    private func stopCurrentOutputBeforeReplacement() {
-        lifecycleQueue.sync {
-            idleStopTimer?.cancel()
-            idleStopTimer = nil
-            stopRunningOutputUnit()
-        }
+    private func installOutputFormatListener() {
+        guard let defaultOutputDeviceID else { return }
+        var address = Self.outputFormatPropertyAddress
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.outputFormatDidChange() }
+        guard AudioObjectAddPropertyListenerBlock(
+            defaultOutputDeviceID, &address, lifecycleQueue, listener
+        ) == noErr else { return }
+        outputFormatListener = listener
     }
+
+    private func removeOutputFormatListener() {
+        guard let defaultOutputDeviceID, let outputFormatListener else { return }
+        var address = Self.outputFormatPropertyAddress
+        AudioObjectRemovePropertyListenerBlock(
+            defaultOutputDeviceID, &address, lifecycleQueue, outputFormatListener
+        )
+        self.outputFormatListener = nil
+    }
+
+    private static let defaultOutputPropertyAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
+    private static let outputFormatPropertyAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyNominalSampleRate, mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
 
     @discardableResult
     private func start() -> OSStatus {
-        if isRunning {
-            return noErr
-        }
+        if isRunning { return noErr }
         let prepareStatus = prepare()
-        guard prepareStatus == noErr,
-              let outputUnit else {
-            return prepareStatus
-        }
+        guard prepareStatus == noErr, let outputUnit else { return prepareStatus }
         let startStatus = AudioOutputUnitStart(outputUnit)
         isRunning = startStatus == noErr
         return startStatus
@@ -370,9 +712,7 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
 
     @discardableResult
     private func prepare() -> OSStatus {
-        if outputUnit != nil {
-            return noErr
-        }
+        if outputUnit != nil { return noErr }
 
         var componentDescription = AudioComponentDescription(
             componentType: kAudioUnitType_Output,
@@ -387,10 +727,7 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
 
         var unit: AudioUnit?
         let instanceStatus = AudioComponentInstanceNew(component, &unit)
-        guard instanceStatus == noErr,
-              let unit else {
-            return instanceStatus
-        }
+        guard instanceStatus == noErr, let unit else { return instanceStatus }
         outputUnit = unit
 
         var streamDescription = AudioStreamBasicDescription(
@@ -447,10 +784,7 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
     }
 
     private func stopRunningOutputUnit() {
-        guard isRunning,
-              let outputUnit else {
-            return
-        }
+        guard isRunning, let outputUnit else { return }
         AudioOutputUnitStop(outputUnit)
         isRunning = false
     }

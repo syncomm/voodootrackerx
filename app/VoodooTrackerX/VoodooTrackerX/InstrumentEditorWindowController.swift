@@ -63,8 +63,8 @@ enum InstrumentEditorPreviewLifecycle {
         hasActivePreview: () -> Bool,
         cancelPreview: () -> Void
     ) {
-        guard !cancelOnScreenNote(), hasActivePreview() else { return }
-        cancelPreview()
+        let releasedOnScreenNote = cancelOnScreenNote()
+        if releasedOnScreenNote || hasActivePreview() { cancelPreview() }
     }
 }
 
@@ -1076,7 +1076,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         cancelUntrackedPreview: Bool = false
     ) {
         let releasedPointer = view.cancelOnScreenNoteAudition()
-        if !releasedPointer, cancelUntrackedPreview || view.activePreviewToken != nil {
+        if releasedPointer || cancelUntrackedPreview || view.activePreviewToken != nil {
             noteAuditionCancelHandler?()
         }
         view.clearOnScreenPressedState()

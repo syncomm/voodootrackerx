@@ -2,6 +2,12 @@
 // These controls are additive and are not wired into the main tracker window.
 import AppKit
 
+enum VTXEditorContinuousControlTrackingPhase: Equatable { case began, changed, ended, cancelled }
+
+struct VTXEditorContinuousControlTrackingEvent: Equatable {
+    let phase: VTXEditorContinuousControlTrackingPhase, value: Double
+}
+
 /// Tactile editor knob with a dark chamfered body, toothed value halo, and vertical-drag editing.
 final class VTXEditorKnobControl: NSControl {
     var minimumValue: Double {
@@ -44,8 +50,13 @@ final class VTXEditorKnobControl: NSControl {
     }
 
     override var isEnabled: Bool {
-        didSet { needsDisplay = true }
+        didSet {
+            if !isEnabled { cancelTracking() }
+            needsDisplay = true
+        }
     }
+
+    var trackingHandler: ((VTXEditorContinuousControlTrackingEvent) -> Void)?
 
     override var doubleValue: Double {
         get { value }
@@ -55,7 +66,6 @@ final class VTXEditorKnobControl: NSControl {
     private var storedValue: Double
     private var dragStartY: CGFloat?
     private var dragStartValue: Double?
-    private var didChangeDuringTracking = false
 
     init(
         value: Double = 0,
@@ -109,7 +119,7 @@ final class VTXEditorKnobControl: NSControl {
         let point = convert(event.locationInWindow, from: nil)
         dragStartY = point.y
         dragStartValue = storedValue
-        didChangeDuringTracking = false
+        trackingHandler?(.init(phase: .began, value: storedValue))
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -125,19 +135,35 @@ final class VTXEditorKnobControl: NSControl {
 
         let deltaY = Double(point.y - dragStartY)
         let valueDelta = (deltaY / 120.0) * range
-        didChangeDuringTracking = setValue(
+        let changed = setValue(
             dragStartValue + valueDelta,
             sendAction: isContinuous
-        ) || didChangeDuringTracking
+        )
+        if changed {
+            trackingHandler?(.init(phase: .changed, value: storedValue))
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
-        if !isContinuous, didChangeDuringTracking {
-            sendAction(action, to: target)
-        }
+        guard let originalValue = dragStartValue else { return }
+        let finalValue = storedValue
         dragStartY = nil
         dragStartValue = nil
-        didChangeDuringTracking = false
+        trackingHandler?(.init(phase: .ended, value: finalValue))
+        if !isContinuous, abs(finalValue - originalValue) > Double.ulpOfOne {
+            sendAction(action, to: target)
+        }
+    }
+
+    /// Cancels the active pointer gesture and restores the value held when tracking began.
+    @discardableResult
+    func cancelTracking() -> Bool {
+        guard let originalValue = dragStartValue else { return false }
+        dragStartY = nil
+        dragStartValue = nil
+        setValue(originalValue)
+        trackingHandler?(.init(phase: .cancelled, value: originalValue))
+        return true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -337,8 +363,13 @@ final class VTXEditorPanSliderControl: NSControl {
     }
 
     override var isEnabled: Bool {
-        didSet { needsDisplay = true }
+        didSet {
+            if !isEnabled { cancelTracking() }
+            needsDisplay = true
+        }
     }
+
+    var trackingHandler: ((VTXEditorContinuousControlTrackingEvent) -> Void)?
 
     override var doubleValue: Double {
         get { value }
@@ -346,7 +377,7 @@ final class VTXEditorPanSliderControl: NSControl {
     }
 
     private var storedValue: Double
-    private var didChangeDuringTracking = false
+    private var dragStartValue: Double?
 
     init(
         value: Double = 0,
@@ -398,21 +429,35 @@ final class VTXEditorPanSliderControl: NSControl {
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        didChangeDuringTracking = updateValue(from: event, sendAction: isContinuous)
+        dragStartValue = storedValue
+        trackingHandler?(.init(phase: .began, value: storedValue))
+        _ = updateValue(from: event, sendAction: isContinuous)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard isEnabled else { return }
-        didChangeDuringTracking = updateValue(from: event, sendAction: isContinuous) || didChangeDuringTracking
+        guard isEnabled, dragStartValue != nil else { return }
+        _ = updateValue(from: event, sendAction: isContinuous)
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard isEnabled else { return }
-        didChangeDuringTracking = updateValue(from: event, sendAction: isContinuous) || didChangeDuringTracking
-        if !isContinuous, didChangeDuringTracking {
+        guard isEnabled, let originalValue = dragStartValue else { return }
+        _ = updateValue(from: event, sendAction: isContinuous)
+        let finalValue = storedValue
+        dragStartValue = nil
+        trackingHandler?(.init(phase: .ended, value: finalValue))
+        if !isContinuous, abs(finalValue - originalValue) > Double.ulpOfOne {
             sendAction(action, to: target)
         }
-        didChangeDuringTracking = false
+    }
+
+    /// Cancels the active pointer gesture and restores the value held when tracking began.
+    @discardableResult
+    func cancelTracking() -> Bool {
+        guard let originalValue = dragStartValue else { return false }
+        dragStartValue = nil
+        setValue(originalValue, applyCenterDetent: false)
+        trackingHandler?(.init(phase: .cancelled, value: originalValue))
+        return true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -453,7 +498,11 @@ final class VTXEditorPanSliderControl: NSControl {
         guard trackRect.width > 0 else { return false }
 
         let normalized = min(max((point.x - trackRect.minX) / trackRect.width, 0), 1)
-        return setValue((Double(normalized) * 2) - 1, sendAction: sendAction)
+        let changed = setValue((Double(normalized) * 2) - 1, sendAction: sendAction)
+        if changed, dragStartValue != nil {
+            trackingHandler?(.init(phase: .changed, value: storedValue))
+        }
+        return changed
     }
 
     private func clamped(_ candidate: Double, applyCenterDetent: Bool) -> Double {

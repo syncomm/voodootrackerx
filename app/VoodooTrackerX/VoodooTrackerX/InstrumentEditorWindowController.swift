@@ -523,7 +523,8 @@ struct InstrumentEditorDisplayState: Equatable {
             return Int((normalizedVolume * 64).rounded())
         }
         var volumeDisplay: String { "\(volumeLevel) / 64" }
-        var panningDisplay: String {
+        var panningDisplay: String { Self.panningDisplay(panning) }
+        static func panningDisplay(_ panning: UInt8) -> String {
             switch panning {
             case 0: "0 · LEFT"
             case PlaybackSample.xmCenterPanning: "128 · CENTER"
@@ -531,7 +532,8 @@ struct InstrumentEditorDisplayState: Equatable {
             default: "\(panning) / 255"
             }
         }
-        var panSliderValue: Double {
+        var panSliderValue: Double { Self.panSliderValue(for: panning) }
+        static func panSliderValue(for panning: UInt8) -> Double {
             if panning == PlaybackSample.xmCenterPanning {
                 return 0
             }
@@ -547,8 +549,8 @@ struct InstrumentEditorDisplayState: Equatable {
                 : 128 + Int((safeValue * 127).rounded())
             return UInt8(min(255, max(0, byte)))
         }
-        var relativeNoteDisplay: String { Self.signed(relativeNote) }
-        var finetuneDisplay: String { Self.signed(finetune) }
+        var relativeNoteDisplay: String { Self.signedDisplay(relativeNote) }
+        var finetuneDisplay: String { Self.signedDisplay(finetune) }
         var bitDepthDisplay: String { sourceBitDepthBits.map { "\($0)-BIT" } ?? "BIT —" }
 
         init(sample: PlaybackSample, selectedSampleSlot: Int) {
@@ -566,7 +568,7 @@ struct InstrumentEditorDisplayState: Equatable {
             isSelected = slot == selectedSampleSlot
         }
 
-        private static func signed(_ value: Int) -> String {
+        static func signedDisplay(_ value: Int) -> String {
             value > 0 ? "+\(value)" : "\(value)"
         }
 
@@ -805,6 +807,21 @@ typealias SampleFinetuneEditHandler =
     (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ finetune: Int) -> Bool
 typealias SamplePanningEditHandler =
     (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ panning: UInt8) -> Bool
+
+struct InstrumentControlDragSession: Equatable {
+    enum Control: Equatable { case volume, finetune, panning }
+
+    let control: Control
+    let instrumentSlot: Int
+    let sampleSlot: Int
+    let originalCommittedValue: Int
+    private(set) var currentTransientValue: Int
+    let supportedRange: ClosedRange<Int>
+
+    mutating func update(to value: Int) {
+        currentTransientValue = min(supportedRange.upperBound, max(supportedRange.lowerBound, value))
+    }
+}
 
 @MainActor
 final class InstrumentEditorWindowPresenter {
@@ -1054,12 +1071,19 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
     func windowWillClose(_ notification: Notification) {
         window?.makeFirstResponder(nil)
         if let view = window?.contentView as? InstrumentEditorView {
+            view.cancelControlDrag()
             cancelAuditionForLifecycleTransition(in: view, cancelUntrackedPreview: true)
         }
         noteAuditionCancelHandler = nil
         onScreenNoteHandler = nil
         instrumentSelectionHandler = nil
         sampleSelectionHandler = nil
+        instrumentNameEditHandler = nil
+        sampleVolumeEditHandler = nil
+        sampleRelativeNoteEditHandler = nil
+        sampleFinetuneEditHandler = nil
+        samplePanningEditHandler = nil
+        keyboardVisibleRangeChangeHandler = nil
         noteAuditionKeyDownHandler = nil
         noteAuditionKeyUpHandler = nil
         closeHandler?()
@@ -1067,6 +1091,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
 
     func windowDidResignKey(_ notification: Notification) {
         if let view = window?.contentView as? InstrumentEditorView {
+            view.cancelControlDrag()
             cancelAuditionForLifecycleTransition(in: view)
         }
     }
@@ -1093,9 +1118,16 @@ final class InstrumentEditorView: FlippedEditorView {
     private(set) var activePreviewToken: EditorNoteAuditionPreviewToken?
     private(set) var keyboardVisibleRange: InstrumentKeyboardVisibleRange
     private(set) var rebuildCount = 0
+    private(set) var controlDragSession: InstrumentControlDragSession?
     private var envelopePanelView: NSView?
     private var keymapPanelView: NSView?
     private weak var onScreenKeyboardView: InstrumentEditorKeyboardPlaceholderView?
+    private weak var sampleVolumeControl: VTXEditorKnobControl?
+    private weak var sampleVolumeReadout: VTXEditorSegmentReadout?
+    private weak var sampleFinetuneControl: VTXEditorKnobControl?
+    private weak var sampleFinetuneReadout: VTXEditorSegmentReadout?
+    private weak var samplePanningControl: VTXEditorPanSliderControl?
+    private weak var samplePanningReadout: NSTextField?
     private var instrumentRowControls: [Int: InstrumentEditorListRowControl] = [:]
     private var sampleRowControls: [Int: InstrumentEditorListRowControl] = [:]
     var instrumentSelectionHandler: InstrumentEditorInstrumentSelectionHandler?
@@ -1163,7 +1195,11 @@ final class InstrumentEditorView: FlippedEditorView {
 
     @discardableResult
     func apply(displayState: InstrumentEditorDisplayState) -> Bool {
-        guard self.displayState != displayState else { return false }
+        cancelControlDrag()
+        guard self.displayState != displayState else {
+            restoreCommittedControlDisplays()
+            return false
+        }
         self.displayState = displayState
         rebuildCount += 1
         subviews.forEach { $0.removeFromSuperview() }
@@ -1171,6 +1207,22 @@ final class InstrumentEditorView: FlippedEditorView {
         instrumentRowControls.removeAll()
         sampleRowControls.removeAll()
         buildShell()
+        return true
+    }
+
+    /// Cancels an active continuous-control gesture and restores committed display values.
+    @discardableResult
+    func cancelControlDrag() -> Bool {
+        guard let session = controlDragSession else { return false }
+        switch session.control {
+        case .volume: sampleVolumeControl?.cancelTracking()
+        case .finetune: sampleFinetuneControl?.cancelTracking()
+        case .panning: samplePanningControl?.cancelTracking()
+        }
+        if controlDragSession != nil {
+            controlDragSession = nil
+            restoreCommittedControlDisplay(for: session.control)
+        }
         return true
     }
 
@@ -1522,12 +1574,24 @@ final class InstrumentEditorView: FlippedEditorView {
         pan.target = displayState.isSamplePanningEditable ? self : nil
         pan.action = displayState.isSamplePanningEditable ? #selector(commitSamplePanning(_:)) : nil
         pan.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.samplePanningControl)
+        pan.setAccessibilityElement(true)
+        pan.setAccessibilityRole(.slider)
+        pan.setAccessibilityLabel("Sample panning")
+        pan.setAccessibilityMinValue(NSNumber(value: 0))
+        pan.setAccessibilityMaxValue(NSNumber(value: 255))
+        pan.setAccessibilityValue(NSNumber(value: sample?.panning ?? 0))
+        pan.trackingHandler = { [weak self, weak pan] event in
+            guard let pan else { return }
+            self?.handlePanningTracking(event, sender: pan)
+        }
         pan.toolTip = displayState.isSamplePanningEditable
             ? "Change the selected sample panning"
             : "Sample panning is editable only for represented samples in stopped editable documents"
         addControl(pan, to: panel, frame: NSRect(x: 52, y: 142, width: 170, height: 32))
         let readout = addLabel(sample?.panningDisplay ?? "— NO SAMPLE", to: panel, frame: NSRect(x: 52, y: 174, width: 170, height: 10), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.42), size: 7.5, alignment: .center)
         readout.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.samplePanningReadout)
+        samplePanningControl = pan
+        samplePanningReadout = readout
     }
 
     private func addSampleVolumeControl(
@@ -1548,6 +1612,16 @@ final class InstrumentEditorView: FlippedEditorView {
         knob.target = isEditable ? self : nil
         knob.action = isEditable ? #selector(commitSampleVolume(_:)) : nil
         knob.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleVolumeControl)
+        knob.setAccessibilityElement(true)
+        knob.setAccessibilityRole(.slider)
+        knob.setAccessibilityLabel("Sample volume")
+        knob.setAccessibilityMinValue(NSNumber(value: 0))
+        knob.setAccessibilityMaxValue(NSNumber(value: PlaybackSample.xmMaximumVolume))
+        knob.setAccessibilityValue(NSNumber(value: sample?.volumeLevel ?? 0))
+        knob.trackingHandler = { [weak self, weak knob] event in
+            guard let knob else { return }
+            self?.handleKnobTracking(event, control: .volume, sender: knob)
+        }
         knob.toolTip = isEditable
             ? "Change the selected sample default volume"
             : "Sample volume is editable only for represented samples in stopped editable documents"
@@ -1559,6 +1633,8 @@ final class InstrumentEditorView: FlippedEditorView {
         )
         readout.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleVolumeReadout)
         addControl(readout, to: parent, frame: NSRect(x: x + 8, y: y + 88, width: 56, height: 23))
+        sampleVolumeControl = knob
+        sampleVolumeReadout = readout
     }
 
     private func addSampleRelativeNoteControl(
@@ -1609,6 +1685,16 @@ final class InstrumentEditorView: FlippedEditorView {
         knob.target = isEditable ? self : nil
         knob.action = isEditable ? #selector(commitSampleFinetune(_:)) : nil
         knob.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleFinetuneControl)
+        knob.setAccessibilityElement(true)
+        knob.setAccessibilityRole(.slider)
+        knob.setAccessibilityLabel("Sample finetune")
+        knob.setAccessibilityMinValue(NSNumber(value: PlaybackSample.xmFinetuneRange.lowerBound))
+        knob.setAccessibilityMaxValue(NSNumber(value: PlaybackSample.xmFinetuneRange.upperBound))
+        knob.setAccessibilityValue(NSNumber(value: sample?.finetune ?? 0))
+        knob.trackingHandler = { [weak self, weak knob] event in
+            guard let knob else { return }
+            self?.handleKnobTracking(event, control: .finetune, sender: knob)
+        }
         knob.toolTip = isEditable
             ? "Change the selected sample finetune"
             : "Sample finetune is editable only for represented samples in stopped editable documents"
@@ -1620,11 +1706,134 @@ final class InstrumentEditorView: FlippedEditorView {
         )
         readout.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.sampleFinetuneReadout)
         addControl(readout, to: parent, frame: NSRect(x: x + 8, y: y + 88, width: 56, height: 23))
+        sampleFinetuneControl = knob
+        sampleFinetuneReadout = readout
+    }
+
+    private func handleKnobTracking(
+        _ event: VTXEditorContinuousControlTrackingEvent,
+        control: InstrumentControlDragSession.Control,
+        sender: VTXEditorKnobControl
+    ) {
+        let range = controlRange(control)
+        let value = min(range.upperBound, max(range.lowerBound, Int(event.value.rounded())))
+        if event.phase == .changed { sender.setValue(Double(value)) }
+        handleControlTracking(event.phase, control: control, value: value)
+    }
+
+    private func handlePanningTracking(
+        _ event: VTXEditorContinuousControlTrackingEvent,
+        sender: VTXEditorPanSliderControl
+    ) {
+        let panning = InstrumentEditorDisplayState.SampleSlot.panningByte(forPanSliderValue: event.value)
+        if event.phase == .changed {
+            sender.setValue(
+                InstrumentEditorDisplayState.SampleSlot.panSliderValue(for: panning),
+                applyCenterDetent: false
+            )
+        }
+        handleControlTracking(event.phase, control: .panning, value: Int(panning))
+    }
+
+    private func handleControlTracking(
+        _ phase: VTXEditorContinuousControlTrackingPhase,
+        control: InstrumentControlDragSession.Control,
+        value: Int
+    ) {
+        switch phase {
+        case .began:
+            cancelControlDrag()
+            guard isEditable(control),
+                  let instrumentSlot = displayState.selectedInstrumentSlot,
+                  let sampleSlot = displayState.selectedSampleSlot,
+                  let committedValue = committedValue(for: control) else { return }
+            controlDragSession = InstrumentControlDragSession(
+                control: control,
+                instrumentSlot: instrumentSlot,
+                sampleSlot: sampleSlot,
+                originalCommittedValue: committedValue,
+                currentTransientValue: committedValue,
+                supportedRange: controlRange(control)
+            )
+        case .changed, .ended:
+            guard var session = controlDragSession,
+                  session.control == control,
+                  session.instrumentSlot == displayState.selectedInstrumentSlot,
+                  session.sampleSlot == displayState.selectedSampleSlot,
+                  isEditable(control) else {
+                cancelControlDrag()
+                return
+            }
+            session.update(to: value)
+            controlDragSession = phase == .ended ? nil : session
+            displayControlValue(session.currentTransientValue, for: control)
+        case .cancelled:
+            guard controlDragSession?.control == control else { return }
+            controlDragSession = nil
+            restoreCommittedControlDisplay(for: control)
+        }
+    }
+
+    private func isEditable(_ control: InstrumentControlDragSession.Control) -> Bool {
+        switch control {
+        case .volume: displayState.isSampleVolumeEditable
+        case .finetune: displayState.isSampleFinetuneEditable
+        case .panning: displayState.isSamplePanningEditable
+        }
+    }
+
+    private func controlRange(_ control: InstrumentControlDragSession.Control) -> ClosedRange<Int> {
+        switch control {
+        case .volume: 0...Int(PlaybackSample.xmMaximumVolume)
+        case .finetune: PlaybackSample.xmFinetuneRange
+        case .panning: 0...255
+        }
+    }
+
+    private func committedValue(for control: InstrumentControlDragSession.Control) -> Int? {
+        guard let sample = displayState.selectedSample else { return nil }
+        return switch control {
+        case .volume: sample.volumeLevel
+        case .finetune: sample.finetune
+        case .panning: Int(sample.panning)
+        }
+    }
+
+    private func displayControlValue(_ value: Int, for control: InstrumentControlDragSession.Control) {
+        switch control {
+        case .volume:
+            sampleVolumeControl?.setValue(Double(value))
+            sampleVolumeControl?.setAccessibilityValue(NSNumber(value: value))
+            sampleVolumeReadout?.stringValue = String(value)
+        case .finetune:
+            sampleFinetuneControl?.setValue(Double(value))
+            sampleFinetuneControl?.setAccessibilityValue(NSNumber(value: value))
+            sampleFinetuneReadout?.stringValue = InstrumentEditorDisplayState.SampleSlot.signedDisplay(value)
+        case .panning:
+            let panning = UInt8(min(255, max(0, value)))
+            samplePanningControl?.setValue(
+                InstrumentEditorDisplayState.SampleSlot.panSliderValue(for: panning),
+                applyCenterDetent: false
+            )
+            samplePanningControl?.setAccessibilityValue(NSNumber(value: panning))
+            samplePanningReadout?.stringValue = InstrumentEditorDisplayState.SampleSlot.panningDisplay(panning)
+        }
+    }
+
+    private func restoreCommittedControlDisplays() {
+        [InstrumentControlDragSession.Control.volume, .finetune, .panning]
+            .forEach(restoreCommittedControlDisplay(for:))
+    }
+
+    private func restoreCommittedControlDisplay(for control: InstrumentControlDragSession.Control) {
+        guard let value = committedValue(for: control) else { return }
+        displayControlValue(value, for: control)
     }
 
     @objc
     private func commitSampleVolume(_ sender: VTXEditorKnobControl) {
         let volume = Int(sender.value.rounded())
+        if controlRange(.volume).contains(volume) { displayControlValue(volume, for: .volume) }
         guard displayState.isSampleVolumeEditable,
               (0...Int(PlaybackSample.xmMaximumVolume)).contains(volume),
               let instrumentSlot = displayState.selectedInstrumentSlot,
@@ -1636,7 +1845,7 @@ final class InstrumentEditorView: FlippedEditorView {
                   sampleSlot - 1,
                   UInt8(volume)
               ) == true else {
-            sender.setValue(Double(displayState.selectedSample?.volumeLevel ?? 0))
+            restoreCommittedControlDisplay(for: .volume)
             return
         }
     }
@@ -1663,6 +1872,7 @@ final class InstrumentEditorView: FlippedEditorView {
     @objc
     private func commitSampleFinetune(_ sender: VTXEditorKnobControl) {
         let finetune = Int(sender.value.rounded())
+        if controlRange(.finetune).contains(finetune) { displayControlValue(finetune, for: .finetune) }
         guard displayState.isSampleFinetuneEditable,
               PlaybackSample.xmFinetuneRange.contains(finetune),
               let instrumentSlot = displayState.selectedInstrumentSlot,
@@ -1674,13 +1884,15 @@ final class InstrumentEditorView: FlippedEditorView {
                   sampleSlot - 1,
                   finetune
               ) == true else {
-            sender.setValue(Double(displayState.selectedSample?.finetune ?? 0))
+            restoreCommittedControlDisplay(for: .finetune)
             return
         }
     }
 
     @objc
     private func commitSamplePanning(_ sender: VTXEditorPanSliderControl) {
+        let panning = InstrumentEditorDisplayState.SampleSlot.panningByte(forPanSliderValue: sender.value)
+        displayControlValue(Int(panning), for: .panning)
         guard displayState.isSamplePanningEditable,
               let instrumentSlot = displayState.selectedInstrumentSlot,
               let sampleSlot = displayState.selectedSampleSlot,
@@ -1689,9 +1901,9 @@ final class InstrumentEditorView: FlippedEditorView {
               samplePanningEditHandler?(
                   instrumentSlot - 1,
                   sampleSlot - 1,
-                  InstrumentEditorDisplayState.SampleSlot.panningByte(forPanSliderValue: sender.value)
+                  panning
               ) == true else {
-            sender.setValue(displayState.selectedSample?.panSliderValue ?? 0, applyCenterDetent: false)
+            restoreCommittedControlDisplay(for: .panning)
             return
         }
     }

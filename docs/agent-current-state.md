@@ -77,6 +77,10 @@ through the same paths; later playback uses the existing pitch adaptation.
 Selected-sample finetune preserves the exact XM signed byte `-128...127` through
 the same paths; later playback uses the existing pitch adaptation with no pitch
 formula, runtime engine, DSP, or scheduling architecture change.
+PAN, VOLUME, and FINETUNE numeric and accessibility values now update transiently
+during drag. Intermediate values do not mutate the document or preview voice;
+mouse-up creates at most one existing labeled `applyEdit` undo action, lifecycle
+cancellation restores canonical state, and the persistent preview stream is unchanged.
 Sample-header panning now initializes preview, runtime, and product-export
 voices from the resolved sample. Its monotonic mapping is exact at byte `0`
 (`-1`), `128` (`0`), and `255` (`+1`); existing volume/effect panning then

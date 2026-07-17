@@ -186,10 +186,10 @@ the window does not own separate file semantics.
   releases/presses notes for audition. Note-range assignment and its live color-band update remain separate future work.
 - All audition goes through the isolated preview path — never full-song playback.
 
-### Deferred polish: transient live numeric readouts with one commit
+### Implemented polish: transient live numeric readouts with one commit
 
-For VOLUME, FINETUNE, PAN, and similar continuous controls, the numeric readout
-should update continuously during drag so precise values remain visible. That
+For VOLUME, FINETUNE, and PAN, the numeric and accessibility values update
+continuously during drag so precise values remain visible. That
 display is transient UI preview state: the underlying document still commits
 one `applyEdit` mutation at mouse-up or the existing commit boundary, rather
 than creating one mutation and undo entry per intermediate value. The commit
@@ -199,11 +199,11 @@ creates one undo action.
 - Escape or another future cancel gesture should restore the original displayed
   value.
 - Typed numeric entry remains available for exact values.
-- Playback or audition behavior while a preview value is held is a separate
-  design concern; this item does not approve live held-note modulation.
+- Held previews are not live-modulated or retriggered; the persistent preview
+  stream remains unchanged and the next trigger uses the committed value.
 
-This is deferred polish and is not implemented by the documentation decision
-that records it.
+Selection, document, transport, mode, deactivation, disable, and close
+transitions cancel stale drag state and restore the canonical committed display.
 
 ---
 

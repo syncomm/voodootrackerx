@@ -182,6 +182,12 @@ final class EditorControlPrimitivesTests: XCTestCase {
         XCTAssertEqual(recorder.count, 0)
         knob.mouseUp(with: try event(.leftMouseUp, 60))
         XCTAssertEqual(recorder.count, 1)
+
+        knob.mouseDown(with: try event(.leftMouseDown, 60))
+        knob.mouseDragged(with: try event(.leftMouseDragged, 12))
+        knob.mouseDragged(with: try event(.leftMouseDragged, 60))
+        knob.mouseUp(with: try event(.leftMouseUp, 60))
+        XCTAssertEqual(recorder.count, 1, "returning to the original value must not commit")
     }
 
     func testPanSliderDefaultRangeAndValueClamping() {
@@ -278,6 +284,12 @@ final class EditorControlPrimitivesTests: XCTestCase {
         XCTAssertEqual(recorder.count, 0)
         slider.mouseUp(with: try event(.leftMouseUp, 150))
         XCTAssertEqual(recorder.count, 1)
+
+        slider.mouseDown(with: try event(.leftMouseDown, 150))
+        slider.mouseDragged(with: try event(.leftMouseDragged, 30))
+        slider.mouseDragged(with: try event(.leftMouseDragged, 150))
+        slider.mouseUp(with: try event(.leftMouseUp, 150))
+        XCTAssertEqual(recorder.count, 1, "returning to the original value must not commit")
     }
 
     private func assertColor(
@@ -323,6 +335,7 @@ final class EditorControlPrimitivesTests: XCTestCase {
         XCTAssertEqual(actualColor.blueComponent, CGFloat(expected.blue) / 255.0, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actualColor.alphaComponent, expected.alpha, accuracy: 0.001, file: file, line: line)
     }
+
 }
 
 private final class EditorControlActionRecorder: NSObject {

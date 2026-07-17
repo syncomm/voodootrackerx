@@ -1210,6 +1210,132 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(submittedFinetune, -128)
     }
 
+    func testVolumeDragUpdatesReadoutAndAccessibilityBeforeOneUndoableCommit() throws {
+        var document = makeEditableDocument(palette: makeInstrumentPalette())
+        let original = document
+        let undoManager = UndoManager()
+        var controller: InstrumentEditorWindowController?
+        var editCount = 0
+        let coordinator = EditableDocumentEditCoordinator(
+            undoManager: undoManager,
+            contextProvider: { .editable(document: document, isPlaybackActive: false) },
+            documentApplyHandler: { updatedDocument in
+                document = updatedDocument
+                controller?.apply(displayState: .editableDocument(updatedDocument))
+            }
+        )
+        controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(document),
+            sampleVolumeEditHandler: { instrument, sample, volume in
+                editCount += 1
+                return coordinator.setSampleVolume(instrumentAt: instrument, sampleAt: sample, volume: volume)
+            }
+        )
+        let view = try XCTUnwrap(controller?.window?.contentView as? InstrumentEditorView)
+        let volume = try XCTUnwrap(view.instrumentEditorDescendants.sampleVolumeControl)
+
+        volume.mouseDown(with: try instrumentEditorPointerEvent(.leftMouseDown, in: volume, x: 36, y: 24))
+        volume.mouseDragged(with: try instrumentEditorPointerEvent(.leftMouseDragged, in: volume, x: 36, y: 54))
+
+        XCTAssertEqual(volume.value, 64)
+        XCTAssertEqual(view.instrumentEditorDescendants.sampleVolumeReadout?.stringValue, "64")
+        XCTAssertEqual((volume.accessibilityValue() as? NSNumber)?.intValue, 64)
+        XCTAssertEqual(view.controlDragSession?.originalCommittedValue, 48)
+        XCTAssertEqual(view.controlDragSession?.currentTransientValue, 64)
+        XCTAssertEqual(document, original)
+        XCTAssertEqual(editCount, 0)
+        XCTAssertFalse(undoManager.canUndo)
+
+        volume.mouseUp(with: try instrumentEditorPointerEvent(.leftMouseUp, in: volume, x: 36, y: 54))
+
+        XCTAssertEqual(editCount, 1)
+        XCTAssertEqual(document.instrumentPalette[2]?.samples[1].volume, 1)
+        XCTAssertEqual(coordinator.undoMenuItemTitle, "Undo Change Sample Volume")
+        XCTAssertEqual(controller?.window?.contentView?.instrumentEditorDescendants.sampleVolumeReadout?.stringValue, "64")
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(controller?.window?.contentView?.instrumentEditorDescendants.sampleVolumeReadout?.stringValue, "48")
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertEqual(controller?.window?.contentView?.instrumentEditorDescendants.sampleVolumeReadout?.stringValue, "64")
+    }
+
+    func testFinetuneAndPanReadoutsTrackSignedAndExactByteValuesBeforeCommit() throws {
+        let state = InstrumentEditorDisplayState.editableDocument(makeEditableDocument(palette: makeInstrumentPalette()))
+        var submittedFinetune: Int?
+        var submittedPanning: UInt8?
+        let controller = InstrumentEditorWindowController(
+            displayState: state,
+            sampleFinetuneEditHandler: { _, _, value in submittedFinetune = value; return true },
+            samplePanningEditHandler: { _, _, value in submittedPanning = value; return true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let finetune = try XCTUnwrap(view.instrumentEditorDescendants.sampleFinetuneControl)
+
+        finetune.mouseDown(with: try instrumentEditorPointerEvent(.leftMouseDown, in: finetune, x: 36, y: 12))
+        finetune.mouseDragged(with: try instrumentEditorPointerEvent(.leftMouseDragged, in: finetune, x: 36, y: 60))
+        XCTAssertEqual(finetune.value, 94)
+        XCTAssertEqual(view.instrumentEditorDescendants.sampleFinetuneReadout?.stringValue, "+94")
+        XCTAssertEqual((finetune.accessibilityValue() as? NSNumber)?.intValue, 94)
+        XCTAssertNil(submittedFinetune)
+        finetune.mouseUp(with: try instrumentEditorPointerEvent(.leftMouseUp, in: finetune, x: 36, y: 60))
+        XCTAssertEqual(submittedFinetune, 94)
+
+        let pan = try XCTUnwrap(view.instrumentEditorDescendants.samplePanningControl)
+        pan.mouseDown(with: try instrumentEditorPointerEvent(.leftMouseDown, in: pan, x: 27.25, y: 16))
+        pan.mouseDragged(with: try instrumentEditorPointerEvent(.leftMouseDragged, in: pan, x: 124, y: 16))
+        let transientPanning = InstrumentEditorDisplayState.SampleSlot.panningByte(forPanSliderValue: pan.value)
+        XCTAssertEqual(view.instrumentEditorDescendants.samplePanningReadout?.stringValue,
+                       InstrumentEditorDisplayState.SampleSlot.panningDisplay(transientPanning))
+        XCTAssertEqual((pan.accessibilityValue() as? NSNumber)?.intValue, Int(transientPanning))
+        XCTAssertNil(submittedPanning)
+        pan.mouseUp(with: try instrumentEditorPointerEvent(.leftMouseUp, in: pan, x: 124, y: 16))
+        XCTAssertEqual(submittedPanning, transientPanning)
+    }
+
+    func testLifecycleRefreshNeverCommitsStaleTransientValue() throws {
+        let document = makeEditableDocument(palette: makeInstrumentPalette())
+        var editCount = 0
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(document),
+            sampleVolumeEditHandler: { _, _, _ in editCount += 1; return true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        var volume = try XCTUnwrap(view.instrumentEditorDescendants.sampleVolumeControl)
+
+        volume.mouseDown(with: try instrumentEditorPointerEvent(.leftMouseDown, in: volume, x: 36, y: 24))
+        volume.mouseDragged(with: try instrumentEditorPointerEvent(.leftMouseDragged, in: volume, x: 36, y: 48))
+        XCTAssertNotEqual(view.instrumentEditorDescendants.sampleVolumeReadout?.stringValue, "48")
+        XCTAssertFalse(controller.apply(displayState: .editableDocument(document)))
+        XCTAssertEqual(view.instrumentEditorDescendants.sampleVolumeReadout?.stringValue, "48")
+        XCTAssertNil(view.controlDragSession)
+        volume.mouseUp(with: try instrumentEditorPointerEvent(.leftMouseUp, in: volume, x: 36, y: 48))
+
+        volume = try XCTUnwrap(view.instrumentEditorDescendants.sampleVolumeControl)
+        volume.mouseDown(with: try instrumentEditorPointerEvent(.leftMouseDown, in: volume, x: 36, y: 24))
+        volume.mouseDragged(with: try instrumentEditorPointerEvent(.leftMouseDragged, in: volume, x: 36, y: 48))
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(document, isPlaybackActive: true)))
+        XCTAssertFalse(try XCTUnwrap(controller.window?.contentView?.instrumentEditorDescendants.sampleVolumeControl).isEnabled)
+        volume.mouseUp(with: try instrumentEditorPointerEvent(.leftMouseUp, in: volume, x: 36, y: 48))
+
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(document)))
+        volume = try XCTUnwrap(view.instrumentEditorDescendants.sampleVolumeControl)
+        volume.mouseDown(with: try instrumentEditorPointerEvent(.leftMouseDown, in: volume, x: 36, y: 24))
+        volume.mouseDragged(with: try instrumentEditorPointerEvent(.leftMouseDragged, in: volume, x: 36, y: 48))
+        var changedSelection = document
+        changedSelection.selectSample(1)
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(changedSelection)))
+        volume.mouseUp(with: try instrumentEditorPointerEvent(.leftMouseUp, in: volume, x: 36, y: 48))
+        XCTAssertNil(view.controlDragSession)
+
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(document)))
+        volume = try XCTUnwrap(view.instrumentEditorDescendants.sampleVolumeControl)
+        volume.mouseDown(with: try instrumentEditorPointerEvent(.leftMouseDown, in: volume, x: 36, y: 24))
+        volume.mouseDragged(with: try instrumentEditorPointerEvent(.leftMouseDragged, in: volume, x: 36, y: 48))
+        controller.window?.close()
+        volume.mouseUp(with: try instrumentEditorPointerEvent(.leftMouseUp, in: volume, x: 36, y: 48))
+        XCTAssertNil(view.controlDragSession)
+        XCTAssertEqual(editCount, 0)
+    }
+
     func testEditableRelativeNoteSubmitsSelectedZeroBasedIndicesAndExactSignedByteValue() throws {
         var submittedInstrument: Int?
         var submittedSample: Int?
@@ -1874,6 +2000,13 @@ private func makeInstrumentEditorKeyEvent(
     )!
 }
 
+@MainActor
+private func instrumentEditorPointerEvent(_ type: NSEvent.EventType, in control: NSView, x: CGFloat, y: CGFloat) throws -> NSEvent {
+    NSEvent.mouseEvent(with: type, location: control.convert(NSPoint(x: x, y: y), to: nil), modifierFlags: [],
+                       timestamp: 0, windowNumber: control.window?.windowNumber ?? 0, context: nil,
+                       eventNumber: 0, clickCount: 1, pressure: 1)!
+}
+
 private final class InstrumentEditorRecordingAuditionSink: EditorNoteAuditionPreviewSink {
     private(set) var events: [EditorNoteAuditionPreviewEvent] = []
     private(set) var releasePreviewCount = 0
@@ -2181,6 +2314,12 @@ private extension Array where Element == NSView {
     var samplePanningControl: VTXEditorPanSliderControl? {
         compactMap { $0 as? VTXEditorPanSliderControl }.first {
             $0.identifier?.rawValue == InstrumentEditorViewIdentifier.samplePanningControl
+        }
+    }
+
+    var samplePanningReadout: NSTextField? {
+        compactMap { $0 as? NSTextField }.first {
+            $0.identifier?.rawValue == InstrumentEditorViewIdentifier.samplePanningReadout
         }
     }
 }

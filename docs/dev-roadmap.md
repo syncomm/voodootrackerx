@@ -133,9 +133,9 @@ Recently completed target:
    distinct from transport gating, and editable-copy confirmation remains a main-
    tracker document sheet that stays visible when invoked from the editor. The graphical keyboard
    now auditions exact pitches through XM note maps with drag and lifecycle-safe cancellation.
-   A later polish slice should update numeric readouts continuously during
-   continuous-control drags while committing only one document mutation at the
-   existing boundary.
+   PAN, VOLUME, and FINETUNE readouts now update from transient UI state during
+   drag; mouse-up retains one `applyEdit` mutation and undo action, while
+   lifecycle cancellation restores committed state without held-note modulation.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI

@@ -193,9 +193,9 @@ fadeout, and autovibrato without production playback or format changes.
    and UI-only octave range navigation across the read-only 96-note map. Follow it with a separately designed compatibility slice for audible sample-header
    panning, then continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
-   A separate deferred polish slice should make continuous controls update their
-   numeric readouts during drag while preserving one `applyEdit` mutation at
-   the existing commit boundary; see
+   Continuous PAN, VOLUME, and FINETUNE controls now update their numeric and
+   accessibility values transiently during drag while preserving one `applyEdit`
+   mutation at mouse-up; held previews and the persistent stream are unchanged. See
    `docs/design/instrument-editor-window.md`.
 5. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.

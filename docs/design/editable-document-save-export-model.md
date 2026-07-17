@@ -22,8 +22,10 @@ runtime-engine, DSP, or scheduling change. Exact signed-byte sample relative not
 same boundary and existing pitch path. A
 document-level applyEdit/whole-snapshot undo funnel owns replacement. Save, Save As,
 loaded-module direct editing, broader instrument/sample mutation, Sample Editor
-behavior, runtime playback changes, parser architecture changes, and tracker
-viewport changes remain unimplemented by this note.
+mutation/import, runtime playback changes, parser architecture changes, and
+tracker viewport changes remain unimplemented by this note. The fixed read-only
+Sample Editor shell, waveform overview, and display-only loop markers exist
+outside this save/export design and do not expand document write authority.
 
 The implemented rename and sample-panning edits, plus all future instrument/sample
 mutations, submit new editable-document values through that funnel. Its context carries no source
@@ -159,7 +161,8 @@ First-writer limitations:
 - no guarantee of round-trip parity with arbitrary loaded XM modules
 - no full Instrument Editor state beyond fields currently represented by the
   editable document and playback/palette models
-- no full Sample Editor or sample-import pipeline yet
+- read-only Sample Editor display only; no Sample Editor mutation or
+  sample-import pipeline yet
 - no panning-envelope playback/editing, vibrato playback/editing, broader
   loop/sample metadata/PCM/waveform editing, WAV/AIFF import, XI import, or arbitrary non-XM-
   derived payload support in the current writer
@@ -241,7 +244,8 @@ Keep future PRs narrow and testable:
 14. Done: `instrument: add editable sample volume mutation behind applyEdit`
 15. Done: `instrument: add editable sample finetune mutation behind applyEdit`
 16. Done: `instrument: add editable sample relative-note mutation behind applyEdit`
-17. `sample: build Sample Editor shell/import foundation`
+17. Done: `sample: build Sample Editor shell with read-only waveform binding`
+18. `sample: add editable loop mode and range behind applyEdit`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

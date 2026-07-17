@@ -86,6 +86,11 @@ What works today:
 - `Window > Instrument Editor` opens the fixed v1-mockup editor with selectable
   represented instrument/sample rows, stopped-editable metadata controls, read-only
   envelope/keymap displays, and isolated computer/on-screen keyboard audition.
+- `Window > Sample Editor` opens a fixed HTML-mockup-aligned read-only window
+  bound to the same canonical instrument/sample selection. It shows exact
+  available metadata, an efficient waveform overview, display-only loop
+  markers/region, and honest empty states for loaded and editable documents;
+  FORMAT reports represented bit depth and mono without claiming a source rate.
 - Pattern Bank single-click viewing/navigation and double-click assignment for
   editable documents.
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.
@@ -125,8 +130,10 @@ What is still future work:
   export settings.
 - Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
-- Instrument editing and the Sample Editor, including undo, envelopes,
-  waveform display, and sample/instrument import.
+- Broader instrument/sample mutation, including envelope/keymap assignment,
+  editable loop and PCM/waveform operations, destructive processing, and
+  sample/instrument import. The current Sample Editor waveform and loop display
+  remains read-only, and its mutation/import/audition controls remain deferred.
 - Live Loop retargeting during active playback, loop-range editing, arbitrary
   loop ranges, and broader tracker editing workflows.
 - Full FastTracker II, OpenMPT, or MikMod parity.

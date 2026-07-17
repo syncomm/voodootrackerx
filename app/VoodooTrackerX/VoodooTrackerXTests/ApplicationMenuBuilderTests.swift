@@ -119,6 +119,12 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertTrue(instrument.target === target)
         XCTAssertEqual(instrument.keyEquivalent, "")
         XCTAssertTrue(instrument.isEnabled)
+
+        let sample = try XCTUnwrap(windowMenu.item(withTitle: "Sample Editor"))
+        XCTAssertEqual(sample.action, ApplicationMenuBuilder.Actions.showSampleEditor)
+        XCTAssertTrue(sample.target === target)
+        XCTAssertEqual(sample.keyEquivalent, "")
+        XCTAssertTrue(sample.isEnabled)
     }
 }
 

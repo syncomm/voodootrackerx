@@ -457,8 +457,10 @@ Recommended next product PR:
   autovibrato round-trip support, read-only envelope display, and editable
   selected-sample panning, volume, signed-byte relative note, and finetune behind `applyEdit`
   are in place, as are focused-window computer-keyboard and graphical-keyboard
-  audition and shared sample-header panning planning. Continue with separately
-  scoped editor work without changing the C mixer DSP or runtime backend.
+  audition and shared sample-header panning planning. The fixed read-only
+  Sample Editor shell, waveform overview, and loop-marker display are also in
+  place. Continue with editable loop mode/range as a separate `applyEdit` slice
+  without changing the C mixer DSP or runtime backend.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -720,6 +722,11 @@ Current implemented foundation:
   selection with the control panel, stay selectable while loaded or playing, create
   no undo, and drive metadata/audition context; represented instrument NAME
   editing is enabled only for stopped editable documents and editable copies
+- fixed Sample Editor utility-window shell aligned to
+  `assets/mockups/sample-editor-v1.html`, the visual source of truth over prose;
+  canonical selection drives exact available metadata, a bounded read-only
+  waveform projection, display-only loop markers/region, and honest empty
+  states without a source-rate claim or document/undo mutation
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
@@ -744,7 +751,8 @@ Current implemented foundation:
 Next composition targets after backend foundation freeze:
 
 - envelope playback/editing and broader instrument/sample metadata behind applyEdit
-- sample editor foundations behind applyEdit
+- editable Sample Editor loop mode/range behind applyEdit, followed by separate
+  PCM/waveform mutation slices
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
 - WAV/AIFF sample import and XI instrument import target
@@ -777,6 +785,18 @@ audio backends. Planned sequencing is:
 - allow loaded modules to become auditionable before they become editable
 - include XI import, sample loading, instrument editor, and sample editor work
   in the 1.0 composition path
+
+### Future Instrument Keymap Direction
+
+The Instrument Editor piano is mapping-first and audition-second across the
+full 96-note map. A full default Sample 1 assignment should stay neutral;
+non-default assignments may use muted sample-number labels or colors, the
+selected sample should receive stronger persistent emphasis, and transient
+audition must remain a distinct pressed-key layer above the mapping. Read-only
+polish may precede mutation. Keymap editing waits for stable sample-palette and
+Sample Editor foundations and must use `applyEdit`/undo. Use
+`instrument-envelopes-keymap.xm` as the public reference and keep this direction
+linked to `docs/design/instrument-editor-window.md`.
 
 Tracker viewport work must follow `docs/tracker-behavior-spec.md`,
 `docs/ui-debugging.md`, and `docs/visual-verification.md`.
@@ -814,6 +834,10 @@ native AUv3 APIs. A later iPadOS AUv3 phase follows only after the headless
 engine and contained UI are proven; a `VoodooTracker X Tracker AU` may then add
 deeper contained editing. General third-party Audio Unit hosting inside
 standalone VTX remains possible but is lower priority and separately scoped.
+The Performance Keyboard/Pad direction belongs to this post-v1/Pro family:
+prefer a modeless macOS utility panel first, then consider a main-window drawer
+or iPad touch surface backed by the same performance-state model. It does not
+authorize a current tracker-main-window, logo, or viewport redesign.
 
 AU preparation before that approval milestone means preserving reusable
 document, playback-plan, state-ownership, audition/transport, and C mixer seams;

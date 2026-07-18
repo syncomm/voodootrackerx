@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var windowController: TrackerWindowController?
     private var songOrderEditorWindowController: SongOrderEditorWindowController?
     private let instrumentEditorWindowPresenter = InstrumentEditorWindowPresenter()
+    private let sampleEditorWindowPresenter = SampleEditorWindowPresenter()
     private var blankDocument: BlankTrackerDocument?
     private var loadedMetadata: ParsedModuleMetadata?
     private lazy var editableDocumentEditCoordinator = EditableDocumentEditCoordinator(
@@ -122,7 +123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case ApplicationMenuBuilder.Actions.newTrackerDocument,
              ApplicationMenuBuilder.Actions.openModuleFile,
              ApplicationMenuBuilder.Actions.showSongOrderEditor,
-             ApplicationMenuBuilder.Actions.showInstrumentEditor:
+             ApplicationMenuBuilder.Actions.showInstrumentEditor,
+             ApplicationMenuBuilder.Actions.showSampleEditor:
             return true
         case ApplicationMenuBuilder.Actions.exportXM:
             return ExportXMCoordinator.canExport(context: currentExportXMDocumentContext())
@@ -647,6 +649,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let blankDocument {
             return .editableDocument(blankDocument, isPlaybackActive: playbackEngine.state.isPlaying)
         }
+        if loadedMetadata != nil {
+            return .loadedModule(playbackSong: playbackEngine.song, selection: loadedModuleSelection)
+        }
+        return .empty
+    }
+
+    @objc
+    private func showSampleEditor(_ sender: Any?) {
+        sampleEditorWindowPresenter.show(
+            displayState: currentSampleEditorDisplayState(),
+            sampleSelectionHandler: { [weak self] in self?.selectSampleSlot($0) ?? false }
+        )
+    }
+
+    private func currentSampleEditorDisplayState() -> SampleEditorDisplayState {
+        if let blankDocument { return .editableDocument(blankDocument) }
         if loadedMetadata != nil {
             return .loadedModule(playbackSong: playbackEngine.song, selection: loadedModuleSelection)
         }
@@ -2409,6 +2427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         defer {
             refreshSongOrderEditor()
             instrumentEditorWindowPresenter.refresh(displayState: currentInstrumentEditorDisplayState())
+            sampleEditorWindowPresenter.refresh(displayState: currentSampleEditorDisplayState())
         }
 
         if let blankDocument {

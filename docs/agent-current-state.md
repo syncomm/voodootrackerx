@@ -69,6 +69,18 @@ pressed visual when the active note is visible; both remain monophonic. Dragging
 release/press semantics.
 Mouse-up, outside drag, selection/document transitions, deactivation, and close clear its voice and pressed state. XM note maps select the clicked note's sample without changing editor selection.
 Loaded modules stay read-only; audition creates no document or undo mutation.
+`Window > Sample Editor` now opens one active fixed utility window at a time,
+aligned to
+`assets/mockups/sample-editor-v1.html`, which is authoritative over prose for
+visual hierarchy and geometry. It shares the canonical instrument/sample
+selection with the main control panel and Instrument Editor and displays exact
+available sample metadata, a bounded read-only min/max waveform overview, and
+display-only no/forward/ping-pong loop markers/region for loaded and editable
+documents. Empty slots remain honest, and FORMAT reports represented bit depth
+and mono without treating playback-policy `baseSampleRate` as source metadata.
+The window creates no document or undo mutation;
+sample/loop/PCM editing, waveform interaction or processing, import, and Sample
+Editor audition remain deferred. Loaded modules remain read-only.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
 adapter gain mapping without runtime engine, DSP, or scheduling changes.
@@ -95,7 +107,7 @@ selector exposes their graph, point count, enabled, sustain, and loop state;
 they remain runtime-inert and create no document or undo mutation. These
 metadata slices add no loop, PCM, envelope, waveform, vibrato,
 keymap, XI, or import mutation. Save/Save As,
-loaded-module direct editing, broader Instrument Editor editing, Sample Editor, PCM16 product export,
+loaded-module direct editing, broader Instrument Editor editing, Sample Editor mutation, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 

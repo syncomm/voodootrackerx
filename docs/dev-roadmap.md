@@ -52,6 +52,12 @@ VoodooTracker X currently has:
   edited volume and tuning through the unchanged adapter gain and pitch paths; the Instrument Editor
   piano range shifts across the read-only 96-note map and focused computer audition shares its
   visible monophonic pressed-key state with mouse audition without document/undo mutation
+- one fixed `Window > Sample Editor` utility window aligned to
+  `assets/mockups/sample-editor-v1.html`, bound to canonical instrument/sample
+  selection, with exact available metadata, bounded read-only waveform display,
+  display-only loop markers/region, honest empty states, and no fabricated
+  source-rate claim; loaded modules remain read-only and Sample Editor mutation,
+  processing, import, and audition are deferred
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
   fixture; the schema-v2 manifest, generator verification mode, exact PCM/XM
   expectations, loader/model/editable-copy/edit/Export XM tests, and private-
@@ -715,18 +721,27 @@ Implemented foundation:
 - exact XM panning-envelope point/count/index/flag preservation through loaded
   state, editable copy, snapshots, undo/redo, and Export XM, plus a local
   read-only VOL/PAN graph/readout selector; playback and render output are unchanged
+- fixed mockup-aligned Sample Editor shell bound to canonical instrument/sample
+  selection, with exact represented metadata, bounded read-only waveform
+  projection, display-only loop markers/region, and honest empty states; it adds
+  no sample/loop/PCM mutation, import, processing, or audition behavior
 
 Remaining VTX 1.0 scope:
 
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit
-- sample editor foundation
+- editable loop mode/range behind applyEdit, followed by separately scoped PCM
+  and waveform mutation
 - WAV/AIFF sample import
 - XI instrument import target
 - importing or copying instruments and samples from existing modules into
   blank/editable songs
 - sample trimming and loop editing foundation
 - envelope editing foundation
+
+Future Instrument Editor keymap polish remains mapping-first and audition-second;
+see `docs/roadmap.md` and `docs/design/instrument-editor-window.md` for the
+assignment, audition-layer, fixture, and `applyEdit` direction.
 
 ## Phase 5: Visualization
 
@@ -750,6 +765,9 @@ Planned scope:
 Likely v1.x or later work includes MIDI keyboard or pad input, recording and
 sample-capture improvements, richer resampling tools, and plugin/audio-input to
 sample experiments.
+
+A larger Performance Keyboard/Pad remains post-v1 or Pro/AUv3 scope; see
+`docs/roadmap.md` for the modeless macOS and later shared-surface direction.
 
 The accepted post-v1 priority is a narrow native macOS AUv3 tracker instrument
 before general third-party Audio Unit hosting inside VTX. The first concept is

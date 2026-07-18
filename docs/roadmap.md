@@ -458,9 +458,11 @@ Recommended next product PR:
   selected-sample panning, volume, signed-byte relative note, and finetune behind `applyEdit`
   are in place, as are focused-window computer-keyboard and graphical-keyboard
   audition and shared sample-header panning planning. The fixed read-only
-  Sample Editor shell, waveform overview, and loop-marker display are also in
-  place. Continue with editable loop mode/range as a separate `applyEdit` slice
-  without changing the C mixer DSP or runtime backend.
+  Sample Editor shell, canonical instrument popup, coherent selected-sample
+  identity, waveform overview, and loop-marker display are also in place. Next,
+  perform a focused workflow/design pass for File > New through instrument/sample
+  creation or import, mapping, audition, composition, and export. Keep later
+  mutation slices separate and do not change the C mixer DSP or runtime backend.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -724,9 +726,12 @@ Current implemented foundation:
   editing is enabled only for stopped editable documents and editable copies
 - fixed Sample Editor utility-window shell aligned to
   `assets/mockups/sample-editor-v1.html`, the visual source of truth over prose;
-  canonical selection drives exact available metadata, a bounded read-only
-  waveform projection, display-only loop markers/region, and honest empty
-  states without a source-rate claim or document/undo mutation
+  its compact instrument popup updates canonical selection without mutation or
+  undo and reuses canonical sample normalization across the main window and
+  Instrument Editor. One selected-sample state drives the highlighted row,
+  identity, exact metadata, bounded read-only waveform, and display-only loop
+  region; unnamed represented samples remain distinct from honest absence and
+  no source rate is claimed
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths

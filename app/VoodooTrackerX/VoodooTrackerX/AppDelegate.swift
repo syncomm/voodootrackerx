@@ -659,6 +659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func showSampleEditor(_ sender: Any?) {
         sampleEditorWindowPresenter.show(
             displayState: currentSampleEditorDisplayState(),
+            instrumentSelectionHandler: { [weak self] in self?.selectInstrumentSlot($0) ?? false },
             sampleSelectionHandler: { [weak self] in self?.selectSampleSlot($0) ?? false }
         )
     }

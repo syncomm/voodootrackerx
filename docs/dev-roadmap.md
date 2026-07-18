@@ -53,11 +53,13 @@ VoodooTracker X currently has:
   piano range shifts across the read-only 96-note map and focused computer audition shares its
   visible monophonic pressed-key state with mouse audition without document/undo mutation
 - one fixed `Window > Sample Editor` utility window aligned to
-  `assets/mockups/sample-editor-v1.html`, bound to canonical instrument/sample
-  selection, with exact available metadata, bounded read-only waveform display,
-  display-only loop markers/region, honest empty states, and no fabricated
-  source-rate claim; loaded modules remain read-only and Sample Editor mutation,
-  processing, import, and audition are deferred
+  `assets/mockups/sample-editor-v1.html`, with a compact non-mutating instrument
+  popup bound to canonical instrument/sample selection. Canonical normalization
+  drives one coherent selected sample row, identity, metadata, bounded read-only
+  waveform, and display-only loop region; unnamed samples remain distinct from
+  absent samples and no source rate is fabricated. Loaded modules remain
+  read-only, and palette creation/removal, Sample Editor mutation, processing,
+  import, and audition are deferred
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
   fixture; the schema-v2 manifest, generator verification mode, exact PCM/XM
   expectations, loader/model/editable-copy/edit/Export XM tests, and private-
@@ -721,10 +723,13 @@ Implemented foundation:
 - exact XM panning-envelope point/count/index/flag preservation through loaded
   state, editable copy, snapshots, undo/redo, and Export XM, plus a local
   read-only VOL/PAN graph/readout selector; playback and render output are unchanged
-- fixed mockup-aligned Sample Editor shell bound to canonical instrument/sample
-  selection, with exact represented metadata, bounded read-only waveform
-  projection, display-only loop markers/region, and honest empty states; it adds
-  no sample/loop/PCM mutation, import, processing, or audition behavior
+- fixed mockup-aligned Sample Editor shell with a compact canonical instrument
+  popup; instrument changes are UI-only/no-undo, reuse sample normalization, and
+  synchronize the main window and Instrument Editor. The selected row, identity,
+  exact metadata, bounded read-only waveform, and display-only loop region share
+  one sample state, with unnamed represented samples distinct from absence; it
+  adds no palette/sample creation/removal, loop/PCM mutation, import, processing,
+  or audition behavior
 
 Remaining VTX 1.0 scope:
 

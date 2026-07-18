@@ -87,10 +87,12 @@ What works today:
   represented instrument/sample rows, stopped-editable metadata controls, read-only
   envelope/keymap displays, and isolated computer/on-screen keyboard audition.
 - `Window > Sample Editor` opens a fixed HTML-mockup-aligned read-only window
-  bound to the same canonical instrument/sample selection. It shows exact
-  available metadata, an efficient waveform overview, display-only loop
-  markers/region, and honest empty states for loaded and editable documents;
-  FORMAT reports represented bit depth and mono without claiming a source rate.
+  with a compact instrument popup bound to the same canonical instrument/sample
+  selection. Instrument changes are non-mutating/no-undo, and the selected row,
+  exact identity/metadata, efficient waveform overview, and display-only loop
+  region stay coherent for loaded and editable documents. Unnamed represented
+  samples are distinct from absent samples; FORMAT reports represented bit depth
+  and mono without claiming a source rate.
 - Pattern Bank single-click viewing/navigation and double-click assignment for
   editable documents.
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.

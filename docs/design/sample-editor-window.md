@@ -4,9 +4,10 @@
 **Fixed size (first pass):** ~940 × 560.
 **Visual source of truth:** `assets/mockups/sample-editor-v1.html`.
 **Reference:** FastTracker II sample editor, reinterpreted in VTX's tactile language.
-**Status:** The fixed mockup-aligned shell, read-only metadata binding, bounded
-waveform overview, and display-only loop visualization are implemented. Sample,
-loop, and PCM mutation remain deferred.
+**Status:** The fixed mockup-aligned shell, canonical instrument selector,
+coherent read-only sample identity/metadata binding, bounded waveform overview,
+and display-only loop visualization are implemented. Instrument/sample creation
+and removal plus sample, loop, and PCM mutation remain deferred.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
 proportions, `assets/mockups/sample-editor-v1.html` takes precedence over this
@@ -24,18 +25,25 @@ See `docs/design/editor-window-design-overview.md`,
 
 `Window > Sample Editor` opens one active fixed utility window/controller at a
 time, reusing it while open. It preserves normal close, Command-W, activation,
-and movement. It follows the
-canonical instrument/sample selection shared by the main control panel and
-Instrument Editor. Represented-row selection remains non-mutating, creates no
-undo, and works for loaded and editable documents, including during playback.
+and movement. A compact, non-editable instrument popup in the SAMPLES panel and
+the sample rows follow the canonical instrument/sample selection shared by the
+main control panel and Instrument Editor. Changing either selection is UI-only,
+creates no undo, works for loaded and editable documents including during
+playback, cancels stale preview through the existing canonical path, and reuses
+the existing sample-slot normalization policy. External selection refreshes the
+popup without emitting another callback, and selected sample rows scroll into
+view when needed.
 
 The display shows exact available instrument/sample identity, frame length, bit
 depth, volume, panning, finetune, relative note, and loop mode/range. It uses a
 bounded min/max waveform projection and safe display-only no/forward/ping-pong
-loop markers/region. Empty documents and unrepresented slots remain honestly
-empty. The mockup's values are illustrative: FORMAT reports represented bit
-depth and mono without treating playback-policy `baseSampleRate` as source-rate
-metadata or fabricating 44.1 kHz.
+loop markers/region. The selected row, header identity, metadata, waveform, and
+loop display are built from the same represented sample. An empty sample name
+shows `(unnamed sample)` rather than absence; no represented sample clears every
+sample surface. Empty documents and unrepresented slots remain honestly empty.
+The mockup's values are illustrative: FORMAT reports represented bit depth and
+mono without treating playback-policy `baseSampleRate` as source-rate metadata
+or fabricating 44.1 kHz.
 
 Loaded modules remain read-only. Editable documents and editable copies are
 also display-only in this window. Existing Instrument Editor metadata edits and
@@ -43,6 +51,7 @@ undo/redo refresh the readouts, but the Sample Editor adds no document or undo
 mutation. Waveform selection/interaction, loop and PCM editing, processing,
 generation, import/export, and Sample Editor audition are deferred; future
 controls shown to preserve the mockup hierarchy stay disabled and inert.
+Instrument/sample creation, deletion, import, and renaming are also deferred.
 
 ---
 
@@ -175,12 +184,14 @@ Prerequisite done: document applyEdit/undo funnel with capped whole-value snapsh
 
 1. Done: mockup-aligned shell, canonical selection, and exact read-only metadata.
 2. Done: bounded read-only waveform projection and display-only loop overlay.
-3. Editable loop mode and range behind `applyEdit`.
-4. Sample params (volume/pan/rel/finetune) wired.
-5. Waveform selection and separately scoped PCM edit operations.
-6. Audition through the existing isolated preview path.
-7. Waveform generators with confirm-on-replace.
-8. File load/export in separately scoped import/export milestones.
+3. Done: compact canonical instrument selector and coherent represented/unnamed/absent sample identity.
+4. Next: dependency-order the File > New → instrument/sample → mapping → audition → composition → export workflow.
+5. Editable loop mode and range behind `applyEdit`.
+6. Sample params (volume/pan/rel/finetune) wired.
+7. Waveform selection and separately scoped PCM edit operations.
+8. Audition through the existing isolated preview path.
+9. Waveform generators with confirm-on-replace.
+10. File load/export in separately scoped import/export milestones.
 
 ---
 

@@ -1,5 +1,6 @@
 import AppKit
 
+typealias SampleEditorInstrumentSelectionHandler = (_ oneBasedInstrumentSlot: Int) -> Bool
 typealias SampleEditorSampleSelectionHandler = (_ oneBasedSampleSlot: Int) -> Bool
 
 struct SampleWaveformBucket: Equatable {
@@ -132,6 +133,13 @@ struct SampleLoopDisplayState: Equatable {
 
 struct SampleEditorDisplayState: Equatable {
     enum Source: Equatable { case none, loadedModule, editableDocument }
+    struct InstrumentOption: Equatable {
+        let slot: Int
+        let name: String
+        let isSelected: Bool
+        var display: String { String(format: "I%02X", slot) }
+        var title: String { "\(display)  \(name)" }
+    }
     struct SampleSlot: Equatable {
         let slot: Int
         let name: String
@@ -141,13 +149,14 @@ struct SampleEditorDisplayState: Equatable {
 
     static let empty = SampleEditorDisplayState(
         source: .none, instrumentSlot: nil, instrumentName: "No instrument available",
-        selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
+        instrumentOptions: [], selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
         emptyMessage: "No document sample palette is available."
     )
 
     let source: Source
     let instrumentSlot: Int?
     let instrumentName: String
+    let instrumentOptions: [InstrumentOption]
     let selectedSampleSlot: Int?
     let sampleSlots: [SampleSlot]
     let selectedSample: PlaybackSample?
@@ -155,7 +164,10 @@ struct SampleEditorDisplayState: Equatable {
     var isReadOnly: Bool { true }
     var instrumentDisplay: String { instrumentSlot.map { String(format: "I%02X", $0) } ?? "—" }
     var sampleDisplay: String { selectedSampleSlot.map { String(format: "S%02X", $0) } ?? "—" }
-    var sampleName: String { Self.name(selectedSample?.name, fallback: "No represented sample") }
+    var sampleName: String {
+        guard let selectedSample else { return "No represented sample" }
+        return Self.name(selectedSample.name, fallback: "(unnamed sample)")
+    }
     var frameLength: Int? { selectedSample?.sampleLength }
     var lengthDisplay: String { frameLength.map { String(format: "%06d", max(0, $0)) } ?? "—" }
     var bitDepthBits: Int? { selectedSample?.sourceBitDepthBits }
@@ -185,9 +197,20 @@ struct SampleEditorDisplayState: Equatable {
     private static func make(
         source: Source, palette: [Int: PlaybackInstrument], selection: TrackerEditorSelection
     ) -> Self {
+        let instrumentOptions = palette
+            .filter { (1...255).contains($0.key) }
+            .map { slot, instrument in
+                InstrumentOption(
+                    slot: slot,
+                    name: name(instrument.name, fallback: "(unnamed instrument)"),
+                    isSelected: slot == selection.selectedInstrument
+                )
+            }
+            .sorted { $0.slot < $1.slot }
         guard let instrument = palette[selection.selectedInstrument] else {
             return SampleEditorDisplayState(
                 source: source, instrumentSlot: nil, instrumentName: "No instrument available",
+                instrumentOptions: instrumentOptions,
                 selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
                 emptyMessage: palette.isEmpty
                     ? "No represented instruments are available."
@@ -206,6 +229,7 @@ struct SampleEditorDisplayState: Equatable {
             source: source,
             instrumentSlot: selection.selectedInstrument,
             instrumentName: name(instrument.name, fallback: "(unnamed instrument)"),
+            instrumentOptions: instrumentOptions,
             selectedSampleSlot: selected.map { $0.sampleIndex + 1 },
             sampleSlots: slots,
             selectedSample: selected,
@@ -226,6 +250,7 @@ enum SampleEditorViewIdentifier {
     static let contentView = "sampleEditor.contentView"
     static let headerPanel = "sampleEditor.headerPanel"
     static let samplesPanel = "sampleEditor.samplesPanel"
+    static let instrumentSelector = "sampleEditor.instrumentSelector"
     static let waveformPanel = "sampleEditor.waveformPanel"
     static let waveformView = "sampleEditor.waveformView"
     static let loopPanel = "sampleEditor.loopPanel"
@@ -338,16 +363,20 @@ final class SampleEditorWindowPresenter {
     @discardableResult
     func show(
         displayState: SampleEditorDisplayState,
+        instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil
     ) -> SampleEditorWindowController {
         if let windowController {
+            windowController.instrumentSelectionHandler = instrumentSelectionHandler
             windowController.sampleSelectionHandler = sampleSelectionHandler
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
             return windowController
         }
         let controller = SampleEditorWindowController(
-            displayState: displayState, sampleSelectionHandler: sampleSelectionHandler
+            displayState: displayState,
+            instrumentSelectionHandler: instrumentSelectionHandler,
+            sampleSelectionHandler: sampleSelectionHandler
         )
         controller.closeHandler = { [weak self, weak controller] in
             guard let self, let controller, self.windowController === controller else { return }
@@ -366,18 +395,24 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
     static let contentSize = NSSize(width: 940, height: 560)
     private var didInstallInitialFirstResponder = false
     var closeHandler: (() -> Void)?
+    var instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? {
+        didSet { (window?.contentView as? SampleEditorView)?.instrumentSelectionHandler = instrumentSelectionHandler }
+    }
     var sampleSelectionHandler: SampleEditorSampleSelectionHandler? {
         didSet { (window?.contentView as? SampleEditorView)?.sampleSelectionHandler = sampleSelectionHandler }
     }
 
     init(
         displayState: SampleEditorDisplayState = .empty,
+        instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil
     ) {
+        self.instrumentSelectionHandler = instrumentSelectionHandler
         self.sampleSelectionHandler = sampleSelectionHandler
         let view = SampleEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
             displayState: displayState,
+            instrumentSelectionHandler: instrumentSelectionHandler,
             sampleSelectionHandler: sampleSelectionHandler
         )
         let panel = NSPanel(
@@ -421,6 +456,7 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         window?.makeFirstResponder(nil)
+        instrumentSelectionHandler = nil
         sampleSelectionHandler = nil
         closeHandler?()
     }
@@ -432,15 +468,21 @@ final class SampleEditorView: FlippedEditorView {
     private(set) var displayState: SampleEditorDisplayState
     private(set) var rebuildCount = 0
     private(set) weak var waveformView: SampleWaveformView?
+    private(set) weak var instrumentSelector: NSPopUpButton?
     private var sampleRows: [Int: InstrumentEditorListRowControl] = [:]
+    var instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? {
+        didSet { configureInstrumentSelectorHandler() }
+    }
     var sampleSelectionHandler: SampleEditorSampleSelectionHandler?
 
     init(
         frame frameRect: NSRect,
         displayState: SampleEditorDisplayState = .empty,
+        instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil
     ) {
         self.displayState = displayState
+        self.instrumentSelectionHandler = instrumentSelectionHandler
         self.sampleSelectionHandler = sampleSelectionHandler
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.contentView)
@@ -489,11 +531,28 @@ final class SampleEditorView: FlippedEditorView {
     }
 
     private func buildSamples(_ parent: NSView) {
-        let instrumentSummary = displayState.instrumentSlot == nil
-            ? "INSTR — · UNAVAILABLE"
-            : "INSTR \(displayState.instrumentDisplay) · \(displayState.instrumentName)"
-        label(instrumentSummary, parent, NSRect(x: 10, y: 26, width: 152, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.48), size: 7.5)
-        let frame = NSRect(x: 10, y: 42, width: 152, height: 172)
+        let selector = NSPopUpButton(frame: .zero, pullsDown: false)
+        TrackerThemeStyling.applyPopupChrome(selector, width: nil, minimumWidth: nil, theme: .legacyDark)
+        selector.identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.instrumentSelector)
+        selector.setAccessibilityLabel("Sample Editor instrument")
+        for option in displayState.instrumentOptions {
+            selector.addItem(withTitle: option.title)
+            selector.lastItem?.representedObject = option.slot
+            selector.lastItem?.toolTip = option.title
+        }
+        if let selectedIndex = displayState.instrumentOptions.firstIndex(where: \.isSelected) {
+            selector.selectItem(at: selectedIndex)
+        } else {
+            selector.select(nil)
+        }
+        let selectedTitle = displayState.instrumentOptions.first(where: \.isSelected)?.title
+        selector.toolTip = selectedTitle ?? displayState.emptyMessage
+        selector.setAccessibilityValue(selectedTitle ?? "No instrument selected")
+        addControl(selector, to: parent, frame: NSRect(x: 10, y: 24, width: 152, height: 26))
+        instrumentSelector = selector
+        configureInstrumentSelectorHandler()
+
+        let frame = NSRect(x: 10, y: 58, width: 152, height: 156)
         guard !displayState.sampleSlots.isEmpty else {
             let surface = addSurface(to: parent, frame: frame, background: VTXEditorControlTheme.recessedReadoutBackground, border: VTXEditorControlTheme.mutedGoldBorderSubtle, radius: 3)
             let emptyLabel = label("NO REPRESENTED SAMPLES", surface, NSRect(x: 8, y: 77, width: 136, height: 12), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8, alignment: .center)
@@ -521,6 +580,35 @@ final class SampleEditorView: FlippedEditorView {
         scroll.autohidesScrollers = true
         scroll.documentView = rows
         parent.addSubview(scroll)
+        if let selectedIndex = displayState.sampleSlots.firstIndex(where: \.isSelected) {
+            rows.scrollToVisible(NSRect(
+                x: 0, y: CGFloat(selectedIndex) * rowHeight,
+                width: rows.bounds.width, height: rowHeight
+            ))
+        }
+    }
+
+    private func configureInstrumentSelectorHandler() {
+        guard let selector = instrumentSelector else { return }
+        let isEnabled = !displayState.instrumentOptions.isEmpty && instrumentSelectionHandler != nil
+        selector.isEnabled = isEnabled
+        selector.target = isEnabled ? self : nil
+        selector.action = isEnabled ? #selector(selectInstrument(_:)) : nil
+        selector.setAccessibilityEnabled(isEnabled)
+    }
+
+    @objc private func selectInstrument(_ sender: NSPopUpButton) {
+        guard let slot = sender.selectedItem?.representedObject as? Int,
+              displayState.instrumentOptions.contains(where: { $0.slot == slot }) else { return }
+        guard instrumentSelectionHandler?(slot) == true else {
+            if let selectedIndex = displayState.instrumentOptions.firstIndex(where: \.isSelected) {
+                sender.selectItem(at: selectedIndex)
+            } else {
+                sender.select(nil)
+            }
+            return
+        }
+        window?.makeFirstResponder(instrumentSelector ?? sender)
     }
 
     @objc private func selectSample(_ sender: InstrumentEditorListRowControl) {

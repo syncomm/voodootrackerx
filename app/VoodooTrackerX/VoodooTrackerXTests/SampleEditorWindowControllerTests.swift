@@ -9,6 +9,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
 
         for state in [noDocument, blank] {
             XCTAssertTrue(state.isReadOnly)
+            XCTAssertTrue(state.instrumentOptions.isEmpty)
             XCTAssertNil(state.selectedSample)
             XCTAssertTrue(state.sampleSlots.isEmpty)
             XCTAssertEqual(state.instrumentDisplay, "—")
@@ -20,6 +21,134 @@ final class SampleEditorWindowControllerTests: XCTestCase {
             XCTAssertTrue(state.waveformPCM.isEmpty)
             XCTAssertFalse(state.emptyMessage.isEmpty)
         }
+    }
+
+    func testInstrumentPopupIsEmptyAndDisabledWithoutDocumentContext() throws {
+        for state in [SampleEditorDisplayState.empty, .editableDocument(.makeDefault())] {
+            let controller = SampleEditorWindowController(
+                displayState: state,
+                instrumentSelectionHandler: { _ in true }
+            )
+            let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+            let selector = try XCTUnwrap(view.instrumentSelector)
+
+            XCTAssertEqual(selector.numberOfItems, 0)
+            XCTAssertFalse(selector.isEnabled)
+            XCTAssertFalse(selector.pullsDown)
+            XCTAssertTrue(selector.cell is NSPopUpButtonCell)
+            XCTAssertNil(selector.cell as? NSTextFieldCell)
+            XCTAssertEqual(selector.accessibilityLabel(), "Sample Editor instrument")
+            XCTAssertEqual(selector.accessibilityValue() as? String, "No instrument selected")
+        }
+    }
+
+    func testMetadataMatrixInstrumentPopupUsesOrderedOneBasedTitlesAndCanonicalSelection() throws {
+        let song = try loadReferenceSong("generated/instrument-metadata-matrix.xm")
+        let before = song
+        var selection = TrackerEditorSelection.default
+        var callbackCount = 0
+        var controller: SampleEditorWindowController!
+        controller = SampleEditorWindowController(
+            displayState: .loadedModule(playbackSong: song, selection: selection),
+            instrumentSelectionHandler: { slot in
+                callbackCount += 1
+                guard let instrument = song.instrument(forInstrument: slot) else { return false }
+                let updated = selection.withSelectedInstrument(
+                    slot,
+                    availableSampleSlots: instrument.availableSampleSlots
+                )
+                guard updated != selection else { return false }
+                selection = updated
+                return controller.apply(displayState: .loadedModule(playbackSong: song, selection: selection))
+            }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        let selector = try XCTUnwrap(view.instrumentSelector)
+
+        XCTAssertEqual(view.displayState.instrumentOptions.map(\.title), [
+            "I01  PAN00 VOL00 NEG",
+            "I02  PAN64 VOL16 FWD",
+            "I03  PAN128 VOL32 PP",
+            "I04  PAN192 VOL48 POS",
+            "I05  PAN255 VOL64 FWD",
+        ])
+        XCTAssertEqual(selector.itemTitles, view.displayState.instrumentOptions.map(\.title))
+        XCTAssertEqual(selector.itemArray.compactMap { $0.representedObject as? Int }, [1, 2, 3, 4, 5])
+        XCTAssertEqual(selector.selectedItem?.representedObject as? Int, 1)
+        XCTAssertEqual(selector.accessibilityValue() as? String, "I01  PAN00 VOL00 NEG")
+        XCTAssertTrue(selector.isEnabled)
+
+        let expected: [(slot: Int, sampleName: String, format: String, loop: SampleLoopDisplayState.Mode)] = [
+            (2, "TRIANGLE FWD 16", "16-BIT · MONO", .forward),
+            (3, "SAW PINGPONG 8", "8-BIT · MONO", .pingPong),
+            (4, "PULSE ONESHOT 16", "16-BIT · MONO", .none),
+            (5, "TRIANGLE FWD 8", "8-BIT · MONO", .forward),
+            (1, "SILENT SINE 8", "8-BIT · MONO", .none),
+        ]
+        for (index, value) in expected.enumerated() {
+            let currentSelector = try XCTUnwrap(view.instrumentSelector)
+            currentSelector.selectItem(at: value.slot - 1)
+            XCTAssertTrue(currentSelector.sendAction(currentSelector.action, to: currentSelector.target))
+            XCTAssertEqual(callbackCount, index + 1)
+            XCTAssertEqual(selection, TrackerEditorSelection(selectedInstrument: value.slot, selectedSample: 1))
+            XCTAssertEqual(view.displayState.instrumentSlot, value.slot)
+            XCTAssertEqual(view.displayState.sampleName, value.sampleName)
+            XCTAssertEqual(view.displayState.formatDisplay, value.format)
+            XCTAssertEqual(view.displayState.loop.mode, value.loop)
+            XCTAssertEqual(view.instrumentSelector?.selectedItem?.representedObject as? Int, value.slot)
+            XCTAssertEqual(
+                InstrumentEditorDisplayState.loadedModule(
+                    playbackSong: song,
+                    selection: selection
+                ).selectedInstrumentSlot,
+                value.slot
+            )
+        }
+        XCTAssertEqual(song, before)
+
+        let externalSelection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1)
+        XCTAssertTrue(controller.apply(displayState: .loadedModule(playbackSong: song, selection: externalSelection)))
+        XCTAssertEqual(callbackCount, expected.count)
+        XCTAssertEqual(view.instrumentSelector?.selectedItem?.representedObject as? Int, 2)
+    }
+
+    func testUnnamedRepresentedSampleAndSamplelessInstrumentHaveDistinctCoherentStates() {
+        let unnamedSample = makePlaybackSample(name: "   ", pcm: [-0.5, 0.5], volume: 0.25)
+        let song = makeSampleEditorSong(instruments: [
+            1: PlaybackInstrument(index: 1, name: "", samples: [unnamedSample]),
+            2: PlaybackInstrument(index: 2, name: "Sampleless", samples: []),
+        ])
+        let before = song
+
+        let represented = SampleEditorDisplayState.loadedModule(playbackSong: song, selection: .default)
+        XCTAssertEqual(represented.instrumentOptions.map(\.title), [
+            "I01  (unnamed instrument)", "I02  Sampleless",
+        ])
+        XCTAssertEqual(represented.sampleName, "(unnamed sample)")
+        XCTAssertEqual(represented.sampleDisplay, "S01")
+        XCTAssertEqual(represented.sampleSlots.filter(\.isSelected).map(\.slot), [1])
+        XCTAssertEqual(represented.waveformPCM, [-0.5, 0.5])
+        XCTAssertEqual(represented.lengthDisplay, "000002")
+        XCTAssertEqual(represented.volumeDisplay, "16")
+
+        let absent = SampleEditorDisplayState.loadedModule(
+            playbackSong: song,
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1)
+        )
+        XCTAssertEqual(absent.instrumentName, "Sampleless")
+        XCTAssertEqual(absent.sampleName, "No represented sample")
+        XCTAssertEqual(absent.sampleDisplay, "—")
+        XCTAssertTrue(absent.sampleSlots.isEmpty)
+        XCTAssertNil(absent.selectedSample)
+        XCTAssertTrue(absent.waveformPCM.isEmpty)
+        XCTAssertEqual(absent.lengthDisplay, "—")
+        XCTAssertEqual(absent.formatDisplay, "FORMAT UNAVAILABLE")
+        XCTAssertEqual(absent.volumeDisplay, "—")
+        XCTAssertEqual(absent.panningDisplay, "—")
+        XCTAssertEqual(absent.relativeNoteDisplay, "—")
+        XCTAssertEqual(absent.finetuneDisplay, "—")
+        XCTAssertEqual(absent.loop, .inactive)
+        XCTAssertEqual(song, before)
     }
 
     func testMetadataMatrixFixtureProducesExactMetadataAndLoopModes() throws {
@@ -160,6 +289,33 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(undoManager.canUndo)
     }
 
+    func testSelectedSampleRowScrollsIntoViewWithoutChangingInstrument() throws {
+        let samples = (0..<12).map { index in
+            makePlaybackSample(
+                instrumentIndex: 1,
+                sampleIndex: index,
+                name: "Sample \(index + 1)",
+                pcm: [Float(index) / 12]
+            )
+        }
+        let song = makeSampleEditorSong(instruments: [
+            1: PlaybackInstrument(index: 1, name: "Many samples", samples: samples),
+        ])
+        let selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 12)
+        let controller = SampleEditorWindowController(
+            displayState: .loadedModule(playbackSong: song, selection: selection),
+            sampleSelectionHandler: { _ in true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        let row = try XCTUnwrap(view.sampleRow(slot: 12))
+        let scrollView = try XCTUnwrap(row.enclosingScrollView)
+
+        scrollView.layoutSubtreeIfNeeded()
+        XCTAssertTrue(scrollView.documentVisibleRect.intersects(row.frame))
+        XCTAssertEqual(view.displayState.instrumentSlot, 1)
+        XCTAssertEqual(view.displayState.selectedSampleSlot, 12)
+    }
+
     func testProjectionHandlesEdgeCasesAndPreservesSignedExtrema() {
         XCTAssertTrue(SampleWaveformProjection.make(pcm: [], pixelWidth: 20).isEmpty)
         XCTAssertTrue(SampleWaveformProjection.make(pcm: [1], pixelWidth: 0).isEmpty)
@@ -264,14 +420,16 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(future.isEmpty)
         XCTAssertTrue(future.allSatisfy { !$0.isEnabled && $0.target == nil && $0.action == nil })
         let nonNavigationControls = descendants.compactMap { $0 as? NSControl }.filter {
-            !($0 is InstrumentEditorListRowControl)
+            !($0 is InstrumentEditorListRowControl) && !($0 is NSPopUpButton)
         }
         XCTAssertTrue(nonNavigationControls.allSatisfy { $0.target == nil && $0.action == nil })
         XCTAssertNil(try XCTUnwrap(view.waveformView).hitTest(.zero))
 
         let editable = SampleEditorWindowController(displayState: .editableDocument(.makeDefault()))
         let editableControls = try XCTUnwrap(editable.window?.contentView).sampleEditorDescendants
-            .compactMap { $0 as? NSControl }.filter { !($0 is InstrumentEditorListRowControl) }
+            .compactMap { $0 as? NSControl }.filter {
+                !($0 is InstrumentEditorListRowControl) && !($0 is NSPopUpButton)
+            }
         XCTAssertTrue(editableControls.allSatisfy { $0.target == nil && $0.action == nil })
     }
 
@@ -307,6 +465,17 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         guard FileManager.default.fileExists(atPath: url.path) else { throw XCTSkip("Missing fixture \(relativePath)") }
         return url
     }
+}
+
+private func makeSampleEditorSong(instruments: [Int: PlaybackInstrument]) -> PlaybackSong {
+    PlaybackSong(
+        title: "Sample Editor Test",
+        orders: [],
+        patternsByIndex: [:],
+        instrumentsByIndex: instruments,
+        restartOrderIndex: 0,
+        endBehavior: .stopAtEnd
+    )
 }
 
 private extension NSView {

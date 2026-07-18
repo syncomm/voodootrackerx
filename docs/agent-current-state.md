@@ -73,14 +73,19 @@ Loaded modules stay read-only; audition creates no document or undo mutation.
 aligned to
 `assets/mockups/sample-editor-v1.html`, which is authoritative over prose for
 visual hierarchy and geometry. It shares the canonical instrument/sample
-selection with the main control panel and Instrument Editor and displays exact
-available sample metadata, a bounded read-only min/max waveform overview, and
-display-only no/forward/ping-pong loop markers/region for loaded and editable
-documents. Empty slots remain honest, and FORMAT reports represented bit depth
-and mono without treating playback-policy `baseSampleRate` as source metadata.
+selection with the main control panel and Instrument Editor. Its compact
+instrument popup changes that shared UI state without document mutation or undo,
+reuses the canonical sample-normalization policy, and stays selectable for
+loaded/editable documents during playback. The selected sample row, header,
+exact metadata, bounded read-only min/max waveform, and display-only
+no/forward/ping-pong loop region now derive from one represented sample.
+Unnamed represented samples show `(unnamed sample)`; absent samples clear every
+sample surface. FORMAT reports represented bit depth and mono without treating
+playback-policy `baseSampleRate` as source metadata.
 The window creates no document or undo mutation;
-sample/loop/PCM editing, waveform interaction or processing, import, and Sample
-Editor audition remain deferred. Loaded modules remain read-only.
+instrument/sample creation or removal, sample/loop/PCM editing, waveform
+interaction or processing, import, and Sample Editor audition remain deferred.
+Loaded modules remain read-only.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
 adapter gain mapping without runtime engine, DSP, or scheduling changes.

@@ -72,6 +72,10 @@ Loaded modules remain read-only, Save and Save As remain disabled, Export XM
 remains scoped to the current editable subset, and advanced audio export
 options remain future work.
 
+The proposed future `v0.3.0-alpha.1` From-Scratch Composition Alpha is not yet
+implemented. Its gate adds instrument/sample creation, lossless sample import
+or generation, default mapping, and a complete clean-launch-to-export proof.
+
 What works today:
 
 - Editable blank document startup, `File > New`, and `File > Open...` for
@@ -132,10 +136,10 @@ What is still future work:
   export settings.
 - Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
-- Broader instrument/sample mutation, including envelope/keymap assignment,
-  editable loop and PCM/waveform operations, destructive processing, and
-  sample/instrument import. The current Sample Editor waveform and loop display
-  remains read-only, and its mutation/import/audition controls remain deferred.
+- From-scratch instrument/sample creation, WAV/AIFF/AIFC/FLAC import,
+  generation, keymap/lifecycle operations, editable loop and PCM/waveform work,
+  and destructive processing. The current Sample Editor remains read-only; see
+  [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md).
 - Live Loop retargeting during active playback, loop-range editing, arbitrary
   loop ranges, and broader tracker editing workflows.
 - Full FastTracker II, OpenMPT, or MikMod parity.
@@ -220,6 +224,7 @@ render timing.
 - [docs/playback-trace.md](docs/playback-trace.md) - runtime trace and capture diagnostics.
 - [docs/design/parsed-xm-to-c-mixer-adapter.md](docs/design/parsed-xm-to-c-mixer-adapter.md) - bounded parsed-XM-to-C-mixer adapter design and non-goals.
 - [docs/decisions/](docs/decisions) - architecture decision records, including the software mixer transition and C mixer boundary.
+- [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md) - future from-scratch instrument, sample, import, mapping, lifecycle, and release contract.
 - [docs/tracker-behavior-spec.md](docs/tracker-behavior-spec.md) - tracker viewport and editor behavior rules.
 - [docs/testing.md](docs/testing.md) - local build/test commands, fixture rules, parser smoke tests, and golden snapshot workflow.
 - [AGENTS.md](AGENTS.md) - contribution and automation requirements for humans and agents.

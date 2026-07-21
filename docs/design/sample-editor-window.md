@@ -53,6 +53,25 @@ generation, import/export, and Sample Editor audition are deferred; future
 controls shown to preserve the mockup hierarchy stay disabled and inert.
 Instrument/sample creation, deletion, import, and renaming are also deferred.
 
+### From-scratch creation/import contract
+
+The Sample Editor owns sample identity, selection within the current
+instrument, import/generation, waveform and loop metadata, parameters, and
+later PCM operations. Its instrument popup selects context but never creates
+an instrument. Import into an empty selected Sxx targets that slot; an occupied
+slot offers Replace Current Sample, Add as New Sample, or Cancel. Only a global
+import/drop with no usable destination creates a new instrument and S01.
+
+Planned lossless support lands WAV, AIFF/AIFC, then FLAC through one validated
+off-thread decode pipeline. Stereo defaults to explicit Mix to Mono with Left
+and Right alternatives, imported storage defaults to 16-bit XM-compatible
+mono, the filename supplies the sample name, and copied PCM becomes
+document-owned. Generate eventually provides sine, square/pulse, triangle,
+saw, and noise. First-sample import/generation maps all 96 notes and becomes
+immediately auditionable in one `applyEdit` action. None of this behavior is
+implemented by this document. See
+[ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
+
 ---
 
 ## 1. Future purpose and mental model
@@ -107,7 +126,7 @@ remain visible but inert until their separately scoped milestones.
   readout; a small loop-region preview.
 - **SAMPLE PARAMS:** VOLUME (signature) + FINETUNE knobs; center-detent PAN slider; relative note.
 - **GENERATE:** sine / square / triangle / saw / noise (each replaces the sample; confirm-on-replace).
-- **FILE:** sample LOAD (WAV/AIFF) / EXPORT / CLEAR / REPLACE — prominent, since sample editing is
+- **FILE:** sample LOAD (WAV/AIFF/AIFC/FLAC) / EXPORT / CLEAR / REPLACE — prominent, since sample editing is
   file/media-oriented. (Instrument XI files are menu-canonical; see the instrument window spec.)
 - **EDIT bank (full width):** Trim, Crop · Cut, Copy, Paste · Normalize, Reverse, Fade In, Fade Out ·
   Undo.
@@ -185,7 +204,7 @@ Prerequisite done: document applyEdit/undo funnel with capped whole-value snapsh
 1. Done: mockup-aligned shell, canonical selection, and exact read-only metadata.
 2. Done: bounded read-only waveform projection and display-only loop overlay.
 3. Done: compact canonical instrument selector and coherent represented/unnamed/absent sample identity.
-4. Next: dependency-order the File > New → instrument/sample → mapping → audition → composition → export workflow.
+4. Next: follow ADR 012, beginning with the separate empty-instrument/S01 `applyEdit` foundation.
 5. Editable loop mode and range behind `applyEdit`.
 6. Sample params (volume/pan/rel/finetune) wired.
 7. Waveform selection and separately scoped PCM edit operations.

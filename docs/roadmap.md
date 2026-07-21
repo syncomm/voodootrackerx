@@ -18,6 +18,11 @@ AAC-encoded M4A export for convenient sharing. Both formats write only to a
 user-selected destination. Loaded modules remain read-only, Save/Save As remain
 disabled, and advanced audio export options remain future work.
 
+The proposed next major milestone is the future `v0.3.0-alpha.1` From-Scratch
+Composition Alpha. It is not yet released; its complete acceptance gate and
+dependency-ordered PR plan are defined by
+[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
+
 ## Project Goals
 
 - Preserve classic MOD/XM compatibility and tracker workflow.
@@ -38,7 +43,7 @@ display, or pattern-entry milestone. The 1.0 target includes:
 - pattern editor support for notes, instruments, volume columns, and effect
   columns
 - sample editor and instrument editor foundations
-- WAV/AIFF sample import
+- WAV, AIFF/AIFC, and FLAC sample import in focused phases
 - XI instrument import as an explicit target
 - importing or copying instruments and samples from existing modules into
   blank/editable songs
@@ -449,20 +454,12 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- The editable-document save/export model, Export XM menu/save-panel shell,
-  current editable-subset app file output, existing palette/sample payload
-  export, public-safe writer/reload smoke tests, explicit loaded-module
-  editable-copy UI, Instrument Editor shell, instrument NAME editing, and
-  document applyEdit/undo funnel, plus sample-panning, panning-envelope, and
-  autovibrato round-trip support, read-only envelope display, and editable
-  selected-sample panning, volume, signed-byte relative note, and finetune behind `applyEdit`
-  are in place, as are focused-window computer-keyboard and graphical-keyboard
-  audition and shared sample-header panning planning. The fixed read-only
-  Sample Editor shell, canonical instrument popup, coherent selected-sample
-  identity, waveform overview, and loop-marker display are also in place. Next,
-  perform a focused workflow/design pass for File > New through instrument/sample
-  creation or import, mapping, audition, composition, and export. Keep later
-  mutation slices separate and do not change the C mixer DSP or runtime backend.
+- The File New-to-export workflow/design pass is complete in
+  [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
+  Next, create one unnamed instrument with an honest empty S01 destination
+  through one `applyEdit` action. Keep generation, each importer, lifecycle,
+  keymap editing, and reference-preserving reorder work in later focused PRs;
+  do not change the runtime backend or C mixer DSP.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -760,7 +757,7 @@ Next composition targets after backend foundation freeze:
   PCM/waveform mutation slices
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- WAV/AIFF sample import and XI instrument import target
+- WAV, AIFF/AIFC, and FLAC sample import plus the separate XI instrument import target
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics
@@ -801,7 +798,8 @@ audition must remain a distinct pressed-key layer above the mapping. Read-only
 polish may precede mutation. Keymap editing waits for stable sample-palette and
 Sample Editor foundations and must use `applyEdit`/undo. Use
 `instrument-envelopes-keymap.xm` as the public reference and keep this direction
-linked to `docs/design/instrument-editor-window.md`.
+linked to `docs/design/instrument-editor-window.md` and
+[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
 
 Tracker viewport work must follow `docs/tracker-behavior-spec.md`,
 `docs/ui-debugging.md`, and `docs/visual-verification.md`.

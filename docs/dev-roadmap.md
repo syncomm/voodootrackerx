@@ -95,6 +95,12 @@ current editable subset, and advanced options such as PCM16, pattern/order
 ranges, channel/stem export, bitrate/quality controls, and diagnostic profile
 selection remain future work.
 
+The future `v0.3.0-alpha.1` From-Scratch Composition Alpha is now designed but
+not implemented. Its gate starts from a clean launch, creates an instrument
+and imported/generated sample, composes and arranges a song, then proves Export
+XM/reopen and WAV/M4A export. See
+[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
+
 ## Backend Snapshot
 
 - Runtime default: CoreAudio DefaultOutput Audio Unit C mixer.
@@ -144,10 +150,13 @@ Recently completed target:
    PAN, VOLUME, and FINETUNE readouts now update from transient UI state during
    drag; mouse-up retains one `applyEdit` mutation and undo action, while
    lifecycle cancellation restores committed state without held-note modulation.
-8. Pattern editor completion for instrument, volume-column, and effect-column
-   entry.
-9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
-   instrument import target.
+8. Start the ADR 012 sequence with an unnamed instrument and honest empty S01
+   destination through one `applyEdit` action; generation, WAV, AIFF/AIFC,
+   FLAC, lifecycle, keymap, and reference-preserving move/swap follow as
+   focused dependent PRs.
+9. Pattern editor completion for instrument, volume-column, and effect-column
+   entry remains part of the complete composition gate. XI stays a separate
+   broader VTX 1.0 target.
 10. Rendered audio export release preparation for `v0.2.0-alpha.5` is complete.
    Keep PCM16, ranges, stems, bitrate/quality controls, and diagnostic profiles
    as later slices.
@@ -733,11 +742,14 @@ Implemented foundation:
 
 Remaining VTX 1.0 scope:
 
+- the dependency-ordered from-scratch instrument/sample workflow in
+  [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md),
+  beginning with a represented unnamed I01 and honest empty S01 destination
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit
 - editable loop mode/range behind applyEdit, followed by separately scoped PCM
   and waveform mutation
-- WAV/AIFF sample import
+- WAV, AIFF/AIFC, and FLAC sample import in focused phases
 - XI instrument import target
 - importing or copying instruments and samples from existing modules into
   blank/editable songs

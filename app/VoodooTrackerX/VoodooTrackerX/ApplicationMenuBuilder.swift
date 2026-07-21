@@ -15,6 +15,7 @@ enum ApplicationMenuBuilder {
         static let toggleEditMode = NSSelectorFromString("editModeToggled:")
         static let undoDocumentEdit = NSSelectorFromString("undoDocumentEdit:")
         static let redoDocumentEdit = NSSelectorFromString("redoDocumentEdit:")
+        static let newInstrument = NSSelectorFromString("newInstrument:")
         static let clearCurrentPattern = NSSelectorFromString("clearCurrentPattern:")
         static let clearSongData = NSSelectorFromString("clearSongData:")
         static let showSongOrderEditor = NSSelectorFromString("showSongOrderEditor:")
@@ -112,6 +113,15 @@ enum ApplicationMenuBuilder {
         redo.keyEquivalentModifierMask = [.command, .shift]
         redo.isEnabled = false
         menu.addItem(redo)
+        menu.addItem(NSMenuItem.separator())
+        let newInstrument = menuItem(
+            title: "New Instrument",
+            action: Actions.newInstrument,
+            keyEquivalent: "",
+            target: target
+        )
+        newInstrument.isEnabled = false
+        menu.addItem(newInstrument)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(disabledItem(title: "Cut", keyEquivalent: "x"))
         menu.addItem(disabledItem(title: "Copy", keyEquivalent: "c"))

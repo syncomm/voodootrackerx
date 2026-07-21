@@ -73,6 +73,12 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(redo.keyEquivalentModifierMask, [.command, .shift])
         XCTAssertFalse(redo.isEnabled)
 
+        let newInstrument = try XCTUnwrap(editMenu.item(withTitle: "New Instrument"))
+        XCTAssertEqual(newInstrument.action, ApplicationMenuBuilder.Actions.newInstrument)
+        XCTAssertTrue(newInstrument.target === target)
+        XCTAssertEqual(newInstrument.keyEquivalent, "")
+        XCTAssertFalse(newInstrument.isEnabled)
+
         for title in ["Cut", "Copy", "Paste", "Delete", "Select All"] {
             let item = try XCTUnwrap(editMenu.item(withTitle: title))
             XCTAssertFalse(item.isEnabled, "\(title) should stay disabled until editor behavior exists")

@@ -648,6 +648,7 @@ enum EditorNoteAuditionAvailabilityResolver {
 }
 
 struct BlankTrackerDocument: Equatable {
+    static let maximumInstrumentCount = 255
     static let defaultTitle = "Untitled"
     static let defaultSongLength = 1
     static let defaultCurrentPosition = 0
@@ -686,6 +687,7 @@ struct BlankTrackerDocument: Equatable {
             rowCount: defaultRowCount,
             channels: defaultChannelCount
         )
+        let instrument = PlaybackInstrument(index: TrackerEditorSelection.defaultInstrument, samples: [])
         return BlankTrackerDocument(
             title: defaultTitle,
             songLength: defaultSongLength,
@@ -696,7 +698,7 @@ struct BlankTrackerDocument: Equatable {
             speed: defaultSpeed,
             orderTable: [defaultPatternIndex],
             selection: .default,
-            instrumentPalette: [:],
+            instrumentPalette: [instrument.index: instrument],
             patterns: [pattern]
         )
     }
@@ -822,7 +824,7 @@ struct BlankTrackerDocument: Equatable {
             maximumSongPosition: max(0, songLength - 1),
             isSongPositionEnabled: songLength > 1,
             isPatternControlsEnabled: true,
-            areInstrumentPlaceholdersEnabled: hasInstrumentSamplePalette
+            areInstrumentPlaceholdersEnabled: !instrumentPalette.isEmpty
         )
     }
 
@@ -886,6 +888,32 @@ struct BlankTrackerDocument: Equatable {
 
     func availableSampleSlots(forInstrument instrumentIndex: Int) -> [Int] {
         instrument(forInstrument: instrumentIndex)?.availableSampleSlots ?? []
+    }
+
+    var canAddEmptyInstrument: Bool {
+        nextInstrumentSlot != nil
+    }
+
+    /// Appends a represented unnamed instrument and selects its empty S01 destination.
+    @discardableResult
+    mutating func addEmptyInstrument() -> Int? {
+        guard let instrumentSlot = nextInstrumentSlot else { return nil }
+        var palette = instrumentPalette
+        palette[instrumentSlot] = PlaybackInstrument(index: instrumentSlot, samples: [])
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: currentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: currentPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
+            selection: TrackerEditorSelection(selectedInstrument: instrumentSlot, selectedSample: 1),
+            instrumentPalette: palette,
+            patterns: patterns
+        )
+        return instrumentSlot
     }
 
     mutating func selectInstrument(_ instrumentIndex: Int) {
@@ -1534,6 +1562,12 @@ struct BlankTrackerDocument: Equatable {
             selectedInstrument: firstInstrument.index,
             selectedSample: firstInstrument.availableSampleSlots[0]
         )
+    }
+
+    private var nextInstrumentSlot: Int? {
+        let highestSlot = max(0, instrumentPalette.keys.max() ?? 0)
+        guard highestSlot < Self.maximumInstrumentCount else { return nil }
+        return highestSlot + 1
     }
 
     private func selectedInstrumentForNoteEntry() -> UInt8? {

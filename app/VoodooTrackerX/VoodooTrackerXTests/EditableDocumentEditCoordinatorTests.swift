@@ -54,6 +54,61 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.appliedDocuments, [cleared, before, cleared])
     }
 
+    func testNewInstrumentIsOneApplyEditActionWithExactSelectionUndoRedo() throws {
+        let before = BlankTrackerDocument.makeDefault()
+        let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+
+        XCTAssertTrue(harness.coordinator.canCreateInstrument)
+        XCTAssertTrue(harness.coordinator.createInstrument())
+
+        let created = try XCTUnwrap(harness.editableDocument)
+        XCTAssertEqual(created.instrumentPalette.keys.sorted(), [1, 2])
+        XCTAssertNil(created.instrumentPalette[2]?.name)
+        XCTAssertEqual(created.instrumentPalette[2]?.samples, [])
+        XCTAssertEqual(created.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
+        XCTAssertEqual(created.patterns, before.patterns)
+        XCTAssertEqual(harness.appliedDocuments, [created])
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo New Instrument")
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo New Instrument")
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, created)
+        XCTAssertEqual(harness.appliedDocuments, [created, before, created])
+    }
+
+    func testNewInstrumentIsUnavailableWithoutStoppedEditableCapacityAndCreatesNoHistory() {
+        let base = BlankTrackerDocument.makeDefault()
+        let atLimit = BlankTrackerDocument(
+            title: base.title,
+            songLength: base.songLength,
+            currentPosition: base.currentPosition,
+            restartPosition: base.restartPosition,
+            currentPatternIndex: base.currentPatternIndex,
+            tempo: base.tempo,
+            speed: base.speed,
+            orderTable: base.orderTable,
+            selection: TrackerEditorSelection(selectedInstrument: 255, selectedSample: 1),
+            instrumentPalette: [255: PlaybackInstrument(index: 255, samples: [])],
+            patterns: base.patterns
+        )
+        let contexts: [EditableDocumentEditContext] = [
+            .none,
+            .loadedReadOnly,
+            .editable(document: base, isPlaybackActive: true),
+            .editable(document: atLimit, isPlaybackActive: false),
+        ]
+
+        for context in contexts {
+            let harness = EditHarness(context: context)
+            XCTAssertFalse(harness.coordinator.canCreateInstrument)
+            XCTAssertFalse(harness.coordinator.createInstrument())
+            XCTAssertTrue(harness.appliedDocuments.isEmpty)
+            XCTAssertFalse(harness.undoManager.canUndo)
+        }
+    }
+
     func testInstrumentRenameAppliesThroughUndoRedoAndRefreshesExistingDisplays() throws {
         let before = documentWithInstrumentName("Snapshot")
         let controller = InstrumentEditorWindowController(displayState: .editableDocument(before))

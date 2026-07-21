@@ -95,8 +95,9 @@ current editable subset, and advanced options such as PCM16, pattern/order
 ranges, channel/stem export, bitrate/quality controls, and diagnostic profile
 selection remain future work.
 
-The future `v0.3.0-alpha.1` From-Scratch Composition Alpha is now designed but
-not implemented. Its gate starts from a clean launch, creates an instrument
+The future `v0.3.0-alpha.1` From-Scratch Composition Alpha is designed and its
+empty-instrument foundation is implemented, but the release gate is not
+complete. Its gate starts from a clean launch, creates an instrument
 and imported/generated sample, composes and arranges a song, then proves Export
 XM/reopen and WAV/M4A export. See
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
@@ -124,7 +125,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recently completed target:
-`instrument: align Instrument Editor window lifecycle with Song/Order Editor`.
+`instrument: create empty instrument with S01 through applyEdit`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -150,8 +151,10 @@ Recently completed target:
    PAN, VOLUME, and FINETUNE readouts now update from transient UI state during
    drag; mouse-up retains one `applyEdit` mutation and undo action, while
    lifecycle cancellation restores committed state without held-note modulation.
-8. Start the ADR 012 sequence with an unnamed instrument and honest empty S01
-   destination through one `applyEdit` action; generation, WAV, AIFF/AIFC,
+8. Done: start the ADR 012 sequence with an unnamed instrument and honest empty
+   S01 destination through one `applyEdit` action. The current allocation policy
+   appends after the highest represented instrument and does not fill sparse holes.
+   Generation, WAV, AIFF/AIFC,
    FLAC, lifecycle, keymap, and reference-preserving move/swap follow as
    focused dependent PRs.
 9. Pattern editor completion for instrument, volume-column, and effect-column
@@ -709,6 +712,9 @@ As semantics remain deferred.
 
 Implemented foundation:
 
+- File New represents unnamed zero-sample I01/S01; Edit > New Instrument appends
+  another honest empty destination through one stopped-editable applyEdit action,
+  with exact undo/redo, canonical editor refresh, and zero-sample XM reopen
 - deterministic sustained 16-bit, five-instrument metadata-matrix, and
   two-sample keymap/envelope/autovibrato XM fixtures for public editor coverage
 - exact XM sample relative-note and finetune `-128...127` mutation for stopped
@@ -744,7 +750,7 @@ Remaining VTX 1.0 scope:
 
 - the dependency-ordered from-scratch instrument/sample workflow in
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md),
-  beginning with a represented unnamed I01 and honest empty S01 destination
+  continuing with first-sample sine generation and automatic all-note mapping
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit
 - editable loop mode/range behind applyEdit, followed by separately scoped PCM

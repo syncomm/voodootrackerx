@@ -89,10 +89,12 @@ large; advanced fields are present but grouped, not hidden.
 ### From-scratch composition contract
 
 The Instrument Editor owns instrument identity, sample palette/slots, keymap,
-envelopes, autovibrato, default sample metadata, and note audition. `New
-Instrument` will allocate/select the next available one-based Ixx, create an
-unnamed represented instrument with an honest empty S01 destination, and reveal
-this window through one `applyEdit` action. It must not create PCM or sample
+envelopes, autovibrato, default sample metadata, and note audition. File New now
+represents unnamed zero-sample I01 with selected empty S01. `Edit > New
+Instrument` appends after the highest represented one-based Ixx, creates and
+selects an unnamed instrument with an honest empty S01 destination, and reveals
+this window through one `applyEdit` action. It does not fill sparse holes in the
+current dense palette/writer model and must not create PCM or sample
 metadata. The first represented sample maps across all 96 notes; later samples
 do not alter that map implicitly. Clear preserves slot numbering, while future
 move/swap remaps pattern references transactionally. See
@@ -264,7 +266,7 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 13. Done: audition-only on-screen keyboard interaction.
 14. Done: canonical instrument/sample list selection without document or undo mutation.
 15. Done: resolved-sample panning in focused audition, runtime playback, and product audio export.
-16. Create an unnamed instrument with honest empty S01 through `applyEdit`.
+16. Done: create an unnamed instrument with honest empty S01 through `applyEdit`.
 17. Envelope editing (points, sustain, loop, add/del) wired.
 18. Vibrato + remaining defaults controls wired.
 19. Keymap drag-to-assign-range after sample creation/import foundations.

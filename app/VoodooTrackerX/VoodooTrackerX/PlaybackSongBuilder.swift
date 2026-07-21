@@ -122,6 +122,11 @@ enum PlaybackSongBuilder {
             }
             let instrumentName = readXMText(data, offset: offset + 4, length: 22)
             guard sampleCount > 0 else {
+                instruments[instrumentIndex] = PlaybackInstrument(
+                    index: instrumentIndex,
+                    name: instrumentName,
+                    samples: []
+                )
                 offset += instrumentHeaderSize
                 continue
             }

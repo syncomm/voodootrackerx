@@ -607,6 +607,7 @@ struct InstrumentEditorDisplayState: Equatable {
         isSamplePanningEditable: false,
         sampleCount: 0,
         selectedSampleSlot: nil,
+        emptySampleDestinationSlot: nil,
         sampleSlots: [],
         volumeEnvelope: nil,
         panningEnvelope: nil,
@@ -627,6 +628,7 @@ struct InstrumentEditorDisplayState: Equatable {
     let isSamplePanningEditable: Bool
     let sampleCount: Int
     let selectedSampleSlot: Int?
+    let emptySampleDestinationSlot: Int?
     let sampleSlots: [SampleSlot]
     let volumeEnvelope: PlaybackVolumeEnvelope?
     let panningEnvelope: PlaybackPanningEnvelope?
@@ -721,6 +723,7 @@ struct InstrumentEditorDisplayState: Equatable {
                 isSamplePanningEditable: false,
                 sampleCount: 0,
                 selectedSampleSlot: nil,
+                emptySampleDestinationSlot: nil,
                 sampleSlots: [],
                 volumeEnvelope: nil,
                 panningEnvelope: nil,
@@ -733,7 +736,10 @@ struct InstrumentEditorDisplayState: Equatable {
         let slots = instrument.samples
             .map { SampleSlot(sample: $0, selectedSampleSlot: selection.selectedSample) }
             .sorted { ($0.slot, $0.name) < ($1.slot, $1.name) }
-        let selectedSampleSlot = slots.contains(where: \.isSelected) ? selection.selectedSample : nil
+        let emptySampleDestinationSlot = slots.isEmpty ? selection.selectedSample : nil
+        let selectedSampleSlot = slots.contains(where: \.isSelected) || emptySampleDestinationSlot != nil
+            ? selection.selectedSample
+            : nil
         let selectedRepresentedSample = instrument.sample(selectedSampleSlot: selection.selectedSample)
         let allowsSelectedSampleEditing = allowsInstrumentNameEditing &&
             selectedRepresentedSample.map { $0.sampleLength > 0 && !$0.pcm.isEmpty } == true
@@ -750,12 +756,15 @@ struct InstrumentEditorDisplayState: Equatable {
             isSamplePanningEditable: allowsSelectedSampleEditing,
             sampleCount: instrument.samples.count,
             selectedSampleSlot: selectedSampleSlot,
+            emptySampleDestinationSlot: emptySampleDestinationSlot,
             sampleSlots: slots,
             volumeEnvelope: instrument.volumeEnvelope,
             panningEnvelope: instrument.panningEnvelope,
             autoVibrato: instrument.autoVibrato,
             keymapRanges: makeKeymapRanges(instrument: instrument, selectedSampleSlot: selection.selectedSample),
-            emptyMessage: slots.isEmpty ? "This instrument has no represented sample slots." : ""
+            emptyMessage: slots.isEmpty
+                ? "\(String(format: "S%02X", selection.selectedSample)) is an empty destination; no sample is represented."
+                : ""
         )
     }
 
@@ -1429,13 +1438,28 @@ final class InstrumentEditorView: FlippedEditorView {
     }
 
     private func buildSampleSlots(_ panel: NSView) {
-        addLabel("\(displayState.sampleCount) SHOWN", to: panel, frame: NSRect(x: 100, y: 9, width: 60, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.30), size: 7.5, alignment: .right)
+        addLabel("\(displayState.sampleCount) SAMPLES", to: panel, frame: NSRect(x: 100, y: 9, width: 60, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.30), size: 7.5, alignment: .right)
         let frame = NSRect(x: 10, y: 30, width: 150, height: 115)
         let rowHeight: CGFloat = 20
-        let contentHeight = max(frame.height, CGFloat(max(1, displayState.sampleSlots.count)) * rowHeight)
+        let rowCount = displayState.sampleSlots.count + (displayState.emptySampleDestinationSlot == nil ? 0 : 1)
+        let contentHeight = max(frame.height, CGFloat(max(1, rowCount)) * rowHeight)
         let rowsView = listDocumentView(frame: frame, contentHeight: contentHeight)
 
-        if displayState.sampleSlots.isEmpty {
+        if let slot = displayState.emptySampleDestinationSlot {
+            let slotDisplay = String(format: "S%02X", slot)
+            let row = listRow(
+                in: rowsView,
+                frame: NSRect(x: 0, y: 0, width: frame.width, height: rowHeight),
+                slot: slot,
+                isSelected: true,
+                identifier: InstrumentEditorViewIdentifier.sampleRowPrefix + slotDisplay
+            )
+            row.isEnabled = false
+            row.setAccessibilityLabel("\(slotDisplay) Empty destination")
+            sampleRowControls[slot] = row
+            addLabel(slotDisplay, to: row, frame: NSRect(x: 8, y: 4, width: 30, height: 12), color: codeColor(selected: true), size: 9, weight: .semibold)
+            addLabel("Empty destination", to: row, frame: NSRect(x: 42, y: 4, width: 100, height: 12), color: rowTextColor(selected: true), size: 9)
+        } else if displayState.sampleSlots.isEmpty {
             addEmptyListMessage(displayState.emptyMessage, to: rowsView, width: frame.width, height: frame.height)
         } else {
             for (index, sample) in displayState.sampleSlots.enumerated() {
@@ -1455,8 +1479,10 @@ final class InstrumentEditorView: FlippedEditorView {
             }
         }
         addScrollView(to: panel, frame: frame, documentView: rowsView,
-                      rowCount: displayState.sampleSlots.count, rowHeight: rowHeight,
-                      selectedRowIndex: displayState.sampleSlots.firstIndex(where: \.isSelected))
+                      rowCount: rowCount, rowHeight: rowHeight,
+                      selectedRowIndex: displayState.emptySampleDestinationSlot == nil
+                          ? displayState.sampleSlots.firstIndex(where: \.isSelected)
+                          : 0)
     }
 
     @objc

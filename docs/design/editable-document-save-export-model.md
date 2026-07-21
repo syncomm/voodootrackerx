@@ -77,7 +77,9 @@ undo/redo, Export XM, offline audio export, portability, and future AUv3 state
 must not depend on that file remaining present.
 
 An empty S01 destination is not a represented sample and carries no PCM or
-fabricated sample metadata. The future creation/import/export contract,
+fabricated sample metadata. File New now owns one such I01/S01 destination, and
+New Instrument appends another through one stopped-editable `applyEdit` action.
+The creation/import/export contract,
 including the proposed `v0.3.0-alpha.1` gate, is defined by
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
 It does not enable Save/Save As or make an export destination an owned path.
@@ -133,7 +135,10 @@ documents, including explicit editable copies, presents a save panel with an
 chosen file, and reports completion or a write failure. The current writer
 includes existing palette/sample payloads only when they are already safely
 represented as XM-derived signed 8-bit or 16-bit PCM in the editable document
-model. Cancel writes nothing. Loaded read-only modules and active playback
+model. Represented zero-sample instruments write only their 29-byte XM
+instrument headers; reopen preserves their count, order, and names without
+inventing sample headers or PCM. Cancel writes nothing. Loaded read-only
+modules and active playback
 remain disabled/no-op, Save/Save As remain disabled, and the exported XM file
 does not become an owned save path.
 
@@ -260,7 +265,8 @@ Keep future PRs narrow and testable:
 15. Done: `instrument: add editable sample finetune mutation behind applyEdit`
 16. Done: `instrument: add editable sample relative-note mutation behind applyEdit`
 17. Done: `sample: build Sample Editor shell with read-only waveform binding`
-18. `sample: add editable loop mode and range behind applyEdit`
+18. Done: `instrument: create empty instrument with S01 through applyEdit`
+19. `sample: add editable loop mode and range behind applyEdit`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

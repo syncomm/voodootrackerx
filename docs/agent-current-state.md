@@ -10,6 +10,15 @@ VTX 1.0 is scoped as a self-contained XM-style sample/instrument tracker that
 can create complete sample-based songs from scratch. It is not only a playback,
 display, or pattern-entry milestone, and it is not a DAW/plugin-host milestone.
 
+[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md)
+now defines the future File New-to-export instrument, sample, import,
+generation, keymap, lifecycle, ownership, and release model. Today File New
+selects I01/S01 but still has an empty instrument palette; I01 is not represented
+and S01 is not yet a modeled destination. The next implementation PR is the
+narrow `applyEdit`/undo foundation that creates an unnamed instrument with an
+honest empty S01. `v0.3.0-alpha.1` is a proposed future release, not current
+functionality.
+
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
 which creates an untitled in-memory editable copy without claiming the opened
@@ -116,14 +125,14 @@ loaded-module direct editing, broader Instrument Editor editing, Sample Editor m
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 
-The public synthetic XM corpus now includes deterministic sustained 16-bit and
-five-instrument metadata-matrix fixtures. A schema-v2 reviewable
+The public synthetic XM corpus now includes deterministic sustained 16-bit,
+five-instrument metadata-matrix, and two-sample envelopes/keymap fixtures. A schema-v2 reviewable
 manifest pins PCM/XM hashes and byte counts; the existing generator validates,
 generates one or all approved fixtures, and verifies committed bytes without
 rewriting. Tests cover the C loader, playback model, editable-copy, current
 metadata edits/undo/redo, 8/16-bit PCM, no/forward/ping-pong loops,
-exact panning preservation/planning, and Export XM/reopen. The envelopes/keymap scenario
-remains the dependent third fixture PR. The pack is original MIT-licensed project data and adds no
+exact panning preservation/planning, and Export XM/reopen. The three-part
+instrument fixture series is complete. The pack is original MIT-licensed project data and adds no
 XI, imported audio, runtime, parser, writer, mixer, DSP, scheduling, or UI
 behavior.
 

@@ -67,6 +67,21 @@ instrument/sample palette data and playable sample payloads where available,
 then clears song/order/pattern note data into an editable blank song. It is not
 full loaded-module editing.
 
+## From-Scratch Sample Ownership
+
+Future imported or generated PCM is copied into the editable document before
+it becomes playable. Decode/generation and validation complete before one
+`applyEdit` commit; failure leaves the prior document unchanged. The original
+sample path is optional provenance, not source/output ownership, and playback,
+undo/redo, Export XM, offline audio export, portability, and future AUv3 state
+must not depend on that file remaining present.
+
+An empty S01 destination is not a represented sample and carries no PCM or
+fabricated sample metadata. The future creation/import/export contract,
+including the proposed `v0.3.0-alpha.1` gate, is defined by
+[ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
+It does not enable Save/Save As or make an export destination an owned path.
+
 ## Save, Save As, And Export XM
 
 ### Save

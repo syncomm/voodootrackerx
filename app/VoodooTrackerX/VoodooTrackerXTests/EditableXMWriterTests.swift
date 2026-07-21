@@ -16,7 +16,7 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(data.le16(at: 66), 0)
         XCTAssertEqual(data.le16(at: 68), 8)
         XCTAssertEqual(data.le16(at: 70), 1)
-        XCTAssertEqual(data.le16(at: 72), 0)
+        XCTAssertEqual(data.le16(at: 72), 1)
         XCTAssertEqual(data.le16(at: 74), 0x0001)
         XCTAssertEqual(data.le16(at: 76), 6)
         XCTAssertEqual(data.le16(at: 78), 125)
@@ -27,7 +27,10 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(pattern.packingType, 0)
         XCTAssertEqual(pattern.rowCount, 64)
         XCTAssertEqual(pattern.packedSize, 0)
-        XCTAssertEqual(pattern.nextOffset, data.count)
+        XCTAssertEqual(data.le32(at: pattern.nextOffset), 29)
+        XCTAssertEqual(data.ascii(offset: pattern.nextOffset + 4, length: 22), "")
+        XCTAssertEqual(data.le16(at: pattern.nextOffset + 27), 0)
+        XCTAssertEqual(pattern.nextOffset + 29, data.count)
     }
 
     func testWriterUsesEditableOrderTimingChannelsAndSanitizedTitle() throws {
@@ -518,7 +521,7 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(metadata.restartPosition, 0)
         XCTAssertEqual(metadata.channels, 8)
         XCTAssertEqual(metadata.patterns, 1)
-        XCTAssertEqual(metadata.instruments, 0)
+        XCTAssertEqual(metadata.instruments, 1)
         XCTAssertEqual(metadata.defaultTempo, 6)
         XCTAssertEqual(metadata.defaultBPM, 125)
         XCTAssertEqual(metadata.xmFlags, 0x0001)
@@ -530,6 +533,28 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertTrue(pattern.rows.allSatisfy { row in
             row.allSatisfy { $0 == .empty }
         })
+    }
+
+    func testZeroSampleInstrumentsExportAndReloadWithNamesOrderAndNoPayload() throws {
+        var document = BlankTrackerDocument.makeDefault()
+        let patternsBefore = document.patterns
+        let ordersBefore = document.orderTable
+        XCTAssertEqual(document.addEmptyInstrument(), 2)
+        XCTAssertTrue(document.renameInstrument(at: 1, name: "Second Empty"))
+
+        let url = try temporaryExportURL(filename: "zero-sample-instruments.xm")
+        try EditableXMWriter().data(from: document).write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+
+        XCTAssertEqual(metadata.instruments, 2)
+        XCTAssertEqual(metadata.orderTable, ordersBefore)
+        XCTAssertEqual(metadata.xmPatterns, patternsBefore)
+        XCTAssertEqual(song.instrumentsByIndex.keys.sorted(), [1, 2])
+        XCTAssertNil(song.instrumentsByIndex[1]?.name)
+        XCTAssertEqual(song.instrumentsByIndex[2]?.name, "Second Empty")
+        XCTAssertEqual(song.instrumentsByIndex[1]?.samples, [])
+        XCTAssertEqual(song.instrumentsByIndex[2]?.samples, [])
     }
 
     func testSimpleNoteAndInstrumentReloadThroughParser() throws {

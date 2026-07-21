@@ -11,13 +11,15 @@ can create complete sample-based songs from scratch. It is not only a playback,
 display, or pattern-entry milestone, and it is not a DAW/plugin-host milestone.
 
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md)
-now defines the future File New-to-export instrument, sample, import,
-generation, keymap, lifecycle, ownership, and release model. Today File New
-selects I01/S01 but still has an empty instrument palette; I01 is not represented
-and S01 is not yet a modeled destination. The next implementation PR is the
-narrow `applyEdit`/undo foundation that creates an unnamed instrument with an
-honest empty S01. `v0.3.0-alpha.1` is a proposed future release, not current
-functionality.
+defines the File New-to-export instrument, sample, import, generation, keymap,
+lifecycle, ownership, and release model. Its first implementation slice is now
+present: File New owns one unnamed zero-sample I01 with an honest selected S01
+destination, and `Edit > New Instrument` appends/selects another zero-sample
+instrument through one labeled `applyEdit`/undo action. The command is limited
+to stopped editable documents with capacity; loaded modules and playback remain
+read-only. The current dense palette/writer model appends after the highest
+represented slot and does not fill sparse holes. `v0.3.0-alpha.1` remains a
+proposed future release; sample generation/import is not yet implemented.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,

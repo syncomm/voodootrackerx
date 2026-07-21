@@ -60,7 +60,7 @@ struct EditableXMWriter {
     private static let maxXMPatternIndex = 255
     private static let maxXMChannels = 32
     private static let maxXMPatternRows = 256
-    private static let maxXMInstruments = 255
+    private static let maxXMInstruments = BlankTrackerDocument.maximumInstrumentCount
     private static let maxXMSamplesPerInstrument = 16
 
     func data(from document: BlankTrackerDocument) throws -> Data {

@@ -7,39 +7,62 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         let noDocument = SampleEditorDisplayState.empty
         let blank = SampleEditorDisplayState.editableDocument(.makeDefault())
 
-        for state in [noDocument, blank] {
-            XCTAssertTrue(state.isReadOnly)
-            XCTAssertTrue(state.instrumentOptions.isEmpty)
-            XCTAssertNil(state.selectedSample)
-            XCTAssertTrue(state.sampleSlots.isEmpty)
-            XCTAssertEqual(state.instrumentDisplay, "—")
-            XCTAssertEqual(state.sampleDisplay, "—")
-            XCTAssertEqual(state.lengthDisplay, "—")
-            XCTAssertEqual(state.formatDisplay, "FORMAT UNAVAILABLE")
-            XCTAssertEqual(state.loop.status, .inactive)
-            XCTAssertEqual(state.loop.endDisplay, "—")
-            XCTAssertTrue(state.waveformPCM.isEmpty)
-            XCTAssertFalse(state.emptyMessage.isEmpty)
-        }
+        XCTAssertTrue(noDocument.isReadOnly)
+        XCTAssertTrue(noDocument.instrumentOptions.isEmpty)
+        XCTAssertEqual(noDocument.instrumentDisplay, "—")
+
+        XCTAssertTrue(blank.isReadOnly)
+        XCTAssertEqual(blank.instrumentOptions.map(\.title), ["I01  (unnamed instrument)"])
+        XCTAssertEqual(blank.instrumentOptions.map(\.isSelected), [true])
+        XCTAssertEqual(blank.instrumentDisplay, "I01")
+        XCTAssertEqual(blank.instrumentName, "(unnamed instrument)")
+        XCTAssertNil(blank.selectedSample)
+        XCTAssertTrue(blank.sampleSlots.isEmpty)
+        XCTAssertEqual(blank.sampleName, "No represented sample")
+        XCTAssertEqual(blank.sampleDisplay, "—")
+        XCTAssertEqual(blank.lengthDisplay, "—")
+        XCTAssertEqual(blank.formatDisplay, "FORMAT UNAVAILABLE")
+        XCTAssertEqual(blank.loop.status, .inactive)
+        XCTAssertEqual(blank.loop.endDisplay, "—")
+        XCTAssertTrue(blank.waveformPCM.isEmpty)
+        XCTAssertEqual(blank.volumeDisplay, "—")
+        XCTAssertEqual(blank.panningDisplay, "—")
+        XCTAssertEqual(blank.relativeNoteDisplay, "—")
+        XCTAssertEqual(blank.finetuneDisplay, "—")
     }
 
     func testInstrumentPopupIsEmptyAndDisabledWithoutDocumentContext() throws {
-        for state in [SampleEditorDisplayState.empty, .editableDocument(.makeDefault())] {
-            let controller = SampleEditorWindowController(
-                displayState: state,
-                instrumentSelectionHandler: { _ in true }
-            )
-            let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
-            let selector = try XCTUnwrap(view.instrumentSelector)
+        let controller = SampleEditorWindowController(
+            displayState: .empty,
+            instrumentSelectionHandler: { _ in true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        let selector = try XCTUnwrap(view.instrumentSelector)
 
-            XCTAssertEqual(selector.numberOfItems, 0)
-            XCTAssertFalse(selector.isEnabled)
-            XCTAssertFalse(selector.pullsDown)
-            XCTAssertTrue(selector.cell is NSPopUpButtonCell)
-            XCTAssertNil(selector.cell as? NSTextFieldCell)
-            XCTAssertEqual(selector.accessibilityLabel(), "Sample Editor instrument")
-            XCTAssertEqual(selector.accessibilityValue() as? String, "No instrument selected")
-        }
+        XCTAssertEqual(selector.numberOfItems, 0)
+        XCTAssertFalse(selector.isEnabled)
+        XCTAssertFalse(selector.pullsDown)
+        XCTAssertTrue(selector.cell is NSPopUpButtonCell)
+        XCTAssertNil(selector.cell as? NSTextFieldCell)
+        XCTAssertEqual(selector.accessibilityLabel(), "Sample Editor instrument")
+        XCTAssertEqual(selector.accessibilityValue() as? String, "No instrument selected")
+    }
+
+    func testBlankDocumentPopupSelectsI01WhileSampleSurfacesStayEmpty() throws {
+        let controller = SampleEditorWindowController(
+            displayState: .editableDocument(.makeDefault()),
+            instrumentSelectionHandler: { _ in true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        let selector = try XCTUnwrap(view.instrumentSelector)
+
+        XCTAssertEqual(selector.numberOfItems, 1)
+        XCTAssertEqual(selector.selectedItem?.representedObject as? Int, 1)
+        XCTAssertEqual(selector.accessibilityValue() as? String, "I01  (unnamed instrument)")
+        XCTAssertTrue(selector.isEnabled)
+        XCTAssertNil(view.displayState.selectedSample)
+        XCTAssertTrue(view.displayState.waveformPCM.isEmpty)
+        XCTAssertEqual(view.displayState.loop, .inactive)
     }
 
     func testMetadataMatrixInstrumentPopupUsesOrderedOneBasedTitlesAndCanonicalSelection() throws {

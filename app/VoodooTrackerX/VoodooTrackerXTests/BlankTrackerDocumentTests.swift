@@ -17,6 +17,53 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.selection, .default)
         XCTAssertEqual(document.selection.selectedInstrument, 1)
         XCTAssertEqual(document.selection.selectedSample, 1)
+        XCTAssertEqual(document.instrumentCount, 1)
+        XCTAssertEqual(document.instrumentPalette.keys.sorted(), [1])
+        XCTAssertNil(document.instrumentPalette[1]?.name)
+        XCTAssertEqual(document.instrumentPalette[1]?.samples, [])
+        XCTAssertEqual(document.metadata.instruments, 1)
+        XCTAssertEqual(document.noteAuditionAvailability, .unavailable(.selectedSampleUnavailable))
+        XCTAssertTrue(document.controlPanelMetadata.areInstrumentPlaceholdersEnabled)
+    }
+
+    func testAddingEmptyInstrumentAppendsWithoutFabricatingSampleData() throws {
+        var document = BlankTrackerDocument.makeDefault()
+        let before = document
+
+        XCTAssertTrue(document.canAddEmptyInstrument)
+        XCTAssertEqual(document.addEmptyInstrument(), 2)
+
+        let created = try XCTUnwrap(document.instrumentPalette[2])
+        XCTAssertEqual(created.index, 2)
+        XCTAssertNil(created.name)
+        XCTAssertTrue(created.samples.isEmpty)
+        XCTAssertNil(created.noteSampleMap)
+        XCTAssertEqual(created.volumeEnvelope, .disabled)
+        XCTAssertEqual(created.panningEnvelope, .disabled)
+        XCTAssertEqual(created.autoVibrato, .disabled)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
+        XCTAssertEqual(document.instrumentPalette[1], before.instrumentPalette[1])
+        XCTAssertEqual(document.patterns, before.patterns)
+        XCTAssertEqual(document.orderTable, before.orderTable)
+    }
+
+    func testAddingEmptyInstrumentUsesContiguousAppendPolicyAndStopsAtXMLimit() {
+        let first = PlaybackInstrument(index: 1, samples: [])
+        let third = PlaybackInstrument(index: 3, samples: [])
+        var sparse = makeBlankDocument(instrumentPalette: [1: first, 3: third])
+
+        XCTAssertEqual(sparse.addEmptyInstrument(), 4)
+        XCTAssertNil(sparse.instrumentPalette[2])
+        XCTAssertNotNil(sparse.instrumentPalette[4])
+
+        var atLimit = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 255, selectedSample: 1),
+            instrumentPalette: [255: PlaybackInstrument(index: 255, samples: [])]
+        )
+        let before = atLimit
+        XCTAssertFalse(atLimit.canAddEmptyInstrument)
+        XCTAssertNil(atLimit.addEmptyInstrument())
+        XCTAssertEqual(atLimit, before)
     }
 
     func testTrackerEditorSelectionUsesOneBasedTrackerDefaultsAndClampsToSlotRange() {
@@ -150,7 +197,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         )
 
         XCTAssertEqual(document.noteAuditionSourceContext, .blankDocument)
-        XCTAssertEqual(document.noteAuditionAvailability, .unavailable(.blankDocumentMissingInstrumentSamplePayload))
+        XCTAssertEqual(document.noteAuditionAvailability, .unavailable(.selectedSampleUnavailable))
         let availability = request.map {
             EditorNoteAuditionAvailabilityResolver.availability(
                 for: $0,
@@ -499,7 +546,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         let outcome = previewer.preview(request: request, availability: document.noteAuditionAvailability)
 
-        XCTAssertEqual(outcome, .skipped(.unavailable(.blankDocumentMissingInstrumentSamplePayload)))
+        XCTAssertEqual(outcome, .skipped(.unavailable(.selectedSampleUnavailable)))
         XCTAssertTrue(sink.events.isEmpty)
     }
 
@@ -1391,7 +1438,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertEqual(request.kind, .previewKeyOff)
         XCTAssertEqual(document, beforeRelease)
-        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 01 .. ...")
         XCTAssertNotEqual(document.pattern.rows[0][0].note, TrackerNoteKeyMap.keyOffNoteValue)
     }
 
@@ -1417,7 +1464,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertTrue(route.shouldAttemptPreview)
         XCTAssertFalse(route.shouldMutatePattern)
-        XCTAssertEqual(outcome, .skipped(.unavailable(.blankDocumentMissingInstrumentSamplePayload)))
+        XCTAssertEqual(outcome, .skipped(.unavailable(.selectedSampleUnavailable)))
         if route.shouldMutatePattern {
             _ = document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0)
         }
@@ -1438,7 +1485,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertTrue(route.shouldMutatePattern)
         XCTAssertFalse(route.shouldConsumeRepeatedNoteKey)
         XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
-        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 01 .. ...")
     }
 
     func testBlankDocumentWithPaletteNoteEntryWritesSelectedInstrument() {
@@ -1544,7 +1591,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             )
 
             XCTAssertEqual(document, beforeRelease)
-            XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+            XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 01 .. ...")
             XCTAssertNotEqual(document.pattern.rows[0][0].note, TrackerNoteKeyMap.keyOffNoteValue)
         }
     }
@@ -3034,7 +3081,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertTrue(plan.generated)
         XCTAssertEqual(plan.plannedEventCount, 0)
-        XCTAssertEqual(song.instrumentsByIndex, [:])
+        XCTAssertEqual(song.instrumentsByIndex.keys.sorted(), [1])
+        XCTAssertEqual(song.instrumentsByIndex[1]?.samples, [])
         XCTAssertEqual(engine.state.mode, .playing)
         XCTAssertTrue(audioOutput.triggeredRequests.isEmpty)
         XCTAssertEqual(audioOutput.consumedPatternLoopRanges.first??.orderIndex, 0)
@@ -3502,7 +3550,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(metadata.maximumSongPosition, 0)
         XCTAssertFalse(metadata.isSongPositionEnabled)
         XCTAssertTrue(metadata.isPatternControlsEnabled)
-        XCTAssertFalse(metadata.areInstrumentPlaceholdersEnabled)
+        XCTAssertTrue(metadata.areInstrumentPlaceholdersEnabled)
     }
 
     func testBlankDocumentControlPanelDisplayStateUsesStartupDefaults() {
@@ -3530,7 +3578,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(content.maximumSongPosition, 0)
         XCTAssertFalse(content.isSongPositionEnabled)
         XCTAssertTrue(content.isPatternControlsEnabled)
-        XCTAssertFalse(content.areInstrumentPlaceholdersEnabled)
+        XCTAssertTrue(content.areInstrumentPlaceholdersEnabled)
     }
 
     func testBlankDocumentControlPanelDisplayStateKeepsPaletteControlsEnabledDuringPlayback() {
@@ -3602,7 +3650,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(loadedLikeSelection.sampleDisplayTitle, "S03")
         XCTAssertEqual(reset.selection.selectedSample, TrackerEditorSelection.defaultSample)
         XCTAssertEqual(reset.controlPanelMetadata.selectedSampleDisplay, "S01")
-        XCTAssertEqual(reset.noteAuditionAvailability, .unavailable(.blankDocumentMissingInstrumentSamplePayload))
+        XCTAssertEqual(reset.noteAuditionAvailability, .unavailable(.selectedSampleUnavailable))
     }
 
     func testLoadedModuleControlPanelDisplayStateUsesModuleMetadataAndEditorOctave() {
@@ -3948,7 +3996,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
 
-        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 01 .. ...")
     }
 
     func testNoteEntryUsesSelectedOctave() {
@@ -4085,7 +4133,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
     func testBlankDocumentDoesNotRequirePlaybackOrAudioState() {
         let document = BlankTrackerDocument.makeDefault()
 
-        XCTAssertEqual(document.metadata.instruments, 0)
+        XCTAssertEqual(document.metadata.instruments, 1)
         XCTAssertEqual(document.metadata.patterns, 1)
         XCTAssertEqual(document.metadata.defaultBPM, 125)
         XCTAssertEqual(document.metadata.defaultTempo, 6)

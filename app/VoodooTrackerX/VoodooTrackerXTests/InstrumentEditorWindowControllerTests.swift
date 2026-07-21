@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class InstrumentEditorWindowControllerTests: XCTestCase {
-    func testNoDocumentAndBlankDocumentProduceExplicitReadOnlyEmptyStates() {
+    func testNoDocumentStaysEmptyAndBlankDocumentShowsEditableI01WithEmptyS01Destination() {
         let noDocument = InstrumentEditorDisplayState.empty
         let blankDocument = InstrumentEditorDisplayState.editableDocument(.makeDefault())
 
@@ -17,6 +17,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertNil(noDocument.selectedInstrumentSlot)
         XCTAssertTrue(noDocument.instrumentSlots.isEmpty)
         XCTAssertTrue(noDocument.sampleSlots.isEmpty)
+        XCTAssertNil(noDocument.emptySampleDestinationSlot)
         XCTAssertNil(noDocument.volumeEnvelope)
         XCTAssertNil(noDocument.panningEnvelope)
         XCTAssertNil(noDocument.autoVibrato)
@@ -24,20 +25,42 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(noDocument.emptyMessage, "No document instrument palette is available.")
 
         XCTAssertEqual(blankDocument.source, .editableDocument)
-        XCTAssertTrue(blankDocument.isReadOnly)
-        XCTAssertFalse(blankDocument.isInstrumentNameEditable)
+        XCTAssertFalse(blankDocument.isReadOnly)
+        XCTAssertTrue(blankDocument.isInstrumentNameEditable)
         XCTAssertFalse(blankDocument.isSampleVolumeEditable)
         XCTAssertFalse(blankDocument.isSampleRelativeNoteEditable)
         XCTAssertFalse(blankDocument.isSampleFinetuneEditable)
         XCTAssertFalse(blankDocument.isSamplePanningEditable)
-        XCTAssertNil(blankDocument.selectedInstrumentSlot)
-        XCTAssertTrue(blankDocument.instrumentSlots.isEmpty)
+        XCTAssertEqual(blankDocument.selectedInstrumentSlot, 1)
+        XCTAssertEqual(blankDocument.instrumentName, "(unnamed instrument)")
+        XCTAssertEqual(blankDocument.instrumentNameEditValue, "")
+        XCTAssertEqual(blankDocument.instrumentSlots.map(\.slotDisplay), ["I01"])
+        XCTAssertEqual(blankDocument.instrumentSlots.map(\.sampleCount), [0])
+        XCTAssertEqual(blankDocument.instrumentSlots.map(\.isSelected), [true])
         XCTAssertTrue(blankDocument.sampleSlots.isEmpty)
-        XCTAssertNil(blankDocument.volumeEnvelope)
-        XCTAssertNil(blankDocument.panningEnvelope)
-        XCTAssertNil(blankDocument.autoVibrato)
+        XCTAssertEqual(blankDocument.emptySampleDestinationSlot, 1)
+        XCTAssertEqual(blankDocument.selectedSampleSlot, 1)
+        XCTAssertNil(blankDocument.selectedSample)
+        XCTAssertEqual(blankDocument.volumeEnvelope, .disabled)
+        XCTAssertEqual(blankDocument.panningEnvelope, .disabled)
+        XCTAssertEqual(blankDocument.autoVibrato, .disabled)
         XCTAssertTrue(blankDocument.keymapRanges.isEmpty)
-        XCTAssertEqual(blankDocument.emptyMessage, "No represented instruments are available.")
+        XCTAssertEqual(blankDocument.emptyMessage, "S01 is an empty destination; no sample is represented.")
+    }
+
+    func testBlankInstrumentViewRendersSelectedDestinationWithoutSampleMetadataOrAudition() throws {
+        let controller = InstrumentEditorWindowController(displayState: .editableDocument(.makeDefault()))
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let destination = try view.sampleRow(slot: 1)
+
+        XCTAssertFalse(destination.isEnabled)
+        XCTAssertEqual(destination.accessibilityLabel(), "S01 Empty destination")
+        XCTAssertTrue(view.displayState.isInstrumentNameEditable)
+        XCTAssertNil(view.displayState.selectedSample)
+        XCTAssertFalse(view.displayState.isSampleVolumeEditable)
+        XCTAssertFalse(view.displayState.isSampleRelativeNoteEditable)
+        XCTAssertFalse(view.displayState.isSampleFinetuneEditable)
+        XCTAssertFalse(view.displayState.isSamplePanningEditable)
     }
 
     func testLoadedPaletteShowsSelectedInstrumentNameAndSampleCount() {

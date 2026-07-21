@@ -22,6 +22,9 @@ The proposed next major milestone is the future `v0.3.0-alpha.1` From-Scratch
 Composition Alpha. It is not yet released; its complete acceptance gate and
 dependency-ordered PR plan are defined by
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
+The first gate slice is implemented: File New represents empty I01/S01 and
+`Edit > New Instrument` creates another honest empty destination through one
+undoable stopped-editable action.
 
 ## Project Goals
 
@@ -456,8 +459,10 @@ Recommended next product PR:
 
 - The File New-to-export workflow/design pass is complete in
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
-  Next, create one unnamed instrument with an honest empty S01 destination
-  through one `applyEdit` action. Keep generation, each importer, lifecycle,
+  Empty instrument/S01 creation through `applyEdit` is complete; the current
+  dense model appends after the highest represented slot rather than filling
+  sparse holes. Next, generate the first sine sample with automatic all-note
+  mapping. Keep each importer, lifecycle,
   keymap editing, and reference-preserving reorder work in later focused PRs;
   do not change the runtime backend or C mixer DSP.
 - Module TIME/headroom work should follow
@@ -729,6 +734,9 @@ Current implemented foundation:
   identity, exact metadata, bounded read-only waveform, and display-only loop
   region; unnamed represented samples remain distinct from honest absence and
   no source rate is claimed
+- File New owns unnamed zero-sample I01/S01; Edit > New Instrument appends and
+  selects another empty S01 through one applyEdit action, and Export XM/reopen
+  preserves zero-sample instrument count, order, and names without sample data
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
@@ -752,6 +760,7 @@ Current implemented foundation:
 
 Next composition targets after backend foundation freeze:
 
+- first-sample sine generation with automatic all-96-note mapping
 - envelope playback/editing and broader instrument/sample metadata behind applyEdit
 - editable Sample Editor loop mode/range behind applyEdit, followed by separate
   PCM/waveform mutation slices

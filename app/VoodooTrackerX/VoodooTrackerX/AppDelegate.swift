@@ -140,6 +140,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case ApplicationMenuBuilder.Actions.redoDocumentEdit:
             menuItem.title = editableDocumentEditCoordinator.redoMenuItemTitle
             return editableDocumentEditCoordinator.canRedo
+        case ApplicationMenuBuilder.Actions.newInstrument:
+            return editableDocumentEditCoordinator.canCreateInstrument
         case ApplicationMenuBuilder.Actions.play:
             return displayedMetadata != nil && !playbackEngine.state.isPlaying
         case ApplicationMenuBuilder.Actions.playCurrentPattern:
@@ -264,6 +266,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func undoDocumentEdit(_ sender: Any?) { editableDocumentEditCoordinator.undo() }
 
     @objc private func redoDocumentEdit(_ sender: Any?) { editableDocumentEditCoordinator.redo() }
+
+    @objc
+    private func newInstrument(_ sender: Any?) {
+        guard editableDocumentEditCoordinator.createInstrument() else { return }
+        showInstrumentEditor(nil)
+    }
 
     @objc
     private func exportXM(_ sender: Any?) {

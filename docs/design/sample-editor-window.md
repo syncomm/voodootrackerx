@@ -6,8 +6,9 @@
 **Reference:** FastTracker II sample editor, reinterpreted in VTX's tactile language.
 **Status:** The fixed mockup-aligned shell, canonical instrument selector,
 coherent read-only sample identity/metadata binding, bounded waveform overview,
-and display-only loop visualization are implemented. Instrument/sample creation
-and removal plus sample, loop, and PCM mutation remain deferred.
+and display-only loop visualization are implemented. File New and the separate
+Edit command can represent empty instruments, but this window adds no creation
+or removal; sample, loop, and PCM mutation remain deferred.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
 proportions, `assets/mockups/sample-editor-v1.html` takes precedence over this
@@ -41,6 +42,9 @@ loop markers/region. The selected row, header identity, metadata, waveform, and
 loop display are built from the same represented sample. An empty sample name
 shows `(unnamed sample)` rather than absence; no represented sample clears every
 sample surface. Empty documents and unrepresented slots remain honestly empty.
+File New therefore selects represented I01 while showing `No represented sample`,
+an empty waveform/loop/metadata surface, and the canonical empty S01 destination
+owned by the document rather than a fabricated sample row.
 The mockup's values are illustrative: FORMAT reports represented bit depth and
 mono without treating playback-policy `baseSampleRate` as source-rate metadata
 or fabricating 44.1 kHz.
@@ -204,7 +208,8 @@ Prerequisite done: document applyEdit/undo funnel with capped whole-value snapsh
 1. Done: mockup-aligned shell, canonical selection, and exact read-only metadata.
 2. Done: bounded read-only waveform projection and display-only loop overlay.
 3. Done: compact canonical instrument selector and coherent represented/unnamed/absent sample identity.
-4. Next: follow ADR 012, beginning with the separate empty-instrument/S01 `applyEdit` foundation.
+4. Done: separate empty-instrument/S01 creation through `applyEdit`; this window
+   refreshes to the selected instrument while keeping all sample surfaces empty.
 5. Editable loop mode and range behind `applyEdit`.
 6. Sample params (volume/pan/rel/finetune) wired.
 7. Waveform selection and separately scoped PCM edit operations.

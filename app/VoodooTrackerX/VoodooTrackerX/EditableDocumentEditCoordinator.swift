@@ -43,6 +43,9 @@ final class EditableDocumentEditCoordinator {
     var canRedo: Bool { contextProvider().documentAvailableForMutation != nil && undoManager.canRedo }
     var undoMenuItemTitle: String { undoManager.undoMenuItemTitle }
     var redoMenuItemTitle: String { undoManager.redoMenuItemTitle }
+    var canCreateInstrument: Bool {
+        contextProvider().documentAvailableForMutation?.canAddEmptyInstrument == true
+    }
 
     @discardableResult
     func applyEdit(label: String, updatedDocument: BlankTrackerDocument) -> Bool {
@@ -53,6 +56,15 @@ final class EditableDocumentEditCoordinator {
             return false
         }
         return replaceDocument(with: updatedDocument, replacing: before, actionName: actionName)
+    }
+
+    @discardableResult
+    func createInstrument() -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.addEmptyInstrument() != nil else {
+            return false
+        }
+        return applyEdit(label: "New Instrument", updatedDocument: document)
     }
 
     @discardableResult

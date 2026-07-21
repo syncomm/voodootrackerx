@@ -113,7 +113,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
             effectType: 0,
             effectParam: 0
         )
-        let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25, -0.25], baseSampleRate: 8_363)
+        let sample = try XCTUnwrap(DeterministicSampleGenerator.sine(instrumentIndex: 1))
         let document = BlankTrackerDocument(
             title: "Editable Demo",
             songLength: 1,
@@ -146,14 +146,27 @@ final class WAVExportCoordinatorTests: XCTestCase {
 
         let completion = WAVExportCoordinator.export(plan: plan, to: selectedDestination)
 
-        guard case .exported = completion else {
+        guard case let .exported(_, renderResult) = completion else {
             return XCTFail("Expected exported result, got \(completion)")
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
         XCTAssertEqual(document, originalDocument)
-        let wav = try parseFloat32WAV(Data(contentsOf: destination))
+        let data = try Data(contentsOf: destination)
+        let wav = try parseFloat32WAV(data)
         XCTAssertEqual(wav.formatCode, 3)
         XCTAssertEqual(wav.bitsPerSample, 32)
+        XCTAssertGreaterThan(renderResult.exportDiagnostics?.preExportPeak ?? 0, 0)
+        XCTAssertGreaterThan(maxAbsFloat32Sample(
+            in: data, channelCount: Int(wav.channelCount), sampleRate: Int(wav.sampleRate),
+            fromSecond: 0, durationSeconds: 1
+        ), 0)
+
+        let repeatedDestination = try temporaryDestination(filename: "editable-repeat.wav")
+        guard case let .exported(_, repeatedRenderResult) = WAVExportCoordinator.export(plan: plan, to: repeatedDestination) else {
+            return XCTFail("Expected repeated exported result")
+        }
+        XCTAssertEqual(try Data(contentsOf: repeatedDestination), data)
+        XCTAssertEqual(repeatedRenderResult.exportDiagnostics, renderResult.exportDiagnostics)
     }
 
     func testUnavailableStatesDoNotRequestDestination() {

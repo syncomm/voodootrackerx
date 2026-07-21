@@ -1,6 +1,59 @@
+import CryptoKit
 import XCTest
 
 final class BlankTrackerDocumentTests: XCTestCase {
+    func testDeterministicSineGeneratorPinsRecipeMetadataHashAndC4Planning() throws {
+        let samples = try (0..<2).map { _ in try XCTUnwrap(DeterministicSampleGenerator.sine(instrumentIndex: 1)) }
+        let first = samples[0]
+        XCTAssertEqual(first, samples[1])
+        XCTAssertEqual(first.name, "Sine")
+        XCTAssertEqual(
+            [first.sampleLength, first.sourceBitDepthBits ?? 0, Int(first.xmVolume), Int(first.panning),
+             first.relativeNote, first.finetune, first.loopType, first.loopStart, first.loopLength],
+            [16_384, 16, 64, 128, 0, 0, 1, 0, 16_384]
+        )
+        XCTAssertEqual(first.sampleLength / 32, 512)
+        XCTAssertEqual(Array(first.pcm.prefix(32)), Array(first.pcm.dropFirst(32).prefix(32)))
+        XCTAssertNotEqual(Array(first.pcm.prefix(16)), Array(first.pcm.dropFirst(16).prefix(16)))
+        XCTAssertTrue(first.pcm.allSatisfy { $0.isFinite && (-1...1).contains($0) })
+        XCTAssertEqual(first.pcm.map(abs).max(), Float(12_000) / 32_768)
+        XCTAssertEqual(abs(first.pcm[0] - first.pcm[31]), abs(first.pcm[1] - first.pcm[0]))
+        XCTAssertEqual(pcmSHA256(first), "ac9e9e7dbfbf285d7ca2d98cabf2ed57e5c3ac9e53f1ec01ba4813c02d4a7b91")
+        let pitches = [PlaybackPitchCalculator.c4NoteValue, PlaybackPitchCalculator.c4NoteValue + 12].map {
+            PlaybackPitchCalculator.calculation(
+                note: UInt8($0), sample: first, pitchOffsetSemitones: 0, outputSampleRate: 48_000
+            )
+        }
+        let tones = pitches.map { $0.frequency / 32 }
+        XCTAssertEqual(pitches[0].playbackRate, 8_363.0 / 48_000.0, accuracy: 0.000_000_001)
+        XCTAssertEqual(tones[0], 8_363.0 / 32.0)
+        XCTAssertEqual(tones[0], 261.625_565, accuracy: 0.5)
+        XCTAssertEqual(tones[1] / tones[0], 2, accuracy: 0.000_000_001)
+    }
+
+    func testGeneratingSineCreatesOnlySelectedS01WithAllNoteDefaultMap() throws {
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertEqual(document.addEmptyInstrument(), 2)
+        document.selectInstrument(1)
+        let before = document
+        XCTAssertTrue(document.canGenerateSineInSelectedEmptySample)
+        XCTAssertTrue(document.generateSineInSelectedEmptySample())
+        let instrument = try XCTUnwrap(document.instrumentPalette[1])
+        let sample = try XCTUnwrap(instrument.samples.first)
+        XCTAssertEqual(instrument.samples.count, 1)
+        XCTAssertEqual(sample.sampleIndex, 0)
+        XCTAssertEqual(instrument.noteSampleMap, Array(repeating: 0, count: 96))
+        XCTAssertEqual([UInt8(1), 49, 96].map(instrument.mappedSampleIndex(forNote:)), [0, 0, 0])
+        XCTAssertEqual(document.selection, .default)
+        XCTAssertEqual(document.instrumentPalette.count, before.instrumentPalette.count)
+        XCTAssertEqual(document.instrumentPalette[2], before.instrumentPalette[2])
+        XCTAssertTrue(document.patterns == before.patterns && document.orderTable == before.orderTable)
+        XCTAssertTrue(document.songLength == before.songLength && document.tempo == before.tempo && document.speed == before.speed)
+        guard case .potentiallyAvailable = document.noteAuditionAvailability else {
+            return XCTFail("Generated S01 should be immediately auditionable")
+        }
+    }
+
     func testDefaultBlankDocumentUsesTrackerStartupDefaults() {
         let document = BlankTrackerDocument.makeDefault()
 
@@ -4497,6 +4550,14 @@ final class BlankTrackerDocumentTests: XCTestCase {
             fatalError("Expected non-nil value")
         }
         return value
+    }
+
+    private func pcmSHA256(_ sample: PlaybackSample) -> String {
+        let data = Data(sample.pcm.flatMap { value -> [UInt8] in
+            let quantized = UInt16(truncatingIfNeeded: max(-32_768, min(32_767, Int((value * 32_768).rounded()))))
+            return [UInt8(quantized & 0x00FF), UInt8(quantized >> 8)]
+        })
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 

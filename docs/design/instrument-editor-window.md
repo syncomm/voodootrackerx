@@ -96,7 +96,11 @@ selects an unnamed instrument with an honest empty S01 destination, and reveals
 this window through one `applyEdit` action. It does not fill sparse holes in the
 current dense palette/writer model and must not create PCM or sample
 metadata. The first represented sample maps across all 96 notes; later samples
-do not alter that map implicitly. Clear preserves slot numbering, while future
+do not alter that map implicitly. The Sample Editor's implemented SINE action
+fills empty S01 with a deterministic document-owned sample and establishes the
+explicit all-zero map; the resulting single full-range S01 assignment stays
+visually neutral and is available to focused and graphical audition after the
+shared refresh. Clear preserves slot numbering, while future
 move/swap remaps pattern references transactionally. See
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md)
 for the canonical lifecycle, dependency order, and release gate.

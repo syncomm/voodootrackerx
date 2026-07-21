@@ -95,7 +95,9 @@ final class M4AExportCoordinatorTests: XCTestCase {
     }
 
     func testEditableExportDoesNotMutateDocument() throws {
-        let document = BlankTrackerDocument.makeDefault()
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(document.generateSineInSelectedEmptySample())
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
         let original = document
         let destination = try temporaryDirectory().appendingPathComponent("editable.m4a")
         let plan = try M4AExportCoordinator.makePlan(context: .editable(
@@ -106,11 +108,12 @@ final class M4AExportCoordinatorTests: XCTestCase {
 
         let completion = M4AExportCoordinator.export(plan: plan, to: destination)
 
-        guard case .exported = completion else {
+        guard case let .exported(_, renderResult, _) = completion else {
             return XCTFail("Expected editable M4A export, got \(completion)")
         }
         XCTAssertEqual(document, original)
         XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertGreaterThan(renderResult.exportDiagnostics?.preExportPeak ?? 0, 0)
     }
 
     func testProgressOrderingIncludesRenderHeadroomEncodingWritingAndCompletion() throws {

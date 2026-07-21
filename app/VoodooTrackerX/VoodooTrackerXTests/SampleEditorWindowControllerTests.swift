@@ -3,15 +3,17 @@ import XCTest
 
 @MainActor
 final class SampleEditorWindowControllerTests: XCTestCase {
-    func testNoDocumentAndBlankDocumentStayHonestlyEmptyAndReadOnly() {
+    func testNoDocumentAndBlankDocumentStayHonestlyEmptyWithOnlySineEligible() {
         let noDocument = SampleEditorDisplayState.empty
         let blank = SampleEditorDisplayState.editableDocument(.makeDefault())
 
         XCTAssertTrue(noDocument.isReadOnly)
+        XCTAssertFalse(noDocument.isSineGenerationEnabled)
         XCTAssertTrue(noDocument.instrumentOptions.isEmpty)
         XCTAssertEqual(noDocument.instrumentDisplay, "—")
 
-        XCTAssertTrue(blank.isReadOnly)
+        XCTAssertFalse(blank.isReadOnly)
+        XCTAssertTrue(blank.isSineGenerationEnabled)
         XCTAssertEqual(blank.instrumentOptions.map(\.title), ["I01  (unnamed instrument)"])
         XCTAssertEqual(blank.instrumentOptions.map(\.isSelected), [true])
         XCTAssertEqual(blank.instrumentDisplay, "I01")
@@ -29,6 +31,64 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(blank.panningDisplay, "—")
         XCTAssertEqual(blank.relativeNoteDisplay, "—")
         XCTAssertEqual(blank.finetuneDisplay, "—")
+    }
+
+    func testSineEligibilityRequiresStoppedEditableEmptyS01() {
+        let empty = BlankTrackerDocument.makeDefault()
+        var wrongDestination = empty
+        wrongDestination.selectSample(2)
+        var occupied = empty
+        XCTAssertTrue(occupied.generateSineInSelectedEmptySample())
+
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(empty, isPlaybackActive: true).isSineGenerationEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(wrongDestination).isSineGenerationEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(occupied).isSineGenerationEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.loadedModule(playbackSong: nil, selection: .default).isSineGenerationEnabled)
+    }
+
+    func testSineButtonGeneratesAndRefreshesUndoRedoStates() throws {
+        var document = BlankTrackerDocument.makeDefault()
+        var previewCancellationCount = 0
+        var controller: SampleEditorWindowController!
+        controller = SampleEditorWindowController(
+            displayState: .editableDocument(document),
+            sineGenerationHandler: {
+                previewCancellationCount += 1
+                guard document.generateSineInSelectedEmptySample() else { return false }
+                return controller.apply(displayState: .editableDocument(document))
+            }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        let button = try XCTUnwrap(view.sineButton)
+
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertTrue(button.sendAction(button.action, to: button.target))
+        XCTAssertEqual(previewCancellationCount, 1)
+        XCTAssertEqual(view.displayState.sampleName, "Sine")
+        XCTAssertEqual(view.displayState.formatDisplay, "16-BIT · MONO")
+        XCTAssertEqual(view.displayState.waveformPCM.count, 16_384)
+        XCTAssertEqual(view.displayState.loop.status, .valid)
+        XCTAssertEqual(view.displayState.loop.startFraction, 0)
+        XCTAssertEqual(view.displayState.loop.endFraction, 1)
+
+        let instrumentState = InstrumentEditorDisplayState.editableDocument(document)
+        XCTAssertEqual(instrumentState.sampleCount, 1)
+        XCTAssertEqual(instrumentState.keymapRanges.flatMap { [$0.startNote, $0.endNote, $0.sampleSlot ?? 0] }, [1, 96, 1])
+        XCTAssertTrue([
+            instrumentState.isSampleVolumeEditable, instrumentState.isSamplePanningEditable,
+            instrumentState.isSampleRelativeNoteEditable, instrumentState.isSampleFinetuneEditable,
+        ].allSatisfy { $0 })
+
+        let generated = document
+        document = .makeDefault()
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(document)))
+        XCTAssertEqual(view.displayState.sampleName, "No represented sample")
+        XCTAssertTrue(view.displayState.waveformPCM.isEmpty)
+        XCTAssertEqual(view.displayState.loop, .inactive)
+        XCTAssertTrue(try XCTUnwrap(view.sineButton).isEnabled)
+        document = generated
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(document)))
+        XCTAssertEqual(view.displayState.selectedSample, document.instrumentPalette[1]?.samples.first)
     }
 
     func testInstrumentPopupIsEmptyAndDisabledWithoutDocumentContext() throws {

@@ -647,6 +647,54 @@ enum EditorNoteAuditionAvailabilityResolver {
     }
 }
 
+/// Builds project-owned PCM using a precomputed sine table and the fixture's integer scaling policy.
+enum DeterministicSampleGenerator {
+    private static let sineTable = [
+        0, 6_393, 12_539, 18_204, 23_170, 27_245, 30_273, 32_137, 32_767, 32_137, 30_273, 27_245, 23_170, 18_204, 12_539, 6_393,
+        0, -6_393, -12_539, -18_204, -23_170, -27_245, -30_273, -32_137, -32_767, -32_137, -30_273, -27_245, -23_170, -18_204, -12_539, -6_393,
+    ]
+    private static let amplitude = 12_000
+    private static let frameCount = 16_384
+    private static let xmBaseSampleRate = 8_363.0
+
+    static func sine(instrumentIndex: Int) -> PlaybackSample? {
+        guard instrumentIndex > 0 else { return nil }
+        var pcm = [Float]()
+        pcm.reserveCapacity(frameCount)
+        for frame in 0..<frameCount {
+            let unit = sineTable[frame % sineTable.count]
+            let magnitude = ((abs(unit) * amplitude) + 16_383) / 32_767
+            let signedValue = unit < 0 ? -magnitude : magnitude
+            pcm.append(Float(signedValue) / 32_768)
+        }
+        let sample = PlaybackSample(
+            instrumentIndex: instrumentIndex,
+            sampleIndex: 0,
+            name: "Sine",
+            pcm: pcm,
+            volume: 1,
+            panning: PlaybackSample.xmCenterPanning,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: xmBaseSampleRate,
+            loopStart: 0,
+            loopLength: frameCount,
+            loopType: 1,
+            sourceBitDepthBits: 16,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+        guard sample.sampleLength == frameCount,
+              sample.loopRegion == PlaybackSampleLoopRegion.clamped(
+                  sampleFrameCount: frameCount, loopStart: 0, loopLength: frameCount, loopType: 1
+              ),
+              sample.pcm.allSatisfy({ $0.isFinite && (-1...1).contains($0) }) else {
+            return nil
+        }
+        return sample
+    }
+}
+
 struct BlankTrackerDocument: Equatable {
     static let maximumInstrumentCount = 255
     static let defaultTitle = "Untitled"
@@ -892,6 +940,35 @@ struct BlankTrackerDocument: Equatable {
 
     var canAddEmptyInstrument: Bool {
         nextInstrumentSlot != nil
+    }
+
+    var canGenerateSineInSelectedEmptySample: Bool {
+        selection.selectedSample == 1 &&
+            instrument(forInstrument: selection.selectedInstrument)?.samples.isEmpty == true
+    }
+
+    /// Fills the selected empty S01 with one validated sample while preserving all unrelated document state.
+    @discardableResult
+    mutating func generateSineInSelectedEmptySample() -> Bool {
+        guard canGenerateSineInSelectedEmptySample,
+              let instrument = instrument(forInstrument: selection.selectedInstrument),
+              let sample = DeterministicSampleGenerator.sine(instrumentIndex: instrument.index) else {
+            return false
+        }
+        var palette = instrumentPalette
+        palette[instrument.index] = PlaybackInstrument(
+            index: instrument.index, name: instrument.name, samples: [sample],
+            volumeEnvelope: instrument.volumeEnvelope, panningEnvelope: instrument.panningEnvelope,
+            autoVibrato: instrument.autoVibrato,
+            noteSampleMap: Array(repeating: 0, count: 96)
+        )
+        self = BlankTrackerDocument(
+            title: title, songLength: songLength, currentPosition: currentPosition, restartPosition: restartPosition,
+            currentPatternIndex: currentPatternIndex, tempo: tempo, speed: speed, orderTable: orderTable,
+            selection: TrackerEditorSelection(selectedInstrument: instrument.index, selectedSample: 1),
+            instrumentPalette: palette, patterns: patterns
+        )
+        return true
     }
 
     /// Appends a represented unnamed instrument and selects its empty S01 destination.

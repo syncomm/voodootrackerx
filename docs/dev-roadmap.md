@@ -57,9 +57,9 @@ VoodooTracker X currently has:
   popup bound to canonical instrument/sample selection. Canonical normalization
   drives one coherent selected sample row, identity, metadata, bounded read-only
   waveform, and display-only loop region; unnamed samples remain distinct from
-  absent samples and no source rate is fabricated. Loaded modules remain
-  read-only, and palette creation/removal, Sample Editor mutation, processing,
-  import, and audition are deferred
+  absent samples and no source rate is fabricated. Stopped-editable empty-S01
+  SINE creates deterministic looped PCM with all-note mapping and Export XM;
+  other states, generators, import, processing, and direct audition remain unavailable
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
   fixture; the schema-v2 manifest, generator verification mode, exact PCM/XM
   expectations, loader/model/editable-copy/edit/Export XM tests, and private-
@@ -125,7 +125,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recently completed target:
-`instrument: create empty instrument with S01 through applyEdit`.
+`sample: generate deterministic sine sample into empty S01`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -154,9 +154,8 @@ Recently completed target:
 8. Done: start the ADR 012 sequence with an unnamed instrument and honest empty
    S01 destination through one `applyEdit` action. The current allocation policy
    appends after the highest represented instrument and does not fill sparse holes.
-   Generation, WAV, AIFF/AIFC,
-   FLAC, lifecycle, keymap, and reference-preserving move/swap follow as
-   focused dependent PRs.
+   Done next slice: deterministic SINE into empty S01 with all-note mapping and
+   XM/audio-export coverage. WAV import normalization follows.
 9. Pattern editor completion for instrument, volume-column, and effect-column
    entry remains part of the complete composition gate. XI stays a separate
    broader VTX 1.0 target.
@@ -743,14 +742,14 @@ Implemented foundation:
   synchronize the main window and Instrument Editor. The selected row, identity,
   exact metadata, bounded read-only waveform, and display-only loop region share
   one sample state, with unnamed represented samples distinct from absence; it
-  adds no palette/sample creation/removal, loop/PCM mutation, import, processing,
-  or audition behavior
+  adds stopped-editable empty-S01 SINE through one undo action; other generators,
+  removal, loop/PCM mutation, import, processing, and audition remain deferred
 
 Remaining VTX 1.0 scope:
 
 - the dependency-ordered from-scratch instrument/sample workflow in
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md),
-  continuing with first-sample sine generation and automatic all-note mapping
+  continuing with WAV import decode and canonical normalization
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit
 - editable loop mode/range behind applyEdit, followed by separately scoped PCM

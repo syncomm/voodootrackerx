@@ -18,8 +18,8 @@ destination, and `Edit > New Instrument` appends/selects another zero-sample
 instrument through one labeled `applyEdit`/undo action. The command is limited
 to stopped editable documents with capacity; loaded modules and playback remain
 read-only. The current dense palette/writer model appends after the highest
-represented slot and does not fill sparse holes. `v0.3.0-alpha.1` remains a
-proposed future release; sample generation/import is not yet implemented.
+represented slot and does not fill sparse holes. Sample Editor SINE now fills eligible
+S01 with deterministic looped PCM and an all-note map; import remains future.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -93,10 +93,10 @@ no/forward/ping-pong loop region now derive from one represented sample.
 Unnamed represented samples show `(unnamed sample)`; absent samples clear every
 sample surface. FORMAT reports represented bit depth and mono without treating
 playback-policy `baseSampleRate` as source metadata.
-The window creates no document or undo mutation;
-instrument/sample creation or removal, sample/loop/PCM editing, waveform
-interaction or processing, import, and Sample Editor audition remain deferred.
-Loaded modules remain read-only.
+SINE is the sole Sample Editor mutation: one `Generate Sine Sample` edit owns
+validated PCM, cancels preview, and refreshes every editor without auto-audition.
+Undo/redo restores exact empty/generated state. Other mutation remains deferred,
+and preview-stream/runtime architecture is unchanged.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
 adapter gain mapping without runtime engine, DSP, or scheduling changes.

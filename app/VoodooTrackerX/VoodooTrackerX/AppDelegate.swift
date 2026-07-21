@@ -668,16 +668,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sampleEditorWindowPresenter.show(
             displayState: currentSampleEditorDisplayState(),
             instrumentSelectionHandler: { [weak self] in self?.selectInstrumentSlot($0) ?? false },
-            sampleSelectionHandler: { [weak self] in self?.selectSampleSlot($0) ?? false }
+            sampleSelectionHandler: { [weak self] in self?.selectSampleSlot($0) ?? false },
+            sineGenerationHandler: { [weak self] in self?.generateSineFromSampleEditor() ?? false }
         )
     }
 
     private func currentSampleEditorDisplayState() -> SampleEditorDisplayState {
-        if let blankDocument { return .editableDocument(blankDocument) }
+        if let blankDocument {
+            return .editableDocument(blankDocument, isPlaybackActive: playbackEngine.state.isPlaying)
+        }
         if loadedMetadata != nil {
             return .loadedModule(playbackSong: playbackEngine.song, selection: loadedModuleSelection)
         }
         return .empty
+    }
+
+    private func generateSineFromSampleEditor() -> Bool {
+        guard editableDocumentEditCoordinator.canGenerateSineSample else { return false }
+        noteAuditionPreviewer.cancelPreview()
+        instrumentEditorWindowPresenter.clearOnScreenPressedState()
+        return editableDocumentEditCoordinator.generateSineSample()
     }
 
     private func cancelNoteAuditionForDocumentTransition() {

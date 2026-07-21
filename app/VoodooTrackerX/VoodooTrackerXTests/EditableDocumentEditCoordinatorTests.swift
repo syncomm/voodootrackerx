@@ -109,6 +109,43 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         }
     }
 
+    func testGenerateSineIsOneApplyEditActionWithExactUndoRedo() throws {
+        let before = BlankTrackerDocument.makeDefault()
+        let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+        XCTAssertTrue(harness.coordinator.canGenerateSineSample)
+        XCTAssertTrue(harness.coordinator.generateSineSample())
+        let generated = try XCTUnwrap(harness.editableDocument)
+        XCTAssertEqual(harness.appliedDocuments, [generated])
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Generate Sine Sample")
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Generate Sine Sample")
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, generated)
+    }
+
+    func testGenerateSineRejectsUnavailableContextsWithoutMutationOrHistory() {
+        let base = BlankTrackerDocument.makeDefault()
+        var wrongDestination = base
+        wrongDestination.selectSample(2)
+        var occupied = base
+        XCTAssertTrue(occupied.generateSineInSelectedEmptySample())
+        let contexts: [EditableDocumentEditContext] = [
+            .none,
+            .loadedReadOnly,
+            .editable(document: base, isPlaybackActive: true),
+            .editable(document: wrongDestination, isPlaybackActive: false),
+            .editable(document: occupied, isPlaybackActive: false),
+        ]
+
+        for context in contexts {
+            let harness = EditHarness(context: context)
+            XCTAssertEqual([harness.coordinator.canGenerateSineSample, harness.coordinator.generateSineSample()], [false, false])
+            XCTAssertTrue(harness.appliedDocuments.isEmpty && !harness.undoManager.canUndo)
+        }
+    }
+
     func testInstrumentRenameAppliesThroughUndoRedoAndRefreshesExistingDisplays() throws {
         let before = documentWithInstrumentName("Snapshot")
         let controller = InstrumentEditorWindowController(displayState: .editableDocument(before))

@@ -46,6 +46,9 @@ final class EditableDocumentEditCoordinator {
     var canCreateInstrument: Bool {
         contextProvider().documentAvailableForMutation?.canAddEmptyInstrument == true
     }
+    var canGenerateSineSample: Bool {
+        contextProvider().documentAvailableForMutation?.canGenerateSineInSelectedEmptySample == true
+    }
 
     @discardableResult
     func applyEdit(label: String, updatedDocument: BlankTrackerDocument) -> Bool {
@@ -65,6 +68,15 @@ final class EditableDocumentEditCoordinator {
             return false
         }
         return applyEdit(label: "New Instrument", updatedDocument: document)
+    }
+
+    @discardableResult
+    func generateSineSample() -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.generateSineInSelectedEmptySample() else {
+            return false
+        }
+        return applyEdit(label: "Generate Sine Sample", updatedDocument: document)
     }
 
     @discardableResult

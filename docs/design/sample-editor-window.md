@@ -4,11 +4,9 @@
 **Fixed size (first pass):** ~940 × 560.
 **Visual source of truth:** `assets/mockups/sample-editor-v1.html`.
 **Reference:** FastTracker II sample editor, reinterpreted in VTX's tactile language.
-**Status:** The fixed mockup-aligned shell, canonical instrument selector,
-coherent read-only sample identity/metadata binding, bounded waveform overview,
-and display-only loop visualization are implemented. File New and the separate
-Edit command can represent empty instruments, but this window adds no creation
-or removal; sample, loop, and PCM mutation remain deferred.
+**Status:** The fixed mockup-aligned shell, canonical selection, sample display,
+waveform/loop overview, and stopped-editable empty-S01 SINE action are
+implemented. Other sample mutation remains deferred.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
 proportions, `assets/mockups/sample-editor-v1.html` takes precedence over this
@@ -22,7 +20,7 @@ See `docs/design/editor-window-design-overview.md`,
 
 ---
 
-## 0. Current read-only foundation
+## 0. Current foundation and SINE action
 
 `Window > Sample Editor` opens one active fixed utility window/controller at a
 time, reusing it while open. It preserves normal close, Command-W, activation,
@@ -49,13 +47,10 @@ The mockup's values are illustrative: FORMAT reports represented bit depth and
 mono without treating playback-policy `baseSampleRate` as source-rate metadata
 or fabricating 44.1 kHz.
 
-Loaded modules remain read-only. Editable documents and editable copies are
-also display-only in this window. Existing Instrument Editor metadata edits and
-undo/redo refresh the readouts, but the Sample Editor adds no document or undo
-mutation. Waveform selection/interaction, loop and PCM editing, processing,
-generation, import/export, and Sample Editor audition are deferred; future
-controls shown to preserve the mockup hierarchy stay disabled and inert.
-Instrument/sample creation, deletion, import, and renaming are also deferred.
+Loaded modules remain read-only. SINE is enabled only for stopped editable empty
+S01. It cancels preview, validates owned PCM off the render callback, commits one
+`Generate Sine Sample` edit, and refreshes all editors without auto-audition.
+Other states/generators stay disabled; preview/runtime architecture is unchanged.
 
 ### From-scratch creation/import contract
 
@@ -66,14 +61,19 @@ an instrument. Import into an empty selected Sxx targets that slot; an occupied
 slot offers Replace Current Sample, Add as New Sample, or Cancel. Only a global
 import/drop with no usable destination creates a new instrument and S01.
 
+SINE repeats a precomputed 32-value integer table at amplitude 12,000 exactly
+512 times for 16,384 frames, with neutral tuning and a full forward loop. PCM SHA-256:
+`ac9e9e7dbfbf285d7ca2d98cabf2ed57e5c3ac9e53f1ec01ba4813c02d4a7b91`.
+At C-4's 8,363 Hz base rate the tone is 261.34375 Hz, within 0.5 Hz (about 1.87
+cents low) of 261.625565 Hz; C-5 is 522.6875 Hz. The all-zero map stays neutral.
+
 Planned lossless support lands WAV, AIFF/AIFC, then FLAC through one validated
 off-thread decode pipeline. Stereo defaults to explicit Mix to Mono with Left
 and Right alternatives, imported storage defaults to 16-bit XM-compatible
 mono, the filename supplies the sample name, and copied PCM becomes
-document-owned. Generate eventually provides sine, square/pulse, triangle,
-saw, and noise. First-sample import/generation maps all 96 notes and becomes
-immediately auditionable in one `applyEdit` action. None of this behavior is
-implemented by this document. See
+document-owned. Square/pulse, triangle, saw, and noise remain future generators.
+First-sample import/generation maps all 96 notes and becomes immediately
+auditionable in one `applyEdit` action. See
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
 
 ---
@@ -91,7 +91,7 @@ sample params, edit bank, generators, file) acts on the waveform or the current
 selection.
 
 The broader v1.0 direction includes **destructive editing** (with undo) and
-**waveform generators**, but neither is part of the current read-only foundation.
+additional **waveform generators**; only empty-S01 SINE generation is current.
 
 ---
 

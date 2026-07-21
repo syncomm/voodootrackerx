@@ -2,6 +2,7 @@ import AppKit
 
 typealias SampleEditorInstrumentSelectionHandler = (_ oneBasedInstrumentSlot: Int) -> Bool
 typealias SampleEditorSampleSelectionHandler = (_ oneBasedSampleSlot: Int) -> Bool
+typealias SampleEditorSineGenerationHandler = () -> Bool
 
 struct SampleWaveformBucket: Equatable {
     let minimum: Float
@@ -150,7 +151,7 @@ struct SampleEditorDisplayState: Equatable {
     static let empty = SampleEditorDisplayState(
         source: .none, instrumentSlot: nil, instrumentName: "No instrument available",
         instrumentOptions: [], selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
-        emptyMessage: "No document sample palette is available."
+        emptyMessage: "No document sample palette is available.", isSineGenerationEnabled: false
     )
 
     let source: Source
@@ -161,7 +162,8 @@ struct SampleEditorDisplayState: Equatable {
     let sampleSlots: [SampleSlot]
     let selectedSample: PlaybackSample?
     let emptyMessage: String
-    var isReadOnly: Bool { true }
+    let isSineGenerationEnabled: Bool
+    var isReadOnly: Bool { source != .editableDocument }
     var instrumentDisplay: String { instrumentSlot.map { String(format: "I%02X", $0) } ?? "—" }
     var sampleDisplay: String { selectedSampleSlot.map { String(format: "S%02X", $0) } ?? "—" }
     var sampleName: String {
@@ -187,16 +189,17 @@ struct SampleEditorDisplayState: Equatable {
     var loop: SampleLoopDisplayState { selectedSample.map(SampleLoopDisplayState.init(sample:)) ?? .inactive }
 
     static func loadedModule(playbackSong: PlaybackSong?, selection: TrackerEditorSelection) -> Self {
-        make(source: .loadedModule, palette: playbackSong?.instrumentsByIndex ?? [:], selection: selection)
+        make(source: .loadedModule, palette: playbackSong?.instrumentsByIndex ?? [:],
+             selection: selection, isSineGenerationEnabled: false)
     }
 
-    static func editableDocument(_ document: BlankTrackerDocument) -> Self {
-        make(source: .editableDocument, palette: document.instrumentPalette, selection: document.selection)
+    static func editableDocument(_ document: BlankTrackerDocument, isPlaybackActive: Bool = false) -> Self {
+        make(source: .editableDocument, palette: document.instrumentPalette, selection: document.selection,
+             isSineGenerationEnabled: !isPlaybackActive && document.canGenerateSineInSelectedEmptySample)
     }
 
-    private static func make(
-        source: Source, palette: [Int: PlaybackInstrument], selection: TrackerEditorSelection
-    ) -> Self {
+    private static func make(source: Source, palette: [Int: PlaybackInstrument],
+                             selection: TrackerEditorSelection, isSineGenerationEnabled: Bool) -> Self {
         let instrumentOptions = palette
             .filter { (1...255).contains($0.key) }
             .map { slot, instrument in
@@ -214,7 +217,8 @@ struct SampleEditorDisplayState: Equatable {
                 selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
                 emptyMessage: palette.isEmpty
                     ? "No represented instruments are available."
-                    : "\(String(format: "I%02X", selection.selectedInstrument)) is not represented."
+                    : "\(String(format: "I%02X", selection.selectedInstrument)) is not represented.",
+                isSineGenerationEnabled: false
             )
         }
         let selected = instrument.sample(selectedSampleSlot: selection.selectedSample)
@@ -235,7 +239,8 @@ struct SampleEditorDisplayState: Equatable {
             selectedSample: selected,
             emptyMessage: selected == nil
                 ? (slots.isEmpty ? "This instrument has no represented samples." : "The selected sample is not represented.")
-                : ""
+                : "",
+            isSineGenerationEnabled: isSineGenerationEnabled
         )
     }
 
@@ -364,11 +369,13 @@ final class SampleEditorWindowPresenter {
     func show(
         displayState: SampleEditorDisplayState,
         instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
-        sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil
+        sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
+        sineGenerationHandler: SampleEditorSineGenerationHandler? = nil
     ) -> SampleEditorWindowController {
         if let windowController {
             windowController.instrumentSelectionHandler = instrumentSelectionHandler
             windowController.sampleSelectionHandler = sampleSelectionHandler
+            windowController.sineGenerationHandler = sineGenerationHandler
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
             return windowController
@@ -376,7 +383,8 @@ final class SampleEditorWindowPresenter {
         let controller = SampleEditorWindowController(
             displayState: displayState,
             instrumentSelectionHandler: instrumentSelectionHandler,
-            sampleSelectionHandler: sampleSelectionHandler
+            sampleSelectionHandler: sampleSelectionHandler,
+            sineGenerationHandler: sineGenerationHandler
         )
         controller.closeHandler = { [weak self, weak controller] in
             guard let self, let controller, self.windowController === controller else { return }
@@ -401,19 +409,25 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
     var sampleSelectionHandler: SampleEditorSampleSelectionHandler? {
         didSet { (window?.contentView as? SampleEditorView)?.sampleSelectionHandler = sampleSelectionHandler }
     }
+    var sineGenerationHandler: SampleEditorSineGenerationHandler? {
+        didSet { (window?.contentView as? SampleEditorView)?.sineGenerationHandler = sineGenerationHandler }
+    }
 
     init(
         displayState: SampleEditorDisplayState = .empty,
         instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
-        sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil
+        sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
+        sineGenerationHandler: SampleEditorSineGenerationHandler? = nil
     ) {
         self.instrumentSelectionHandler = instrumentSelectionHandler
         self.sampleSelectionHandler = sampleSelectionHandler
+        self.sineGenerationHandler = sineGenerationHandler
         let view = SampleEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
             displayState: displayState,
             instrumentSelectionHandler: instrumentSelectionHandler,
-            sampleSelectionHandler: sampleSelectionHandler
+            sampleSelectionHandler: sampleSelectionHandler,
+            sineGenerationHandler: sineGenerationHandler
         )
         let panel = NSPanel(
             contentRect: view.frame, styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false
@@ -458,6 +472,7 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
         window?.makeFirstResponder(nil)
         instrumentSelectionHandler = nil
         sampleSelectionHandler = nil
+        sineGenerationHandler = nil
         closeHandler?()
     }
 }
@@ -469,21 +484,27 @@ final class SampleEditorView: FlippedEditorView {
     private(set) var rebuildCount = 0
     private(set) weak var waveformView: SampleWaveformView?
     private(set) weak var instrumentSelector: NSPopUpButton?
+    private(set) weak var sineButton: NSButton?
     private var sampleRows: [Int: InstrumentEditorListRowControl] = [:]
     var instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? {
         didSet { configureInstrumentSelectorHandler() }
     }
     var sampleSelectionHandler: SampleEditorSampleSelectionHandler?
+    var sineGenerationHandler: SampleEditorSineGenerationHandler? {
+        didSet { configureSineButtonHandler() }
+    }
 
     init(
         frame frameRect: NSRect,
         displayState: SampleEditorDisplayState = .empty,
         instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
-        sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil
+        sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
+        sineGenerationHandler: SampleEditorSineGenerationHandler? = nil
     ) {
         self.displayState = displayState
         self.instrumentSelectionHandler = instrumentSelectionHandler
         self.sampleSelectionHandler = sampleSelectionHandler
+        self.sineGenerationHandler = sineGenerationHandler
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.contentView)
         style(background: VTXEditorControlTheme.windowBackground)
@@ -669,11 +690,30 @@ final class SampleEditorView: FlippedEditorView {
     }
 
     private func buildGenerate(_ parent: NSView) {
-        label("— REPLACES SAMPLE (CONFIRM)", parent, NSRect(x: 80, y: 10, width: 210, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8)
+        label("— EMPTY S01 GENERATION", parent, NSRect(x: 80, y: 10, width: 210, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8)
         let entries = ["∿\nSINE", "⊓\nSQUARE", "⊿\nTRI", "◺\nSAW", "▦\nNOISE"]
-        for (index, title) in entries.enumerated() {
+        let sine = VTXEditorControlFactory.makeButton(title: entries[0], role: .normal, fixedWidth: 68)
+        sine.identifier = futureID("generate0")
+        addControl(sine, to: parent, frame: NSRect(x: 10, y: 29, width: 68, height: 42))
+        sineButton = sine
+        configureSineButtonHandler()
+        for (index, title) in entries.enumerated().dropFirst() {
             futureButton(title, id: "generate\(index)", parent, NSRect(x: 10 + CGFloat(index) * 74, y: 29, width: 68, height: 42))
         }
+    }
+
+    private func configureSineButtonHandler() {
+        guard let sineButton else { return }
+        let enabled = displayState.isSineGenerationEnabled && sineGenerationHandler != nil
+        sineButton.isEnabled = enabled
+        sineButton.target = enabled ? self : nil
+        sineButton.action = enabled ? #selector(generateSine(_:)) : nil
+        sineButton.setAccessibilityEnabled(enabled)
+    }
+
+    @objc private func generateSine(_ sender: NSButton) {
+        guard displayState.isSineGenerationEnabled else { return }
+        _ = sineGenerationHandler?()
     }
 
     private func buildFile(_ parent: NSView) {

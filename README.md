@@ -73,8 +73,9 @@ remains scoped to the current editable subset, and advanced audio export
 options remain future work.
 
 The proposed future `v0.3.0-alpha.1` From-Scratch Composition Alpha is not yet
-implemented. Its gate adds instrument/sample creation, lossless sample import
-or generation, default mapping, and a complete clean-launch-to-export proof.
+complete. Empty instruments/S01 destinations and the first deterministic Sine
+generator are implemented; lossless sample import and the complete clean-
+launch-to-export acceptance gate remain future work.
 
 What works today:
 
@@ -90,13 +91,16 @@ What works today:
 - `Window > Instrument Editor` opens the fixed v1-mockup editor with selectable
   represented instrument/sample rows, stopped-editable metadata controls, read-only
   envelope/keymap displays, and isolated computer/on-screen keyboard audition.
-- `Window > Sample Editor` opens a fixed HTML-mockup-aligned read-only window
+- `Window > Sample Editor` opens a fixed HTML-mockup-aligned window
   with a compact instrument popup bound to the same canonical instrument/sample
   selection. Instrument changes are non-mutating/no-undo, and the selected row,
   exact identity/metadata, efficient waveform overview, and display-only loop
   region stay coherent for loaded and editable documents. Unnamed represented
   samples are distinct from absent samples; FORMAT reports represented bit depth
-  and mono without claiming a source rate.
+  and mono without claiming a source rate. In a stopped editable zero-sample
+  instrument, SINE fills empty S01 with original deterministic 16-bit mono
+  looped PCM through one undoable action and maps every note to S01. Other
+  generators and loaded/playing/occupied states remain disabled.
 - Pattern Bank single-click viewing/navigation and double-click assignment for
   editable documents.
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.
@@ -136,9 +140,9 @@ What is still future work:
   export settings.
 - Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
-- From-scratch instrument/sample creation, WAV/AIFF/AIFC/FLAC import,
-  generation, keymap/lifecycle operations, editable loop and PCM/waveform work,
-  and destructive processing. The current Sample Editor remains read-only; see
+- Additional sample slots/lifecycle operations, WAV/AIFF/AIFC/FLAC import,
+  square/triangle/saw/noise generation, keymap editing, editable loop and PCM/
+  waveform work, and destructive processing. Loaded modules remain read-only; see
   [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md).
 - Live Loop retargeting during active playback, loop-range editing, arbitrary
   loop ranges, and broader tracker editing workflows.

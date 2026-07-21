@@ -682,6 +682,28 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(sample.sourceIsDeltaEncoded, true)
     }
 
+    func testGeneratedSineExportsAndReopensWithExactSampleAndAllNoteMap() throws {
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(document.generateSineInSelectedEmptySample())
+        let generated = try XCTUnwrap(document.instrumentPalette[1]?.samples.first)
+        let url = try temporaryExportURL(filename: "generated-sine.xm")
+        try EditableXMWriter().data(from: document).write(to: url, options: .atomic)
+
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        let instrument = try XCTUnwrap(song.instrument(forInstrument: 1))
+        let reopened = try XCTUnwrap(instrument.sample(mappedSampleIndex: 0))
+
+        XCTAssertEqual(metadata.instruments, 1)
+        XCTAssertEqual(instrument.name, document.instrumentPalette[1]?.name)
+        XCTAssertEqual(instrument.samples.count, 1)
+        XCTAssertEqual(instrument.availableSampleSlots, [1])
+        XCTAssertEqual(instrument.noteSampleMap, Array(repeating: 0, count: 96))
+        XCTAssertEqual(reopened, generated)
+        XCTAssertEqual(reopened.sampleLength, 16_384)
+        XCTAssertEqual([UInt8(1), 49, 96].map(instrument.mappedSampleIndex(forNote:)), [0, 0, 0])
+    }
+
     private func makeDocument(
         title: String = BlankTrackerDocument.defaultTitle,
         currentPatternIndex: Int = BlankTrackerDocument.defaultPatternIndex,

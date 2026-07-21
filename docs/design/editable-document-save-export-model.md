@@ -22,10 +22,9 @@ runtime-engine, DSP, or scheduling change. Exact signed-byte sample relative not
 same boundary and existing pitch path. A
 document-level applyEdit/whole-snapshot undo funnel owns replacement. Save, Save As,
 loaded-module direct editing, broader instrument/sample mutation, Sample Editor
-mutation/import, runtime playback changes, parser architecture changes, and
-tracker viewport changes remain unimplemented by this note. The fixed read-only
-Sample Editor shell, waveform overview, and display-only loop markers exist
-outside this save/export design and do not expand document write authority.
+mutation beyond SINE/import, runtime playback changes, parser architecture changes,
+and tracker viewport changes remain unimplemented by this note. The fixed Sample
+Editor shell remains outside this design; SINE uses the same snapshot boundary.
 
 The implemented rename and sample-panning edits, plus all future instrument/sample
 mutations, submit new editable-document values through that funnel. Its context carries no source
@@ -70,7 +69,7 @@ full loaded-module editing.
 ## From-Scratch Sample Ownership
 
 Future imported or generated PCM is copied into the editable document before
-it becomes playable. Decode/generation and validation complete before one
+it becomes playable. Implemented SINE generation validates deterministic PCM before one
 `applyEdit` commit; failure leaves the prior document unchanged. The original
 sample path is optional provenance, not source/output ownership, and playback,
 undo/redo, Export XM, offline audio export, portability, and future AUv3 state
@@ -79,6 +78,8 @@ must not depend on that file remaining present.
 An empty S01 destination is not a represented sample and carries no PCM or
 fabricated sample metadata. File New now owns one such I01/S01 destination, and
 New Instrument appends another through one stopped-editable `applyEdit` action.
+SINE fills only that selected destination with document-owned 16-bit mono looped
+PCM and an all-zero 96-note map; undo returns to zero samples.
 The creation/import/export contract,
 including the proposed `v0.3.0-alpha.1` gate, is defined by
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
@@ -181,7 +182,7 @@ First-writer limitations:
 - no guarantee of round-trip parity with arbitrary loaded XM modules
 - no full Instrument Editor state beyond fields currently represented by the
   editable document and playback/palette models
-- read-only Sample Editor display only; no Sample Editor mutation or
+- Sample Editor mutation is limited to stopped-editable empty-S01 SINE; no
   sample-import pipeline yet
 - no panning-envelope playback/editing, vibrato playback/editing, broader
   loop/sample metadata/PCM/waveform editing, WAV/AIFF import, XI import, or arbitrary non-XM-
@@ -266,7 +267,8 @@ Keep future PRs narrow and testable:
 16. Done: `instrument: add editable sample relative-note mutation behind applyEdit`
 17. Done: `sample: build Sample Editor shell with read-only waveform binding`
 18. Done: `instrument: create empty instrument with S01 through applyEdit`
-19. `sample: add editable loop mode and range behind applyEdit`
+19. Done: `sample: generate deterministic sine sample into empty S01`
+20. `sample: add editable loop mode and range behind applyEdit`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

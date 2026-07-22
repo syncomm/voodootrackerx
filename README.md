@@ -73,9 +73,9 @@ remains scoped to the current editable subset, and advanced audio export
 options remain future work.
 
 The proposed future `v0.3.0-alpha.1` From-Scratch Composition Alpha is not yet
-complete. Empty instruments/S01 destinations and the first deterministic Sine
-generator are implemented; lossless sample import and the complete clean-
-launch-to-export acceptance gate remain future work.
+complete. Empty instruments/S01 destinations, deterministic Sine, and the
+non-UI WAV decode/normalization foundation are implemented; user-visible sample
+import and the complete clean-launch-to-export acceptance gate remain future work.
 
 What works today:
 
@@ -101,6 +101,9 @@ What works today:
   instrument, SINE fills empty S01 with original deterministic 16-bit mono
   looped PCM through one undoable action and maps every note to S01. Other
   generators and loaded/playing/occupied states remain disabled.
+- A developer-facing WAV foundation validates and chunk-decodes ordinary mono/
+  stereo linear PCM into a value-owned, XM-representable sample candidate. No
+  Sample Editor load/replace control or document mutation is enabled yet.
 - Pattern Bank single-click viewing/navigation and double-click assignment for
   editable documents.
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.
@@ -140,7 +143,8 @@ What is still future work:
   export settings.
 - Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
-- Additional sample slots/lifecycle operations, WAV/AIFF/AIFC/FLAC import,
+- Additional sample slots/lifecycle operations, user-visible WAV load/replace,
+  AIFF/AIFC/FLAC import,
   square/triangle/saw/noise generation, keymap editing, editable loop and PCM/
   waveform work, and destructive processing. Loaded modules remain read-only; see
   [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md).

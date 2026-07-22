@@ -3,6 +3,10 @@ import Foundation
 enum EditableXMTextEncoding {
     static let instrumentNameByteLimit = 22
 
+    static func sanitizedSampleName(_ value: String) -> String? {
+        sanitizedInstrumentName(value)
+    }
+
     static func sanitizedInstrumentName(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -22,6 +26,31 @@ enum EditableXMTextEncoding {
             }
         }
         return bytes
+    }
+}
+
+enum XMPCMQuantizerError: Error {
+    case nonFinite
+}
+
+enum XMPCMQuantizer {
+    static func signed16(_ sample: Float) throws -> Int16 {
+        guard let quantized = signedSample(sample, bitDepthBits: 16) else { throw XMPCMQuantizerError.nonFinite }
+        return Int16(quantized)
+    }
+
+    static func canonicalFloat32(_ sample: Int16) -> Float {
+        Float(sample) / 32_768
+    }
+
+    static func signedSample(_ sample: Float, bitDepthBits: Int) -> Int? {
+        guard sample.isFinite else { return nil }
+        let clamped = min(1, max(-1, sample))
+        switch bitDepthBits {
+        case 8: return max(-128, min(127, Int((clamped * 128).rounded())))
+        case 16: return Int(Int16(clamping: Int((clamped * 32_768).rounded())))
+        default: return nil
+        }
     }
 }
 
@@ -478,15 +507,7 @@ enum XMSampleDeltaEncoder {
     }
 
     private static func quantizedSignedSample(_ sample: Float, bitDepthBits: Int) -> Int {
-        let finiteSample = sample.isFinite ? sample : 0
-        switch bitDepthBits {
-        case 8:
-            return max(-128, min(127, Int((finiteSample * 128).rounded())))
-        case 16:
-            return max(-32_768, min(32_767, Int((finiteSample * 32_768).rounded())))
-        default:
-            return 0
-        }
+        XMPCMQuantizer.signedSample(sample, bitDepthBits: bitDepthBits) ?? 0
     }
 }
 

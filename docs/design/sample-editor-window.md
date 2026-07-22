@@ -67,11 +67,16 @@ SINE repeats a precomputed 32-value integer table at amplitude 12,000 exactly
 At C-4's 8,363 Hz base rate the tone is 261.34375 Hz, within 0.5 Hz (about 1.87
 cents low) of 261.625565 Hz; C-5 is 522.6875 Hz. The all-zero map stays neutral.
 
-Planned lossless support lands WAV, AIFF/AIFC, then FLAC through one validated
-off-thread decode pipeline. Stereo defaults to explicit Mix to Mono with Left
-and Right alternatives, imported storage defaults to 16-bit XM-compatible
-mono, the filename supplies the sample name, and copied PCM becomes
-document-owned. Square/pulse, triangle, saw, and noise remain future generators.
+The UI-independent WAV foundation now preflights RIFF/WAVE linear PCM and uses
+chunked `AVAudioFile` Float32 reads. It supports mono/stereo 8/16/24/32-bit
+integer PCM, Float32 PCM, and matching extensible forms. Mix to Mono averages
+`0.5 × (left + right)`; Left and Right select their channel, while mono treats
+channel 0 as both. Results are clamped, quantized to canonical 16-bit PCM,
+named from the 22-byte XM-safe filename stem, tuned from the 8,363 Hz C-4
+reference, and default to no loop. The cap is 16,777,216 frames (64 MiB of mono
+Float32). No Load/Replace control or document mutation is wired yet; cue, `smpl`,
+broadcast, and embedded-name metadata are ignored. AIFF/AIFC and FLAC remain future.
+Square/pulse, triangle, saw, and noise remain future generators.
 First-sample import/generation maps all 96 notes and becomes immediately
 auditionable in one `applyEdit` action. See
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).

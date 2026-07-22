@@ -19,7 +19,11 @@ instrument through one labeled `applyEdit`/undo action. The command is limited
 to stopped editable documents with capacity; loaded modules and playback remain
 read-only. The current dense palette/writer model appends after the highest
 represented slot and does not fill sparse holes. Sample Editor SINE now fills eligible
-S01 with deterministic looped PCM and an all-note map; import remains future.
+S01 with deterministic looped PCM and an all-note map. A UI-independent WAV
+foundation now preflights and chunk-decodes mono/stereo linear PCM, applies an
+explicit channel mode, canonicalizes to XM-representable 16-bit mono PCM, and
+derives filename naming plus C-4 tuning. Sample Editor Load/Replace, document
+mutation, AIFF/AIFC, and FLAC remain future work.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -95,8 +99,9 @@ sample surface. FORMAT reports represented bit depth and mono without treating
 playback-policy `baseSampleRate` as source metadata.
 SINE is the sole Sample Editor mutation: one `Generate Sine Sample` edit owns
 validated PCM, cancels preview, and refreshes every editor without auto-audition.
-Undo/redo restores exact empty/generated state. Other mutation remains deferred,
-and preview-stream/runtime architecture is unchanged.
+Undo/redo restores exact empty/generated state. WAV decoding produces only a
+value-owned candidate and enables no control or mutation. Other mutation remains
+deferred, and preview-stream/runtime architecture is unchanged.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
 adapter gain mapping without runtime engine, DSP, or scheduling changes.

@@ -68,8 +68,10 @@ full loaded-module editing.
 
 ## From-Scratch Sample Ownership
 
-Future imported or generated PCM is copied into the editable document before
-it becomes playable. Implemented SINE generation validates deterministic PCM before one
+Imported or generated PCM is copied into the editable document before it becomes
+playable. The WAV foundation now returns a value-owned, canonical 16-bit mono
+candidate with no retained source URL, but does not commit it or call `applyEdit`.
+Implemented SINE generation validates deterministic PCM before one
 `applyEdit` commit; failure leaves the prior document unchanged. The original
 sample path is optional provenance, not source/output ownership, and playback,
 undo/redo, Export XM, offline audio export, portability, and future AUv3 state
@@ -182,10 +184,10 @@ First-writer limitations:
 - no guarantee of round-trip parity with arbitrary loaded XM modules
 - no full Instrument Editor state beyond fields currently represented by the
   editable document and playback/palette models
-- Sample Editor mutation is limited to stopped-editable empty-S01 SINE; no
-  sample-import pipeline yet
+- Sample Editor mutation is limited to stopped-editable empty-S01 SINE; the WAV
+  decode/normalization pipeline has no Load/Replace or document commit yet
 - no panning-envelope playback/editing, vibrato playback/editing, broader
-  loop/sample metadata/PCM/waveform editing, WAV/AIFF import, XI import, or arbitrary non-XM-
+  loop/sample metadata/PCM/waveform editing, AIFF/AIFC/FLAC import, XI import, or arbitrary non-XM-
   derived payload support in the current writer
 - no private corpus dependency
 - no generated XM/WAV artifacts committed outside explicit reviewed fixture PRs

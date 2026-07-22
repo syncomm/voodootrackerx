@@ -461,8 +461,9 @@ Recommended next product PR:
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
   Empty instrument/S01 creation through `applyEdit` is complete; the current
   dense model appends after the highest represented slot rather than filling
-  sparse holes. Deterministic SINE with all-note mapping is complete. Next, add
-  WAV import decode and canonical normalization. Keep each importer, lifecycle,
+  sparse holes. Deterministic SINE and UI-independent WAV decode/canonical
+  normalization are complete. Next, wire Sample Editor WAV load and replace.
+  Keep each importer, lifecycle,
   keymap editing, and reference-preserving reorder work in later focused PRs;
   do not change the runtime backend or C mixer DSP.
 - Module TIME/headroom work should follow
@@ -760,7 +761,7 @@ Current implemented foundation:
 
 Next composition targets after backend foundation freeze:
 
-- WAV import decode and canonical normalization foundation
+- Sample Editor WAV load and replace workflow over the completed normalization foundation
 - envelope playback/editing and broader instrument/sample metadata behind applyEdit
 - editable Sample Editor loop mode/range behind applyEdit, followed by separate
   PCM/waveform mutation slices

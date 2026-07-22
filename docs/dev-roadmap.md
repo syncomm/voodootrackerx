@@ -59,7 +59,9 @@ VoodooTracker X currently has:
   waveform, and display-only loop region; unnamed samples remain distinct from
   absent samples and no source rate is fabricated. Stopped-editable empty-S01
   SINE creates deterministic looped PCM with all-note mapping and Export XM;
-  other states, generators, import, processing, and direct audition remain unavailable
+  a non-UI WAV foundation now produces bounded, quantized, tuned, value-owned
+  import candidates, while Load/Replace, other formats, processing, and direct
+  audition remain unavailable
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
   fixture; the schema-v2 manifest, generator verification mode, exact PCM/XM
   expectations, loader/model/editable-copy/edit/Export XM tests, and private-
@@ -154,8 +156,8 @@ Recently completed target:
 8. Done: start the ADR 012 sequence with an unnamed instrument and honest empty
    S01 destination through one `applyEdit` action. The current allocation policy
    appends after the highest represented instrument and does not fill sparse holes.
-   Done next slice: deterministic SINE into empty S01 with all-note mapping and
-   XM/audio-export coverage. WAV import normalization follows.
+   Deterministic SINE and the WAV decode/canonical-normalization foundation are
+   done. The next slice wires Sample Editor WAV load/replace without broadening formats.
 9. Pattern editor completion for instrument, volume-column, and effect-column
    entry remains part of the complete composition gate. XI stays a separate
    broader VTX 1.0 target.
@@ -749,7 +751,7 @@ Remaining VTX 1.0 scope:
 
 - the dependency-ordered from-scratch instrument/sample workflow in
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md),
-  continuing with WAV import decode and canonical normalization
+  continuing with Sample Editor WAV load/replace integration
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit
 - editable loop mode/range behind applyEdit, followed by separately scoped PCM

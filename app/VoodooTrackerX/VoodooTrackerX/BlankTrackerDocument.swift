@@ -655,7 +655,7 @@ enum DeterministicSampleGenerator {
     ]
     private static let amplitude = 12_000
     private static let frameCount = 16_384
-    private static let xmBaseSampleRate = 8_363.0
+    private static let xmBaseSampleRate = PlaybackSample.xmNeutralSampleRate
 
     static func sine(instrumentIndex: Int) -> PlaybackSample? {
         guard instrumentIndex > 0 else { return nil }

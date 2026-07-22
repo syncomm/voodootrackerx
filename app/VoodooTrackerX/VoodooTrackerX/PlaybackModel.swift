@@ -26,6 +26,7 @@ enum PlaybackSamplePanningPolicy {
 }
 
 struct PlaybackSample: Equatable {
+    static let xmNeutralSampleRate = 8_363.0
     static let xmMaximumVolume: UInt8 = 64
     static let xmDefaultVolume: UInt8 = xmMaximumVolume
     static let xmRelativeNoteRange = Int(Int8.min)...Int(Int8.max)

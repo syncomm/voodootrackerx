@@ -184,7 +184,7 @@ enum PlaybackSongBuilder {
                     panning: header.panning,
                     relativeNote: header.relativeNote,
                     finetune: header.finetune,
-                    baseSampleRate: 8_363,
+                    baseSampleRate: PlaybackSample.xmNeutralSampleRate,
                     sampleLength: pcm.count,
                     loopStart: header.safeLoopStartInSamples,
                     loopLength: header.safeLoopLengthInSamples,

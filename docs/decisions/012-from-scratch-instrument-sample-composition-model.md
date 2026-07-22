@@ -167,9 +167,11 @@ XM-compatible storage remains mono, and mono input remains mono. Stereo offers `
 Imports default to 16-bit XM-compatible encoding, with Float32 allowed for decode/intermediate PCM. VTX never
 silently reduces to 8-bit; optional 8-bit conversion is later/advanced. Export XM writes the supported encoding.
 
-Import derives XM relative note/finetune from source rate, preserves pitch as closely as possible, uses one reference
-note, clamps to signed-byte ranges, and documents approximation. XM has no authoritative source-rate field. The exact
-formula/reference note require a separate decision and synthetic common-rate/reference-pitch proof before code lands.
+WAV implementation evidence resolves tuning: C-4 at 8,363 Hz is neutral, the target offset is
+`12 × log2(sourceRate / 8363)`, and the existing linear mapping supplies 128 finetune steps per semitone. Import chooses
+the representable relative-note/finetune pair with minimum error, preferring the smallest absolute finetune and rounding
+half steps away from zero. Error is bounded to 0.390625 cents; rates outside the current C-4 effective-note/signed-byte
+range are rejected. PCM is not resampled, and XM still has no authoritative source-rate field.
 
 ### Built-In Generation
 
@@ -324,7 +326,6 @@ multi-output, or tracker viewport redesign.
 
 Do not resolve these without focused implementation evidence:
 
-- the exact sample-rate-to-relative-note/finetune formula and reference note;
 - whether optional 8-bit import conversion belongs in v0.3 or later;
 - multi-file import UX;
 - whether a drop on a specific occupied sample row means Replace or Add New;

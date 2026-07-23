@@ -79,6 +79,7 @@ let package = Package(
                 "app/VoodooTrackerX/VoodooTrackerX/WAVExportCoordinator.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/WAVExportPerformanceSummary.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/WAVSampleImportDecoder.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/SampleEditorWAVImportCoordinator.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/LoadedModuleEditableCopyCoordinator.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/LogoPanelView.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/ModuleCoreBridge.h",

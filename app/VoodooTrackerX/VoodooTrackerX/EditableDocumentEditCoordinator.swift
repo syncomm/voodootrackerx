@@ -49,6 +49,9 @@ final class EditableDocumentEditCoordinator {
     var canGenerateSineSample: Bool {
         contextProvider().documentAvailableForMutation?.canGenerateSineInSelectedEmptySample == true
     }
+    var canImportWAVSample: Bool {
+        contextProvider().documentAvailableForMutation?.selectedSampleImportDestination != nil
+    }
 
     @discardableResult
     func applyEdit(label: String, updatedDocument: BlankTrackerDocument) -> Bool {
@@ -77,6 +80,16 @@ final class EditableDocumentEditCoordinator {
             return false
         }
         return applyEdit(label: "Generate Sine Sample", updatedDocument: document)
+    }
+
+    @discardableResult
+    func importWAVSample(
+        _ candidate: NormalizedSampleImport,
+        destination: SampleImportDestination
+    ) -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.importWAVSample(candidate, destination: destination) else { return false }
+        return applyEdit(label: "Import WAV Sample", updatedDocument: document)
     }
 
     @discardableResult

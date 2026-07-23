@@ -24,7 +24,8 @@ dependency-ordered PR plan are defined by
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
 The first gate slice is implemented: File New represents empty I01/S01 and
 `Edit > New Instrument` creates another honest empty destination through one
-undoable stopped-editable action.
+undoable stopped-editable action. Deterministic SINE and Sample Editor WAV
+load/replace now populate that destination through the same undo boundary.
 
 ## Project Goals
 
@@ -462,8 +463,9 @@ Recommended next product PR:
   Empty instrument/S01 creation through `applyEdit` is complete; the current
   dense model appends after the highest represented slot rather than filling
   sparse holes. Deterministic SINE and UI-independent WAV decode/canonical
-  normalization are complete. Next, wire Sample Editor WAV load and replace.
-  Keep each importer, lifecycle,
+  normalization are complete, and Sample Editor LOAD now fills empty S01 or
+  replaces the exact represented selected sample through one undoable edit.
+  Next, keep each additional importer, sample-slot lifecycle,
   keymap editing, and reference-preserving reorder work in later focused PRs;
   do not change the runtime backend or C mixer DSP.
 - Module TIME/headroom work should follow
@@ -738,6 +740,11 @@ Current implemented foundation:
 - File New owns unnamed zero-sample I01/S01; Edit > New Instrument appends and
   selects another empty S01 through one applyEdit action, and Export XM/reopen
   preserves zero-sample instrument count, order, and names without sample data
+- Sample Editor LOAD imports WAV into stopped editable empty S01 or confirms
+  exact in-place replacement. It offers stereo Mix/Left/Right, performs decode
+  and canonical normalization off the main thread, rejects stale results, owns
+  mono 16-bit PCM in the document, and registers one `Import WAV Sample` undo
+  action while preserving slot/keymap references
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
@@ -761,7 +768,7 @@ Current implemented foundation:
 
 Next composition targets after backend foundation freeze:
 
-- Sample Editor WAV load and replace workflow over the completed normalization foundation
+- Sample Editor Add as New Sample and broader sample-slot lifecycle as separate focused work
 - envelope playback/editing and broader instrument/sample metadata behind applyEdit
 - editable Sample Editor loop mode/range behind applyEdit, followed by separate
   PCM/waveform mutation slices

@@ -74,8 +74,9 @@ options remain future work.
 
 The proposed future `v0.3.0-alpha.1` From-Scratch Composition Alpha is not yet
 complete. Empty instruments/S01 destinations, deterministic Sine, and the
-non-UI WAV decode/normalization foundation are implemented; user-visible sample
-import and the complete clean-launch-to-export acceptance gate remain future work.
+Sample Editor WAV load/replace workflow are implemented; Add as New Sample,
+other import formats, and the complete clean-launch-to-export acceptance gate
+remain future work.
 
 What works today:
 
@@ -99,11 +100,16 @@ What works today:
   samples are distinct from absent samples; FORMAT reports represented bit depth
   and mono without claiming a source rate. In a stopped editable zero-sample
   instrument, SINE fills empty S01 with original deterministic 16-bit mono
-  looped PCM through one undoable action and maps every note to S01. Other
-  generators and loaded/playing/occupied states remain disabled.
-- A developer-facing WAV foundation validates and chunk-decodes ordinary mono/
-  stereo linear PCM into a value-owned, XM-representable sample candidate. No
-  Sample Editor load/replace control or document mutation is enabled yet.
+  looped PCM through one undoable action and maps every note to S01. LOAD now
+  imports one WAV into empty S01 or, after confirmation, replaces the exact
+  represented selected sample while preserving its slot and keymap. Mono skips
+  channel choice; stereo offers Mix to Mono, Left, or Right. Decode and
+  canonical normalization run in the background, then one `Import WAV Sample`
+  edit installs document-owned mono 16-bit PCM. LOAD remains disabled for
+  loaded modules, playback, invalid destinations, and active imports.
+- The WAV foundation validates and chunk-decodes ordinary mono/stereo linear
+  PCM into the value-owned candidate used by Sample Editor LOAD. Add as New
+  Sample, drag/drop, global sample import, AIFF/AIFC, and FLAC remain future work.
 - Pattern Bank single-click viewing/navigation and double-click assignment for
   editable documents.
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.

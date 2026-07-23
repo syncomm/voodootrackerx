@@ -695,6 +695,29 @@ enum DeterministicSampleGenerator {
     }
 }
 
+enum SampleImportDestination: Equatable, Sendable {
+    case emptyS01(instrumentIndex: Int)
+    case represented(instrumentIndex: Int, sampleIndex: Int)
+
+    var instrumentIndex: Int {
+        switch self {
+        case let .emptyS01(instrumentIndex), let .represented(instrumentIndex, _): instrumentIndex
+        }
+    }
+
+    var sampleIndex: Int {
+        switch self {
+        case .emptyS01: 0
+        case let .represented(_, sampleIndex): sampleIndex
+        }
+    }
+
+    var requiresReplacementConfirmation: Bool {
+        if case .represented = self { return true }
+        return false
+    }
+}
+
 struct BlankTrackerDocument: Equatable {
     static let maximumInstrumentCount = 255
     static let defaultTitle = "Untitled"
@@ -947,6 +970,16 @@ struct BlankTrackerDocument: Equatable {
             instrument(forInstrument: selection.selectedInstrument)?.samples.isEmpty == true
     }
 
+    var selectedSampleImportDestination: SampleImportDestination? {
+        guard let instrument = instrument(forInstrument: selection.selectedInstrument) else { return nil }
+        if instrument.samples.isEmpty, selection.selectedSample == 1 {
+            return .emptyS01(instrumentIndex: instrument.index)
+        }
+        guard let sample = instrument.sample(selectedSampleSlot: selection.selectedSample),
+              (0..<16).contains(sample.sampleIndex) else { return nil }
+        return .represented(instrumentIndex: instrument.index, sampleIndex: sample.sampleIndex)
+    }
+
     /// Fills the selected empty S01 with one validated sample while preserving all unrelated document state.
     @discardableResult
     mutating func generateSineInSelectedEmptySample() -> Bool {
@@ -966,6 +999,55 @@ struct BlankTrackerDocument: Equatable {
             title: title, songLength: songLength, currentPosition: currentPosition, restartPosition: restartPosition,
             currentPatternIndex: currentPatternIndex, tempo: tempo, speed: speed, orderTable: orderTable,
             selection: TrackerEditorSelection(selectedInstrument: instrument.index, selectedSample: 1),
+            instrumentPalette: palette, patterns: patterns
+        )
+        return true
+    }
+
+    /// Installs one fully normalized WAV candidate at the captured destination without redirecting stale work.
+    @discardableResult
+    mutating func importWAVSample(
+        _ candidate: NormalizedSampleImport,
+        destination: SampleImportDestination
+    ) -> Bool {
+        guard candidate.isValidDocumentSample,
+              selectedSampleImportDestination == destination,
+              let instrument = instrumentPalette[destination.instrumentIndex] else { return false }
+
+        let imported = candidate.playbackSample(
+            instrumentIndex: instrument.index,
+            sampleIndex: destination.sampleIndex
+        )
+        let samples: [PlaybackSample]
+        let noteSampleMap: [Int]?
+        switch destination {
+        case .emptyS01:
+            guard instrument.samples.isEmpty else { return false }
+            samples = [imported]
+            noteSampleMap = Array(repeating: 0, count: 96)
+        case let .represented(_, sampleIndex):
+            guard instrument.samples.contains(where: { $0.sampleIndex == sampleIndex }) else { return false }
+            samples = instrument.samples.map { $0.sampleIndex == sampleIndex ? imported : $0 }
+            noteSampleMap = instrument.noteSampleMap
+        }
+
+        var palette = instrumentPalette
+        palette[instrument.index] = PlaybackInstrument(
+            index: instrument.index,
+            name: instrument.name,
+            samples: samples,
+            volumeEnvelope: instrument.volumeEnvelope,
+            panningEnvelope: instrument.panningEnvelope,
+            autoVibrato: instrument.autoVibrato,
+            noteSampleMap: noteSampleMap
+        )
+        self = BlankTrackerDocument(
+            title: title, songLength: songLength, currentPosition: currentPosition, restartPosition: restartPosition,
+            currentPatternIndex: currentPatternIndex, tempo: tempo, speed: speed, orderTable: orderTable,
+            selection: TrackerEditorSelection(
+                selectedInstrument: instrument.index,
+                selectedSample: destination.sampleIndex + 1
+            ),
             instrumentPalette: palette, patterns: patterns
         )
         return true

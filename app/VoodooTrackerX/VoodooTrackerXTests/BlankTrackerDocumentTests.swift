@@ -54,6 +54,75 @@ final class BlankTrackerDocumentTests: XCTestCase {
         }
     }
 
+    func testWAVImportFillsOnlyEmptyS01WithOwnedCanonicalSampleAndDefaultMap() throws {
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertEqual(document.addEmptyInstrument(), 2)
+        document.selectInstrument(1)
+        let before = document
+        let candidate = try normalizedImportCandidate(name: "Imported.wav", pcm: [-0.5, 0, 0.5])
+        let destination = try XCTUnwrap(document.selectedSampleImportDestination)
+
+        XCTAssertEqual(destination, .emptyS01(instrumentIndex: 1))
+        XCTAssertTrue(document.importWAVSample(candidate, destination: destination))
+
+        let instrument = try XCTUnwrap(document.instrumentPalette[1])
+        let sample = try XCTUnwrap(instrument.samples.first)
+        XCTAssertEqual(instrument.samples.count, 1)
+        XCTAssertEqual(instrument.noteSampleMap, Array(repeating: 0, count: 96))
+        XCTAssertEqual(document.selection, .default)
+        XCTAssertEqual(sample, candidate.playbackSample(instrumentIndex: 1, sampleIndex: 0))
+        XCTAssertEqual(document.instrumentPalette[2], before.instrumentPalette[2])
+        XCTAssertEqual(document.patterns, before.patterns)
+        XCTAssertNil(Mirror(reflecting: document).children.first { $0.value is URL })
+        guard case let .potentiallyAvailable(descriptor) = document.noteAuditionAvailability else {
+            return XCTFail("Imported S01 should be available to the next audition")
+        }
+        XCTAssertEqual(descriptor.previewPCM, candidate.pcm)
+        XCTAssertEqual(descriptor.previewVolume, 1)
+        XCTAssertEqual(descriptor.previewPanning, 128)
+        XCTAssertEqual(descriptor.previewRelativeNote, candidate.relativeNote)
+        XCTAssertEqual(descriptor.previewFinetune, candidate.finetune)
+        XCTAssertEqual(descriptor.previewLoop.mode, .none)
+    }
+
+    func testWAVReplacementPreservesExactSlotKeymapAndUnrelatedInstrumentState() throws {
+        let base = BlankTrackerDocument.makeDefault()
+        let first = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, name: "Keep", pcm: [0.25])
+        let replaced = makePlaybackSample(instrumentIndex: 1, sampleIndex: 1, name: "Old", pcm: [-0.25])
+        let map = (0..<96).map { $0 < 48 ? 0 : 1 }
+        let instrument = PlaybackInstrument(
+            index: 1, name: "Layered", samples: [first, replaced],
+            volumeEnvelope: PlaybackVolumeEnvelope(
+                enabled: true, points: [.init(tick: 0, value: 64)], sustainPointIndex: nil,
+                loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: 1, fadeout: 0
+            ),
+            noteSampleMap: map
+        )
+        var document = BlankTrackerDocument(
+            title: base.title, songLength: base.songLength, currentPosition: base.currentPosition,
+            restartPosition: base.restartPosition, currentPatternIndex: base.currentPatternIndex,
+            tempo: base.tempo, speed: base.speed, orderTable: base.orderTable,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrumentPalette: [1: instrument], patterns: base.patterns
+        )
+        let before = document
+        let candidate = try normalizedImportCandidate(name: "Replacement.wav", pcm: [-1, 1])
+        let destination = try XCTUnwrap(document.selectedSampleImportDestination)
+
+        XCTAssertEqual(destination, .represented(instrumentIndex: 1, sampleIndex: 1))
+        XCTAssertTrue(document.importWAVSample(candidate, destination: destination))
+
+        let updated = try XCTUnwrap(document.instrumentPalette[1])
+        XCTAssertEqual(updated.samples[0], first)
+        XCTAssertEqual(updated.samples[1], candidate.playbackSample(instrumentIndex: 1, sampleIndex: 1))
+        XCTAssertEqual(updated.name, instrument.name)
+        XCTAssertEqual(updated.noteSampleMap, map)
+        XCTAssertEqual(updated.volumeEnvelope, instrument.volumeEnvelope)
+        XCTAssertEqual(document.selection, before.selection)
+        XCTAssertEqual(document.patterns, before.patterns)
+        XCTAssertFalse(document.importWAVSample(candidate, destination: .emptyS01(instrumentIndex: 1)))
+    }
+
     func testDefaultBlankDocumentUsesTrackerStartupDefaults() {
         let document = BlankTrackerDocument.makeDefault()
 

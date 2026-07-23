@@ -1,15 +1,32 @@
 import AVFoundation
 import Foundation
 
-enum SampleImportChannelMode: Equatable {
+enum SampleImportChannelMode: Equatable, Sendable {
     case mixToMono, left, right
 }
-enum SampleImportError: Error, Equatable {
+enum SampleImportError: Error, Equatable, Sendable {
     case unreadableSource, malformedWAV, truncatedWAV
     case unsupportedEncoding(formatCode: UInt16, bitsPerSample: Int)
     case unsupportedChannelCount(Int)
     case emptySource, invalidSampleRate, resourceLimitExceeded, integerOverflow
     case audioDecodeFailed, decoderMetadataMismatch, nonFinitePCM, tuningOutOfRange
+
+    var userFacingMessage: String {
+        switch self {
+        case .unreadableSource: "The WAV file could not be read."
+        case .malformedWAV: "This file is not a valid WAV file."
+        case .truncatedWAV: "The WAV file is incomplete or truncated."
+        case .unsupportedEncoding: "This WAV encoding is not supported."
+        case let .unsupportedChannelCount(count):
+            count > 2 ? "WAV files with more than two channels are not supported." : "This WAV channel layout is not supported."
+        case .emptySource: "The WAV file contains no sample frames."
+        case .invalidSampleRate: "The WAV file has an invalid sample rate."
+        case .resourceLimitExceeded, .integerOverflow: "The WAV file is too large to import safely."
+        case .audioDecodeFailed, .decoderMetadataMismatch: "The WAV audio could not be decoded completely."
+        case .nonFinitePCM: "The WAV file contains invalid sample values."
+        case .tuningOutOfRange: "The WAV sample rate is outside the supported tuning range."
+        }
+    }
 }
 enum SampleImportResourcePolicy {
     /// 64 MiB of canonical mono Float32 PCM. Stereo is converted while reading.
@@ -28,11 +45,11 @@ enum SampleImportResourcePolicy {
         return Int(bytes)
     }
 }
-struct WAVSampleImportInspection: Equatable {
+struct WAVSampleImportInspection: Equatable, Sendable {
     let sourceSampleRate: Double
     let sourceChannelCount, sourceBitDepthBits, frameCount: Int
 }
-struct DecodedSampleImport: Equatable {
+struct DecodedSampleImport: Equatable, Sendable {
     let sourceSampleRate: Double
     let sourceChannelCount, sourceBitDepthBits: Int
     let monoPCM: [Float]
@@ -82,7 +99,7 @@ enum SampleImportNaming {
         return EditableXMTextEncoding.sanitizedSampleName(stem) ?? "(unnamed sample)"
     }
 }
-struct NormalizedSampleImport: Equatable {
+struct NormalizedSampleImport: Equatable, Sendable {
     let name: String
     let pcm: [Float]
     let frameCount: Int
@@ -94,8 +111,25 @@ struct NormalizedSampleImport: Equatable {
     let sourceSampleRate: Double
     let sourceChannelCount: Int
 
+    /// The initializer canonicalizes every PCM value; this verifies the remaining document-bound invariants cheaply.
+    var isValidDocumentSample: Bool {
+        frameCount > 0 && frameCount == pcm.count &&
+            frameCount <= SampleImportResourcePolicy.maximumFrameCount &&
+            bitDepthBits == 16 && channelCount == 1 && volume == PlaybackSample.xmDefaultVolume &&
+            panning == PlaybackSample.xmCenterPanning && loopType == 0 &&
+            PlaybackSample.xmRelativeNoteRange.contains(relativeNote) &&
+            PlaybackSample.xmFinetuneRange.contains(finetune) &&
+            sourceSampleRate.isFinite && sourceSampleRate > 0 && (1...2).contains(sourceChannelCount)
+    }
+
     init(decoded: DecodedSampleImport, sourceFilename: String) throws {
         guard !decoded.monoPCM.isEmpty else { throw SampleImportError.emptySource }
+        guard decoded.monoPCM.count <= SampleImportResourcePolicy.maximumFrameCount else {
+            throw SampleImportError.resourceLimitExceeded
+        }
+        guard (1...2).contains(decoded.sourceChannelCount) else {
+            throw SampleImportError.unsupportedChannelCount(decoded.sourceChannelCount)
+        }
         let tuning = try SampleImportTuning(sourceSampleRate: decoded.sourceSampleRate)
         do {
             pcm = try decoded.monoPCM.map { XMPCMQuantizer.canonicalFloat32(try XMPCMQuantizer.signed16($0)) }
@@ -120,7 +154,7 @@ struct NormalizedSampleImport: Equatable {
         )
     }
 }
-struct WAVSampleImportDecoder {
+struct WAVSampleImportDecoder: Sendable {
     let chunkFrameCount: AVAudioFrameCount
     init(chunkFrameCount: Int = 32_768) {
         self.chunkFrameCount = AVAudioFrameCount(min(Int(UInt32.max), max(1, chunkFrameCount)))

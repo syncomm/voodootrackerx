@@ -5,8 +5,9 @@
 **Visual source of truth:** `assets/mockups/sample-editor-v1.html`.
 **Reference:** FastTracker II sample editor, reinterpreted in VTX's tactile language.
 **Status:** The fixed mockup-aligned shell, canonical selection, sample display,
-waveform/loop overview, and stopped-editable empty-S01 SINE action are
-implemented. Other sample mutation remains deferred.
+waveform/loop overview, stopped-editable empty-S01 SINE, and WAV LOAD into
+empty or represented destinations are implemented. Other sample mutation
+remains deferred.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
 proportions, `assets/mockups/sample-editor-v1.html` takes precedence over this
@@ -20,7 +21,7 @@ See `docs/design/editor-window-design-overview.md`,
 
 ---
 
-## 0. Current foundation and SINE action
+## 0. Current foundation, SINE, and WAV LOAD
 
 `Window > Sample Editor` opens one active fixed utility window/controller at a
 time, reusing it while open. It preserves normal close, Command-W, activation,
@@ -50,16 +51,25 @@ or fabricating 44.1 kHz.
 Loaded modules remain read-only. SINE is enabled only for stopped editable empty
 S01. It cancels preview, validates owned PCM off the render callback, commits one
 `Generate Sine Sample` edit, and refreshes all editors without auto-audition.
-Other states/generators stay disabled; preview/runtime architecture is unchanged.
+LOAD is enabled only for a stopped editable empty S01 or represented selected
+sample and is disabled during an active import. It chooses one WAV, confirms
+represented replacement, offers stereo Mix to Mono/Left/Right after inspection,
+and decodes/normalizes off the main thread while showing an indeterminate state.
+The main thread revalidates document identity/revision, selection, destination
+occupancy, stopped transport, and operation token before one `Import WAV Sample`
+edit. Commit cancels stale preview once, refreshes all editors, and does not
+auto-audition. Other states/generators stay disabled; preview/runtime
+architecture is unchanged.
 
 ### From-scratch creation/import contract
 
 The Sample Editor owns sample identity, selection within the current
 instrument, import/generation, waveform and loop metadata, parameters, and
 later PCM operations. Its instrument popup selects context but never creates
-an instrument. Import into an empty selected Sxx targets that slot; an occupied
-slot offers Replace Current Sample, Add as New Sample, or Cancel. Only a global
-import/drop with no usable destination creates a new instrument and S01.
+an instrument. The current WAV workflow fills only empty S01 on a zero-sample
+instrument or offers Replace Current Sample/Cancel for the represented selected
+sample. It never creates S02 or redirects a stale result. Add as New Sample and
+global import/drop creation remain future lifecycle work.
 
 SINE repeats a precomputed 32-value integer table at amplitude 12,000 exactly
 512 times for 16,384 frames, with neutral tuning and a full forward loop. PCM SHA-256:
@@ -74,8 +84,10 @@ integer PCM, Float32 PCM, and matching extensible forms. Mix to Mono averages
 channel 0 as both. Results are clamped, quantized to canonical 16-bit PCM,
 named from the 22-byte XM-safe filename stem, tuned from the 8,363 Hz C-4
 reference, and default to no loop. The cap is 16,777,216 frames (64 MiB of mono
-Float32). No Load/Replace control or document mutation is wired yet; cue, `smpl`,
-broadcast, and embedded-name metadata are ignored. AIFF/AIFC and FLAC remain future.
+Float32). LOAD installs the complete candidate as document-owned PCM through
+one undoable edit; the source path is not retained and Export XM/reopen uses the
+existing sample writer. Cue, `smpl`, broadcast, and embedded-name metadata are
+ignored. AIFF/AIFC and FLAC remain future.
 Square/pulse, triangle, saw, and noise remain future generators.
 First-sample import/generation maps all 96 notes and becomes immediately
 auditionable in one `applyEdit` action. See
@@ -96,7 +108,8 @@ sample params, edit bank, generators, file) acts on the waveform or the current
 selection.
 
 The broader v1.0 direction includes **destructive editing** (with undo) and
-additional **waveform generators**; only empty-S01 SINE generation is current.
+additional **waveform generators**; SINE is the only current generator. Current
+WAV LOAD is import/replace only; it adds no direct waveform editing.
 
 ---
 

@@ -11,11 +11,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var songOrderEditorWindowController: SongOrderEditorWindowController?
     private let instrumentEditorWindowPresenter = InstrumentEditorWindowPresenter()
     private let sampleEditorWindowPresenter = SampleEditorWindowPresenter()
-    private var blankDocument: BlankTrackerDocument?
+    private var editableDocumentIdentity: UUID?
+    private var editableDocumentRevision: UInt64 = 0
+    private var blankDocument: BlankTrackerDocument? {
+        didSet { editableDocumentRevision &+= 1 }
+    }
     private var loadedMetadata: ParsedModuleMetadata?
     private lazy var editableDocumentEditCoordinator = EditableDocumentEditCoordinator(
         contextProvider: { [weak self] in self?.currentEditableDocumentEditContext() ?? .none },
         documentApplyHandler: { [weak self] document in self?.applyEditableDocumentSnapshot(document) }
+    )
+    private lazy var sampleEditorWAVImportCoordinator = SampleEditorWAVImportCoordinator(
+        contextProvider: { [weak self] in
+            self?.currentSampleEditorWAVImportContext() ?? SampleEditorWAVImportContext(
+                documentIdentity: nil, documentRevision: 0, document: nil, isPlaybackActive: false
+            )
+        },
+        worker: .live(),
+        fileChooser: { [weak self] request, completion in
+            self?.chooseSampleEditorWAVFile(request: request, completion: completion) ?? completion(nil)
+        },
+        replacementConfirmation: { [weak self] completion in
+            self?.confirmSampleEditorWAVReplacement(completion: completion) ?? completion(false)
+        },
+        stereoChannelChooser: { [weak self] completion in
+            self?.chooseSampleEditorWAVStereoChannel(completion: completion) ?? completion(nil)
+        },
+        commitHandler: { [weak self] candidate, destination in
+            self?.commitSampleEditorWAVImport(candidate, destination: destination) ?? false
+        },
+        errorHandler: { [weak self] message in self?.presentSampleEditorWAVImportError(message) },
+        importingStateHandler: { [weak self] _ in
+            guard let self else { return }
+            self.sampleEditorWindowPresenter.refresh(displayState: self.currentSampleEditorDisplayState())
+        }
     )
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
@@ -503,6 +532,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func applyUntitledEditableCopy(_ document: BlankTrackerDocument) {
+        editableDocumentIdentity = UUID()
         blankDocument = document
         loadedMetadata = nil
         editableDocumentEditCoordinator.discardUndoHistory()
@@ -669,18 +699,138 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             displayState: currentSampleEditorDisplayState(),
             instrumentSelectionHandler: { [weak self] in self?.selectInstrumentSlot($0) ?? false },
             sampleSelectionHandler: { [weak self] in self?.selectSampleSlot($0) ?? false },
-            sineGenerationHandler: { [weak self] in self?.generateSineFromSampleEditor() ?? false }
+            sineGenerationHandler: { [weak self] in self?.generateSineFromSampleEditor() ?? false },
+            wavLoadHandler: { [weak self] in self?.sampleEditorWAVImportCoordinator.begin() ?? false }
         )
     }
 
     private func currentSampleEditorDisplayState() -> SampleEditorDisplayState {
         if let blankDocument {
-            return .editableDocument(blankDocument, isPlaybackActive: playbackEngine.state.isPlaying)
+            return .editableDocument(
+                blankDocument,
+                isPlaybackActive: playbackEngine.state.isPlaying,
+                isImportingWAV: sampleEditorWAVImportCoordinator.isImporting
+            )
         }
         if loadedMetadata != nil {
             return .loadedModule(playbackSong: playbackEngine.song, selection: loadedModuleSelection)
         }
         return .empty
+    }
+
+    private func currentSampleEditorWAVImportContext() -> SampleEditorWAVImportContext {
+        SampleEditorWAVImportContext(
+            documentIdentity: loadedMetadata == nil ? editableDocumentIdentity : nil,
+            documentRevision: editableDocumentRevision,
+            document: loadedMetadata == nil ? blankDocument : nil,
+            isPlaybackActive: playbackEngine.state.isPlaying
+        )
+    }
+
+    private func chooseSampleEditorWAVFile(
+        request: SampleEditorWAVFileRequest,
+        completion: @escaping @MainActor (URL?) -> Void
+    ) {
+        let panel = SampleEditorWAVOpenPanel.make(request: request)
+        presentDocumentSheet(
+            begin: { hostWindow, restoreAuxiliaryWindow in
+                panel.beginSheetModal(for: hostWindow) { response in
+                    restoreAuxiliaryWindow()
+                    completion(response == .OK ? panel.url : nil)
+                }
+            },
+            fallback: { completion(panel.runModal() == .OK ? panel.url : nil) }
+        )
+    }
+
+    private func confirmSampleEditorWAVReplacement(
+        completion: @escaping @MainActor (Bool) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Replace Current Sample?"
+        alert.informativeText = "This replaces Sxx sample data and metadata while preserving its slot and keymap references."
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Cancel")
+        presentSampleEditorWAVAlert(alert) { completion($0 == .alertFirstButtonReturn) }
+    }
+
+    private func chooseSampleEditorWAVStereoChannel(
+        completion: @escaping @MainActor (SampleImportChannelMode?) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = "Choose Stereo Channel"
+        alert.informativeText = "Choose how this stereo WAV should become a mono XM sample."
+        ["Mix to Mono", "Left", "Right", "Cancel"].forEach { alert.addButton(withTitle: $0) }
+        presentSampleEditorWAVAlert(alert) { response in
+            let mode: SampleImportChannelMode? = switch response {
+            case .alertFirstButtonReturn: .mixToMono
+            case .alertSecondButtonReturn: .left
+            case .alertThirdButtonReturn: .right
+            default: nil
+            }
+            completion(mode)
+        }
+    }
+
+    private func commitSampleEditorWAVImport(
+        _ candidate: NormalizedSampleImport,
+        destination: SampleImportDestination
+    ) -> Bool {
+        guard editableDocumentEditCoordinator.importWAVSample(candidate, destination: destination) else {
+            return false
+        }
+        cancelNoteAuditionForDocumentTransition()
+        return true
+    }
+
+    private func presentSampleEditorWAVImportError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "WAV Import Failed"
+        alert.informativeText = message
+        presentSampleEditorWAVAlert(alert) { _ in }
+    }
+
+    private func presentSampleEditorWAVAlert(
+        _ alert: NSAlert,
+        completion: @escaping @MainActor (NSApplication.ModalResponse) -> Void
+    ) {
+        presentDocumentSheet(
+            begin: { hostWindow, restoreAuxiliaryWindow in
+                alert.beginSheetModal(for: hostWindow) { response in
+                    restoreAuxiliaryWindow()
+                    completion(response)
+                }
+            },
+            fallback: { completion(alert.runModal()) }
+        )
+    }
+
+    private func presentDocumentSheet(
+        begin: (_ hostWindow: NSWindow, _ restoreAuxiliaryWindow: @escaping @MainActor () -> Void) -> Void,
+        fallback: () -> Void
+    ) {
+        let presentation = LoadedModuleEditableCopyAlertHostPolicy.presentation(
+            keyWindow: NSApp.keyWindow,
+            mainWindow: mainWindow
+        )
+        guard let hostWindow = presentation.hostWindow else { fallback(); return }
+        let auxiliaryWindow = presentation.auxiliaryWindowToRestore
+        let auxiliaryWasFloating = (auxiliaryWindow as? NSPanel)?.isFloatingPanel
+        if let auxiliaryWindow {
+            (auxiliaryWindow as? NSPanel)?.isFloatingPanel = false
+            auxiliaryWindow.orderBack(nil)
+            hostWindow.makeKeyAndOrderFront(nil)
+        }
+        begin(hostWindow) { [weak auxiliaryWindow] in
+            guard let auxiliaryWindow else { return }
+            if let panel = auxiliaryWindow as? NSPanel, let auxiliaryWasFloating {
+                panel.isFloatingPanel = auxiliaryWasFloating
+            }
+            guard auxiliaryWindow.isVisible, auxiliaryWindow.sheetParent == nil else { return }
+            auxiliaryWindow.makeKeyAndOrderFront(nil)
+        }
     }
 
     private func generateSineFromSampleEditor() -> Bool {
@@ -1073,6 +1223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         cancelNoteAuditionForDocumentTransition()
         playbackEngine.load(song: nil)
+        editableDocumentIdentity = UUID()
         blankDocument = document
         loadedMetadata = nil
         editableDocumentEditCoordinator.discardUndoHistory()
@@ -1123,6 +1274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
             let stateUpdateStart = timingSession?.beginPhase()
             cancelNoteAuditionForDocumentTransition()
+            editableDocumentIdentity = nil
             blankDocument = nil
             loadedMetadata = metadata
             editableDocumentEditCoordinator.discardUndoHistory()
@@ -1214,6 +1366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         discardHiddenSongOrderEditorController()
         cancelNoteAuditionForDocumentTransition()
         let document = BlankTrackerDocument.makeDefault()
+        editableDocumentIdentity = UUID()
         blankDocument = document
         loadedMetadata = nil
         editableDocumentEditCoordinator.discardUndoHistory()

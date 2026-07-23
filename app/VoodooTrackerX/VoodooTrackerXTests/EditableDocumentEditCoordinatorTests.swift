@@ -146,6 +146,82 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         }
     }
 
+    func testWAVImportAndReplacementAreSingleApplyEditActionsWithExactUndoRedo() throws {
+        let empty = BlankTrackerDocument.makeDefault()
+        let candidate = try normalizedImportCandidate(name: "Kick.wav", pcm: [-0.75, 0.75])
+        let instrumentController = InstrumentEditorWindowController(displayState: .editableDocument(empty))
+        let sampleController = SampleEditorWindowController(displayState: .editableDocument(empty))
+        let instrumentView = try XCTUnwrap(instrumentController.window?.contentView as? InstrumentEditorView)
+        let sampleView = try XCTUnwrap(sampleController.window?.contentView as? SampleEditorView)
+        let emptyHarness = EditHarness(
+            context: .editable(document: empty, isPlaybackActive: false),
+            onApply: {
+                instrumentController.apply(displayState: .editableDocument($0))
+                sampleController.apply(displayState: .editableDocument($0))
+            }
+        )
+        let emptyDestination = try XCTUnwrap(empty.selectedSampleImportDestination)
+
+        XCTAssertTrue(emptyHarness.coordinator.canImportWAVSample)
+        XCTAssertTrue(emptyHarness.coordinator.importWAVSample(candidate, destination: emptyDestination))
+        let imported = try XCTUnwrap(emptyHarness.editableDocument)
+        XCTAssertEqual(emptyHarness.appliedDocuments, [imported])
+        XCTAssertEqual(emptyHarness.coordinator.undoMenuItemTitle, "Undo Import WAV Sample")
+        XCTAssertEqual(imported.controlPanelMetadata.selectedSampleDisplay, "S01 Kick")
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.name, "Kick")
+        XCTAssertEqual(sampleView.displayState.sampleName, "Kick")
+        XCTAssertTrue(emptyHarness.coordinator.undo())
+        XCTAssertEqual(emptyHarness.editableDocument, empty)
+        XCTAssertEqual(sampleView.displayState.sampleName, "No represented sample")
+        XCTAssertTrue(emptyHarness.coordinator.redo())
+        XCTAssertEqual(emptyHarness.editableDocument, imported)
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.name, "Kick")
+        XCTAssertEqual(sampleView.displayState.sampleName, "Kick")
+
+        let oldSample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, name: "Old", pcm: [0.25])
+        let oldInstrument = PlaybackInstrument(
+            index: 1, name: "Preserved", samples: [oldSample], noteSampleMap: Array(repeating: 0, count: 96)
+        )
+        let occupied = BlankTrackerDocument(
+            title: empty.title, songLength: empty.songLength, currentPosition: empty.currentPosition,
+            restartPosition: empty.restartPosition, currentPatternIndex: empty.currentPatternIndex,
+            tempo: empty.tempo, speed: empty.speed, orderTable: empty.orderTable,
+            selection: .default, instrumentPalette: [1: oldInstrument], patterns: empty.patterns
+        )
+        let replacementHarness = EditHarness(context: .editable(document: occupied, isPlaybackActive: false))
+        let replacementDestination = try XCTUnwrap(occupied.selectedSampleImportDestination)
+
+        XCTAssertTrue(replacementHarness.coordinator.importWAVSample(candidate, destination: replacementDestination))
+        let replaced = try XCTUnwrap(replacementHarness.editableDocument)
+        XCTAssertEqual(replaced.instrumentPalette[1]?.samples.first?.name, "Kick")
+        XCTAssertEqual(replaced.instrumentPalette[1]?.noteSampleMap, oldInstrument.noteSampleMap)
+        XCTAssertTrue(replacementHarness.coordinator.undo())
+        XCTAssertEqual(replacementHarness.editableDocument, occupied)
+        XCTAssertTrue(replacementHarness.coordinator.redo())
+        XCTAssertEqual(replacementHarness.editableDocument, replaced)
+    }
+
+    func testWAVImportRejectsLoadedPlayingInvalidAndStaleDestinationsWithoutHistory() throws {
+        let base = BlankTrackerDocument.makeDefault()
+        var invalid = base
+        invalid.selectSample(2)
+        let candidate = try normalizedImportCandidate()
+        let destination = try XCTUnwrap(base.selectedSampleImportDestination)
+        let contexts: [EditableDocumentEditContext] = [
+            .none, .loadedReadOnly,
+            .editable(document: base, isPlaybackActive: true),
+            .editable(document: invalid, isPlaybackActive: false),
+        ]
+
+        for context in contexts {
+            let harness = EditHarness(context: context)
+            XCTAssertFalse(harness.coordinator.canImportWAVSample)
+            XCTAssertFalse(harness.coordinator.importWAVSample(candidate, destination: destination))
+            XCTAssertTrue(harness.appliedDocuments.isEmpty)
+            XCTAssertFalse(harness.undoManager.canUndo)
+        }
+    }
+
     func testInstrumentRenameAppliesThroughUndoRedoAndRefreshesExistingDisplays() throws {
         let before = documentWithInstrumentName("Snapshot")
         let controller = InstrumentEditorWindowController(displayState: .editableDocument(before))

@@ -545,6 +545,23 @@ func makePlaybackSample(
     )
 }
 
+func normalizedImportCandidate(
+    name: String = "Imported.wav",
+    pcm: [Float] = [-0.5, 0.5],
+    sampleRate: Double = PlaybackSample.xmNeutralSampleRate,
+    sourceChannelCount: Int = 1
+) throws -> NormalizedSampleImport {
+    try NormalizedSampleImport(
+        decoded: DecodedSampleImport(
+            sourceSampleRate: sampleRate,
+            sourceChannelCount: sourceChannelCount,
+            sourceBitDepthBits: 16,
+            monoPCM: pcm
+        ),
+        sourceFilename: name
+    )
+}
+
 func makeRampPlaybackSample(
     frameCount: Int = 600,
     instrumentIndex: Int = 1,

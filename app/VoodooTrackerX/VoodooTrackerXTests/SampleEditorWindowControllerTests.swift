@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import XCTest
 
 @MainActor
@@ -44,6 +45,43 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(wrongDestination).isSineGenerationEnabled)
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(occupied).isSineGenerationEnabled)
         XCTAssertFalse(SampleEditorDisplayState.loadedModule(playbackSong: nil, selection: .default).isSineGenerationEnabled)
+    }
+
+    func testWAVLoadEligibilityCoversEmptyRepresentedEditableLoadedPlayingAndImportingStates() {
+        let empty = BlankTrackerDocument.makeDefault()
+        var invalid = empty
+        invalid.selectSample(2)
+        var represented = empty
+        XCTAssertTrue(represented.generateSineInSelectedEmptySample())
+
+        XCTAssertTrue(SampleEditorDisplayState.editableDocument(empty).isWAVLoadEnabled)
+        XCTAssertTrue(SampleEditorDisplayState.editableDocument(represented).isWAVLoadEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(invalid).isWAVLoadEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(empty, isPlaybackActive: true).isWAVLoadEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(empty, isImportingWAV: true).isWAVLoadEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.loadedModule(playbackSong: nil, selection: .default).isWAVLoadEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.empty.isWAVLoadEnabled)
+    }
+
+    func testWAVLoadButtonInvokesOnlyWhenEligibleAndDisablesDuringImport() throws {
+        var invocationCount = 0
+        let controller = SampleEditorWindowController(
+            displayState: .editableDocument(.makeDefault()),
+            wavLoadHandler: { invocationCount += 1; return true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        let button = try XCTUnwrap(view.wavLoadButton)
+
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertTrue(button.sendAction(button.action, to: button.target))
+        XCTAssertEqual(invocationCount, 1)
+
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(.makeDefault(), isImportingWAV: true)))
+        XCTAssertFalse(try XCTUnwrap(view.wavLoadButton).isEnabled)
+        XCTAssertNotNil(view.wavImportProgressIndicator)
+        XCTAssertNil(view.wavLoadButton?.action)
+        XCTAssertNil(view.wavLoadButton?.target)
+        XCTAssertEqual(invocationCount, 1)
     }
 
     func testSineButtonGeneratesAndRefreshesUndoRedoStates() throws {
@@ -516,6 +554,351 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(editableControls.allSatisfy { $0.target == nil && $0.action == nil })
     }
 
+    func testWAVOpenPanelConfigurationIsSingleFileWAVOnly() {
+        let request = SampleEditorWAVFileRequest.wav
+        let panel = SampleEditorWAVOpenPanel.make(request: request)
+
+        XCTAssertTrue(panel.canChooseFiles)
+        XCTAssertFalse(panel.canChooseDirectories)
+        XCTAssertFalse(panel.allowsMultipleSelection)
+        XCTAssertEqual(request.allowedFileExtensions, ["wav", "wave"])
+        XCTAssertFalse(panel.allowedContentTypes.isEmpty)
+        XCTAssertTrue(panel.allowedContentTypes.allSatisfy { $0.conforms(to: .audio) || $0.preferredFilenameExtension == "wav" })
+    }
+
+    func testWAVImportFileCancelAndDuplicateActionSuppressionCreateNoMutation() {
+        let document = BlankTrackerDocument.makeDefault()
+        let identity = UUID()
+        var chooserCompletion: ((URL?) -> Void)?
+        var requests: [SampleEditorWAVFileRequest] = []
+        var commits = 0
+        var importingStates: [Bool] = []
+        let coordinator = SampleEditorWAVImportCoordinator(
+            contextProvider: {
+                SampleEditorWAVImportContext(
+                    documentIdentity: identity, documentRevision: 1, document: document, isPlaybackActive: false
+                )
+            },
+            worker: SampleEditorWAVImportWorker(
+                inspect: { _ in .failure(.audioDecodeFailed) },
+                normalize: { _, _ in .failure(.audioDecodeFailed) }
+            ),
+            fileChooser: { request, completion in requests.append(request); chooserCompletion = completion },
+            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            stereoChannelChooser: { _ in XCTFail("Cancel must not inspect channels") },
+            commitHandler: { _, _ in commits += 1; return true },
+            errorHandler: { _ in XCTFail("Cancel must not show an error") },
+            importingStateHandler: { importingStates.append($0) }
+        )
+
+        XCTAssertTrue(coordinator.begin())
+        XCTAssertTrue(coordinator.isImporting)
+        XCTAssertFalse(coordinator.begin())
+        XCTAssertEqual(requests, [.wav])
+        chooserCompletion?(nil)
+        XCTAssertFalse(coordinator.isImporting)
+        XCTAssertEqual(importingStates, [true, false])
+        XCTAssertEqual(commits, 0)
+    }
+
+    func testWAVImportMonoSkipsChannelChoiceAndStereoUsesExplicitMixLeftRightOrCancel() async throws {
+        let document = BlankTrackerDocument.makeDefault()
+        let identity = UUID()
+        let candidate = try normalizedImportCandidate(sourceChannelCount: 2)
+
+        var monoPromptCount = 0
+        let monoModes = SampleImportThreadSafeRecorder<SampleImportChannelMode>()
+        let monoCommit = expectation(description: "mono commit")
+        let mono = SampleEditorWAVImportCoordinator(
+            contextProvider: {
+                SampleEditorWAVImportContext(
+                    documentIdentity: identity, documentRevision: 1, document: document, isPlaybackActive: false
+                )
+            },
+            worker: SampleEditorWAVImportWorker(
+                inspect: { _ in .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2)) },
+                normalize: { _, mode in monoModes.append(mode); return .success(candidate) }
+            ),
+            fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
+            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            stereoChannelChooser: { _ in monoPromptCount += 1 },
+            commitHandler: { _, _ in monoCommit.fulfill(); return true },
+            errorHandler: { XCTFail($0) }
+        )
+        XCTAssertTrue(mono.begin())
+        await fulfillment(of: [monoCommit], timeout: 1)
+        XCTAssertEqual(monoPromptCount, 0)
+        XCTAssertEqual(monoModes.values, [.mixToMono])
+
+        let normalizedModes = SampleImportThreadSafeRecorder<SampleImportChannelMode>()
+        for choice in [SampleImportChannelMode.mixToMono, .left, .right] {
+            let committed = expectation(description: "stereo \(choice)")
+            let coordinator = SampleEditorWAVImportCoordinator(
+                contextProvider: {
+                    SampleEditorWAVImportContext(
+                        documentIdentity: identity, documentRevision: 1, document: document, isPlaybackActive: false
+                    )
+                },
+                worker: SampleEditorWAVImportWorker(
+                    inspect: { _ in .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 2, sourceBitDepthBits: 16, frameCount: 2)) },
+                    normalize: { _, mode in normalizedModes.append(mode); return .success(candidate) }
+                ),
+                fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
+                replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+                stereoChannelChooser: { completion in completion(choice) },
+                commitHandler: { _, _ in committed.fulfill(); return true },
+                errorHandler: { XCTFail($0) }
+            )
+            XCTAssertTrue(coordinator.begin())
+            await fulfillment(of: [committed], timeout: 1)
+        }
+        XCTAssertEqual(normalizedModes.values, [.mixToMono, .left, .right])
+
+        var cancelCommits = 0
+        let cancelFinished = expectation(description: "stereo cancel")
+        let cancelled = SampleEditorWAVImportCoordinator(
+            contextProvider: {
+                SampleEditorWAVImportContext(
+                    documentIdentity: identity, documentRevision: 1, document: document, isPlaybackActive: false
+                )
+            },
+            worker: SampleEditorWAVImportWorker(
+                inspect: { _ in .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 2, sourceBitDepthBits: 16, frameCount: 2)) },
+                normalize: { _, _ in XCTFail("Cancelled channel choice must not decode"); return .failure(.audioDecodeFailed) }
+            ),
+            fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
+            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            stereoChannelChooser: { completion in completion(nil) },
+            commitHandler: { _, _ in cancelCommits += 1; return true },
+            errorHandler: { XCTFail($0) },
+            importingStateHandler: { if !$0 { cancelFinished.fulfill() } }
+        )
+        XCTAssertTrue(cancelled.begin())
+        await fulfillment(of: [cancelFinished], timeout: 1)
+        XCTAssertEqual(cancelCommits, 0)
+    }
+
+    func testOccupiedWAVImportRequiresExactReplacementConfirmationBeforeInspection() async throws {
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(document.generateSineInSelectedEmptySample())
+        let identity = UUID()
+        let candidate = try normalizedImportCandidate()
+        let cancellationFinished = expectation(description: "replacement cancellation")
+        let cancelled = SampleEditorWAVImportCoordinator(
+            contextProvider: {
+                SampleEditorWAVImportContext(
+                    documentIdentity: identity, documentRevision: 7, document: document, isPlaybackActive: false
+                )
+            },
+            worker: SampleEditorWAVImportWorker(
+                inspect: { _ in XCTFail("Cancelled replacement must not inspect"); return .failure(.audioDecodeFailed) },
+                normalize: { _, _ in XCTFail("Cancelled replacement must not normalize"); return .failure(.audioDecodeFailed) }
+            ),
+            fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
+            replacementConfirmation: { completion in completion(false) },
+            stereoChannelChooser: { _ in XCTFail("Cancelled replacement must not choose a channel") },
+            commitHandler: { _, _ in XCTFail("Cancelled replacement must not commit"); return false },
+            errorHandler: { XCTFail($0) },
+            importingStateHandler: { if !$0 { cancellationFinished.fulfill() } }
+        )
+        XCTAssertTrue(cancelled.begin())
+        await fulfillment(of: [cancellationFinished], timeout: 1)
+        XCTAssertFalse(cancelled.isImporting)
+
+        let order = SampleImportThreadSafeRecorder<String>()
+        let committed = expectation(description: "replacement committed")
+        let coordinator = SampleEditorWAVImportCoordinator(
+            contextProvider: {
+                SampleEditorWAVImportContext(
+                    documentIdentity: identity, documentRevision: 7, document: document, isPlaybackActive: false
+                )
+            },
+            worker: SampleEditorWAVImportWorker(
+                inspect: { _ in order.append("inspect"); return .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2)) },
+                normalize: { _, _ in order.append("normalize"); return .success(candidate) }
+            ),
+            fileChooser: { _, completion in order.append("file"); completion(temporaryGeneratedWAVURL) },
+            replacementConfirmation: { completion in order.append("replace"); completion(true) },
+            stereoChannelChooser: { _ in XCTFail("Mono must skip channel choice") },
+            commitHandler: { _, destination in
+                order.append("commit")
+                XCTAssertEqual(destination, .represented(instrumentIndex: 1, sampleIndex: 0))
+                committed.fulfill()
+                return true
+            },
+            errorHandler: { XCTFail($0) }
+        )
+
+        XCTAssertTrue(coordinator.begin())
+        await fulfillment(of: [committed], timeout: 1)
+        XCTAssertEqual(order.values, ["file", "replace", "inspect", "normalize", "commit"])
+    }
+
+    func testWAVImportCaptureRejectsStaleIdentityRevisionSelectionOccupancyAndPlayback() throws {
+        let identity = UUID()
+        let empty = BlankTrackerDocument.makeDefault()
+        let context = SampleEditorWAVImportContext(
+            documentIdentity: identity, documentRevision: 4, document: empty, isPlaybackActive: false
+        )
+        let capture = try XCTUnwrap(SampleEditorWAVImportCapture(context: context))
+        XCTAssertTrue(capture.isCurrent(in: context))
+
+        var selectedElsewhere = empty
+        selectedElsewhere.selectSample(2)
+        var occupied = empty
+        XCTAssertTrue(occupied.generateSineInSelectedEmptySample())
+        let staleContexts = [
+            SampleEditorWAVImportContext(documentIdentity: UUID(), documentRevision: 4, document: empty, isPlaybackActive: false),
+            SampleEditorWAVImportContext(documentIdentity: identity, documentRevision: 5, document: empty, isPlaybackActive: false),
+            SampleEditorWAVImportContext(documentIdentity: identity, documentRevision: 4, document: selectedElsewhere, isPlaybackActive: false),
+            SampleEditorWAVImportContext(documentIdentity: identity, documentRevision: 4, document: occupied, isPlaybackActive: false),
+            SampleEditorWAVImportContext(documentIdentity: identity, documentRevision: 4, document: empty, isPlaybackActive: true),
+            SampleEditorWAVImportContext(documentIdentity: nil, documentRevision: 4, document: nil, isPlaybackActive: false),
+        ]
+        XCTAssertTrue(staleContexts.allSatisfy { !capture.isCurrent(in: $0) })
+    }
+
+    func testWAVImportDoesNotMutateBeforeCandidateCompletesAndRejectsStaleAsyncResult() async throws {
+        let identity = UUID()
+        let document = BlankTrackerDocument.makeDefault()
+        var context = SampleEditorWAVImportContext(
+            documentIdentity: identity, documentRevision: 1, document: document, isPlaybackActive: false
+        )
+        let candidate = try normalizedImportCandidate()
+        let gate = SampleImportCandidateGate()
+        var commits = 0
+        let finished = expectation(description: "stale import finishes")
+        let coordinator = SampleEditorWAVImportCoordinator(
+            contextProvider: { context },
+            worker: SampleEditorWAVImportWorker(
+                inspect: { _ in
+                    .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2))
+                },
+                normalize: { _, _ in .success(await gate.wait()) }
+            ),
+            fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
+            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            stereoChannelChooser: { _ in XCTFail("Mono must skip channel choice") },
+            commitHandler: { _, _ in commits += 1; return true },
+            errorHandler: { XCTFail($0) },
+            importingStateHandler: { if !$0 { finished.fulfill() } }
+        )
+
+        XCTAssertTrue(coordinator.begin())
+        await gate.waitUntilStarted()
+        XCTAssertEqual(commits, 0)
+        context = SampleEditorWAVImportContext(
+            documentIdentity: identity, documentRevision: 2, document: document, isPlaybackActive: false
+        )
+        await gate.resume(with: candidate)
+        await fulfillment(of: [finished], timeout: 1)
+        XCTAssertEqual(commits, 0)
+        XCTAssertFalse(coordinator.isImporting)
+    }
+
+    func testWAVImportWorkerRunsInspectionAndNormalizationOffMainThread() async throws {
+        let candidate = try normalizedImportCandidate()
+        let worker = SampleEditorWAVImportWorker.background(
+            inspect: { _ in
+                .init(
+                    sourceSampleRate: Thread.isMainThread ? -1 : 8_363,
+                    sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2
+                )
+            },
+            normalize: { _, _ in
+                if Thread.isMainThread { throw SampleImportError.audioDecodeFailed }
+                return candidate
+            }
+        )
+
+        guard case let .success(inspection) = await worker.inspect(temporaryGeneratedWAVURL) else {
+            return XCTFail("Expected background inspection")
+        }
+        XCTAssertEqual(inspection.sourceSampleRate, 8_363)
+        guard case let .success(normalized) = await worker.normalize(
+            temporaryGeneratedWAVURL, .mixToMono
+        ) else { return XCTFail("Expected background normalization") }
+        XCTAssertEqual(normalized, candidate)
+    }
+
+    func testWAVImportErrorsAreConciseTypedAndDoNotExposeRawCasesOrPaths() async {
+        let errors: [SampleImportError] = [
+            .malformedWAV, .truncatedWAV, .unsupportedEncoding(formatCode: 99, bitsPerSample: 12),
+            .emptySource, .unsupportedChannelCount(6), .invalidSampleRate, .resourceLimitExceeded,
+            .integerOverflow, .audioDecodeFailed, .decoderMetadataMismatch,
+            .nonFinitePCM, .tuningOutOfRange, .unreadableSource,
+        ]
+        for error in errors {
+            let message = error.userFacingMessage
+            XCTAssertFalse(message.isEmpty)
+            XCTAssertFalse(message.contains("/tmp"))
+            XCTAssertFalse(message.contains(String(describing: error)))
+            XCTAssertLessThan(message.count, 140)
+        }
+
+        let document = BlankTrackerDocument.makeDefault()
+        let identity = UUID()
+        var commits = 0
+        var presentedMessages: [String] = []
+        let finished = expectation(description: "typed failure finishes")
+        let coordinator = SampleEditorWAVImportCoordinator(
+            contextProvider: {
+                SampleEditorWAVImportContext(
+                    documentIdentity: identity, documentRevision: 1, document: document, isPlaybackActive: false
+                )
+            },
+            worker: SampleEditorWAVImportWorker(
+                inspect: { _ in .failure(.malformedWAV) },
+                normalize: { _, _ in XCTFail("Failed inspection must not normalize"); return .failure(.audioDecodeFailed) }
+            ),
+            fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
+            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            stereoChannelChooser: { _ in XCTFail("Failed inspection must not choose a channel") },
+            commitHandler: { _, _ in commits += 1; return true },
+            errorHandler: { presentedMessages.append($0) },
+            importingStateHandler: { if !$0 { finished.fulfill() } }
+        )
+        XCTAssertTrue(coordinator.begin())
+        await fulfillment(of: [finished], timeout: 1)
+        XCTAssertEqual(commits, 0)
+        XCTAssertEqual(presentedMessages, [SampleImportError.malformedWAV.userFacingMessage])
+        XCTAssertEqual(document, .makeDefault())
+    }
+
+    func testDocumentSheetPolicyRestoresKeySampleEditorAfterMainWindowSheet() throws {
+        let mainWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        let controller = SampleEditorWindowController()
+        let sampleWindow = try XCTUnwrap(controller.window)
+        let samplePanel = try XCTUnwrap(sampleWindow as? NSPanel)
+        sampleWindow.orderFront(nil)
+        defer {
+            sampleWindow.close()
+            mainWindow.close()
+        }
+        let alert = NSAlert()
+        var host: NSWindow?
+        var completion: ((NSApplication.ModalResponse) -> Void)?
+        var orderedBack: [NSWindow] = []
+        var activated: [NSWindow] = []
+        let actions = LoadedModuleEditableCopyAlertPresenter.Actions(
+            orderBack: { orderedBack.append($0) },
+            makeKeyAndOrderFront: { activated.append($0) },
+            beginSheet: { _, window, handler in host = window; completion = handler },
+            runModal: { _ in XCTFail("A main tracker window is available") }
+        )
+
+        LoadedModuleEditableCopyAlertPresenter.present(
+            alert, keyWindow: sampleWindow, mainWindow: mainWindow, actions: actions
+        )
+        XCTAssertTrue(host === mainWindow)
+        XCTAssertTrue(orderedBack.first === sampleWindow)
+        XCTAssertTrue(activated.first === mainWindow)
+        XCTAssertFalse(samplePanel.isFloatingPanel)
+        completion?(.OK)
+        XCTAssertTrue(activated.last === sampleWindow)
+        XCTAssertTrue(samplePanel.isFloatingPanel)
+    }
+
     func testPresenterReusesOpenControllerAndReopensWithoutTextFocusOrDuplicates() throws {
         let song = try loadReferenceSong("generated/instrument-sustained-defaults.xm")
         let state = SampleEditorDisplayState.loadedModule(playbackSong: song, selection: .default)
@@ -563,4 +946,47 @@ private func makeSampleEditorSong(instruments: [Int: PlaybackInstrument]) -> Pla
 
 private extension NSView {
     var sampleEditorDescendants: [NSView] { subviews + subviews.flatMap(\.sampleEditorDescendants) }
+}
+
+private let temporaryGeneratedWAVURL = FileManager.default.temporaryDirectory
+    .appendingPathComponent("generated-sample-import.wav")
+
+private actor SampleImportCandidateGate {
+    private var didStart = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var candidateWaiter: CheckedContinuation<NormalizedSampleImport, Never>?
+
+    func wait() async -> NormalizedSampleImport {
+        didStart = true
+        startWaiters.forEach { $0.resume() }
+        startWaiters.removeAll()
+        return await withCheckedContinuation { candidateWaiter = $0 }
+    }
+
+    func waitUntilStarted() async {
+        if didStart { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func resume(with candidate: NormalizedSampleImport) {
+        candidateWaiter?.resume(returning: candidate)
+        candidateWaiter = nil
+    }
+}
+
+private final class SampleImportThreadSafeRecorder<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Value] = []
+
+    func append(_ value: Value) {
+        lock.lock()
+        storage.append(value)
+        lock.unlock()
+    }
+
+    var values: [Value] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
 }

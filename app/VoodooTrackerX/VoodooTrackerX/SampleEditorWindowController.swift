@@ -3,6 +3,7 @@ import AppKit
 typealias SampleEditorInstrumentSelectionHandler = (_ oneBasedInstrumentSlot: Int) -> Bool
 typealias SampleEditorSampleSelectionHandler = (_ oneBasedSampleSlot: Int) -> Bool
 typealias SampleEditorSineGenerationHandler = () -> Bool
+typealias SampleEditorWAVLoadHandler = () -> Bool
 
 struct SampleWaveformBucket: Equatable {
     let minimum: Float
@@ -151,7 +152,8 @@ struct SampleEditorDisplayState: Equatable {
     static let empty = SampleEditorDisplayState(
         source: .none, instrumentSlot: nil, instrumentName: "No instrument available",
         instrumentOptions: [], selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
-        emptyMessage: "No document sample palette is available.", isSineGenerationEnabled: false
+        emptyMessage: "No document sample palette is available.", isSineGenerationEnabled: false,
+        isWAVLoadEnabled: false, isImportingWAV: false
     )
 
     let source: Source
@@ -163,6 +165,8 @@ struct SampleEditorDisplayState: Equatable {
     let selectedSample: PlaybackSample?
     let emptyMessage: String
     let isSineGenerationEnabled: Bool
+    let isWAVLoadEnabled: Bool
+    let isImportingWAV: Bool
     var isReadOnly: Bool { source != .editableDocument }
     var instrumentDisplay: String { instrumentSlot.map { String(format: "I%02X", $0) } ?? "—" }
     var sampleDisplay: String { selectedSampleSlot.map { String(format: "S%02X", $0) } ?? "—" }
@@ -190,16 +194,23 @@ struct SampleEditorDisplayState: Equatable {
 
     static func loadedModule(playbackSong: PlaybackSong?, selection: TrackerEditorSelection) -> Self {
         make(source: .loadedModule, palette: playbackSong?.instrumentsByIndex ?? [:],
-             selection: selection, isSineGenerationEnabled: false)
+             selection: selection, isSineGenerationEnabled: false, isWAVLoadEnabled: false, isImportingWAV: false)
     }
 
-    static func editableDocument(_ document: BlankTrackerDocument, isPlaybackActive: Bool = false) -> Self {
+    static func editableDocument(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool = false,
+        isImportingWAV: Bool = false
+    ) -> Self {
         make(source: .editableDocument, palette: document.instrumentPalette, selection: document.selection,
-             isSineGenerationEnabled: !isPlaybackActive && document.canGenerateSineInSelectedEmptySample)
+             isSineGenerationEnabled: !isPlaybackActive && !isImportingWAV && document.canGenerateSineInSelectedEmptySample,
+             isWAVLoadEnabled: !isPlaybackActive && !isImportingWAV && document.selectedSampleImportDestination != nil,
+             isImportingWAV: isImportingWAV)
     }
 
     private static func make(source: Source, palette: [Int: PlaybackInstrument],
-                             selection: TrackerEditorSelection, isSineGenerationEnabled: Bool) -> Self {
+                             selection: TrackerEditorSelection, isSineGenerationEnabled: Bool,
+                             isWAVLoadEnabled: Bool, isImportingWAV: Bool) -> Self {
         let instrumentOptions = palette
             .filter { (1...255).contains($0.key) }
             .map { slot, instrument in
@@ -218,7 +229,7 @@ struct SampleEditorDisplayState: Equatable {
                 emptyMessage: palette.isEmpty
                     ? "No represented instruments are available."
                     : "\(String(format: "I%02X", selection.selectedInstrument)) is not represented.",
-                isSineGenerationEnabled: false
+                isSineGenerationEnabled: false, isWAVLoadEnabled: false, isImportingWAV: isImportingWAV
             )
         }
         let selected = instrument.sample(selectedSampleSlot: selection.selectedSample)
@@ -240,7 +251,9 @@ struct SampleEditorDisplayState: Equatable {
             emptyMessage: selected == nil
                 ? (slots.isEmpty ? "This instrument has no represented samples." : "The selected sample is not represented.")
                 : "",
-            isSineGenerationEnabled: isSineGenerationEnabled
+            isSineGenerationEnabled: isSineGenerationEnabled,
+            isWAVLoadEnabled: isWAVLoadEnabled,
+            isImportingWAV: isImportingWAV
         )
     }
 
@@ -263,6 +276,7 @@ enum SampleEditorViewIdentifier {
     static let sampleParamsPanel = "sampleEditor.sampleParamsPanel"
     static let generatePanel = "sampleEditor.generatePanel"
     static let filePanel = "sampleEditor.filePanel"
+    static let wavLoadButton = "sampleEditor.wavLoadButton"
     static let editPanel = "sampleEditor.editPanel"
     static let sampleRowPrefix = "sampleEditor.sampleRow."
     static let futureControlPrefix = "sampleEditor.futureControl."
@@ -370,12 +384,14 @@ final class SampleEditorWindowPresenter {
         displayState: SampleEditorDisplayState,
         instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
-        sineGenerationHandler: SampleEditorSineGenerationHandler? = nil
+        sineGenerationHandler: SampleEditorSineGenerationHandler? = nil,
+        wavLoadHandler: SampleEditorWAVLoadHandler? = nil
     ) -> SampleEditorWindowController {
         if let windowController {
             windowController.instrumentSelectionHandler = instrumentSelectionHandler
             windowController.sampleSelectionHandler = sampleSelectionHandler
             windowController.sineGenerationHandler = sineGenerationHandler
+            windowController.wavLoadHandler = wavLoadHandler
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
             return windowController
@@ -384,7 +400,8 @@ final class SampleEditorWindowPresenter {
             displayState: displayState,
             instrumentSelectionHandler: instrumentSelectionHandler,
             sampleSelectionHandler: sampleSelectionHandler,
-            sineGenerationHandler: sineGenerationHandler
+            sineGenerationHandler: sineGenerationHandler,
+            wavLoadHandler: wavLoadHandler
         )
         controller.closeHandler = { [weak self, weak controller] in
             guard let self, let controller, self.windowController === controller else { return }
@@ -412,22 +429,28 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
     var sineGenerationHandler: SampleEditorSineGenerationHandler? {
         didSet { (window?.contentView as? SampleEditorView)?.sineGenerationHandler = sineGenerationHandler }
     }
+    var wavLoadHandler: SampleEditorWAVLoadHandler? {
+        didSet { (window?.contentView as? SampleEditorView)?.wavLoadHandler = wavLoadHandler }
+    }
 
     init(
         displayState: SampleEditorDisplayState = .empty,
         instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
-        sineGenerationHandler: SampleEditorSineGenerationHandler? = nil
+        sineGenerationHandler: SampleEditorSineGenerationHandler? = nil,
+        wavLoadHandler: SampleEditorWAVLoadHandler? = nil
     ) {
         self.instrumentSelectionHandler = instrumentSelectionHandler
         self.sampleSelectionHandler = sampleSelectionHandler
         self.sineGenerationHandler = sineGenerationHandler
+        self.wavLoadHandler = wavLoadHandler
         let view = SampleEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
             displayState: displayState,
             instrumentSelectionHandler: instrumentSelectionHandler,
             sampleSelectionHandler: sampleSelectionHandler,
-            sineGenerationHandler: sineGenerationHandler
+            sineGenerationHandler: sineGenerationHandler,
+            wavLoadHandler: wavLoadHandler
         )
         let panel = NSPanel(
             contentRect: view.frame, styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false
@@ -473,6 +496,7 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
         instrumentSelectionHandler = nil
         sampleSelectionHandler = nil
         sineGenerationHandler = nil
+        wavLoadHandler = nil
         closeHandler?()
     }
 }
@@ -485,6 +509,8 @@ final class SampleEditorView: FlippedEditorView {
     private(set) weak var waveformView: SampleWaveformView?
     private(set) weak var instrumentSelector: NSPopUpButton?
     private(set) weak var sineButton: NSButton?
+    private(set) weak var wavLoadButton: NSButton?
+    private(set) weak var wavImportProgressIndicator: NSProgressIndicator?
     private var sampleRows: [Int: InstrumentEditorListRowControl] = [:]
     var instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? {
         didSet { configureInstrumentSelectorHandler() }
@@ -493,18 +519,23 @@ final class SampleEditorView: FlippedEditorView {
     var sineGenerationHandler: SampleEditorSineGenerationHandler? {
         didSet { configureSineButtonHandler() }
     }
+    var wavLoadHandler: SampleEditorWAVLoadHandler? {
+        didSet { configureWAVLoadButtonHandler() }
+    }
 
     init(
         frame frameRect: NSRect,
         displayState: SampleEditorDisplayState = .empty,
         instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
-        sineGenerationHandler: SampleEditorSineGenerationHandler? = nil
+        sineGenerationHandler: SampleEditorSineGenerationHandler? = nil,
+        wavLoadHandler: SampleEditorWAVLoadHandler? = nil
     ) {
         self.displayState = displayState
         self.instrumentSelectionHandler = instrumentSelectionHandler
         self.sampleSelectionHandler = sampleSelectionHandler
         self.sineGenerationHandler = sineGenerationHandler
+        self.wavLoadHandler = wavLoadHandler
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.contentView)
         style(background: VTXEditorControlTheme.windowBackground)
@@ -717,10 +748,42 @@ final class SampleEditorView: FlippedEditorView {
     }
 
     private func buildFile(_ parent: NSView) {
-        label("— SAMPLE IMPORT / EXPORT · XI IS MENU-CANONICAL", parent, NSRect(x: 48, y: 10, width: 320, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8)
-        for (index, title) in ["⤓\nLOAD", "⤒\nEXPORT", "⌫\nCLEAR", "⟲\nREPLACE"].enumerated() {
+        label(
+            displayState.isImportingWAV ? "— IMPORTING WAV" : "— WAV LOAD · OTHER FILE ACTIONS FUTURE",
+            parent, NSRect(x: 48, y: 10, width: 300, height: 11),
+            color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8
+        )
+        if displayState.isImportingWAV {
+            let progress = NSProgressIndicator(frame: NSRect(x: 350, y: 7, width: 14, height: 14))
+            progress.style = .spinning
+            progress.controlSize = .small
+            progress.isIndeterminate = true
+            progress.startAnimation(nil)
+            parent.addSubview(progress)
+            wavImportProgressIndicator = progress
+        }
+        let load = VTXEditorControlFactory.makeButton(title: "⤓\nLOAD", role: .normal, fixedWidth: 87)
+        load.identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.wavLoadButton)
+        addControl(load, to: parent, frame: NSRect(x: 10, y: 31, width: 87, height: 45))
+        wavLoadButton = load
+        configureWAVLoadButtonHandler()
+        for (index, title) in ["⤓\nLOAD", "⤒\nEXPORT", "⌫\nCLEAR", "⟲\nREPLACE"].enumerated().dropFirst() {
             futureButton(title, id: "file\(index)", parent, NSRect(x: 10 + CGFloat(index) * 93, y: 31, width: 87, height: 45), role: index >= 2 ? .danger : .normal)
         }
+    }
+
+    private func configureWAVLoadButtonHandler() {
+        guard let wavLoadButton else { return }
+        let enabled = displayState.isWAVLoadEnabled && wavLoadHandler != nil
+        wavLoadButton.isEnabled = enabled
+        wavLoadButton.target = enabled ? self : nil
+        wavLoadButton.action = enabled ? #selector(loadWAV(_:)) : nil
+        wavLoadButton.setAccessibilityEnabled(enabled)
+    }
+
+    @objc private func loadWAV(_ sender: NSButton) {
+        guard displayState.isWAVLoadEnabled else { return }
+        _ = wavLoadHandler?()
     }
 
     private func buildEdit(_ parent: NSView) {

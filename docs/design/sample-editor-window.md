@@ -8,7 +8,7 @@
 waveform/loop overview, stopped-editable empty-S01 SINE, and WAV LOAD into
 empty or represented destinations are implemented. AIFF/AIFC decode exists
 behind the import foundation but is not exposed by LOAD. Other sample mutation
-remains deferred.
+remains deferred. Header AUDITION directly previews the selected sample at C-4.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
 proportions, `assets/mockups/sample-editor-v1.html` takes precedence over this
@@ -60,7 +60,11 @@ The main thread revalidates document identity/revision, selection, destination
 occupancy, stopped transport, and operation token before one `Import WAV Sample`
 edit. Commit cancels stale preview once, refreshes all editors, and does not
 auto-audition. Other states/generators stay disabled; preview/runtime
-architecture is unchanged.
+architecture is unchanged. AUDITION is non-mutating for loaded/read-only and
+editable samples; it sends the selected slot directly at C-4 through the
+persistent stream—not the keymap—and reuses sample planning. Exact lifecycle
+release drives its glyph/LED. Note selection and natural-completion notification
+remain future work; no polling is used.
 
 ### From-scratch creation/import contract
 

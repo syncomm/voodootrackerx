@@ -106,6 +106,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(view.displayState.formatDisplay, "16-BIT · MONO")
         XCTAssertEqual(view.displayState.waveformPCM.count, 16_384)
         XCTAssertEqual(view.displayState.loop.status, .valid)
+        XCTAssertTrue(view.displayState.isAuditionEnabled)
         XCTAssertEqual(view.displayState.loop.startFraction, 0)
         XCTAssertEqual(view.displayState.loop.endFraction, 1)
 
@@ -121,12 +122,14 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         document = .makeDefault()
         XCTAssertTrue(controller.apply(displayState: .editableDocument(document)))
         XCTAssertEqual(view.displayState.sampleName, "No represented sample")
+        XCTAssertFalse(view.displayState.isAuditionEnabled)
         XCTAssertTrue(view.displayState.waveformPCM.isEmpty)
         XCTAssertEqual(view.displayState.loop, .inactive)
         XCTAssertTrue(try XCTUnwrap(view.sineButton).isEnabled)
         document = generated
         XCTAssertTrue(controller.apply(displayState: .editableDocument(document)))
         XCTAssertEqual(view.displayState.selectedSample, document.instrumentPalette[1]?.samples.first)
+        XCTAssertTrue(view.displayState.isAuditionEnabled)
     }
 
     func testInstrumentPopupIsEmptyAndDisabledWithoutDocumentContext() throws {
@@ -410,6 +413,129 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(undoManager.canUndo)
     }
 
+    func testAuditionEligibilityRequiresPlayableSelectedSampleAndAvailablePreviewNotMutability() throws {
+        let song = try loadReferenceSong("generated/instrument-sustained-defaults.xm")
+        var editable = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(editable.generateSineInSelectedEmptySample())
+        let invalid = makeSampleEditorSong(instruments: [
+            1: .init(index: 1, samples: [makePlaybackSample(pcm: [.nan])]),
+        ])
+
+        XCTAssertEqual([
+            SampleEditorDisplayState.loadedModule(playbackSong: song, selection: .default).isAuditionEnabled,
+            SampleEditorDisplayState.editableDocument(editable).isAuditionEnabled,
+            SampleEditorDisplayState.editableDocument(editable, isPlaybackActive: true).isAuditionEnabled,
+            SampleEditorDisplayState.empty.isAuditionEnabled,
+            SampleEditorDisplayState.editableDocument(.makeDefault()).isAuditionEnabled,
+            SampleEditorDisplayState.loadedModule(playbackSong: invalid, selection: .default).isAuditionEnabled,
+            SampleEditorDisplayState.loadedModule(playbackSong: song, selection: .default,
+                                                  isPreviewAvailable: false).isAuditionEnabled,
+        ], [true, true, true, false, false, false, false])
+    }
+
+    func testAuditionRequestUsesSelectedS02DirectlyAtC4WhileInstrumentEditorUsesKeymap() throws {
+        let fixture = try loadReferenceSong("generated/instrument-envelopes-keymap.xm")
+        let fixtureInstrument = try XCTUnwrap(fixture.instrument(forInstrument: 1))
+        var keymap = try XCTUnwrap(fixtureInstrument.noteSampleMap)
+        keymap[PlaybackPitchCalculator.c4NoteValue - 1] = 0
+        let instrument = PlaybackInstrument(
+            index: fixtureInstrument.index, name: fixtureInstrument.name, samples: fixtureInstrument.samples,
+            volumeEnvelope: fixtureInstrument.volumeEnvelope, panningEnvelope: fixtureInstrument.panningEnvelope,
+            autoVibrato: fixtureInstrument.autoVibrato, noteSampleMap: keymap
+        )
+        let song = makeSampleEditorSong(instruments: [1: instrument])
+        let selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
+        let sampleRequest = SampleEditorAuditionRequestFactory.request(
+            selection: selection, sourceContext: .loadedModule(patternIndex: 0))
+        let instrumentRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
+            noteValue: UInt8(PlaybackPitchCalculator.c4NoteValue), selection: selection,
+            instrument: instrument, sourceContext: .loadedModule(patternIndex: 0)
+        ))
+        guard case let .potentiallyAvailable(descriptor) =
+            EditorNoteAuditionAvailabilityResolver.availability(for: sampleRequest, loadedPlaybackSong: song) else {
+            return XCTFail("Expected selected S02 to be previewable")
+        }
+        let selectedSample = try XCTUnwrap(instrument.sample(selectedSampleSlot: 2))
+        XCTAssertEqual(sampleRequest.kind, .noteOn(noteValue: 49, selectedOctave: 4))
+        XCTAssertEqual(sampleRequest.selectedSampleIndex, 2)
+        XCTAssertEqual(instrumentRequest.selectedSampleIndex, 1)
+        XCTAssertEqual(descriptor.previewPCM, selectedSample.pcm)
+        XCTAssertEqual(descriptor.previewLoop, PlaybackSongSyntheticAdapter.mixerLoop(from: selectedSample))
+        XCTAssertEqual(instrument.noteSampleMap?[PlaybackPitchCalculator.c4NoteValue - 1], 0)
+        XCTAssertEqual(SampleEditorAuditionRequestFactory.request(
+            selection: .default, sourceContext: .blankDocument).selectedSampleIndex, 1)
+    }
+
+    func testAuditionButtonTogglesExactAcceptedGenerationAndAccessibleVisualState() throws {
+        let song = try loadReferenceSong("generated/instrument-sustained-defaults.xm")
+        let state = SampleEditorDisplayState.loadedModule(playbackSong: song, selection: .default)
+        let token = EditorNoteAuditionPreviewToken(generation: 7, keyIdentity: .sampleEditorAudition,
+                                                   noteValue: 49, selectedOctave: 4)
+        var starts = 0
+        var stoppedTokens: [EditorNoteAuditionPreviewToken] = []
+        let controller = SampleEditorWindowController(
+            displayState: state,
+            auditionHandlers: .init(start: { starts += 1; return token },
+                                    stop: { stoppedTokens.append($0); return $0 == token })
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        let button = try XCTUnwrap(view.auditionButton)
+
+        XCTAssertEqual(button.frame, NSRect(x: 802, y: 12, width: 35, height: 25))
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertEqual(button.title, "▶")
+        XCTAssertEqual(view.auditionIndicator?.state, .off)
+        XCTAssertEqual(button.accessibilityLabel(), "Audition selected sample")
+        XCTAssertEqual(button.accessibilityValue() as? String, "Stopped at fixed note C-4")
+
+        button.sendAction(button.action, to: button.target)
+        XCTAssertEqual(starts, 1)
+        XCTAssertEqual(button.title, "■")
+        XCTAssertEqual(button.editorRole, .selected)
+        XCTAssertEqual(view.auditionIndicator?.state, .redActive)
+        XCTAssertEqual(button.accessibilityValue() as? String, "Active at fixed note C-4")
+
+        button.sendAction(button.action, to: button.target)
+        XCTAssertEqual(stoppedTokens, [token])
+        XCTAssertEqual(button.title, "▶")
+        XCTAssertEqual(view.auditionIndicator?.state, .off)
+
+        controller.auditionHandlers = .init(start: { starts += 1; return nil }, stop: { _ in false })
+        button.sendAction(button.action, to: button.target)
+        XCTAssertEqual(starts, 2)
+    }
+
+    func testAuditionPrecedenceAndLifecycleReleaseAreGenerationSafe() throws {
+        let song = try loadReferenceSong("generated/instrument-envelopes-keymap.xm")
+        func token(_ generation: UInt64, _ identity: EditorNoteAuditionKeyIdentity) -> EditorNoteAuditionPreviewToken {
+            .init(generation: generation, keyIdentity: identity, noteValue: 49, selectedOctave: 4)
+        }
+        let firstToken = token(1, .sampleEditorAudition)
+        let secondToken = token(2, .sampleEditorAudition)
+        var nextToken = firstToken
+        var stopped: [EditorNoteAuditionPreviewToken] = []
+        let controller = SampleEditorWindowController(
+            displayState: .loadedModule(playbackSong: song, selection: .default),
+            auditionHandlers: .init(start: { nextToken }, stop: { stopped.append($0); return true })
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        var button = try XCTUnwrap(view.auditionButton)
+        button.sendAction(button.action, to: button.target)
+        XCTAssertTrue(controller.apply(displayState: .loadedModule(
+            playbackSong: song, selection: .init(selectedInstrument: 1, selectedSample: 2))))
+        XCTAssertEqual(stopped, [firstToken])
+        nextToken = secondToken
+        button = try XCTUnwrap(view.auditionButton)
+        button.sendAction(button.action, to: button.target)
+        controller.synchronizeActivePreviewToken(token(3, .instrumentEditorKeyboard))
+        XCTAssertNil(view.activeAuditionToken)
+        XCTAssertEqual(stopped, [firstToken])
+        controller.synchronizeActivePreviewToken(secondToken)
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        XCTAssertEqual(stopped, [firstToken, secondToken])
+    }
+
     func testSelectedSampleRowScrollsIntoViewWithoutChangingInstrument() throws {
         let samples = (0..<12).map { index in
             makePlaybackSample(
@@ -517,7 +643,10 @@ final class SampleEditorWindowControllerTests: XCTestCase {
 
     func testWindowMatchesFixedMockupHierarchyAndKeepsFutureControlsInert() throws {
         let song = try loadReferenceSong("generated/instrument-sustained-defaults.xm")
-        let controller = SampleEditorWindowController(displayState: .loadedModule(playbackSong: song, selection: .default))
+        let controller = SampleEditorWindowController(
+            displayState: .loadedModule(playbackSong: song, selection: .default),
+            auditionHandlers: .init(start: { nil }, stop: { _ in false })
+        )
         let window = try XCTUnwrap(controller.window)
         let view = try XCTUnwrap(window.contentView as? SampleEditorView)
         let descendants = view.sampleEditorDescendants
@@ -540,8 +669,12 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         }
         XCTAssertFalse(future.isEmpty)
         XCTAssertTrue(future.allSatisfy { !$0.isEnabled && $0.target == nil && $0.action == nil })
+        let audition = try XCTUnwrap(view.auditionButton)
+        XCTAssertEqual(audition.identifier?.rawValue, SampleEditorViewIdentifier.auditionButton)
+        XCTAssertNotNil(audition.target)
+        XCTAssertNotNil(audition.action)
         let nonNavigationControls = descendants.compactMap { $0 as? NSControl }.filter {
-            !($0 is InstrumentEditorListRowControl) && !($0 is NSPopUpButton)
+            !($0 is InstrumentEditorListRowControl) && !($0 is NSPopUpButton) && $0 !== audition
         }
         XCTAssertTrue(nonNavigationControls.allSatisfy { $0.target == nil && $0.action == nil })
         XCTAssertNil(try XCTUnwrap(view.waveformView).hitTest(.zero))

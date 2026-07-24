@@ -10,6 +10,13 @@ The current audible sink maps the typed note value to preview playback pitch usi
 
 Focused Instrument Editor computer and graphical presses create the same request at the exact note pitch. A 96-note XM map resolves the mapped sample without changing selection; tracker preview retains selected-sample routing.
 
+Sample Editor AUDITION instead creates a fixed canonical C-4 request for the
+represented selected slot directly, bypassing the 96-note map. Its click toggle
+uses the persistent sink, existing sample planning, monophonic handoff, and exact
+generation release for loaded/read-only or editable sources without mutation.
+Rejection and route invalidation clear it. Note selection and a narrow
+natural-completion callback remain future work; no timer or poll is used.
+
 Tracker note key release is preview-only in both Edit and non-Edit modes. A previewable tracker note `keyDown` starts or replaces the active preview note, and the matching tracker note `keyUp` stops/cancels only the active editor preview voice through the isolated preview sink. Key release does not write pattern data and never inserts `===`. Pattern key-off remains the explicit `===` note entry through the backtick/grave-accent key binding only where editing is allowed.
 
 ## Source Rules

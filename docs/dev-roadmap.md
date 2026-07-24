@@ -64,7 +64,9 @@ VoodooTracker X currently has:
   stale-result checks, one undoable edit, and document-owned mono 16-bit PCM.
   A manual foundation also decodes 8/16/24/32-bit AIFF and AIFC
   `NONE`/`twos`/`sowt` into that candidate. The panel remains WAV-only; Add as
-  New Sample, AIFF/AIFC UI wiring, FLAC, processing, and audition remain unavailable
+  New Sample, AIFF/AIFC UI wiring, FLAC, and processing remain unavailable.
+  AUDITION now toggles that selected slot directly at C-4 through the persistent
+  preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
   fixture; the schema-v2 manifest, generator verification mode, exact PCM/XM
   expectations, loader/model/editable-copy/edit/Export XM tests, and private-
@@ -130,7 +132,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recently completed target:
-`sample: add AIFF/AIFC import decode foundation`.
+`sample: wire Sample Editor selected-sample audition button`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see

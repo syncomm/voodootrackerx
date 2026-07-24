@@ -107,6 +107,8 @@ What works today:
   canonical normalization run in the background, then one `Import WAV Sample`
   edit installs document-owned mono 16-bit PCM. LOAD remains disabled for
   loaded modules, playback, invalid destinations, and active imports.
+  AUDITION toggles the selected sample directly at C-4 through the persistent
+  preview stream, preserving sample planning without keymap lookup or mutation.
 - The WAV foundation validates and chunk-decodes ordinary mono/stereo linear
   PCM into the value-owned candidate used by Sample Editor LOAD. Add as New
   Sample, drag/drop, global sample import, AIFF/AIFC, and FLAC remain future work.

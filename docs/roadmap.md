@@ -28,6 +28,9 @@ undoable stopped-editable action. Deterministic SINE and Sample Editor WAV
 load/replace now populate that destination through the same undo boundary.
 AIFF/AIFC inspection and decode also reach the shared normalized candidate,
 but are not yet exposed by the WAV-only Sample Editor panel.
+Sample Editor AUDITION toggles its represented selected slot directly at C-4
+through the persistent preview stream for loaded/read-only and editable sources,
+without keymap lookup or mutation.
 
 ## Project Goals
 

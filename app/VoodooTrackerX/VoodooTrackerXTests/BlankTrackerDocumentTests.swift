@@ -834,6 +834,20 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertNil(previewer.activePreviewToken)
         XCTAssertEqual(sink.releasePreviewCount, 1)
         XCTAssertEqual(sink.cancelPreviewCount, 0)
+        sink.isPreviewAvailable = false
+        XCTAssertEqual(previewer.preview(
+            request: event.request, availability: .potentiallyAvailable(event.sampleDescriptor),
+            keyIdentity: keyIdentity
+        ), .skipped(.previewSinkRejected))
+        sink.isPreviewAvailable = true
+        XCTAssertTrue(previewer.preview(
+            request: event.request,
+            availability: .potentiallyAvailable(event.sampleDescriptor),
+            keyIdentity: keyIdentity
+        ).didAttemptPreview)
+        previewer.invalidatePreviewState()
+        XCTAssertNil(previewer.activePreviewToken)
+        XCTAssertEqual(sink.cancelPreviewCount, 0)
     }
 
     func testNoteAuditionPreviewerStopsHeldLoopPreviewForMatchingKeyRelease() throws {
@@ -4631,12 +4645,14 @@ final class BlankTrackerDocumentTests: XCTestCase {
 }
 
 private final class RecordingEditorNoteAuditionPreviewSink: EditorNoteAuditionPreviewSink {
+    var isPreviewAvailable = true
     private(set) var events = [EditorNoteAuditionPreviewEvent]()
     private(set) var releasePreviewCount = 0
     private(set) var cancelPreviewCount = 0
 
-    func preview(_ event: EditorNoteAuditionPreviewEvent) {
+    func preview(_ event: EditorNoteAuditionPreviewEvent) -> Bool {
         events.append(event)
+        return true
     }
 
     func releasePreview() {

@@ -5,6 +5,22 @@ typealias SampleEditorSampleSelectionHandler = (_ oneBasedSampleSlot: Int) -> Bo
 typealias SampleEditorSineGenerationHandler = () -> Bool
 typealias SampleEditorWAVLoadHandler = () -> Bool
 
+struct SampleEditorAuditionHandlers {
+    let start: () -> EditorNoteAuditionPreviewToken?
+    let stop: (EditorNoteAuditionPreviewToken) -> Bool
+}
+
+enum SampleEditorAuditionRequestFactory {
+    static let noteValue = UInt8(PlaybackPitchCalculator.c4NoteValue)
+    static let octave = (PlaybackPitchCalculator.c4NoteValue - 1) / 12
+
+    static func request(selection: TrackerEditorSelection,
+                        sourceContext: EditorNoteAuditionSourceContext) -> EditorNoteAuditionRequest {
+        EditorNoteAuditionRequest(kind: .noteOn(noteValue: noteValue, selectedOctave: octave),
+                                  selection: selection, sourceContext: sourceContext)
+    }
+}
+
 struct SampleWaveformBucket: Equatable {
     let minimum: Float
     let maximum: Float
@@ -153,7 +169,7 @@ struct SampleEditorDisplayState: Equatable {
         source: .none, instrumentSlot: nil, instrumentName: "No instrument available",
         instrumentOptions: [], selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
         emptyMessage: "No document sample palette is available.", isSineGenerationEnabled: false,
-        isWAVLoadEnabled: false, isImportingWAV: false
+        isWAVLoadEnabled: false, isImportingWAV: false, isAuditionEnabled: false
     )
 
     let source: Source
@@ -167,6 +183,7 @@ struct SampleEditorDisplayState: Equatable {
     let isSineGenerationEnabled: Bool
     let isWAVLoadEnabled: Bool
     let isImportingWAV: Bool
+    let isAuditionEnabled: Bool
     var isReadOnly: Bool { source != .editableDocument }
     var instrumentDisplay: String { instrumentSlot.map { String(format: "I%02X", $0) } ?? "—" }
     var sampleDisplay: String { selectedSampleSlot.map { String(format: "S%02X", $0) } ?? "—" }
@@ -192,25 +209,28 @@ struct SampleEditorDisplayState: Equatable {
     var waveformPCM: [Float] { selectedSample?.pcm ?? [] }
     var loop: SampleLoopDisplayState { selectedSample.map(SampleLoopDisplayState.init(sample:)) ?? .inactive }
 
-    static func loadedModule(playbackSong: PlaybackSong?, selection: TrackerEditorSelection) -> Self {
+    static func loadedModule(playbackSong: PlaybackSong?, selection: TrackerEditorSelection,
+                             isPreviewAvailable: Bool = true) -> Self {
         make(source: .loadedModule, palette: playbackSong?.instrumentsByIndex ?? [:],
-             selection: selection, isSineGenerationEnabled: false, isWAVLoadEnabled: false, isImportingWAV: false)
+             selection: selection, isSineGenerationEnabled: false, isWAVLoadEnabled: false,
+             isImportingWAV: false, isPreviewAvailable: isPreviewAvailable)
     }
 
     static func editableDocument(
         _ document: BlankTrackerDocument,
         isPlaybackActive: Bool = false,
-        isImportingWAV: Bool = false
+        isImportingWAV: Bool = false,
+        isPreviewAvailable: Bool = true
     ) -> Self {
         make(source: .editableDocument, palette: document.instrumentPalette, selection: document.selection,
              isSineGenerationEnabled: !isPlaybackActive && !isImportingWAV && document.canGenerateSineInSelectedEmptySample,
              isWAVLoadEnabled: !isPlaybackActive && !isImportingWAV && document.selectedSampleImportDestination != nil,
-             isImportingWAV: isImportingWAV)
+             isImportingWAV: isImportingWAV, isPreviewAvailable: isPreviewAvailable)
     }
 
     private static func make(source: Source, palette: [Int: PlaybackInstrument],
                              selection: TrackerEditorSelection, isSineGenerationEnabled: Bool,
-                             isWAVLoadEnabled: Bool, isImportingWAV: Bool) -> Self {
+                             isWAVLoadEnabled: Bool, isImportingWAV: Bool, isPreviewAvailable: Bool) -> Self {
         let instrumentOptions = palette
             .filter { (1...255).contains($0.key) }
             .map { slot, instrument in
@@ -229,7 +249,8 @@ struct SampleEditorDisplayState: Equatable {
                 emptyMessage: palette.isEmpty
                     ? "No represented instruments are available."
                     : "\(String(format: "I%02X", selection.selectedInstrument)) is not represented.",
-                isSineGenerationEnabled: false, isWAVLoadEnabled: false, isImportingWAV: isImportingWAV
+                isSineGenerationEnabled: false, isWAVLoadEnabled: false, isImportingWAV: isImportingWAV,
+                isAuditionEnabled: false
             )
         }
         let selected = instrument.sample(selectedSampleSlot: selection.selectedSample)
@@ -253,8 +274,17 @@ struct SampleEditorDisplayState: Equatable {
                 : "",
             isSineGenerationEnabled: isSineGenerationEnabled,
             isWAVLoadEnabled: isWAVLoadEnabled,
-            isImportingWAV: isImportingWAV
+            isImportingWAV: isImportingWAV,
+            isAuditionEnabled: isPreviewAvailable && !isImportingWAV && selected.map(isAuditionPlayable) == true
         )
+    }
+
+    private static func isAuditionPlayable(_ sample: PlaybackSample) -> Bool {
+        let frameCount = min(max(0, sample.sampleLength), sample.pcm.count)
+        return sample.isPlayable &&
+            frameCount > 0 &&
+            sample.baseSampleRate.isFinite &&
+            sample.baseSampleRate > 0 && sample.pcm.prefix(frameCount).allSatisfy(\.isFinite)
     }
 
     private static func name(_ value: String?, fallback: String) -> String {
@@ -277,6 +307,7 @@ enum SampleEditorViewIdentifier {
     static let generatePanel = "sampleEditor.generatePanel"
     static let filePanel = "sampleEditor.filePanel"
     static let wavLoadButton = "sampleEditor.wavLoadButton"
+    static let auditionButton = "sampleEditor.auditionButton"
     static let editPanel = "sampleEditor.editPanel"
     static let sampleRowPrefix = "sampleEditor.sampleRow."
     static let futureControlPrefix = "sampleEditor.futureControl."
@@ -385,13 +416,15 @@ final class SampleEditorWindowPresenter {
         instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
         sineGenerationHandler: SampleEditorSineGenerationHandler? = nil,
-        wavLoadHandler: SampleEditorWAVLoadHandler? = nil
+        wavLoadHandler: SampleEditorWAVLoadHandler? = nil,
+        auditionHandlers: SampleEditorAuditionHandlers? = nil
     ) -> SampleEditorWindowController {
         if let windowController {
             windowController.instrumentSelectionHandler = instrumentSelectionHandler
             windowController.sampleSelectionHandler = sampleSelectionHandler
             windowController.sineGenerationHandler = sineGenerationHandler
             windowController.wavLoadHandler = wavLoadHandler
+            windowController.auditionHandlers = auditionHandlers
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
             return windowController
@@ -401,7 +434,8 @@ final class SampleEditorWindowPresenter {
             instrumentSelectionHandler: instrumentSelectionHandler,
             sampleSelectionHandler: sampleSelectionHandler,
             sineGenerationHandler: sineGenerationHandler,
-            wavLoadHandler: wavLoadHandler
+            wavLoadHandler: wavLoadHandler,
+            auditionHandlers: auditionHandlers
         )
         controller.closeHandler = { [weak self, weak controller] in
             guard let self, let controller, self.windowController === controller else { return }
@@ -413,6 +447,9 @@ final class SampleEditorWindowPresenter {
     }
 
     func refresh(displayState: SampleEditorDisplayState) { windowController?.apply(displayState: displayState) }
+    func synchronizeActivePreviewToken(_ token: EditorNoteAuditionPreviewToken?) {
+        windowController?.synchronizeActivePreviewToken(token)
+    }
 }
 
 @MainActor
@@ -432,25 +469,31 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
     var wavLoadHandler: SampleEditorWAVLoadHandler? {
         didSet { (window?.contentView as? SampleEditorView)?.wavLoadHandler = wavLoadHandler }
     }
+    var auditionHandlers: SampleEditorAuditionHandlers? {
+        didSet { (window?.contentView as? SampleEditorView)?.auditionHandlers = auditionHandlers }
+    }
 
     init(
         displayState: SampleEditorDisplayState = .empty,
         instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
         sineGenerationHandler: SampleEditorSineGenerationHandler? = nil,
-        wavLoadHandler: SampleEditorWAVLoadHandler? = nil
+        wavLoadHandler: SampleEditorWAVLoadHandler? = nil,
+        auditionHandlers: SampleEditorAuditionHandlers? = nil
     ) {
         self.instrumentSelectionHandler = instrumentSelectionHandler
         self.sampleSelectionHandler = sampleSelectionHandler
         self.sineGenerationHandler = sineGenerationHandler
         self.wavLoadHandler = wavLoadHandler
+        self.auditionHandlers = auditionHandlers
         let view = SampleEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
             displayState: displayState,
             instrumentSelectionHandler: instrumentSelectionHandler,
             sampleSelectionHandler: sampleSelectionHandler,
             sineGenerationHandler: sineGenerationHandler,
-            wavLoadHandler: wavLoadHandler
+            wavLoadHandler: wavLoadHandler,
+            auditionHandlers: auditionHandlers
         )
         let panel = NSPanel(
             contentRect: view.frame, styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false
@@ -491,12 +534,22 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
         (window?.contentView as? SampleEditorView)?.apply(displayState: displayState) ?? false
     }
 
+    func synchronizeActivePreviewToken(_ token: EditorNoteAuditionPreviewToken?) {
+        (window?.contentView as? SampleEditorView)?.synchronizeActivePreviewToken(token)
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        (window?.contentView as? SampleEditorView)?.releaseActiveAudition()
+    }
+
     func windowWillClose(_ notification: Notification) {
+        (window?.contentView as? SampleEditorView)?.releaseActiveAudition()
         window?.makeFirstResponder(nil)
         instrumentSelectionHandler = nil
         sampleSelectionHandler = nil
         sineGenerationHandler = nil
         wavLoadHandler = nil
+        auditionHandlers = nil
         closeHandler?()
     }
 }
@@ -510,7 +563,10 @@ final class SampleEditorView: FlippedEditorView {
     private(set) weak var instrumentSelector: NSPopUpButton?
     private(set) weak var sineButton: NSButton?
     private(set) weak var wavLoadButton: NSButton?
+    private(set) weak var auditionButton: VTXEditorButton?
+    private(set) weak var auditionIndicator: VTXEditorIndicatorLEDView?
     private(set) weak var wavImportProgressIndicator: NSProgressIndicator?
+    private(set) var activeAuditionToken: EditorNoteAuditionPreviewToken?
     private var sampleRows: [Int: InstrumentEditorListRowControl] = [:]
     var instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? {
         didSet { configureInstrumentSelectorHandler() }
@@ -522,6 +578,9 @@ final class SampleEditorView: FlippedEditorView {
     var wavLoadHandler: SampleEditorWAVLoadHandler? {
         didSet { configureWAVLoadButtonHandler() }
     }
+    var auditionHandlers: SampleEditorAuditionHandlers? {
+        didSet { configureAuditionButtonHandler() }
+    }
 
     init(
         frame frameRect: NSRect,
@@ -529,13 +588,15 @@ final class SampleEditorView: FlippedEditorView {
         instrumentSelectionHandler: SampleEditorInstrumentSelectionHandler? = nil,
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
         sineGenerationHandler: SampleEditorSineGenerationHandler? = nil,
-        wavLoadHandler: SampleEditorWAVLoadHandler? = nil
+        wavLoadHandler: SampleEditorWAVLoadHandler? = nil,
+        auditionHandlers: SampleEditorAuditionHandlers? = nil
     ) {
         self.displayState = displayState
         self.instrumentSelectionHandler = instrumentSelectionHandler
         self.sampleSelectionHandler = sampleSelectionHandler
         self.sineGenerationHandler = sineGenerationHandler
         self.wavLoadHandler = wavLoadHandler
+        self.auditionHandlers = auditionHandlers
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.contentView)
         style(background: VTXEditorControlTheme.windowBackground)
@@ -546,6 +607,14 @@ final class SampleEditorView: FlippedEditorView {
 
     @discardableResult
     func apply(displayState: SampleEditorDisplayState) -> Bool {
+        if activeAuditionToken != nil,
+           (!displayState.isAuditionEnabled ||
+            self.displayState.source != displayState.source ||
+            self.displayState.instrumentSlot != displayState.instrumentSlot ||
+            self.displayState.selectedSampleSlot != displayState.selectedSampleSlot ||
+            self.displayState.selectedSample != displayState.selectedSample) {
+            releaseActiveAudition()
+        }
         guard self.displayState != displayState else { return false }
         self.displayState = displayState
         rebuildCount += 1
@@ -553,6 +622,18 @@ final class SampleEditorView: FlippedEditorView {
         sampleRows.removeAll()
         buildShell()
         return true
+    }
+
+    func synchronizeActivePreviewToken(_ token: EditorNoteAuditionPreviewToken?) {
+        activeAuditionToken = token?.keyIdentity == .sampleEditorAudition ? token : nil
+        updateAuditionVisualState()
+    }
+
+    func releaseActiveAudition() {
+        guard let token = activeAuditionToken else { return }
+        activeAuditionToken = nil
+        _ = auditionHandlers?.stop(token)
+        updateAuditionVisualState()
     }
 
     func sampleRow(slot: Int) -> InstrumentEditorListRowControl? { sampleRows[slot] }
@@ -578,8 +659,45 @@ final class SampleEditorView: FlippedEditorView {
         readout(displayState.formatDisplay, parent, NSRect(x: 498, y: 13, width: 184, height: 23))
         label("AUDITION", parent, NSRect(x: 694, y: 20, width: 52, height: 12), gold: true)
         readout("C-4", parent, NSRect(x: 751, y: 13, width: 45, height: 23))
-        futureButton("▶", id: "audition", parent, NSRect(x: 802, y: 12, width: 35, height: 25), role: .activePlay)
-        addControl(VTXEditorControlFactory.makeIndicatorLED(state: .off), to: parent, frame: NSRect(x: 847, y: 21, width: 8, height: 8))
+        let button = VTXEditorControlFactory.makeButton(title: "▶", role: .activePlay, fixedWidth: 35)
+        button.identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.auditionButton)
+        addControl(button, to: parent, frame: NSRect(x: 802, y: 12, width: 35, height: 25))
+        auditionButton = button
+        let indicator = VTXEditorControlFactory.makeIndicatorLED(state: .off)
+        addControl(indicator, to: parent, frame: NSRect(x: 847, y: 21, width: 8, height: 8))
+        auditionIndicator = indicator
+        configureAuditionButtonHandler()
+    }
+
+    private func configureAuditionButtonHandler() {
+        guard let button = auditionButton else { return }
+        let enabled = displayState.isAuditionEnabled && auditionHandlers != nil
+        button.isEnabled = enabled
+        button.target = enabled ? self : nil
+        button.action = enabled ? #selector(toggleAudition(_:)) : nil
+        button.setAccessibilityEnabled(enabled)
+        button.setAccessibilityLabel("Audition selected sample")
+        updateAuditionVisualState()
+    }
+
+    private func updateAuditionVisualState() {
+        let isActive = activeAuditionToken != nil
+        auditionButton?.title = isActive ? "■" : "▶"
+        auditionButton?.apply(role: isActive ? .selected : .activePlay)
+        auditionButton?.setAccessibilityValue(isActive ? "Active at fixed note C-4" : "Stopped at fixed note C-4")
+        auditionIndicator?.state = isActive ? .redActive : .off
+    }
+
+    @objc private func toggleAudition(_ sender: NSButton) {
+        if activeAuditionToken != nil { releaseActiveAudition(); return }
+        guard displayState.isAuditionEnabled,
+              let token = auditionHandlers?.start(),
+              token.keyIdentity == .sampleEditorAudition,
+              token.noteValue == SampleEditorAuditionRequestFactory.noteValue else {
+            synchronizeActivePreviewToken(nil)
+            return
+        }
+        synchronizeActivePreviewToken(token)
     }
 
     private func buildSamples(_ parent: NSView) {

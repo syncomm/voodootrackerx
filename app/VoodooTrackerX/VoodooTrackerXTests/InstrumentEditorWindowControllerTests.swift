@@ -2035,8 +2035,9 @@ private final class InstrumentEditorRecordingAuditionSink: EditorNoteAuditionPre
     private(set) var releasePreviewCount = 0
     private(set) var cancelPreviewCount = 0
 
-    func preview(_ event: EditorNoteAuditionPreviewEvent) {
+    func preview(_ event: EditorNoteAuditionPreviewEvent) -> Bool {
         events.append(event)
+        return true
     }
 
     func releasePreview() {

@@ -115,6 +115,11 @@ does not auto-audition; the next trigger uses imported PCM, pan, gain, and
 tuning. Undo/redo restores exact prior/imported state, and no source path is
 retained. Other mutation remains deferred, and preview-stream/runtime
 architecture is unchanged.
+Sample Editor AUDITION now toggles the represented selected slot directly at
+C-4 through the persistent preview stream for loaded/read-only and editable
+sources, preserving existing PCM/loop/volume/pan/tuning planning without keymap
+lookup or mutation. Instrument Editor remains keymap-driven. Note selection and
+natural-completion UI notification remain future work; no polling is used.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
 adapter gain mapping without runtime engine, DSP, or scheduling changes.

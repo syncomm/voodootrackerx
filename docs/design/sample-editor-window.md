@@ -6,7 +6,8 @@
 **Reference:** FastTracker II sample editor, reinterpreted in VTX's tactile language.
 **Status:** The fixed mockup-aligned shell, canonical selection, sample display,
 waveform/loop overview, stopped-editable empty-S01 SINE, and WAV LOAD into
-empty or represented destinations are implemented. Other sample mutation
+empty or represented destinations are implemented. AIFF/AIFC decode exists
+behind the import foundation but is not exposed by LOAD. Other sample mutation
 remains deferred.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
@@ -87,7 +88,16 @@ reference, and default to no loop. The cap is 16,777,216 frames (64 MiB of mono
 Float32). LOAD installs the complete candidate as document-owned PCM through
 one undoable edit; the source path is not retained and Export XM/reopen uses the
 existing sample writer. Cue, `smpl`, broadcast, and embedded-name metadata are
-ignored. AIFF/AIFC and FLAC remain future.
+ignored.
+
+The manual `AIFFSampleImportDecoder` returns the same candidate as WAV. It
+supports mono/stereo signed 8/16/24/32-bit AIFF PCM plus AIFC big-endian
+`NONE`/`twos` and little-endian `sowt`; 80-bit rates, chunks, SSND offsets,
+channel conversion, quantization, tuning, naming, defaults, and resource caps
+are deterministic and shared where applicable. MARK, INST, COMT,
+NAME/AUTH/ANNO, AESD, MIDI/application metadata, compression-name text, and
+loops remain deferred. LOAD stays WAV-only; AIFF/AIFC UI wiring and then FLAC
+are next.
 Square/pulse, triangle, saw, and noise remain future generators.
 First-sample import/generation maps all 96 notes and becomes immediately
 auditionable in one `applyEdit` action. See

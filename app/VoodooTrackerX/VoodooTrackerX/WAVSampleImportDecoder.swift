@@ -6,7 +6,9 @@ enum SampleImportChannelMode: Equatable, Sendable {
 }
 enum SampleImportError: Error, Equatable, Sendable {
     case unreadableSource, malformedWAV, truncatedWAV
+    case malformedAIFF, truncatedAIFF
     case unsupportedEncoding(formatCode: UInt16, bitsPerSample: Int)
+    case unsupportedPCMBitDepth(Int), unsupportedAIFFCompression(String)
     case unsupportedChannelCount(Int)
     case emptySource, invalidSampleRate, resourceLimitExceeded, integerOverflow
     case audioDecodeFailed, decoderMetadataMismatch, nonFinitePCM, tuningOutOfRange
@@ -16,7 +18,11 @@ enum SampleImportError: Error, Equatable, Sendable {
         case .unreadableSource: "The WAV file could not be read."
         case .malformedWAV: "This file is not a valid WAV file."
         case .truncatedWAV: "The WAV file is incomplete or truncated."
+        case .malformedAIFF: "This file is not a valid AIFF/AIFC file."
+        case .truncatedAIFF: "The AIFF/AIFC file is incomplete or truncated."
         case .unsupportedEncoding: "This WAV encoding is not supported."
+        case .unsupportedPCMBitDepth: "This AIFF/AIFC sample width is not supported."
+        case .unsupportedAIFFCompression: "This AIFC compression is not supported."
         case let .unsupportedChannelCount(count):
             count > 2 ? "WAV files with more than two channels are not supported." : "This WAV channel layout is not supported."
         case .emptySource: "The WAV file contains no sample frames."
@@ -54,6 +60,21 @@ struct DecodedSampleImport: Equatable, Sendable {
     let sourceChannelCount, sourceBitDepthBits: Int
     let monoPCM: [Float]
     var frameCount: Int { monoPCM.count }
+}
+enum SampleImportChannelConverter {
+    static func mono(
+        left: Float, right: Float, sourceChannelCount: Int, mode: SampleImportChannelMode
+    ) throws -> Float {
+        guard left.isFinite, right.isFinite else { throw SampleImportError.nonFinitePCM }
+        let mono: Float
+        switch mode {
+        case .mixToMono: mono = sourceChannelCount == 2 ? 0.5 * left + 0.5 * right : left
+        case .left: mono = left
+        case .right: mono = right
+        }
+        guard mono.isFinite else { throw SampleImportError.nonFinitePCM }
+        return min(1, max(-1, mono))
+    }
 }
 struct SampleImportTuning: Equatable {
     let relativeNote, finetune: Int
@@ -194,15 +215,10 @@ struct WAVSampleImportDecoder: Sendable {
                     for frame in 0..<count {
                         let left = channels[0][frame]
                         let right = inspection.sourceChannelCount == 2 ? channels[1][frame] : left
-                        guard left.isFinite, right.isFinite else { throw SampleImportError.nonFinitePCM }
-                        let mono: Float
-                        switch channelMode {
-                        case .mixToMono: mono = inspection.sourceChannelCount == 2 ? 0.5 * left + 0.5 * right : left
-                        case .left: mono = left
-                        case .right: mono = right
-                        }
-                        guard mono.isFinite else { throw SampleImportError.nonFinitePCM }
-                        output.append(min(1, max(-1, mono)))
+                        output.append(try SampleImportChannelConverter.mono(
+                            left: left, right: right,
+                            sourceChannelCount: inspection.sourceChannelCount, mode: channelMode
+                        ))
                     }
                 }
                 guard output.count == inspection.frameCount else { throw SampleImportError.decoderMetadataMismatch }

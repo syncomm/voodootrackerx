@@ -62,8 +62,9 @@ VoodooTracker X currently has:
   Sample Editor LOAD now uses the WAV foundation in the background to fill
   empty S01 or confirm exact in-place replacement, with stereo Mix/Left/Right,
   stale-result checks, one undoable edit, and document-owned mono 16-bit PCM.
-  Add as New Sample, other formats, processing, and direct Sample Editor
-  audition remain unavailable
+  A manual foundation also decodes 8/16/24/32-bit AIFF and AIFC
+  `NONE`/`twos`/`sowt` into that candidate. The panel remains WAV-only; Add as
+  New Sample, AIFF/AIFC UI wiring, FLAC, processing, and audition remain unavailable
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
   fixture; the schema-v2 manifest, generator verification mode, exact PCM/XM
   expectations, loader/model/editable-copy/edit/Export XM tests, and private-
@@ -129,7 +130,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recently completed target:
-`sample: generate deterministic sine sample into empty S01`.
+`sample: add AIFF/AIFC import decode foundation`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -159,8 +160,9 @@ Recently completed target:
    S01 destination through one `applyEdit` action. The current allocation policy
    appends after the highest represented instrument and does not fill sparse holes.
    Deterministic SINE and the WAV decode/canonical-normalization foundation are
-   done. Sample Editor WAV load/replace is also done for empty S01 and exact
-   represented destinations, without broadening formats or sample-slot lifecycle.
+   done. AIFF/AIFC decode/canonical normalization is also done through the
+   shared candidate, while Sample Editor WAV load/replace remains the only
+   UI path for empty S01 and exact represented destinations.
 9. Pattern editor completion for instrument, volume-column, and effect-column
    entry remains part of the complete composition gate. XI stays a separate
    broader VTX 1.0 target.
@@ -196,8 +198,9 @@ Recently completed narrow target:
   confirms replacement of the exact represented selected sample. Stereo
   Mix/Left/Right, background decode, operation/document revision checks,
   document-owned canonical mono 16-bit PCM, all-S01 first-sample mapping, and
-  one `Import WAV Sample` undo action are implemented. Add as New Sample,
-  drag/drop, global import, AIFF/AIFC, and FLAC remain separate work.
+  one `Import WAV Sample` undo action are implemented. AIFF/AIFC decode now
+  shares normalization, but Add as New Sample, drag/drop, global import,
+  AIFF/AIFC UI exposure, and FLAC remain separate work.
 - Labeled whole-editable-document snapshots now flow through
   `EditableDocumentEditCoordinator` and a capped `UndoManager`. Clear Current
   Pattern is the first routed operation; undo/redo refresh existing editor

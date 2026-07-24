@@ -26,8 +26,10 @@ final class EditorNoteAuditionAudioSink: EditorNoteAuditionPreviewSink {
         outputHost = EditorNoteAuditionCoreAudioOutputHost(sampleRate: sampleRate)
     }
 
-    func preview(_ event: EditorNoteAuditionPreviewEvent) {
-        outputHost.preview(event)
+    var isPreviewAvailable: Bool { outputHost.isAvailable }
+
+    func preview(_ event: EditorNoteAuditionPreviewEvent) -> Bool {
+        outputHost.isAvailable && outputHost.preview(event)
     }
 
     func releasePreview() {
@@ -36,6 +38,10 @@ final class EditorNoteAuditionAudioSink: EditorNoteAuditionPreviewSink {
 
     func cancelPreview() {
         outputHost.cancelPreview()
+    }
+
+    func setPreviewInvalidationHandler(_ handler: @escaping @Sendable () -> Void) {
+        outputHost.setPreviewInvalidationHandler(handler)
     }
 
     static func renderPreviewBlock(
@@ -557,6 +563,7 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
     private var defaultOutputSampleRate: Double?
     private var defaultOutputListener: AudioObjectPropertyListenerBlock?
     private var outputFormatListener: AudioObjectPropertyListenerBlock?
+    private var previewInvalidationHandler: (@Sendable () -> Void)?
     private let scratch: UnsafeMutablePointer<Float>
 
     init(sampleRate: Double) {
@@ -590,7 +597,17 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
         else { lifecycleQueue.sync(execute: operation) }
     }
 
-    func preview(_ event: EditorNoteAuditionPreviewEvent) { _ = handoff.publish(event) }
+    var isAvailable: Bool {
+        var available = false
+        performOnLifecycleQueue { available = isRunning }
+        return available
+    }
+
+    func setPreviewInvalidationHandler(_ handler: @escaping @Sendable () -> Void) {
+        performOnLifecycleQueue { previewInvalidationHandler = handler }
+    }
+
+    func preview(_ event: EditorNoteAuditionPreviewEvent) -> Bool { handoff.publish(event) != nil }
     func releasePreview() { handoff.releaseActivePreview() }
     func cancelPreview() { handoff.cancel() }
 
@@ -650,6 +667,7 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
             resetOutputUnit()
             outputLifecycle.startFailed()
         }
+        previewInvalidationHandler?()
     }
 
     private func installDefaultOutputListener() {

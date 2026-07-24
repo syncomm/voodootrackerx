@@ -60,7 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let metadataLoader = ModuleMetadataLoader()
     private let playbackTimingRecorder = PlaybackTimingTraceConfiguration.makeRecorder()
     private let playbackEngine: PlaybackEngine
-    private let noteAuditionPreviewer = EditorNoteAuditionPreviewer(sink: EditorNoteAuditionAudioSink())
+    private let noteAuditionAudioSink: EditorNoteAuditionAudioSink
+    private let noteAuditionPreviewer: EditorNoteAuditionPreviewer
     private var isSyncingScroll = false
     private var isEditModeEnabled = false
     private var isLoopPlaybackEnabled = false
@@ -98,6 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     override init() {
         let environment = ProcessInfo.processInfo.environment
+        let noteAuditionAudioSink = EditorNoteAuditionAudioSink()
+        self.noteAuditionAudioSink = noteAuditionAudioSink
+        noteAuditionPreviewer = EditorNoteAuditionPreviewer(sink: noteAuditionAudioSink)
         let runtimeCMixerTraceWriter = RuntimeCMixerTraceConfiguration.makeWriter(environment: environment)
         let runtimeMixerMetricsTraceWriter = RuntimeMixerMetricsTraceConfiguration.makeWriter(environment: environment)
         let adapterPlanProfileRecorder = AdapterPlanProfileConfiguration.makeRecorder(environment: environment)
@@ -114,6 +118,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             environment: environment
         )
         super.init()
+        noteAuditionAudioSink.setPreviewInvalidationHandler { [weak self] in
+            Task { @MainActor in self?.handleEditorPreviewInvalidation() }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -700,7 +707,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             instrumentSelectionHandler: { [weak self] in self?.selectInstrumentSlot($0) ?? false },
             sampleSelectionHandler: { [weak self] in self?.selectSampleSlot($0) ?? false },
             sineGenerationHandler: { [weak self] in self?.generateSineFromSampleEditor() ?? false },
-            wavLoadHandler: { [weak self] in self?.sampleEditorWAVImportCoordinator.begin() ?? false }
+            wavLoadHandler: { [weak self] in self?.sampleEditorWAVImportCoordinator.begin() ?? false },
+            auditionHandlers: .init(
+                start: { [weak self] in self?.startSampleEditorAudition() },
+                stop: { [weak self] in self?.stopSampleEditorAudition($0) ?? false }
+            )
         )
     }
 
@@ -709,11 +720,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return .editableDocument(
                 blankDocument,
                 isPlaybackActive: playbackEngine.state.isPlaying,
-                isImportingWAV: sampleEditorWAVImportCoordinator.isImporting
+                isImportingWAV: sampleEditorWAVImportCoordinator.isImporting,
+                isPreviewAvailable: noteAuditionPreviewer.isPreviewAvailable
             )
         }
         if loadedMetadata != nil {
-            return .loadedModule(playbackSong: playbackEngine.song, selection: loadedModuleSelection)
+            return .loadedModule(
+                playbackSong: playbackEngine.song,
+                selection: loadedModuleSelection,
+                isPreviewAvailable: noteAuditionPreviewer.isPreviewAvailable
+            )
         }
         return .empty
     }
@@ -777,10 +793,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         _ candidate: NormalizedSampleImport,
         destination: SampleImportDestination
     ) -> Bool {
+        cancelNoteAuditionForDocumentTransition()
         guard editableDocumentEditCoordinator.importWAVSample(candidate, destination: destination) else {
             return false
         }
-        cancelNoteAuditionForDocumentTransition()
         return true
     }
 
@@ -835,23 +851,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func generateSineFromSampleEditor() -> Bool {
         guard editableDocumentEditCoordinator.canGenerateSineSample else { return false }
-        noteAuditionPreviewer.cancelPreview()
-        instrumentEditorWindowPresenter.clearOnScreenPressedState()
+        cancelNoteAuditionForDocumentTransition()
         return editableDocumentEditCoordinator.generateSineSample()
     }
 
-    private func cancelNoteAuditionForDocumentTransition() {
-        noteAuditionPreviewer.cancelPreview()
+    private func startSampleEditorAudition() -> EditorNoteAuditionPreviewToken? {
+        let displayState = currentSampleEditorDisplayState()
+        guard displayState.isAuditionEnabled else {
+            synchronizeEditorPreviewVisuals()
+            return nil
+        }
+        let selection = currentEditorSelection()
+        let request = SampleEditorAuditionRequestFactory.request(
+            selection: selection,
+            sourceContext: currentEditorNoteAuditionSourceContext()
+        )
+        let availability: EditorNoteAuditionAvailability
+        if loadedMetadata != nil {
+            availability = EditorNoteAuditionAvailabilityResolver.availability(
+                for: request,
+                loadedPlaybackSong: playbackEngine.song
+            )
+        } else if let blankDocument {
+            availability = blankDocument.noteAuditionAvailability(for: selection)
+        } else {
+            availability = .unavailable(.blankDocumentMissingInstrumentSamplePayload)
+        }
         instrumentEditorWindowPresenter.clearOnScreenPressedState()
+        let outcome = noteAuditionPreviewer.preview(
+            request: request,
+            availability: availability,
+            keyIdentity: .sampleEditorAudition
+        )
+        synchronizeEditorPreviewVisuals()
+        guard outcome.didAttemptPreview,
+              noteAuditionPreviewer.activePreviewToken?.keyIdentity == .sampleEditorAudition else {
+            return nil
+        }
+        return noteAuditionPreviewer.activePreviewToken
     }
 
-    private func synchronizeInstrumentEditorPreviewVisual() {
-        instrumentEditorWindowPresenter.synchronizeActivePreviewToken(noteAuditionPreviewer.activePreviewToken)
+    private func stopSampleEditorAudition(_ token: EditorNoteAuditionPreviewToken) -> Bool {
+        let stopped = noteAuditionPreviewer.stopPreview(for: token)
+        synchronizeEditorPreviewVisuals()
+        return stopped
+    }
+
+    private func cancelNoteAuditionForDocumentTransition() {
+        if noteAuditionPreviewer.activePreviewToken != nil {
+            noteAuditionPreviewer.cancelPreview()
+        }
+        instrumentEditorWindowPresenter.clearOnScreenPressedState()
+        synchronizeEditorPreviewVisuals()
+    }
+
+    private func synchronizeEditorPreviewVisuals() {
+        let token = noteAuditionPreviewer.activePreviewToken
+        instrumentEditorWindowPresenter.synchronizeActivePreviewToken(
+            token?.keyIdentity == .sampleEditorAudition ? nil : token
+        )
+        sampleEditorWindowPresenter.synchronizeActivePreviewToken(token)
+    }
+
+    private func handleEditorPreviewInvalidation() {
+        noteAuditionPreviewer.invalidatePreviewState()
+        synchronizeEditorPreviewVisuals()
+        sampleEditorWindowPresenter.refresh(displayState: currentSampleEditorDisplayState())
     }
 
     private func cancelInstrumentEditorNoteAudition() {
         noteAuditionPreviewer.cancelPreview()
-        synchronizeInstrumentEditorPreviewVisual()
+        synchronizeEditorPreviewVisuals()
     }
 
     private func selectSongOrderEditorOrder(_ orderPosition: Int) {
@@ -1493,7 +1563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             hasActivePreview: { [noteAuditionPreviewer] in noteAuditionPreviewer.activePreviewToken != nil },
             cancelPreview: { [noteAuditionPreviewer] in noteAuditionPreviewer.cancelPreview() }
         )
-        synchronizeInstrumentEditorPreviewVisual()
+        synchronizeEditorPreviewVisuals()
     }
 
     @objc
@@ -1525,6 +1595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         let context = measuredPlaybackStartContext(timingSession: timingSession)
+        cancelNoteAuditionForDocumentTransition()
         let enginePlayStart = timingSession?.beginPhase()
         playbackEngine.play(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
         timingSession?.recordPhase(
@@ -1558,6 +1629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             finishPlayTimingSession(timingSession, context: nil)
             return
         }
+        cancelNoteAuditionForDocumentTransition()
         let enginePlayStart = timingSession?.beginPhase()
         playbackEngine.playCurrentPatternLoop(from: context, timingSession: timingSession)
         timingSession?.recordPhase(
@@ -1573,6 +1645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func stopPressed(_ sender: Any?) {
+        cancelNoteAuditionForDocumentTransition()
         playbackEngine.stop()
         syncControlPanelView()
     }
@@ -1588,6 +1661,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         }
         let context = measuredPlaybackStartContext(timingSession: timingSession)
+        cancelNoteAuditionForDocumentTransition()
         playbackEngine.togglePlayStop(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
         syncControlPanelView()
         finishPlayTimingSession(timingSession, context: context)
@@ -2141,7 +2215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 resolvesInstrumentKeymap: true
             )
             : .skipped(.missingRequest)
-        synchronizeInstrumentEditorPreviewVisual()
+        synchronizeEditorPreviewVisuals()
         return route.shouldConsumeNonMutatingInput(previewOutcome: previewOutcome)
     }
 
@@ -2150,7 +2224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return false
         }
         let stopped = noteAuditionPreviewer.stopPreview(for: keyIdentity)
-        synchronizeInstrumentEditorPreviewVisual()
+        synchronizeEditorPreviewVisuals()
         return stopped
     }
 
@@ -2188,7 +2262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             availability: availability,
             keyIdentity: .instrumentEditorKeyboard
         )
-        synchronizeInstrumentEditorPreviewVisual()
+        synchronizeEditorPreviewVisuals()
         return outcome.didAttemptPreview
     }
 
@@ -2199,7 +2273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return false
         }
         let stopped = noteAuditionPreviewer.stopPreview(for: token)
-        synchronizeInstrumentEditorPreviewVisual()
+        synchronizeEditorPreviewVisuals()
         return stopped
     }
 

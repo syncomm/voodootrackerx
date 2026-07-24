@@ -427,7 +427,14 @@ struct EditorNoteAuditionPreviewEvent: Equatable {
 }
 
 struct EditorNoteAuditionKeyIdentity: Equatable {
+    private enum Owner: Equatable {
+        case trackerKey
+        case instrumentEditorKeyboard
+        case sampleEditorAudition
+    }
+
     let trackerKey: Character?
+    private let owner: Owner
 
     init?(trackerKey character: Character) {
         guard let normalized = String(character).lowercased().first,
@@ -435,11 +442,16 @@ struct EditorNoteAuditionKeyIdentity: Equatable {
             return nil
         }
         trackerKey = normalized
+        owner = .trackerKey
     }
 
-    static let instrumentEditorKeyboard = EditorNoteAuditionKeyIdentity()
+    static let instrumentEditorKeyboard = EditorNoteAuditionKeyIdentity(owner: .instrumentEditorKeyboard)
+    static let sampleEditorAudition = EditorNoteAuditionKeyIdentity(owner: .sampleEditorAudition)
 
-    private init() { trackerKey = nil }
+    private init(owner: Owner) {
+        trackerKey = nil
+        self.owner = owner
+    }
 }
 
 struct EditorNoteAuditionPreviewToken: Equatable {
@@ -455,6 +467,7 @@ enum EditorNoteAuditionPreviewSkipReason: Equatable {
     case repeatedKeyDown
     case unavailable(EditorNoteAuditionUnavailableReason)
     case loadedModulePayloadRequired
+    case previewSinkRejected
 }
 
 enum EditorNoteAuditionPreviewOutcome: Equatable {
@@ -470,19 +483,21 @@ enum EditorNoteAuditionPreviewOutcome: Equatable {
 }
 
 protocol EditorNoteAuditionPreviewSink: AnyObject {
-    func preview(_ event: EditorNoteAuditionPreviewEvent)
+    var isPreviewAvailable: Bool { get }
+    func preview(_ event: EditorNoteAuditionPreviewEvent) -> Bool
     func releasePreview()
     func cancelPreview()
 }
 
 extension EditorNoteAuditionPreviewSink {
+    var isPreviewAvailable: Bool { true }
     func releasePreview() {
         cancelPreview()
     }
 }
 
 final class NoopEditorNoteAuditionPreviewSink: EditorNoteAuditionPreviewSink {
-    func preview(_ event: EditorNoteAuditionPreviewEvent) {}
+    func preview(_ event: EditorNoteAuditionPreviewEvent) -> Bool { false }
     func cancelPreview() {}
 }
 
@@ -494,6 +509,8 @@ final class EditorNoteAuditionPreviewer {
     init(sink: EditorNoteAuditionPreviewSink = NoopEditorNoteAuditionPreviewSink()) {
         self.sink = sink
     }
+
+    var isPreviewAvailable: Bool { sink.isPreviewAvailable }
 
     @discardableResult
     func preview(
@@ -528,7 +545,9 @@ final class EditorNoteAuditionPreviewer {
             noteValue: noteValue,
             selectedOctave: selectedOctave
         )
-        sink.preview(event)
+        guard sink.isPreviewAvailable, sink.preview(event) else {
+            return .skipped(.previewSinkRejected)
+        }
         activePreviewToken = keyIdentity.map {
             nextPreviewToken(keyIdentity: $0, noteValue: noteValue, selectedOctave: selectedOctave)
         }
@@ -557,6 +576,10 @@ final class EditorNoteAuditionPreviewer {
     func cancelPreview() {
         activePreviewToken = nil
         sink.cancelPreview()
+    }
+
+    func invalidatePreviewState() {
+        activePreviewToken = nil
     }
 
     private func nextPreviewToken(

@@ -69,8 +69,8 @@ full loaded-module editing.
 ## From-Scratch Sample Ownership
 
 Imported or generated PCM is copied into the editable document before it becomes
-playable. The WAV foundation now returns a value-owned, canonical 16-bit mono
-candidate with no retained source URL. Sample Editor LOAD validates the complete
+playable. The WAV and AIFF/AIFC decoders return the same value-owned, canonical
+16-bit mono candidate with no retained source URL; LOAD remains WAV-only. It validates the complete
 candidate and exact captured destination, then commits it through one `Import
 WAV Sample` `applyEdit`; failure or stale state leaves the prior document and
 undo history unchanged. Implemented SINE generation likewise validates
@@ -192,8 +192,8 @@ First-writer limitations:
 - Sample Editor mutation is limited to stopped-editable SINE plus WAV import
   into empty S01 or in-place replacement of the represented selected sample
 - no panning-envelope playback/editing, vibrato playback/editing, broader
-  loop/sample metadata/PCM/waveform editing, AIFF/AIFC/FLAC import, XI import, or arbitrary non-XM-
-  derived payload support in the current writer
+  loop/sample metadata/PCM/waveform editing, AIFF/AIFC UI wiring, FLAC import,
+  XI import, or arbitrary non-XM-derived payload support in the current writer
 - no private corpus dependency
 - no generated XM/WAV artifacts committed outside explicit reviewed fixture PRs
 - no broad parser/writer architecture rewrite
@@ -276,7 +276,10 @@ Keep future PRs narrow and testable:
 18. Done: `instrument: create empty instrument with S01 through applyEdit`
 19. Done: `sample: generate deterministic sine sample into empty S01`
 20. Done: `sample: wire Sample Editor WAV load and replace workflow`
-21. `sample: add editable loop mode and range behind applyEdit`
+21. Done: `sample: add AIFF/AIFC import decode foundation`
+22. `sample: expose AIFF/AIFC through Sample Editor load workflow`
+23. `sample: add FLAC import decode foundation`
+24. `sample: add editable loop mode and range behind applyEdit`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

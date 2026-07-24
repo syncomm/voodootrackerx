@@ -22,11 +22,14 @@ represented slot and does not fill sparse holes. Sample Editor SINE now fills el
 S01 with deterministic looped PCM and an all-note map. A UI-independent WAV
 foundation now preflights and chunk-decodes mono/stereo linear PCM, applies an
 explicit channel mode, canonicalizes to XM-representable 16-bit mono PCM, and
-derives filename naming plus C-4 tuning. Sample Editor LOAD now uses that
-foundation off the main thread: it fills empty S01 or confirms in-place
+derives filename naming plus C-4 tuning. A manual AIFF/AIFC foundation returns
+the same candidate for signed 8/16/24/32-bit AIFF PCM and AIFC
+`NONE`/`twos`/`sowt`, reusing shared policies. Sample Editor LOAD still exposes
+WAV only and uses the foundation off the main thread: it fills empty S01 or confirms in-place
 replacement of the exact represented selection, offers stereo Mix/Left/Right,
 and commits one `Import WAV Sample` edit with stale-result protection. Add as
-New Sample, drag/drop, global import, AIFF/AIFC, and FLAC remain future work.
+New Sample, drag/drop, global import, AIFF/AIFC picker wiring, and FLAC remain
+future work.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,

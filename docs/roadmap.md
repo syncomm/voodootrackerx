@@ -26,6 +26,8 @@ The first gate slice is implemented: File New represents empty I01/S01 and
 `Edit > New Instrument` creates another honest empty destination through one
 undoable stopped-editable action. Deterministic SINE and Sample Editor WAV
 load/replace now populate that destination through the same undo boundary.
+AIFF/AIFC inspection and decode also reach the shared normalized candidate,
+but are not yet exposed by the WAV-only Sample Editor panel.
 
 ## Project Goals
 
@@ -745,6 +747,8 @@ Current implemented foundation:
   and canonical normalization off the main thread, rejects stale results, owns
   mono 16-bit PCM in the document, and registers one `Import WAV Sample` undo
   action while preserving slot/keymap references
+- AIFF signed 8/16/24/32-bit PCM and AIFC `NONE`/`twos`/`sowt` now use the
+  shared bounded normalization policies; Sample Editor remains WAV-only
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
@@ -774,7 +778,8 @@ Next composition targets after backend foundation freeze:
   PCM/waveform mutation slices
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- WAV, AIFF/AIFC, and FLAC sample import plus the separate XI instrument import target
+- expose AIFF/AIFC through Sample Editor LOAD, then add the FLAC decode
+  foundation and UI path; XI remains a separate instrument import target
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics

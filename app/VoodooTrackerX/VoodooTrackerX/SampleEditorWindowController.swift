@@ -867,7 +867,7 @@ final class SampleEditorView: FlippedEditorView {
 
     private func buildFile(_ parent: NSView) {
         label(
-            displayState.isImportingWAV ? "— IMPORTING SAMPLE" : "— WAV · AIFF · AIFC LOAD",
+            displayState.isImportingWAV ? "— IMPORTING SAMPLE" : "— WAV · AIFF · AIFC · FLAC LOAD",
             parent, NSRect(x: 48, y: 10, width: 300, height: 11),
             color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8
         )

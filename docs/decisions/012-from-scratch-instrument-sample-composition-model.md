@@ -148,7 +148,7 @@ chunks with Apple `ExtAudioFile`. Raw STREAMINFO supplies rate, channels, source
 count before allocation under the shared cap. Valid 8-bit FLAC is unsupported by the selected Apple decoder and is
 rejected during preflight, as are all untested depths and Ogg-FLAC. Output still becomes canonical mono 16-bit XM
 PCM; tags, pictures, cues, seek tables, ReplayGain, embedded names, and loop-like metadata are ignored. This
-foundation does not expose FLAC in the Sample Editor panel.
+exact native-FLAC scope is now exposed through the existing Sample Editor LOAD workflow.
 
 Ogg Vorbis, MP3, M4A/AAC, CAF, raw PCM, XI, folders/batch import, and archives are deferred. XI remains a separate
 broader VTX 1.0 target; this decision does not remove it from v1 scope.

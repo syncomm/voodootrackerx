@@ -5,9 +5,10 @@
 **Visual source of truth:** `assets/mockups/sample-editor-v1.html`.
 **Reference:** FastTracker II sample editor, reinterpreted in VTX's tactile language.
 **Status:** The fixed mockup-aligned shell, canonical selection, sample display,
-waveform/loop overview, stopped-editable empty-S01 SINE, and WAV/AIFF/AIFC LOAD
-into empty or represented destinations are implemented. Other sample mutation
-remains deferred. Header AUDITION directly previews the selected sample at C-4.
+waveform/loop overview, stopped-editable empty-S01 SINE, and
+WAV/AIFF/AIFC/native-FLAC LOAD into empty or represented destinations are
+implemented. Other sample mutation remains deferred. Header AUDITION directly
+previews the selected sample at C-4.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
 proportions, `assets/mockups/sample-editor-v1.html` takes precedence over this
@@ -53,9 +54,10 @@ S01. It cancels preview, validates owned PCM off the render callback, commits on
 `Generate Sine Sample` edit, and refreshes all editors without auto-audition.
 LOAD is enabled only for a stopped editable empty S01 or represented selected
 sample and is disabled during an active import. Its single-file panel accepts
-WAV/WAVE, AIFF/AIF, and AIFC and never accepts directories. A format-neutral
-facade validates the actual container identity, rejects recognized
-extension/container mismatches, and dispatches to the existing decoder. LOAD
+WAV/WAVE, AIFF/AIF, AIFC, and native FLAC and never accepts directories. A
+format-neutral facade validates the actual container identity, rejects
+Ogg-FLAC and recognized extension/container mismatches, and dispatches to the
+existing decoder. LOAD
 confirms represented replacement, offers stereo Mix to Mono/Left/Right after
 inspection, and decodes/normalizes off the main thread while showing an
 indeterminate state. The main thread revalidates document identity/revision,
@@ -105,7 +107,8 @@ and Export XM/reopen uses the existing sample writer. Format metadata including
 WAV cue/`smpl`/broadcast fields, AIFF/AIFC MARK/INST/COMT/NAME/AUTH/ANNO,
 and FLAC tags, pictures, cues, seek tables, application/padding blocks, ReplayGain,
 embedded names, and loops remains deferred. The Sample Editor panel still lists
-only WAV/AIFF/AIFC; exposing FLAC there is the next focused import PR.
+every currently supported lossless import format. Add as New Sample and S02+
+remain deferred.
 Square/pulse, triangle, saw, and noise remain future generators.
 First-sample import/generation maps all 96 notes and becomes immediately
 auditionable in one `applyEdit` action. See

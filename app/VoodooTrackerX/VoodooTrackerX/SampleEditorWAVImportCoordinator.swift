@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct SampleEditorWAVFileRequest: Equatable, Sendable {
     static let audio = SampleEditorWAVFileRequest(
-        allowedFileExtensions: ["wav", "wave", "aif", "aiff", "aifc"]
+        allowedFileExtensions: ["wav", "wave", "aif", "aiff", "aifc", "flac"]
     )
 
     let allowedFileExtensions: [String]

@@ -63,7 +63,7 @@ VoodooTracker X currently has:
   container-validating facade and background workflow. It fills empty S01 or
   confirms exact in-place replacement, with stereo Mix/Left/Right,
   stale-result checks, one format-neutral undoable edit, and document-owned
-  mono 16-bit PCM. Add as New Sample, FLAC, and processing remain unavailable.
+  mono 16-bit PCM. Add as New Sample, FLAC picker exposure, and processing remain unavailable.
   AUDITION now toggles that selected slot directly at C-4 through the persistent
   preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
@@ -161,7 +161,8 @@ Recently completed target:
    S01 destination through one `applyEdit` action. The current allocation policy
    appends after the highest represented instrument and does not fill sparse holes.
    Deterministic SINE and WAV/AIFF/AIFC decode/canonical normalization are done
-   through the shared candidate. Sample Editor audio load/replace is the only
+   through the shared candidate. Native 16/24-bit mono/stereo FLAC decode now
+   reaches that same candidate, but has no picker exposure. Sample Editor audio load/replace is the only
    current import UI path for empty S01 and exact represented destinations.
 9. Pattern editor completion for instrument, volume-column, and effect-column
    entry remains part of the complete composition gate. XI stays a separate
@@ -194,6 +195,10 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Native `fLaC` preflight and bounded Apple `ExtAudioFile` decode now support
+  16/24-bit mono/stereo sources through the shared canonical importer. Valid
+  8-bit FLAC and all untested depths are rejected before decode; tags, pictures,
+  cues, seek tables, ReplayGain, and loops are ignored. No UI was added.
 - Sample Editor LOAD now imports one WAV/WAVE, AIFF/AIF, or AIFC into stopped
   editable empty S01 or confirms replacement of the exact represented selected
   sample. Header-based dispatch, extension/container mismatch rejection,

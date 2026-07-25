@@ -85,11 +85,16 @@ SINE repeats a precomputed 32-value integer table at amplitude 12,000 exactly
 At C-4's 8,363 Hz base rate the tone is 261.34375 Hz, within 0.5 Hz (about 1.87
 cents low) of 261.625565 Hz; C-5 is 522.6875 Hz. The all-zero map stays neutral.
 
-The UI-independent import facade identifies RIFF/WAVE, FORM/AIFF, and FORM/AIFC
+The UI-independent import facade identifies RIFF/WAVE, FORM/AIFF, FORM/AIFC, and native `fLaC`
 from their headers and dispatches to the existing bounded decoders. WAV supports
 mono/stereo 8/16/24/32-bit integer PCM, Float32 PCM, and matching extensible
 forms through chunked `AVAudioFile` reads. AIFF supports signed 8/16/24/32-bit
-PCM; AIFC supports big-endian `NONE`/`twos` and little-endian `sowt`. Mix to
+PCM; AIFC supports big-endian `NONE`/`twos` and little-endian `sowt`. Native
+FLAC foundation supports only 16/24-bit mono/stereo sources. It validates
+STREAMINFO rate, channels, depth, known positive frame count, and the shared
+16,777,216-frame cap before bounded Apple `ExtAudioFile` decoding. Valid 8-bit
+FLAC is unsupported by that decoder and is rejected during preflight; every
+untested depth and Ogg-FLAC are also rejected. Mix to
 Mono averages `0.5 × (left + right)`; Left and Right select their channel, while
 mono treats channel 0 as both. Results are clamped, quantized to canonical
 16-bit PCM, named from the 22-byte XM-safe filename stem, tuned from the
@@ -97,9 +102,10 @@ mono treats channel 0 as both. Results are clamped, quantized to canonical
 (64 MiB of mono Float32). LOAD installs the complete candidate as
 document-owned PCM through one undoable edit; the source path is not retained
 and Export XM/reopen uses the existing sample writer. Format metadata including
-WAV cue/`smpl`/broadcast fields and AIFF/AIFC MARK/INST/COMT/NAME/AUTH/ANNO,
-AESD, MIDI/application, compression-name text, and loops remains deferred.
-FLAC is the next focused importer.
+WAV cue/`smpl`/broadcast fields, AIFF/AIFC MARK/INST/COMT/NAME/AUTH/ANNO,
+and FLAC tags, pictures, cues, seek tables, application/padding blocks, ReplayGain,
+embedded names, and loops remains deferred. The Sample Editor panel still lists
+only WAV/AIFF/AIFC; exposing FLAC there is the next focused import PR.
 Square/pulse, triangle, saw, and noise remain future generators.
 First-sample import/generation maps all 96 notes and becomes immediately
 auditionable in one `applyEdit` action. See

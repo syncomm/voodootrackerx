@@ -28,6 +28,8 @@ undoable stopped-editable action. Deterministic SINE and Sample Editor audio
 load/replace now populate that destination through the same undo boundary.
 LOAD accepts WAV/WAVE, AIFF/AIF, and AIFC, validates the container identity
 before format dispatch, and commits the shared normalized candidate.
+The UI-independent facade also has a native FLAC foundation for preflighted
+16/24-bit mono/stereo sources; Sample Editor FLAC picker exposure remains next.
 Sample Editor AUDITION toggles its represented selected slot directly at C-4
 through the persistent preview stream for loaded/read-only and editable sources,
 without keymap lookup or mutation.

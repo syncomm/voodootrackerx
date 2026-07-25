@@ -57,12 +57,12 @@ sample and is disabled during an active import. Its single-file panel accepts
 WAV/WAVE, AIFF/AIF, AIFC, and native FLAC and never accepts directories. A
 format-neutral facade validates the actual container identity, rejects
 Ogg-FLAC and recognized extension/container mismatches, and dispatches to the
-existing decoder. LOAD
-confirms represented replacement, offers stereo Mix to Mono/Left/Right after
+existing decoder. LOAD offers occupied Replace/Add as New/Cancel, then stereo
+Mix to Mono/Left/Right after
 inspection, and decodes/normalizes off the main thread while showing an
 indeterminate state. The main thread revalidates document identity/revision,
-selection, destination occupancy, stopped transport, and operation token before
-one `Import Audio Sample` or `Replace Audio Sample` edit. Commit cancels stale
+selection, sample count/capacity, destination occupancy, stopped transport, and
+operation token before one labeled edit. Commit cancels stale
 preview once, refreshes all editors, and does not auto-audition. Other
 states/generators stay disabled; preview/runtime architecture is unchanged.
 AUDITION is non-mutating for loaded/read-only and editable samples; it sends the
@@ -77,9 +77,11 @@ The Sample Editor owns sample identity, selection within the current
 instrument, import/generation, waveform and loop metadata, parameters, and
 later PCM operations. Its instrument popup selects context but never creates
 an instrument. The current audio workflow fills only empty S01 on a zero-sample
-instrument or offers Replace Current Sample/Cancel for the represented selected
-sample. It never creates S02 or redirects a stale result. Add as New Sample and
-global import/drop creation remain future lifecycle work.
+instrument or offers Replace Current Sample/Add as New Sample/Cancel for the
+represented selected sample. Add appends and selects the next canonical Sxx but
+never redirects a stale result or changes the keymap. Sample Editor AUDITION
+plays that selected slot directly; Instrument Editor audition and pattern
+playback remain keymap-driven until future explicit mapping.
 
 SINE repeats a precomputed 32-value integer table at amplitude 12,000 exactly
 512 times for 16,384 frames, with neutral tuning and a full forward loop. PCM SHA-256:
@@ -108,7 +110,8 @@ WAV cue/`smpl`/broadcast fields, AIFF/AIFC MARK/INST/COMT/NAME/AUTH/ANNO,
 and FLAC tags, pictures, cues, seek tables, application/padding blocks, ReplayGain,
 embedded names, and loops remains deferred. The Sample Editor panel still lists
 every currently supported lossless import format. Add as New Sample and S02+
-remain deferred.
+are current; delete, clear, reorder, duplication, standalone New Sample, keymap
+editing, and global import/drop creation remain deferred.
 Square/pulse, triangle, saw, and noise remain future generators.
 First-sample import/generation maps all 96 notes and becomes immediately
 auditionable in one `applyEdit` action. See
@@ -130,7 +133,7 @@ selection.
 
 The broader v1.0 direction includes **destructive editing** (with undo) and
 additional **waveform generators**; SINE is the only current generator. Current
-audio LOAD is import/replace only; it adds no direct waveform editing.
+audio LOAD supports import/replace/append only; it adds no direct waveform editing.
 
 ---
 

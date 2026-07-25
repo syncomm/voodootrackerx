@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted as the product and architecture contract for the future from-scratch composition workstream. The behavior
-is planned unless explicitly called current. This documentation-only decision adds no importer, generator, mutation
-control, format support, or runtime behavior.
+Accepted as the product and architecture contract for the from-scratch composition workstream. Empty instruments,
+first-sample generation/import, and occupied LOAD with Replace/Add as New/Cancel are now implemented. Add appends
+and selects represented S02+ without changing keymap references; explicit keymap editing and destructive lifecycle remain future work.
 
 ## Context
 
@@ -305,10 +305,10 @@ This is a sequence of focused PRs, not one large implementation PR:
 13. Run the complete automated and manual from-scratch acceptance slice.
 14. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
 
-The recommended first implementation PR after this ADR merges is:
+The recommended next implementation PR is:
 
 ```text
-instrument: create empty instrument with S01 through applyEdit
+sample: add explicit sample keymap editing foundation
 ```
 
 ## Test And Fixture Plan

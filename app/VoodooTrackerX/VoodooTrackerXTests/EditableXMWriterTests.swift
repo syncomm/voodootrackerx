@@ -729,6 +729,31 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(instrument.noteSampleMap, Array(repeating: 0, count: 96))
     }
 
+    func testAppendedImportedSampleExportsAndReopensInOrderWithoutChangingKeymap() throws {
+        var document = BlankTrackerDocument.makeDefault()
+        let firstCandidate = try normalizedImportCandidate(
+            name: "First.wav", pcm: [-1, -0.25, 0.25, Float(Int16.max) / 32_768]
+        )
+        XCTAssertTrue(document.importAudioSample(firstCandidate, destination: try XCTUnwrap(document.selectedSampleImportDestination)))
+        let first = try XCTUnwrap(document.instrumentPalette[1]?.samples.first)
+        let map = try XCTUnwrap(document.instrumentPalette[1]?.noteSampleMap)
+        let secondCandidate = try normalizedImportCandidate(name: "Second.wav", pcm: [-0.75, 0, 0.75], sampleRate: 44_100)
+        let second = secondCandidate.playbackSample(instrumentIndex: 1, sampleIndex: 1)
+        XCTAssertEqual(document.appendSample(instrumentIndex: 1, sample: second), 1)
+
+        let url = try temporaryExportURL(filename: "appended-import.xm")
+        try EditableXMWriter().data(from: document).write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        let reopened = try XCTUnwrap(song.instrument(forInstrument: 1))
+
+        XCTAssertEqual(reopened.samples, [first, second])
+        XCTAssertEqual(reopened.samples.map(\.sampleIndex), [0, 1])
+        XCTAssertEqual(reopened.noteSampleMap, map)
+        XCTAssertEqual(reopened.noteSampleMap, Array(repeating: 0, count: 96))
+        XCTAssertEqual([UInt8(1), 49, 96].map(reopened.mappedSampleIndex(forNote:)), [0, 0, 0])
+    }
+
     private func makeDocument(
         title: String = BlankTrackerDocument.defaultTitle,
         currentPatternIndex: Int = BlankTrackerDocument.defaultPatternIndex,

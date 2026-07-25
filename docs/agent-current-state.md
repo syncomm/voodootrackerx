@@ -25,12 +25,12 @@ AIFF/AIF, AIFC, or native `fLaC` to bounded decoders. Native FLAC is limited to
 16/24-bit mono/stereo and uses raw STREAMINFO preflight plus chunked Apple
 `ExtAudioFile` decode; 8-bit and all untested depths are rejected before decode.
 Every format returns the same value-owned XM-representable 16-bit mono candidate.
-Sample Editor LOAD uses that facade off the main thread: it fills empty S01 or confirms in-place
-replacement of the exact represented selection, offers stereo Mix/Left/Right,
-and commits one `Import Audio Sample` or `Replace Audio Sample` edit with
-stale-result protection. Its panel accepts WAV/AIFF/AIFC and native FLAC.
-Ogg-FLAC is unsupported; FLAC metadata and loops are ignored. Add as New
-Sample, S02+, drag/drop, and global import remain future work.
+Sample Editor LOAD uses that facade off the main thread: it fills empty S01 or offers
+Replace/Add as New/Cancel for the exact represented selection, reuses stereo
+Mix/Left/Right, and commits one import, replace, or append edit with stale-result
+protection. Add appends/selects the next represented Sxx without changing the
+keymap. Its panel accepts WAV/AIFF/AIFC and native FLAC; Ogg-FLAC is unsupported,
+FLAC metadata/loops are ignored, and destructive lifecycle plus keymap editing remain deferred.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -119,8 +119,8 @@ empty import establishes the all-S01 map, while replacement preserves the
 exact slot, keymap, and unrelated instrument data. Commit cancels stale preview
 once, refreshes every editor, and does not auto-audition; the next trigger uses
 imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
-state, and no source path is retained. Add as New Sample and S02+ lifecycle
-remain deferred, and preview-stream/runtime architecture is unchanged.
+state, and no source path is retained. Destructive sample lifecycle and keymap
+editing remain deferred; preview-stream/runtime architecture is unchanged.
 Sample Editor AUDITION now toggles the represented selected slot directly at
 C-4 through the persistent preview stream for loaded/read-only and editable
 sources, preserving existing PCM/loop/volume/pan/tuning planning without keymap

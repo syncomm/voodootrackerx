@@ -123,6 +123,71 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertFalse(document.importAudioSample(candidate, destination: .emptyS01(instrumentIndex: 1)))
     }
 
+    func testAppendingSamplesUsesNextCanonicalIndexAndPreservesInstrumentStateAndKeymap() throws {
+        let base = BlankTrackerDocument.makeDefault()
+        let firstCandidate = try normalizedImportCandidate(name: "First.wav", pcm: [-0.25, 0.25])
+        let first = firstCandidate.playbackSample(instrumentIndex: 1, sampleIndex: 0)
+        let map = Array(repeating: 0, count: 96)
+        let instrument = PlaybackInstrument(
+            index: 1,
+            name: "Layered",
+            samples: [first],
+            volumeEnvelope: .init(
+                enabled: true, points: [.init(tick: 0, value: 64), .init(tick: 8, value: 24)],
+                sustainPointIndex: 0, loopStartPointIndex: 0, loopEndPointIndex: 1, typeFlags: 0x07, fadeout: 321
+            ),
+            panningEnvelope: .init(
+                enabled: true, points: [.init(tick: 0, value: 12), .init(tick: 8, value: 52)],
+                sustainPointIndex: 1, loopStartPointIndex: 0, loopEndPointIndex: 1, typeFlags: 0x07
+            ),
+            autoVibrato: .init(waveformType: 2, sweep: 3, depth: 4, rate: 5),
+            noteSampleMap: map
+        )
+        var document = makeBlankDocument(instrumentPalette: [1: instrument])
+        let second = try normalizedImportCandidate(name: "Second.wav", pcm: [-0.5, 0, 0.5])
+            .playbackSample(instrumentIndex: 1, sampleIndex: 1)
+        let third = try normalizedImportCandidate(name: "Third.wav", pcm: [-0.75, 0.75])
+            .playbackSample(instrumentIndex: 1, sampleIndex: 2)
+
+        XCTAssertEqual(document.appendSample(instrumentIndex: 1, sample: second), 1)
+        XCTAssertEqual(document.appendSample(instrumentIndex: 1, sample: third), 2)
+
+        let appended = try XCTUnwrap(document.instrumentPalette[1])
+        XCTAssertEqual(appended.samples, [first, second, third])
+        XCTAssertEqual(appended.name, instrument.name)
+        XCTAssertEqual(appended.volumeEnvelope, instrument.volumeEnvelope)
+        XCTAssertEqual(appended.panningEnvelope, instrument.panningEnvelope)
+        XCTAssertEqual(appended.autoVibrato, instrument.autoVibrato)
+        XCTAssertEqual(appended.noteSampleMap, map)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 3))
+        XCTAssertEqual(document.patterns, base.patterns)
+    }
+
+    func testAppendSampleNeverFillsGapsAndRejectsInvalidOrMaximumSampleWithoutMutation() throws {
+        let candidate = try normalizedImportCandidate()
+        let sparseSamples = [0, 2].map {
+            candidate.playbackSample(instrumentIndex: 1, sampleIndex: $0)
+        }
+        var sparse = makeBlankDocument(instrumentPalette: [1: PlaybackInstrument(index: 1, samples: sparseSamples)])
+        let appended = candidate.playbackSample(instrumentIndex: 1, sampleIndex: 3)
+        XCTAssertEqual(sparse.appendSample(instrumentIndex: 1, sample: appended), 3)
+        XCTAssertEqual(sparse.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 2, 3])
+
+        let maximumSamples = (0..<BlankTrackerDocument.maximumSampleCountPerInstrument).map {
+            candidate.playbackSample(instrumentIndex: 1, sampleIndex: $0)
+        }
+        var atLimit = makeBlankDocument(instrumentPalette: [1: PlaybackInstrument(index: 1, samples: maximumSamples)])
+        let beforeLimit = atLimit
+        let overflow = candidate.playbackSample(instrumentIndex: 1, sampleIndex: BlankTrackerDocument.maximumSampleCountPerInstrument)
+        XCTAssertNil(atLimit.appendSample(instrumentIndex: 1, sample: overflow))
+        XCTAssertEqual(atLimit, beforeLimit)
+
+        var oneSample = makeBlankDocument(instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [maximumSamples[0]])])
+        let beforeInvalid = oneSample
+        XCTAssertNil(oneSample.appendSample(instrumentIndex: 1, sample: candidate.playbackSample(instrumentIndex: 1, sampleIndex: 7)))
+        XCTAssertEqual(oneSample, beforeInvalid)
+    }
+
     func testDefaultBlankDocumentUsesTrackerStartupDefaults() {
         let document = BlankTrackerDocument.makeDefault()
 

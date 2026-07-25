@@ -202,6 +202,78 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(replacementHarness.editableDocument, replaced)
     }
 
+    func testAddAudioSampleIsOneApplyEditActionWithExactSelectionUndoRedo() throws {
+        var before = BlankTrackerDocument.makeDefault()
+        let first = try normalizedImportCandidate(name: "First.wav", pcm: [-0.25, 0.25])
+        XCTAssertTrue(before.importAudioSample(first, destination: try XCTUnwrap(before.selectedSampleImportDestination)))
+        let preservedMap = before.instrumentPalette[1]?.noteSampleMap
+        let candidate = try normalizedImportCandidate(name: "Second.wav", pcm: [-0.75, 0, 0.75])
+        let instrumentController = InstrumentEditorWindowController(displayState: .editableDocument(before))
+        let sampleController = SampleEditorWindowController(displayState: .editableDocument(before))
+        let instrumentView = try XCTUnwrap(instrumentController.window?.contentView as? InstrumentEditorView)
+        let sampleView = try XCTUnwrap(sampleController.window?.contentView as? SampleEditorView)
+        let harness = EditHarness(
+            context: .editable(document: before, isPlaybackActive: false),
+            onApply: {
+                instrumentController.apply(displayState: .editableDocument($0))
+                sampleController.apply(displayState: .editableDocument($0))
+            }
+        )
+
+        XCTAssertTrue(harness.coordinator.addAudioSample(candidate, instrumentIndex: 1, originalSampleCount: 1))
+        let added = try XCTUnwrap(harness.editableDocument)
+        XCTAssertEqual(added.instrumentPalette[1]?.samples.count, 2)
+        XCTAssertEqual(added.instrumentPalette[1]?.samples[1], candidate.playbackSample(instrumentIndex: 1, sampleIndex: 1))
+        XCTAssertEqual(added.instrumentPalette[1]?.noteSampleMap, preservedMap)
+        XCTAssertEqual(added.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        XCTAssertEqual(added.controlPanelMetadata.selectedSampleDisplay, "S02 Second")
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.name, "Second")
+        XCTAssertEqual(sampleView.displayState.sampleName, "Second")
+        let sampleRequest = SampleEditorAuditionRequestFactory.request(selection: added.selection, sourceContext: .blankDocument)
+        let instrumentRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
+            noteValue: UInt8(PlaybackPitchCalculator.c4NoteValue),
+            selection: added.selection, instrument: added.instrumentPalette[1], sourceContext: .blankDocument
+        ))
+        XCTAssertEqual(sampleRequest.selectedSampleIndex, 2)
+        XCTAssertEqual(instrumentRequest.selectedSampleIndex, 1)
+        XCTAssertEqual(harness.appliedDocuments, [added])
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Add Audio Sample")
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.name, "First")
+        XCTAssertEqual(sampleView.displayState.sampleName, "First")
+        XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Add Audio Sample")
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, added)
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.name, "Second")
+        XCTAssertEqual(sampleView.displayState.sampleName, "Second")
+        XCTAssertEqual(harness.appliedDocuments, [added, before, added])
+    }
+
+    func testAddAudioSampleRejectsReadOnlyPlaybackStaleCountAndMaximumWithoutHistory() throws {
+        let candidate = try normalizedImportCandidate()
+        var oneSample = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(oneSample.importAudioSample(candidate, destination: try XCTUnwrap(oneSample.selectedSampleImportDestination)))
+        let maximumSamples = (0..<BlankTrackerDocument.maximumSampleCountPerInstrument).map {
+            candidate.playbackSample(instrumentIndex: 1, sampleIndex: $0)
+        }
+        let atLimit = documentWithInstrumentName("At Limit", samples: maximumSamples)
+        let cases: [(EditableDocumentEditContext, Int)] = [
+            (.loadedReadOnly, 1),
+            (.editable(document: oneSample, isPlaybackActive: true), 1),
+            (.editable(document: oneSample, isPlaybackActive: false), 0),
+            (.editable(document: atLimit, isPlaybackActive: false), maximumSamples.count),
+        ]
+
+        for (context, originalSampleCount) in cases {
+            let harness = EditHarness(context: context)
+            XCTAssertFalse(harness.coordinator.addAudioSample(candidate, instrumentIndex: 1, originalSampleCount: originalSampleCount))
+            XCTAssertTrue(harness.appliedDocuments.isEmpty)
+            XCTAssertFalse(harness.undoManager.canUndo)
+        }
+    }
+
     func testAudioImportRejectsLoadedPlayingInvalidAndStaleDestinationsWithoutHistory() throws {
         let base = BlankTrackerDocument.makeDefault()
         var invalid = base

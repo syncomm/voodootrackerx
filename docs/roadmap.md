@@ -471,10 +471,10 @@ Recommended next product PR:
   dense model appends after the highest represented slot rather than filling
   sparse holes. Deterministic SINE and UI-independent WAV/AIFF/AIFC/native-FLAC
   decode/canonical normalization are complete, and Sample Editor LOAD now
-  fills empty S01 or replaces the exact represented selected sample through
-  one undoable edit. Next, add represented sample-slot lifecycle and Add as New
-  Sample in a focused PR; keep keymap editing and reference-preserving reorder
-  work separate, and do not change the runtime backend or C mixer DSP.
+  fills empty S01 or offers Replace/Add as New/Cancel for an occupied selection.
+  Append-only S02+ lifecycle preserves the keymap and selects the new sample.
+  Next, add explicit keymap editing; keep destructive lifecycle and
+  reference-preserving reorder separate from runtime/backend work.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -780,14 +780,13 @@ Current implemented foundation:
 
 Next composition targets after backend foundation freeze:
 
-- Sample Editor Add as New Sample and broader sample-slot lifecycle as separate focused work
+- explicit sample-keymap editing through applyEdit as separate focused work
 - envelope playback/editing and broader instrument/sample metadata behind applyEdit
 - editable Sample Editor loop mode/range behind applyEdit, followed by separate
   PCM/waveform mutation slices
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- add represented sample-slot lifecycle and Add as New Sample without changing
-  the existing format-neutral import/commit path; XI remains separate
+- broader sample delete/clear/reorder/duplication lifecycle; XI remains separate
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics

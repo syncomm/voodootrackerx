@@ -69,9 +69,10 @@ full loaded-module editing.
 ## From-Scratch Sample Ownership
 
 Imported or generated PCM is copied into the editable document before it becomes
-playable. The WAV, AIFF/AIFC, and native 16/24-bit FLAC foundation decoders
-return the same value-owned, canonical 16-bit mono candidate with no retained
-source URL. LOAD validates container
+playable. LOAD supports WAV, AIFF/AIFC, and native mono/stereo 16/24-bit FLAC;
+all decoders return the same value-owned, canonical 16-bit mono candidate with
+no retained source URL. FLAC 8-bit and untested depths plus Ogg-FLAC are
+rejected, and FLAC metadata/loops are ignored. LOAD validates container
 identity before dispatch, then validates the complete candidate and exact
 captured destination before one `Import Audio Sample` or `Replace Audio Sample`
 `applyEdit`; failure or stale state leaves the prior document and undo history
@@ -191,11 +192,12 @@ First-writer limitations:
 - no guarantee of round-trip parity with arbitrary loaded XM modules
 - no full Instrument Editor state beyond fields currently represented by the
   editable document and playback/palette models
-- Sample Editor mutation is limited to stopped-editable SINE plus WAV/AIFF/AIFC
-  import into empty S01 or in-place replacement of the represented selected sample
+- Sample Editor mutation is limited to stopped-editable SINE plus
+  WAV/AIFF/AIFC/native-FLAC import into empty S01 or in-place replacement of the
+  represented selected sample
 - no panning-envelope playback/editing, vibrato playback/editing, broader
-  loop/sample metadata/PCM/waveform editing, FLAC picker exposure, XI import, or
-  arbitrary non-XM-derived payload support in the current writer
+  loop/sample metadata/PCM/waveform editing, XI import, Add as New Sample, S02+,
+  or arbitrary non-XM-derived payload support in the current writer
 - no private corpus dependency
 - no generated XM/WAV artifacts committed outside explicit reviewed fixture PRs
 - no broad parser/writer architecture rewrite
@@ -281,8 +283,9 @@ Keep future PRs narrow and testable:
 21. Done: `sample: add AIFF/AIFC import decode foundation`
 22. Done: `sample: expose AIFF/AIFC through Sample Editor load workflow`
 23. Done: `sample: add FLAC import decode foundation`
-24. `sample: expose FLAC through Sample Editor load workflow`
-25. `sample: add editable loop mode and range behind applyEdit`
+24. Done: `sample: expose FLAC through Sample Editor load workflow`
+25. `sample: add represented sample-slot lifecycle and Add as New Sample`
+26. `sample: add editable loop mode and range behind applyEdit`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

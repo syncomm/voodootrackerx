@@ -28,8 +28,9 @@ Every format returns the same value-owned XM-representable 16-bit mono candidate
 Sample Editor LOAD uses that facade off the main thread: it fills empty S01 or confirms in-place
 replacement of the exact represented selection, offers stereo Mix/Left/Right,
 and commits one `Import Audio Sample` or `Replace Audio Sample` edit with
-stale-result protection. Its panel remains WAV/AIFF/AIFC-only; Add as New Sample,
-drag/drop, global import, and FLAC picker exposure remain future work.
+stale-result protection. Its panel accepts WAV/AIFF/AIFC and native FLAC.
+Ogg-FLAC is unsupported; FLAC metadata and loops are ignored. Add as New
+Sample, S02+, drag/drop, and global import remain future work.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -106,8 +107,11 @@ playback-policy `baseSampleRate` as source metadata.
 SINE and audio LOAD are the current Sample Editor mutations. LOAD is available
 only for a stopped editable empty S01 or represented selected sample and is
 disabled during an active import. Its single-file panel accepts WAV/WAVE,
-AIFF/AIF, and AIFC; container identity is authoritative and recognized
-extension/container mismatches are rejected. Mono skips channel choice, while
+AIFF/AIF, AIFC, and native FLAC; container identity is authoritative and
+recognized extension/container mismatches are rejected. Native FLAC accepts
+only mono/stereo 16-bit and 24-bit sources. It rejects 8-bit and untested
+depths, Ogg-FLAC, invalid STREAMINFO, unsafe dimensions, and decoder/preflight
+disagreement; metadata and loops are ignored. Mono skips channel choice, while
 stereo offers Mix/Left/Right. Decode/normalization runs in the background with
 exact document identity/revision/selection/occupancy revalidation. One `Import
 Audio Sample` or `Replace Audio Sample` edit owns canonical mono 16-bit PCM;
@@ -115,8 +119,8 @@ empty import establishes the all-S01 map, while replacement preserves the
 exact slot, keymap, and unrelated instrument data. Commit cancels stale preview
 once, refreshes every editor, and does not auto-audition; the next trigger uses
 imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
-state, and no source path is retained. Other mutation remains deferred, and
-preview-stream/runtime architecture is unchanged.
+state, and no source path is retained. Add as New Sample and S02+ lifecycle
+remain deferred, and preview-stream/runtime architecture is unchanged.
 Sample Editor AUDITION now toggles the represented selected slot directly at
 C-4 through the persistent preview stream for loaded/read-only and editable
 sources, preserving existing PCM/loop/volume/pan/tuning planning without keymap

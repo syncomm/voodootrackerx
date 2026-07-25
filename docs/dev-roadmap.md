@@ -59,11 +59,13 @@ VoodooTracker X currently has:
   waveform, and display-only loop region; unnamed samples remain distinct from
   absent samples and no source rate is fabricated. Stopped-editable empty-S01
   SINE creates deterministic looped PCM with all-note mapping and Export XM;
-  Sample Editor LOAD now accepts WAV/WAVE, AIFF/AIF, and AIFC through one
-  container-validating facade and background workflow. It fills empty S01 or
-  confirms exact in-place replacement, with stereo Mix/Left/Right,
+  Sample Editor LOAD now accepts WAV/WAVE, AIFF/AIF, AIFC, and native FLAC
+  through one container-validating facade and background workflow. Native FLAC
+  is mono/stereo 16-bit and 24-bit only; 8-bit and untested depths plus
+  Ogg-FLAC are rejected, and FLAC metadata/loops are ignored. LOAD fills empty
+  S01 or confirms exact in-place replacement, with stereo Mix/Left/Right,
   stale-result checks, one format-neutral undoable edit, and document-owned
-  mono 16-bit PCM. Add as New Sample, FLAC picker exposure, and processing remain unavailable.
+  mono 16-bit PCM. Add as New Sample, S02+, and processing remain unavailable.
   AUDITION now toggles that selected slot directly at C-4 through the persistent
   preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
@@ -160,10 +162,10 @@ Recently completed target:
 8. Done: start the ADR 012 sequence with an unnamed instrument and honest empty
    S01 destination through one `applyEdit` action. The current allocation policy
    appends after the highest represented instrument and does not fill sparse holes.
-   Deterministic SINE and WAV/AIFF/AIFC decode/canonical normalization are done
-   through the shared candidate. Native 16/24-bit mono/stereo FLAC decode now
-   reaches that same candidate, but has no picker exposure. Sample Editor audio load/replace is the only
-   current import UI path for empty S01 and exact represented destinations.
+   Deterministic SINE and WAV/AIFF/AIFC/native-FLAC decode/canonical
+   normalization are done through the shared candidate. Sample Editor audio
+   load/replace exposes every supported format for empty S01 and exact
+   represented destinations.
 9. Pattern editor completion for instrument, volume-column, and effect-column
    entry remains part of the complete composition gate. XI stays a separate
    broader VTX 1.0 target.
@@ -195,17 +197,23 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Sample Editor LOAD now exposes native mono/stereo 16-bit and 24-bit FLAC
+  through the existing one-file picker, coordinator, background worker,
+  normalized candidate, and commit path. It rejects 8-bit and untested depths,
+  Ogg-FLAC, malformed/unsafe input, mismatches, and decoder disagreement without
+  mutation; FLAC metadata/loops are ignored. Add as New Sample and S02+ remain
+  separate work.
 - Native `fLaC` preflight and bounded Apple `ExtAudioFile` decode now support
   16/24-bit mono/stereo sources through the shared canonical importer. Valid
   8-bit FLAC and all untested depths are rejected before decode; tags, pictures,
-  cues, seek tables, ReplayGain, and loops are ignored. No UI was added.
-- Sample Editor LOAD now imports one WAV/WAVE, AIFF/AIF, or AIFC into stopped
-  editable empty S01 or confirms replacement of the exact represented selected
-  sample. Header-based dispatch, extension/container mismatch rejection,
+  cues, seek tables, ReplayGain, and loops are ignored.
+- Sample Editor LOAD imports one supported audio file into stopped editable
+  empty S01 or confirms replacement of the exact represented selected sample.
+  Header-based dispatch, extension/container mismatch rejection,
   stereo Mix/Left/Right, background decode, operation/document revision checks,
   document-owned canonical mono 16-bit PCM, all-S01 first-sample mapping, and
   one format-neutral import/replace undo action are implemented. Add as New
-  Sample, drag/drop, global import, and FLAC remain separate work.
+  Sample, S02+, drag/drop, and global import remain separate work.
 - Labeled whole-editable-document snapshots now flow through
   `EditableDocumentEditCoordinator` and a capped `UndoManager`. Clear Current
   Pattern is the first routed operation; undo/redo refresh existing editor
@@ -768,12 +776,11 @@ Remaining VTX 1.0 scope:
 
 - the dependency-ordered from-scratch instrument/sample workflow in
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md),
-  continuing with Sample Editor WAV load/replace integration
+  continuing with represented sample-slot lifecycle and Add as New Sample
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit
 - editable loop mode/range behind applyEdit, followed by separately scoped PCM
   and waveform mutation
-- WAV, AIFF/AIFC, and FLAC sample import in focused phases
 - XI instrument import target
 - importing or copying instruments and samples from existing modules into
   blank/editable songs

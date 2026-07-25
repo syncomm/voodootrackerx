@@ -69,7 +69,11 @@ final class FLACSampleImportDecoderTests: XCTestCase {
         let decoder = SampleImportDecoder()
         let cases: [(String, Data, SampleImportError, Bool)] = [
             ("short.flac", Data("fLaC".utf8), .truncatedFLAC, false),
-            ("wrong.flac", Data("nope".utf8), .malformedFLAC, false),
+            (
+                "wrong.flac",
+                Data("nope".utf8) + Data(repeating: 0, count: 8),
+                .unsupportedContainer, true
+            ),
             (
                 "truncated-metadata.flac",
                 Data("fLaC".utf8) + Data([0x80, 0, 0, 34]) + Data(repeating: 0, count: 8),
@@ -85,7 +89,7 @@ final class FLACSampleImportDecoderTests: XCTestCase {
                 Data("fLaC".utf8) + Data([0x80, 0, 0, 33]) + Data(repeating: 0, count: 34),
                 .malformedFLAC, false
             ),
-            ("ogg.flac", Data("OggS".utf8) + Data(repeating: 0, count: 8), .unsupportedContainer, true),
+            ("ogg.flac", Data("OggS".utf8) + Data(repeating: 0, count: 8), .unsupportedOggFLAC, true),
         ]
         for (name, data, expected, useFacade) in cases {
             let url = directory.appendingPathComponent(name)
@@ -101,6 +105,14 @@ final class FLACSampleImportDecoderTests: XCTestCase {
         let nativeURL = directory.appendingPathComponent("native-as-wav.wav")
         try writeFLAC(sourceChannels(frameCount: 5_000, channelCount: 1), bitDepth: 16, to: nativeURL)
         XCTAssertThrowsError(try decoder.inspect(url: nativeURL)) {
+            XCTAssertEqual($0 as? SampleImportError, .fileExtensionMismatch)
+        }
+        let wavAsFLAC = directory.appendingPathComponent("wav-as-native.flac")
+        try writePCM(
+            sourceChannels(frameCount: 5_000, channelCount: 1),
+            fileType: kAudioFileWAVEType, bigEndian: false, to: wavAsFLAC
+        )
+        XCTAssertThrowsError(try decoder.inspect(url: wavAsFLAC)) {
             XCTAssertEqual($0 as? SampleImportError, .fileExtensionMismatch)
         }
     }
@@ -170,6 +182,59 @@ final class FLACSampleImportDecoderTests: XCTestCase {
             XCTAssertEqual(candidate.finetune, tuning.finetune)
             XCTAssertTrue(candidate.isValidDocumentSample)
         }
+    }
+    func testImportedFLACRemainsAuditionableAndExportsXMAndNonSilentAudioAfterSourceRemoval() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("Imported.flac")
+        try writeFLAC(
+            sourceChannels(frameCount: 5_000, channelCount: 1),
+            bitDepth: 24, sampleRate: 8_363, to: source
+        )
+        let candidate = try SampleImportDecoder().normalizedImport(
+            url: source, channelMode: .mixToMono
+        )
+
+        var document = BlankTrackerDocument.makeDefault()
+        let destination = try XCTUnwrap(document.selectedSampleImportDestination)
+        XCTAssertTrue(document.importAudioSample(candidate, destination: destination))
+        try FileManager.default.removeItem(at: source)
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        let imported = try XCTUnwrap(document.instrumentPalette[1]?.samples.first)
+        guard case let .potentiallyAvailable(descriptor) = document.noteAuditionAvailability else {
+            return XCTFail("Expected imported FLAC sample to be auditionable")
+        }
+        XCTAssertEqual(descriptor.previewPCM, imported.pcm)
+        XCTAssertEqual(descriptor.previewPanning, 128)
+        XCTAssertEqual(descriptor.previewVolume, 1)
+
+        let xmURL = directory.appendingPathComponent("round-trip.xm")
+        try EditableXMWriter().data(from: document).write(to: xmURL)
+        let metadata = try ModuleMetadataLoader().load(fromPath: xmURL.path)
+        let reopened = try PlaybackSongBuilder.build(
+            from: metadata, modulePath: xmURL.path
+        ).instrument(forInstrument: 1)?.sample(mappedSampleIndex: 0)
+        XCTAssertEqual(reopened, imported)
+
+        let exportContext = WAVExportDocumentContext.editable(
+            document: document, displayName: document.title, isPlaybackActive: false
+        )
+        let wavURL = directory.appendingPathComponent("imported.wav")
+        guard case let .exported(_, wavRender) = WAVExportCoordinator.export(
+            plan: try WAVExportCoordinator.makePlan(context: exportContext), to: wavURL
+        ) else {
+            return XCTFail("Expected WAV export from imported FLAC")
+        }
+        XCTAssertGreaterThan(wavRender.exportDiagnostics?.preExportPeak ?? 0, 0)
+
+        let m4aURL = directory.appendingPathComponent("imported.m4a")
+        guard case let .exported(_, m4aRender, _) = M4AExportCoordinator.export(
+            plan: try M4AExportCoordinator.makePlan(context: exportContext), to: m4aURL
+        ) else {
+            return XCTFail("Expected M4A export from imported FLAC")
+        }
+        XCTAssertGreaterThan(m4aRender.exportDiagnostics?.preExportPeak ?? 0, 0)
+        XCTAssertGreaterThan((try Data(contentsOf: m4aURL)).count, 0)
     }
 
     private func sourceChannels(frameCount: Int, channelCount: Int) -> [[Float]] {

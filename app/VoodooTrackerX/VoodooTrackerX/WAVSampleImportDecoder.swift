@@ -5,7 +5,7 @@ enum SampleImportChannelMode: Equatable, Sendable {
     case mixToMono, left, right
 }
 enum SampleImportError: Error, Equatable, Sendable {
-    case unsupportedContainer, fileExtensionMismatch
+    case unsupportedContainer, unsupportedOggFLAC, fileExtensionMismatch
     case unreadableSource, malformedWAV, truncatedWAV
     case malformedAIFF, truncatedAIFF, malformedFLAC, truncatedFLAC
     case unsupportedEncoding(formatCode: UInt16, bitsPerSample: Int)
@@ -17,6 +17,7 @@ enum SampleImportError: Error, Equatable, Sendable {
     var userFacingMessage: String {
         switch self {
         case .unsupportedContainer: "This is not a supported WAV, AIFF, AIFC, or native FLAC file."
+        case .unsupportedOggFLAC: "Ogg-FLAC is not supported. Choose a native FLAC file."
         case .fileExtensionMismatch: "The file extension does not match the audio container."
         case .unreadableSource: "The audio file could not be read."
         case .malformedWAV: "This file is not a valid WAV file."
@@ -28,7 +29,11 @@ enum SampleImportError: Error, Equatable, Sendable {
         case .unsupportedEncoding: "This WAV encoding is not supported."
         case .unsupportedPCMBitDepth: "This AIFF/AIFC sample width is not supported."
         case .unsupportedAIFFCompression: "This AIFC compression is not supported."
-        case .unsupportedFLACBitDepth: "This FLAC sample width is not supported."
+        case let .unsupportedFLACBitDepth(bitDepth):
+            """
+            This FLAC uses an unsupported \(bitDepth)-bit source format.
+            VoodooTracker X currently supports 16-bit and 24-bit native FLAC files.
+            """
         case let .unsupportedChannelCount(count):
             count > 2 ? "Audio files with more than two channels are not supported." : "This audio channel layout is not supported."
         case .emptySource: "The audio file contains no sample frames."
@@ -264,10 +269,15 @@ private enum SampleImportContainerIdentity {
             }
             return .flac
         }
+        if header.count >= 4,
+           String(decoding: header[0..<4], as: UTF8.self) == "OggS" {
+            throw SampleImportError.unsupportedOggFLAC
+        }
         guard header.count >= 12 else {
-            // A supported extension may route an incomplete file to the matching decoder
-            // so its format-specific truncated error remains actionable.
+            // Existing WAV/AIFF behavior routes incomplete headers to their decoder
+            // for a format-specific truncated error. FLAC requires its fLaC identity.
             guard let expected else { throw SampleImportError.unsupportedContainer }
+            guard expected != .flac else { throw SampleImportError.unsupportedContainer }
             return expected
         }
 

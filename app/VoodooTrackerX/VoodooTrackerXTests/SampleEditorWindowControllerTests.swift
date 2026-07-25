@@ -664,7 +664,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         for copy in ["SMP", "NAME", "FORMAT", "AUDITION", "SAMPLES", "WAVEFORM", "LOOP", "SAMPLE PARAMS", "GENERATE", "FILE", "EDIT"] {
             XCTAssertTrue(values.contains(copy), copy)
         }
-        XCTAssertTrue(values.contains("— WAV · AIFF · AIFC LOAD"))
+        XCTAssertTrue(values.contains("— WAV · AIFF · AIFC · FLAC LOAD"))
         let future = descendants.compactMap { $0 as? NSControl }.filter {
             $0.identifier?.rawValue.hasPrefix(SampleEditorViewIdentifier.futureControlPrefix) == true
         }
@@ -688,17 +688,19 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(editableControls.allSatisfy { $0.target == nil && $0.action == nil })
     }
 
-    func testSampleOpenPanelConfigurationIsSingleFileAndFormatNeutral() {
+    func testSampleOpenPanelConfigurationIsSingleFileAndFormatNeutral() throws {
         let request = SampleEditorWAVFileRequest.audio
         let panel = SampleEditorWAVOpenPanel.make(request: request)
 
         XCTAssertTrue(panel.canChooseFiles)
         XCTAssertFalse(panel.canChooseDirectories)
         XCTAssertFalse(panel.allowsMultipleSelection)
-        XCTAssertEqual(request.allowedFileExtensions, ["wav", "wave", "aif", "aiff", "aifc"])
+        XCTAssertEqual(request.allowedFileExtensions, ["wav", "wave", "aif", "aiff", "aifc", "flac"])
         XCTAssertEqual(panel.message, "Load Sample")
         XCTAssertFalse(panel.allowedContentTypes.isEmpty)
         XCTAssertTrue(panel.allowedContentTypes.allSatisfy { $0.conforms(to: .audio) })
+        let flacType = try XCTUnwrap(UTType(filenameExtension: "flac"))
+        XCTAssertTrue(panel.allowedContentTypes.contains { $0.identifier == flacType.identifier })
     }
 
     func testWAVImportFileCancelAndDuplicateActionSuppressionCreateNoMutation() {
@@ -736,7 +738,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(commits, 0)
     }
 
-    func testSampleImportMonoAIFFSkipsChannelChoiceAndStereoAIFFAIFCReuseExplicitChoices() async throws {
+    func testSampleImportMonoFLACSkipsChannelChoiceAndStereoFLACReusesExplicitChoices() async throws {
         let document = BlankTrackerDocument.makeDefault()
         let identity = UUID()
         let candidate = try normalizedImportCandidate(sourceChannelCount: 2)
@@ -751,7 +753,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 )
             },
             worker: SampleEditorWAVImportWorker(
-                inspect: { _ in .success(.init(format: .aiff, sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2)) },
+                inspect: { _ in .success(.init(format: .flac, sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2)) },
                 normalize: { _, mode in monoModes.append(mode); return .success(candidate) }
             ),
             fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
@@ -767,9 +769,9 @@ final class SampleEditorWindowControllerTests: XCTestCase {
 
         let normalizedModes = SampleImportThreadSafeRecorder<SampleImportChannelMode>()
         for (format, choice) in [
-            (SampleImportFormat.aiff, SampleImportChannelMode.mixToMono),
-            (.aifc, .left),
-            (.aifc, .right),
+            (SampleImportFormat.flac, SampleImportChannelMode.mixToMono),
+            (.flac, .left),
+            (.flac, .right),
         ] {
             let committed = expectation(description: "stereo \(choice)")
             let coordinator = SampleEditorWAVImportCoordinator(
@@ -802,7 +804,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 )
             },
             worker: SampleEditorWAVImportWorker(
-                inspect: { _ in .success(.init(format: .aifc, sourceSampleRate: 8_363, sourceChannelCount: 2, sourceBitDepthBits: 16, frameCount: 2)) },
+                inspect: { _ in .success(.init(format: .flac, sourceSampleRate: 8_363, sourceChannelCount: 2, sourceBitDepthBits: 16, frameCount: 2)) },
                 normalize: { _, _ in XCTFail("Cancelled channel choice must not decode"); return .failure(.audioDecodeFailed) }
             ),
             fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
@@ -960,12 +962,14 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(normalized, candidate)
     }
 
-    func testWAVImportErrorsAreConciseTypedAndDoNotExposeRawCasesOrPaths() async {
+    func testSampleImportErrorsAreConciseTypedAndDoNotExposeRawCasesOrPaths() async {
         let errors: [SampleImportError] = [
             .unsupportedContainer, .fileExtensionMismatch,
             .malformedWAV, .truncatedWAV, .unsupportedEncoding(formatCode: 99, bitsPerSample: 12),
             .malformedAIFF, .truncatedAIFF, .unsupportedPCMBitDepth(12),
             .unsupportedAIFFCompression("ulaw"),
+            .malformedFLAC, .truncatedFLAC, .unsupportedFLACBitDepth(8),
+            .unsupportedFLACBitDepth(20), .unsupportedOggFLAC,
             .emptySource, .unsupportedChannelCount(6), .invalidSampleRate, .resourceLimitExceeded,
             .integerOverflow, .audioDecodeFailed, .decoderMetadataMismatch,
             .nonFinitePCM, .tuningOutOfRange, .unreadableSource,
@@ -974,9 +978,21 @@ final class SampleEditorWindowControllerTests: XCTestCase {
             let message = error.userFacingMessage
             XCTAssertFalse(message.isEmpty)
             XCTAssertFalse(message.contains("/tmp"))
+            XCTAssertFalse(message.contains("OSStatus"))
             XCTAssertFalse(message.contains(String(describing: error)))
             XCTAssertLessThan(message.count, 140)
         }
+        XCTAssertEqual(
+            SampleImportError.unsupportedFLACBitDepth(8).userFacingMessage,
+            """
+            This FLAC uses an unsupported 8-bit source format.
+            VoodooTracker X currently supports 16-bit and 24-bit native FLAC files.
+            """
+        )
+        XCTAssertEqual(
+            SampleImportError.unsupportedOggFLAC.userFacingMessage,
+            "Ogg-FLAC is not supported. Choose a native FLAC file."
+        )
 
         let document = BlankTrackerDocument.makeDefault()
         let identity = UUID()

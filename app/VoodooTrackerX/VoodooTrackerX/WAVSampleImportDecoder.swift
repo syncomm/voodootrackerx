@@ -7,25 +7,28 @@ enum SampleImportChannelMode: Equatable, Sendable {
 enum SampleImportError: Error, Equatable, Sendable {
     case unsupportedContainer, fileExtensionMismatch
     case unreadableSource, malformedWAV, truncatedWAV
-    case malformedAIFF, truncatedAIFF
+    case malformedAIFF, truncatedAIFF, malformedFLAC, truncatedFLAC
     case unsupportedEncoding(formatCode: UInt16, bitsPerSample: Int)
-    case unsupportedPCMBitDepth(Int), unsupportedAIFFCompression(String)
+    case unsupportedPCMBitDepth(Int), unsupportedAIFFCompression(String), unsupportedFLACBitDepth(Int)
     case unsupportedChannelCount(Int)
     case emptySource, invalidSampleRate, resourceLimitExceeded, integerOverflow
     case audioDecodeFailed, decoderMetadataMismatch, nonFinitePCM, tuningOutOfRange
 
     var userFacingMessage: String {
         switch self {
-        case .unsupportedContainer: "This is not a supported WAV, AIFF, or AIFC file."
+        case .unsupportedContainer: "This is not a supported WAV, AIFF, AIFC, or native FLAC file."
         case .fileExtensionMismatch: "The file extension does not match the audio container."
         case .unreadableSource: "The audio file could not be read."
         case .malformedWAV: "This file is not a valid WAV file."
         case .truncatedWAV: "The WAV file is incomplete or truncated."
         case .malformedAIFF: "This file is not a valid AIFF/AIFC file."
         case .truncatedAIFF: "The AIFF/AIFC file is incomplete or truncated."
+        case .malformedFLAC: "This file is not a valid native FLAC file."
+        case .truncatedFLAC: "The FLAC file is incomplete or truncated."
         case .unsupportedEncoding: "This WAV encoding is not supported."
         case .unsupportedPCMBitDepth: "This AIFF/AIFC sample width is not supported."
         case .unsupportedAIFFCompression: "This AIFC compression is not supported."
+        case .unsupportedFLACBitDepth: "This FLAC sample width is not supported."
         case let .unsupportedChannelCount(count):
             count > 2 ? "Audio files with more than two channels are not supported." : "This audio channel layout is not supported."
         case .emptySource: "The audio file contains no sample frames."
@@ -180,7 +183,7 @@ struct NormalizedSampleImport: Equatable, Sendable {
 }
 
 enum SampleImportFormat: Equatable, Sendable {
-    case wav, aiff, aifc
+    case wav, aiff, aifc, flac
 }
 
 struct SampleImportInspection: Equatable, Sendable {
@@ -189,17 +192,20 @@ struct SampleImportInspection: Equatable, Sendable {
     let sourceChannelCount, sourceBitDepthBits, frameCount: Int
 }
 
-/// Dispatches validated WAV/AIFF/AIFC containers into their existing decoders.
+/// Dispatches validated WAV/AIFF/AIFC/native-FLAC containers into their existing decoders.
 struct SampleImportDecoder: Sendable {
     let wavDecoder: WAVSampleImportDecoder
     let aiffDecoder: AIFFSampleImportDecoder
+    let flacDecoder: FLACSampleImportDecoder
 
     init(
         wavDecoder: WAVSampleImportDecoder = WAVSampleImportDecoder(),
-        aiffDecoder: AIFFSampleImportDecoder = AIFFSampleImportDecoder()
+        aiffDecoder: AIFFSampleImportDecoder = AIFFSampleImportDecoder(),
+        flacDecoder: FLACSampleImportDecoder = FLACSampleImportDecoder()
     ) {
         self.wavDecoder = wavDecoder
         self.aiffDecoder = aiffDecoder
+        self.flacDecoder = flacDecoder
     }
 
     func inspect(url: URL) throws -> SampleImportInspection {
@@ -208,6 +214,13 @@ struct SampleImportDecoder: Sendable {
             let value = try wavDecoder.inspect(url: url)
             return SampleImportInspection(
                 format: .wav, sourceSampleRate: value.sourceSampleRate,
+                sourceChannelCount: value.sourceChannelCount,
+                sourceBitDepthBits: value.sourceBitDepthBits, frameCount: value.frameCount
+            )
+        case .flac:
+            let value = try flacDecoder.inspect(url: url)
+            return SampleImportInspection(
+                format: .flac, sourceSampleRate: value.sourceSampleRate,
                 sourceChannelCount: value.sourceChannelCount,
                 sourceBitDepthBits: value.sourceBitDepthBits, frameCount: value.frameCount
             )
@@ -227,6 +240,8 @@ struct SampleImportDecoder: Sendable {
             try wavDecoder.normalizedImport(url: url, channelMode: channelMode)
         case .aiff, .aifc:
             try aiffDecoder.normalizedImport(url: url, channelMode: channelMode)
+        case .flac:
+            try flacDecoder.normalizedImport(url: url, channelMode: channelMode)
         }
     }
 }
@@ -242,6 +257,13 @@ private enum SampleImportContainerIdentity {
             throw SampleImportError.unreadableSource
         }
         let expected = expectedFormat(forExtension: url.pathExtension)
+        if header.count >= 4,
+           String(decoding: header[0..<4], as: UTF8.self) == "fLaC" {
+            if let expected, expected != .flac {
+                throw SampleImportError.fileExtensionMismatch
+            }
+            return .flac
+        }
         guard header.count >= 12 else {
             // A supported extension may route an incomplete file to the matching decoder
             // so its format-specific truncated error remains actionable.
@@ -269,6 +291,7 @@ private enum SampleImportContainerIdentity {
         case "wav", "wave": .wav
         case "aif", "aiff": .aiff
         case "aifc": .aifc
+        case "flac": .flac
         default: nil
         }
     }

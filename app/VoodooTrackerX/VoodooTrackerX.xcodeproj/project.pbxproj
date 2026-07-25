@@ -28,6 +28,9 @@
 		E4C00000000000000000101 /* AIFFSampleImportDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C00000000000000000103 /* AIFFSampleImportDecoder.swift */; };
 		E4C00000000000000000102 /* AIFFSampleImportDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C00000000000000000103 /* AIFFSampleImportDecoder.swift */; };
 		E4C00000000000000000104 /* AIFFSampleImportDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C00000000000000000105 /* AIFFSampleImportDecoderTests.swift */; };
+		E4D00000000000000000101 /* FLACSampleImportDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D00000000000000000103 /* FLACSampleImportDecoder.swift */; };
+		E4D00000000000000000102 /* FLACSampleImportDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D00000000000000000103 /* FLACSampleImportDecoder.swift */; };
+		E4D00000000000000000104 /* FLACSampleImportDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D00000000000000000105 /* FLACSampleImportDecoderTests.swift */; };
 		E4B00000000000000000101 /* SampleEditorWAVImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4B00000000000000000103 /* SampleEditorWAVImportCoordinator.swift */; };
 		E4B00000000000000000102 /* SampleEditorWAVImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4B00000000000000000103 /* SampleEditorWAVImportCoordinator.swift */; };
 		E2C00000000000000000101 /* LoadedModuleEditableCopyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */; };
@@ -179,6 +182,8 @@
 		E4A00000000000000000105 /* WAVSampleImportDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVSampleImportDecoderTests.swift; sourceTree = "<group>"; };
 		E4C00000000000000000103 /* AIFFSampleImportDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIFFSampleImportDecoder.swift; sourceTree = "<group>"; };
 		E4C00000000000000000105 /* AIFFSampleImportDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIFFSampleImportDecoderTests.swift; sourceTree = "<group>"; };
+		E4D00000000000000000103 /* FLACSampleImportDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FLACSampleImportDecoder.swift; sourceTree = "<group>"; };
+		E4D00000000000000000105 /* FLACSampleImportDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FLACSampleImportDecoderTests.swift; sourceTree = "<group>"; };
 		E4B00000000000000000103 /* SampleEditorWAVImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleEditorWAVImportCoordinator.swift; sourceTree = "<group>"; };
 		E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadedModuleEditableCopyCoordinator.swift; sourceTree = "<group>"; };
 		E2C00000000000000000105 /* LoadedModuleEditableCopyCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadedModuleEditableCopyCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -311,6 +316,7 @@
 				E3F00000000000000000103 /* M4AExportCoordinator.swift */,
 				E4A00000000000000000103 /* WAVSampleImportDecoder.swift */,
 				E4C00000000000000000103 /* AIFFSampleImportDecoder.swift */,
+				E4D00000000000000000103 /* FLACSampleImportDecoder.swift */,
 				E4B00000000000000000103 /* SampleEditorWAVImportCoordinator.swift */,
 				E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */,
 				ED2A00000000000000000103 /* EditableDocumentEditCoordinator.swift */,
@@ -381,6 +387,7 @@
 				E3F00000000000000000105 /* M4AExportCoordinatorTests.swift */,
 				E4A00000000000000000105 /* WAVSampleImportDecoderTests.swift */,
 				E4C00000000000000000105 /* AIFFSampleImportDecoderTests.swift */,
+				E4D00000000000000000105 /* FLACSampleImportDecoderTests.swift */,
 				E2C00000000000000000105 /* LoadedModuleEditableCopyCoordinatorTests.swift */,
 				ED2A00000000000000000105 /* EditableDocumentEditCoordinatorTests.swift */,
 				E2B00000000000000000105 /* EditableXMWriterTests.swift */,
@@ -546,6 +553,7 @@
 				E3F00000000000000000101 /* M4AExportCoordinator.swift in Sources */,
 				E4A00000000000000000101 /* WAVSampleImportDecoder.swift in Sources */,
 				E4C00000000000000000101 /* AIFFSampleImportDecoder.swift in Sources */,
+				E4D00000000000000000101 /* FLACSampleImportDecoder.swift in Sources */,
 				E4B00000000000000000101 /* SampleEditorWAVImportCoordinator.swift in Sources */,
 				E2C00000000000000000101 /* LoadedModuleEditableCopyCoordinator.swift in Sources */,
 				ED2A00000000000000000101 /* EditableDocumentEditCoordinator.swift in Sources */,
@@ -650,6 +658,7 @@
 				E3F00000000000000000102 /* M4AExportCoordinator.swift in Sources */,
 				E4A00000000000000000102 /* WAVSampleImportDecoder.swift in Sources */,
 				E4C00000000000000000102 /* AIFFSampleImportDecoder.swift in Sources */,
+				E4D00000000000000000102 /* FLACSampleImportDecoder.swift in Sources */,
 				E4B00000000000000000102 /* SampleEditorWAVImportCoordinator.swift in Sources */,
 				E2C00000000000000000102 /* LoadedModuleEditableCopyCoordinator.swift in Sources */,
 				ED2A00000000000000000102 /* EditableDocumentEditCoordinator.swift in Sources */,
@@ -673,6 +682,7 @@
 				E3F00000000000000000104 /* M4AExportCoordinatorTests.swift in Sources */,
 				E4A00000000000000000104 /* WAVSampleImportDecoderTests.swift in Sources */,
 				E4C00000000000000000104 /* AIFFSampleImportDecoderTests.swift in Sources */,
+				E4D00000000000000000104 /* FLACSampleImportDecoderTests.swift in Sources */,
 				E2C00000000000000000104 /* LoadedModuleEditableCopyCoordinatorTests.swift in Sources */,
 				ED2A00000000000000000104 /* EditableDocumentEditCoordinatorTests.swift in Sources */,
 				E2B00000000000000000104 /* EditableXMWriterTests.swift in Sources */,

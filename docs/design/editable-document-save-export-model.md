@@ -69,8 +69,9 @@ full loaded-module editing.
 ## From-Scratch Sample Ownership
 
 Imported or generated PCM is copied into the editable document before it becomes
-playable. The WAV and AIFF/AIFC decoders return the same value-owned, canonical
-16-bit mono candidate with no retained source URL. LOAD validates container
+playable. The WAV, AIFF/AIFC, and native 16/24-bit FLAC foundation decoders
+return the same value-owned, canonical 16-bit mono candidate with no retained
+source URL. LOAD validates container
 identity before dispatch, then validates the complete candidate and exact
 captured destination before one `Import Audio Sample` or `Replace Audio Sample`
 `applyEdit`; failure or stale state leaves the prior document and undo history
@@ -193,7 +194,7 @@ First-writer limitations:
 - Sample Editor mutation is limited to stopped-editable SINE plus WAV/AIFF/AIFC
   import into empty S01 or in-place replacement of the represented selected sample
 - no panning-envelope playback/editing, vibrato playback/editing, broader
-  loop/sample metadata/PCM/waveform editing, FLAC import, XI import, or
+  loop/sample metadata/PCM/waveform editing, FLAC picker exposure, XI import, or
   arbitrary non-XM-derived payload support in the current writer
 - no private corpus dependency
 - no generated XM/WAV artifacts committed outside explicit reviewed fixture PRs
@@ -279,8 +280,9 @@ Keep future PRs narrow and testable:
 20. Done: `sample: wire Sample Editor WAV load and replace workflow`
 21. Done: `sample: add AIFF/AIFC import decode foundation`
 22. Done: `sample: expose AIFF/AIFC through Sample Editor load workflow`
-23. `sample: add FLAC import decode foundation`
-24. `sample: add editable loop mode and range behind applyEdit`
+23. Done: `sample: add FLAC import decode foundation`
+24. `sample: expose FLAC through Sample Editor load workflow`
+25. `sample: add editable loop mode and range behind applyEdit`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

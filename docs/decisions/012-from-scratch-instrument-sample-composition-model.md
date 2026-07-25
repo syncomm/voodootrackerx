@@ -143,6 +143,13 @@ The from-scratch milestone lands lossless formats in this order:
 WAV is the baseline, AIFF/AIFC covers macOS/legacy collections, and FLAC covers modern libraries/archives. One PR
 does not promise all three.
 
+The native FLAC foundation accepts only preflighted 16/24-bit mono/stereo sources and decodes bounded Float32
+chunks with Apple `ExtAudioFile`. Raw STREAMINFO supplies rate, channels, source depth, and known positive frame
+count before allocation under the shared cap. Valid 8-bit FLAC is unsupported by the selected Apple decoder and is
+rejected during preflight, as are all untested depths and Ogg-FLAC. Output still becomes canonical mono 16-bit XM
+PCM; tags, pictures, cues, seek tables, ReplayGain, embedded names, and loop-like metadata are ignored. This
+foundation does not expose FLAC in the Sample Editor panel.
+
 Ogg Vorbis, MP3, M4A/AAC, CAF, raw PCM, XI, folders/batch import, and archives are deferred. XI remains a separate
 broader VTX 1.0 target; this decision does not remove it from v1 scope.
 

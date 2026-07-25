@@ -21,14 +21,15 @@ read-only. The current dense palette/writer model appends after the highest
 represented slot and does not fill sparse holes. Sample Editor SINE now fills eligible
 S01 with deterministic looped PCM and an all-note map. A UI-independent audio
 import facade now validates container identity before dispatching WAV/WAVE,
-AIFF/AIF, or AIFC to the existing bounded decoders. They return the same
-value-owned XM-representable 16-bit mono candidate, including signed
-8/16/24/32-bit AIFF PCM and AIFC `NONE`/`twos`/`sowt`. Sample Editor LOAD uses
-that facade off the main thread: it fills empty S01 or confirms in-place
+AIFF/AIF, AIFC, or native `fLaC` to bounded decoders. Native FLAC is limited to
+16/24-bit mono/stereo and uses raw STREAMINFO preflight plus chunked Apple
+`ExtAudioFile` decode; 8-bit and all untested depths are rejected before decode.
+Every format returns the same value-owned XM-representable 16-bit mono candidate.
+Sample Editor LOAD uses that facade off the main thread: it fills empty S01 or confirms in-place
 replacement of the exact represented selection, offers stereo Mix/Left/Right,
 and commits one `Import Audio Sample` or `Replace Audio Sample` edit with
-stale-result protection. Add as New Sample, drag/drop, global import, and FLAC
-remain future work.
+stale-result protection. Its panel remains WAV/AIFF/AIFC-only; Add as New Sample,
+drag/drop, global import, and FLAC picker exposure remain future work.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,

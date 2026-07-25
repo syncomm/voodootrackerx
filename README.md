@@ -101,17 +101,20 @@ What works today:
   and mono without claiming a source rate. In a stopped editable zero-sample
   instrument, SINE fills empty S01 with original deterministic 16-bit mono
   looped PCM through one undoable action and maps every note to S01. LOAD now
-  imports one WAV into empty S01 or, after confirmation, replaces the exact
-  represented selected sample while preserving its slot and keymap. Mono skips
-  channel choice; stereo offers Mix to Mono, Left, or Right. Decode and
-  canonical normalization run in the background, then one `Import WAV Sample`
-  edit installs document-owned mono 16-bit PCM. LOAD remains disabled for
+  imports one WAV/WAVE, AIFF/AIF, or AIFC into empty S01 or, after confirmation,
+  replaces the exact represented selected sample while preserving its slot and
+  keymap. Container identity is validated before dispatch and recognized
+  extension/container mismatches are rejected. Mono skips channel choice;
+  stereo offers Mix to Mono, Left, or Right. Decode and canonical normalization
+  run in the background, then one `Import Audio Sample` or `Replace Audio
+  Sample` edit installs document-owned mono 16-bit PCM. LOAD remains disabled for
   loaded modules, playback, invalid destinations, and active imports.
   AUDITION toggles the selected sample directly at C-4 through the persistent
   preview stream, preserving sample planning without keymap lookup or mutation.
-- The WAV foundation validates and chunk-decodes ordinary mono/stereo linear
-  PCM into the value-owned candidate used by Sample Editor LOAD. Add as New
-  Sample, drag/drop, global sample import, AIFF/AIFC, and FLAC remain future work.
+- The audio import facade dispatches validated WAV, AIFF, and AIFC containers
+  to their bounded decoders and returns the value-owned candidate used by
+  Sample Editor LOAD. Add as New Sample, drag/drop, global sample import, and
+  FLAC remain future work.
 - Pattern Bank single-click viewing/navigation and double-click assignment for
   editable documents.
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.
@@ -151,8 +154,7 @@ What is still future work:
   export settings.
 - Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
-- Additional sample slots/lifecycle operations, user-visible WAV load/replace,
-  AIFF/AIFC/FLAC import,
+- Additional sample slots/lifecycle operations, FLAC import,
   square/triangle/saw/noise generation, keymap editing, editable loop and PCM/
   waveform work, and destructive processing. Loaded modules remain read-only; see
   [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md).

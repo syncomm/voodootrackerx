@@ -1027,9 +1027,9 @@ struct BlankTrackerDocument: Equatable {
         return true
     }
 
-    /// Installs one fully normalized WAV candidate at the captured destination without redirecting stale work.
+    /// Installs one fully normalized audio candidate at the captured destination without redirecting stale work.
     @discardableResult
-    mutating func importWAVSample(
+    mutating func importAudioSample(
         _ candidate: NormalizedSampleImport,
         destination: SampleImportDestination
     ) -> Bool {

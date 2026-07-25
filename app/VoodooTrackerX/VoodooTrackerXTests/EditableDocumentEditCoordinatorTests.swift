@@ -146,7 +146,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         }
     }
 
-    func testWAVImportAndReplacementAreSingleApplyEditActionsWithExactUndoRedo() throws {
+    func testAudioImportAndReplacementUseFormatNeutralApplyEditLabelsWithExactUndoRedo() throws {
         let empty = BlankTrackerDocument.makeDefault()
         let candidate = try normalizedImportCandidate(name: "Kick.wav", pcm: [-0.75, 0.75])
         let instrumentController = InstrumentEditorWindowController(displayState: .editableDocument(empty))
@@ -162,11 +162,11 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         )
         let emptyDestination = try XCTUnwrap(empty.selectedSampleImportDestination)
 
-        XCTAssertTrue(emptyHarness.coordinator.canImportWAVSample)
-        XCTAssertTrue(emptyHarness.coordinator.importWAVSample(candidate, destination: emptyDestination))
+        XCTAssertTrue(emptyHarness.coordinator.canImportAudioSample)
+        XCTAssertTrue(emptyHarness.coordinator.importAudioSample(candidate, destination: emptyDestination))
         let imported = try XCTUnwrap(emptyHarness.editableDocument)
         XCTAssertEqual(emptyHarness.appliedDocuments, [imported])
-        XCTAssertEqual(emptyHarness.coordinator.undoMenuItemTitle, "Undo Import WAV Sample")
+        XCTAssertEqual(emptyHarness.coordinator.undoMenuItemTitle, "Undo Import Audio Sample")
         XCTAssertEqual(imported.controlPanelMetadata.selectedSampleDisplay, "S01 Kick")
         XCTAssertEqual(instrumentView.displayState.selectedSample?.name, "Kick")
         XCTAssertEqual(sampleView.displayState.sampleName, "Kick")
@@ -191,17 +191,18 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         let replacementHarness = EditHarness(context: .editable(document: occupied, isPlaybackActive: false))
         let replacementDestination = try XCTUnwrap(occupied.selectedSampleImportDestination)
 
-        XCTAssertTrue(replacementHarness.coordinator.importWAVSample(candidate, destination: replacementDestination))
+        XCTAssertTrue(replacementHarness.coordinator.importAudioSample(candidate, destination: replacementDestination))
         let replaced = try XCTUnwrap(replacementHarness.editableDocument)
         XCTAssertEqual(replaced.instrumentPalette[1]?.samples.first?.name, "Kick")
         XCTAssertEqual(replaced.instrumentPalette[1]?.noteSampleMap, oldInstrument.noteSampleMap)
+        XCTAssertEqual(replacementHarness.coordinator.undoMenuItemTitle, "Undo Replace Audio Sample")
         XCTAssertTrue(replacementHarness.coordinator.undo())
         XCTAssertEqual(replacementHarness.editableDocument, occupied)
         XCTAssertTrue(replacementHarness.coordinator.redo())
         XCTAssertEqual(replacementHarness.editableDocument, replaced)
     }
 
-    func testWAVImportRejectsLoadedPlayingInvalidAndStaleDestinationsWithoutHistory() throws {
+    func testAudioImportRejectsLoadedPlayingInvalidAndStaleDestinationsWithoutHistory() throws {
         let base = BlankTrackerDocument.makeDefault()
         var invalid = base
         invalid.selectSample(2)
@@ -215,8 +216,8 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
 
         for context in contexts {
             let harness = EditHarness(context: context)
-            XCTAssertFalse(harness.coordinator.canImportWAVSample)
-            XCTAssertFalse(harness.coordinator.importWAVSample(candidate, destination: destination))
+            XCTAssertFalse(harness.coordinator.canImportAudioSample)
+            XCTAssertFalse(harness.coordinator.importAudioSample(candidate, destination: destination))
             XCTAssertTrue(harness.appliedDocuments.isEmpty)
             XCTAssertFalse(harness.undoManager.canUndo)
         }

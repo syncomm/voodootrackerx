@@ -5,9 +5,8 @@
 **Visual source of truth:** `assets/mockups/sample-editor-v1.html`.
 **Reference:** FastTracker II sample editor, reinterpreted in VTX's tactile language.
 **Status:** The fixed mockup-aligned shell, canonical selection, sample display,
-waveform/loop overview, stopped-editable empty-S01 SINE, and WAV LOAD into
-empty or represented destinations are implemented. AIFF/AIFC decode exists
-behind the import foundation but is not exposed by LOAD. Other sample mutation
+waveform/loop overview, stopped-editable empty-S01 SINE, and WAV/AIFF/AIFC LOAD
+into empty or represented destinations are implemented. Other sample mutation
 remains deferred. Header AUDITION directly previews the selected sample at C-4.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
@@ -22,7 +21,7 @@ See `docs/design/editor-window-design-overview.md`,
 
 ---
 
-## 0. Current foundation, SINE, and WAV LOAD
+## 0. Current foundation, SINE, and audio LOAD
 
 `Window > Sample Editor` opens one active fixed utility window/controller at a
 time, reusing it while open. It preserves normal close, Command-W, activation,
@@ -53,25 +52,29 @@ Loaded modules remain read-only. SINE is enabled only for stopped editable empty
 S01. It cancels preview, validates owned PCM off the render callback, commits one
 `Generate Sine Sample` edit, and refreshes all editors without auto-audition.
 LOAD is enabled only for a stopped editable empty S01 or represented selected
-sample and is disabled during an active import. It chooses one WAV, confirms
-represented replacement, offers stereo Mix to Mono/Left/Right after inspection,
-and decodes/normalizes off the main thread while showing an indeterminate state.
-The main thread revalidates document identity/revision, selection, destination
-occupancy, stopped transport, and operation token before one `Import WAV Sample`
-edit. Commit cancels stale preview once, refreshes all editors, and does not
-auto-audition. Other states/generators stay disabled; preview/runtime
-architecture is unchanged. AUDITION is non-mutating for loaded/read-only and
-editable samples; it sends the selected slot directly at C-4 through the
-persistent stream—not the keymap—and reuses sample planning. Exact lifecycle
-release drives its glyph/LED. Note selection and natural-completion notification
-remain future work; no polling is used.
+sample and is disabled during an active import. Its single-file panel accepts
+WAV/WAVE, AIFF/AIF, and AIFC and never accepts directories. A format-neutral
+facade validates the actual container identity, rejects recognized
+extension/container mismatches, and dispatches to the existing decoder. LOAD
+confirms represented replacement, offers stereo Mix to Mono/Left/Right after
+inspection, and decodes/normalizes off the main thread while showing an
+indeterminate state. The main thread revalidates document identity/revision,
+selection, destination occupancy, stopped transport, and operation token before
+one `Import Audio Sample` or `Replace Audio Sample` edit. Commit cancels stale
+preview once, refreshes all editors, and does not auto-audition. Other
+states/generators stay disabled; preview/runtime architecture is unchanged.
+AUDITION is non-mutating for loaded/read-only and editable samples; it sends the
+selected slot directly at C-4 through the persistent stream—not the keymap—and
+reuses sample planning. Exact lifecycle release drives its glyph/LED. Note
+selection and natural-completion notification remain future work; no polling is
+used.
 
 ### From-scratch creation/import contract
 
 The Sample Editor owns sample identity, selection within the current
 instrument, import/generation, waveform and loop metadata, parameters, and
 later PCM operations. Its instrument popup selects context but never creates
-an instrument. The current WAV workflow fills only empty S01 on a zero-sample
+an instrument. The current audio workflow fills only empty S01 on a zero-sample
 instrument or offers Replace Current Sample/Cancel for the represented selected
 sample. It never creates S02 or redirects a stale result. Add as New Sample and
 global import/drop creation remain future lifecycle work.
@@ -82,26 +85,21 @@ SINE repeats a precomputed 32-value integer table at amplitude 12,000 exactly
 At C-4's 8,363 Hz base rate the tone is 261.34375 Hz, within 0.5 Hz (about 1.87
 cents low) of 261.625565 Hz; C-5 is 522.6875 Hz. The all-zero map stays neutral.
 
-The UI-independent WAV foundation now preflights RIFF/WAVE linear PCM and uses
-chunked `AVAudioFile` Float32 reads. It supports mono/stereo 8/16/24/32-bit
-integer PCM, Float32 PCM, and matching extensible forms. Mix to Mono averages
-`0.5 × (left + right)`; Left and Right select their channel, while mono treats
-channel 0 as both. Results are clamped, quantized to canonical 16-bit PCM,
-named from the 22-byte XM-safe filename stem, tuned from the 8,363 Hz C-4
-reference, and default to no loop. The cap is 16,777,216 frames (64 MiB of mono
-Float32). LOAD installs the complete candidate as document-owned PCM through
-one undoable edit; the source path is not retained and Export XM/reopen uses the
-existing sample writer. Cue, `smpl`, broadcast, and embedded-name metadata are
-ignored.
-
-The manual `AIFFSampleImportDecoder` returns the same candidate as WAV. It
-supports mono/stereo signed 8/16/24/32-bit AIFF PCM plus AIFC big-endian
-`NONE`/`twos` and little-endian `sowt`; 80-bit rates, chunks, SSND offsets,
-channel conversion, quantization, tuning, naming, defaults, and resource caps
-are deterministic and shared where applicable. MARK, INST, COMT,
-NAME/AUTH/ANNO, AESD, MIDI/application metadata, compression-name text, and
-loops remain deferred. LOAD stays WAV-only; AIFF/AIFC UI wiring and then FLAC
-are next.
+The UI-independent import facade identifies RIFF/WAVE, FORM/AIFF, and FORM/AIFC
+from their headers and dispatches to the existing bounded decoders. WAV supports
+mono/stereo 8/16/24/32-bit integer PCM, Float32 PCM, and matching extensible
+forms through chunked `AVAudioFile` reads. AIFF supports signed 8/16/24/32-bit
+PCM; AIFC supports big-endian `NONE`/`twos` and little-endian `sowt`. Mix to
+Mono averages `0.5 × (left + right)`; Left and Right select their channel, while
+mono treats channel 0 as both. Results are clamped, quantized to canonical
+16-bit PCM, named from the 22-byte XM-safe filename stem, tuned from the
+8,363 Hz C-4 reference, and default to no loop. The cap is 16,777,216 frames
+(64 MiB of mono Float32). LOAD installs the complete candidate as
+document-owned PCM through one undoable edit; the source path is not retained
+and Export XM/reopen uses the existing sample writer. Format metadata including
+WAV cue/`smpl`/broadcast fields and AIFF/AIFC MARK/INST/COMT/NAME/AUTH/ANNO,
+AESD, MIDI/application, compression-name text, and loops remains deferred.
+FLAC is the next focused importer.
 Square/pulse, triangle, saw, and noise remain future generators.
 First-sample import/generation maps all 96 notes and becomes immediately
 auditionable in one `applyEdit` action. See
@@ -123,7 +121,7 @@ selection.
 
 The broader v1.0 direction includes **destructive editing** (with undo) and
 additional **waveform generators**; SINE is the only current generator. Current
-WAV LOAD is import/replace only; it adds no direct waveform editing.
+audio LOAD is import/replace only; it adds no direct waveform editing.
 
 ---
 

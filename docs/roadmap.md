@@ -24,10 +24,10 @@ dependency-ordered PR plan are defined by
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
 The first gate slice is implemented: File New represents empty I01/S01 and
 `Edit > New Instrument` creates another honest empty destination through one
-undoable stopped-editable action. Deterministic SINE and Sample Editor WAV
+undoable stopped-editable action. Deterministic SINE and Sample Editor audio
 load/replace now populate that destination through the same undo boundary.
-AIFF/AIFC inspection and decode also reach the shared normalized candidate,
-but are not yet exposed by the WAV-only Sample Editor panel.
+LOAD accepts WAV/WAVE, AIFF/AIF, and AIFC, validates the container identity
+before format dispatch, and commits the shared normalized candidate.
 Sample Editor AUDITION toggles its represented selected slot directly at C-4
 through the persistent preview stream for loaded/read-only and editable sources,
 without keymap lookup or mutation.
@@ -467,10 +467,11 @@ Recommended next product PR:
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
   Empty instrument/S01 creation through `applyEdit` is complete; the current
   dense model appends after the highest represented slot rather than filling
-  sparse holes. Deterministic SINE and UI-independent WAV decode/canonical
-  normalization are complete, and Sample Editor LOAD now fills empty S01 or
-  replaces the exact represented selected sample through one undoable edit.
-  Next, keep each additional importer, sample-slot lifecycle,
+  sparse holes. Deterministic SINE and UI-independent WAV/AIFF/AIFC
+  decode/canonical normalization are complete, and Sample Editor LOAD now
+  fills empty S01 or replaces the exact represented selected sample through
+  one undoable edit. Next, keep FLAC and each additional importer,
+  sample-slot lifecycle,
   keymap editing, and reference-preserving reorder work in later focused PRs;
   do not change the runtime backend or C mixer DSP.
 - Module TIME/headroom work should follow
@@ -745,13 +746,13 @@ Current implemented foundation:
 - File New owns unnamed zero-sample I01/S01; Edit > New Instrument appends and
   selects another empty S01 through one applyEdit action, and Export XM/reopen
   preserves zero-sample instrument count, order, and names without sample data
-- Sample Editor LOAD imports WAV into stopped editable empty S01 or confirms
-  exact in-place replacement. It offers stereo Mix/Left/Right, performs decode
-  and canonical normalization off the main thread, rejects stale results, owns
-  mono 16-bit PCM in the document, and registers one `Import WAV Sample` undo
-  action while preserving slot/keymap references
-- AIFF signed 8/16/24/32-bit PCM and AIFC `NONE`/`twos`/`sowt` now use the
-  shared bounded normalization policies; Sample Editor remains WAV-only
+- Sample Editor LOAD imports WAV/WAVE, AIFF/AIF, or AIFC into stopped editable
+  empty S01 or confirms exact in-place replacement. It validates container
+  identity before dispatch, rejects recognized extension/container mismatches,
+  offers stereo Mix/Left/Right, performs decode and canonical normalization off
+  the main thread, rejects stale results, owns mono 16-bit PCM in the document,
+  and registers one `Import Audio Sample` or `Replace Audio Sample` undo action
+  while preserving slot/keymap references
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
@@ -781,8 +782,8 @@ Next composition targets after backend foundation freeze:
   PCM/waveform mutation slices
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- expose AIFF/AIFC through Sample Editor LOAD, then add the FLAC decode
-  foundation and UI path; XI remains a separate instrument import target
+- add the FLAC decode foundation and UI path as a focused phase; XI remains a
+  separate instrument import target
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics

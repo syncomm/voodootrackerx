@@ -2,7 +2,9 @@ import AppKit
 import UniformTypeIdentifiers
 
 struct SampleEditorWAVFileRequest: Equatable, Sendable {
-    static let wav = SampleEditorWAVFileRequest(allowedFileExtensions: ["wav", "wave"])
+    static let audio = SampleEditorWAVFileRequest(
+        allowedFileExtensions: ["wav", "wave", "aif", "aiff", "aifc"]
+    )
 
     let allowedFileExtensions: [String]
 }
@@ -20,7 +22,8 @@ enum SampleEditorWAVOpenPanel {
             .reduce(into: []) { types, type in
                 if !types.contains(where: { $0.identifier == type.identifier }) { types.append(type) }
             }
-        panel.message = "Choose one WAV sample file"
+        panel.title = "Load Sample"
+        panel.message = "Load Sample"
         return panel
     }
 }
@@ -55,14 +58,14 @@ struct SampleEditorWAVImportCapture: Equatable {
 }
 
 struct SampleEditorWAVImportWorker: Sendable {
-    typealias Inspect = @Sendable (URL) async -> Result<WAVSampleImportInspection, SampleImportError>
+    typealias Inspect = @Sendable (URL) async -> Result<SampleImportInspection, SampleImportError>
     typealias Normalize = @Sendable (URL, SampleImportChannelMode) async -> Result<NormalizedSampleImport, SampleImportError>
 
     let inspect: Inspect
     let normalize: Normalize
 
     static func background(
-        inspect: @escaping @Sendable (URL) throws -> WAVSampleImportInspection,
+        inspect: @escaping @Sendable (URL) throws -> SampleImportInspection,
         normalize: @escaping @Sendable (URL, SampleImportChannelMode) throws -> NormalizedSampleImport
     ) -> Self {
         Self(
@@ -83,7 +86,7 @@ struct SampleEditorWAVImportWorker: Sendable {
         )
     }
 
-    static func live(decoder: WAVSampleImportDecoder = WAVSampleImportDecoder()) -> Self {
+    static func live(decoder: SampleImportDecoder = SampleImportDecoder()) -> Self {
         background(
             inspect: { try decoder.inspect(url: $0) },
             normalize: { try decoder.normalizedImport(url: $0, channelMode: $1) }
@@ -138,7 +141,7 @@ final class SampleEditorWAVImportCoordinator {
         operationToken = token
         self.capture = capture
         importingStateHandler(true)
-        fileChooser(.wav) { [weak self] url in self?.didChooseFile(url, token: token) }
+        fileChooser(.audio) { [weak self] url in self?.didChooseFile(url, token: token) }
         return true
     }
 
@@ -167,7 +170,7 @@ final class SampleEditorWAVImportCoordinator {
     }
 
     private func didInspect(
-        _ result: Result<WAVSampleImportInspection, SampleImportError>,
+        _ result: Result<SampleImportInspection, SampleImportError>,
         url: URL,
         token: UUID
     ) {

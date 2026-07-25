@@ -74,8 +74,8 @@ all decoders return the same value-owned, canonical 16-bit mono candidate with
 no retained source URL. FLAC 8-bit and untested depths plus Ogg-FLAC are
 rejected, and FLAC metadata/loops are ignored. LOAD validates container
 identity before dispatch, then validates the complete candidate and exact
-captured destination before one `Import Audio Sample` or `Replace Audio Sample`
-`applyEdit`; failure or stale state leaves the prior document and undo history
+captured destination before one `Import Audio Sample`, `Replace Audio Sample`,
+or `Add Audio Sample` `applyEdit`; failure or stale state leaves the prior document and undo history
 unchanged. Implemented SINE generation likewise validates
 deterministic PCM before one `applyEdit` commit. The original
 sample path is optional provenance, not source/output ownership, and playback,
@@ -87,8 +87,10 @@ fabricated sample metadata. File New now owns one such I01/S01 destination, and
 New Instrument appends another through one stopped-editable `applyEdit` action.
 SINE fills only that selected destination with document-owned 16-bit mono looped
 PCM and an all-zero 96-note map; audio LOAD fills it with canonical no-loop PCM
-and the same neutral map. Replacing a represented sample preserves its exact
-slot, keymap references, and unrelated instrument data. Undo returns to the
+and the same neutral map. Replacing preserves its exact slot; Add appends and
+selects the next represented Sxx. Both preserve keymap references and unrelated
+instrument data, and Sample Editor can directly audition the selected slot while
+pattern/Instrument Editor audition remains keymap-driven. Undo returns to the
 exact empty or prior represented state.
 The creation/import/export contract,
 including the proposed `v0.3.0-alpha.1` gate, is defined by
@@ -192,11 +194,10 @@ First-writer limitations:
 - no guarantee of round-trip parity with arbitrary loaded XM modules
 - no full Instrument Editor state beyond fields currently represented by the
   editable document and playback/palette models
-- Sample Editor mutation is limited to stopped-editable SINE plus
-  WAV/AIFF/AIFC/native-FLAC import into empty S01 or in-place replacement of the
-  represented selected sample
-- no panning-envelope playback/editing, vibrato playback/editing, broader
-  loop/sample metadata/PCM/waveform editing, XI import, Add as New Sample, S02+,
+- Sample Editor mutation is limited to stopped-editable SINE plus format-neutral
+  audio import, in-place replacement, and append-only Add as New
+- no panning-envelope playback/editing, vibrato playback/editing, broader loop,
+  PCM/waveform, destructive lifecycle, keymap editing, XI import,
   or arbitrary non-XM-derived payload support in the current writer
 - no private corpus dependency
 - no generated XM/WAV artifacts committed outside explicit reviewed fixture PRs
@@ -284,7 +285,7 @@ Keep future PRs narrow and testable:
 22. Done: `sample: expose AIFF/AIFC through Sample Editor load workflow`
 23. Done: `sample: add FLAC import decode foundation`
 24. Done: `sample: expose FLAC through Sample Editor load workflow`
-25. `sample: add represented sample-slot lifecycle and Add as New Sample`
+25. Done: `sample: add represented sample-slot lifecycle and Add as New Sample`
 26. `sample: add editable loop mode and range behind applyEdit`
 
 Save and Save As should remain disabled until the owned-path/native-format

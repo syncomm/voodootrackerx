@@ -28,6 +28,41 @@ enum SampleEditorWAVOpenPanel {
     }
 }
 
+enum SampleEditorOccupiedSampleImportChoice: Equatable {
+    case replaceCurrent, addAsNew
+}
+
+enum SampleEditorAudioImportAction: Equatable {
+    case fillOrReplace(SampleImportDestination)
+    case addAsNew(instrumentIndex: Int, originalSampleCount: Int)
+}
+
+@MainActor
+enum SampleEditorOccupiedImportAlert {
+    static let maximumMessage = "This instrument already contains the XM maximum of \(BlankTrackerDocument.maximumSampleCountPerInstrument) samples."
+
+    static func make(canAddAsNew: Bool) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Load Audio Sample"
+        alert.informativeText = """
+        Replace Current Sample keeps the current slot and its references. \
+        Add as New Sample appends a represented sample and leaves the keymap unchanged.
+        """ + (canAddAsNew ? "" : "\n\(maximumMessage)")
+        ["Replace Current Sample", "Add as New Sample", "Cancel"].forEach { alert.addButton(withTitle: $0) }
+        alert.buttons[1].isEnabled = canAddAsNew
+        return alert
+    }
+
+    static func choice(for response: NSApplication.ModalResponse) -> SampleEditorOccupiedSampleImportChoice? {
+        switch response {
+        case .alertFirstButtonReturn: .replaceCurrent
+        case .alertSecondButtonReturn: .addAsNew
+        default: nil
+        }
+    }
+}
+
 struct SampleEditorWAVImportContext: Equatable {
     let documentIdentity: UUID?
     let documentRevision: UInt64
@@ -39,21 +74,33 @@ struct SampleEditorWAVImportCapture: Equatable {
     let documentIdentity: UUID
     let documentRevision: UInt64
     let destination: SampleImportDestination
+    let originalRepresentedSampleCount: Int
+    let canAddAsNew: Bool
 
     init?(context: SampleEditorWAVImportContext) {
         guard let documentIdentity = context.documentIdentity,
-              let destination = context.document?.selectedSampleImportDestination,
+              let document = context.document,
+              let destination = document.selectedSampleImportDestination,
+              let instrument = document.instrument(forInstrument: destination.instrumentIndex),
               !context.isPlaybackActive else { return nil }
         self.documentIdentity = documentIdentity
         documentRevision = context.documentRevision
         self.destination = destination
+        originalRepresentedSampleCount = instrument.samples.count
+        canAddAsNew = destination.requiresReplacementConfirmation && document.canAppendSample(toInstrument: instrument.index)
     }
 
-    func isCurrent(in context: SampleEditorWAVImportContext) -> Bool {
-        !context.isPlaybackActive &&
+    func isCurrent(in context: SampleEditorWAVImportContext, action: SampleEditorAudioImportAction? = nil) -> Bool {
+        let matchesCapture = !context.isPlaybackActive &&
             context.documentIdentity == documentIdentity &&
             context.documentRevision == documentRevision &&
-            context.document?.selectedSampleImportDestination == destination
+            context.document?.selectedSampleImportDestination == destination &&
+            context.document?.instrument(forInstrument: destination.instrumentIndex)?.samples.count == originalRepresentedSampleCount
+        guard matchesCapture else { return false }
+        if case let .addAsNew(instrumentIndex, _) = action {
+            return context.document?.canAppendSample(toInstrument: instrumentIndex) == true
+        }
+        return true
     }
 }
 
@@ -97,34 +144,36 @@ struct SampleEditorWAVImportWorker: Sendable {
 @MainActor
 final class SampleEditorWAVImportCoordinator {
     typealias FileChooser = (SampleEditorWAVFileRequest, @escaping @MainActor (URL?) -> Void) -> Void
-    typealias ReplacementConfirmation = (@escaping @MainActor (Bool) -> Void) -> Void
+    typealias OccupiedSampleChoice =
+        (_ canAddAsNew: Bool, _ completion: @escaping @MainActor (SampleEditorOccupiedSampleImportChoice?) -> Void) -> Void
     typealias StereoChannelChooser = (@escaping @MainActor (SampleImportChannelMode?) -> Void) -> Void
 
     private let contextProvider: () -> SampleEditorWAVImportContext
     private let worker: SampleEditorWAVImportWorker
     private let fileChooser: FileChooser
-    private let replacementConfirmation: ReplacementConfirmation
+    private let occupiedSampleChoice: OccupiedSampleChoice
     private let stereoChannelChooser: StereoChannelChooser
-    private let commitHandler: (NormalizedSampleImport, SampleImportDestination) -> Bool
+    private let commitHandler: (NormalizedSampleImport, SampleEditorAudioImportAction) -> Bool
     private let errorHandler: (String) -> Void
     private let importingStateHandler: (Bool) -> Void
     private var operationToken: UUID?
     private var capture: SampleEditorWAVImportCapture?
+    private var action: SampleEditorAudioImportAction?
 
     init(
         contextProvider: @escaping () -> SampleEditorWAVImportContext,
         worker: SampleEditorWAVImportWorker,
         fileChooser: @escaping FileChooser,
-        replacementConfirmation: @escaping ReplacementConfirmation,
+        occupiedSampleChoice: @escaping OccupiedSampleChoice,
         stereoChannelChooser: @escaping StereoChannelChooser,
-        commitHandler: @escaping (NormalizedSampleImport, SampleImportDestination) -> Bool,
+        commitHandler: @escaping (NormalizedSampleImport, SampleEditorAudioImportAction) -> Bool,
         errorHandler: @escaping (String) -> Void,
         importingStateHandler: @escaping (Bool) -> Void = { _ in }
     ) {
         self.contextProvider = contextProvider
         self.worker = worker
         self.fileChooser = fileChooser
-        self.replacementConfirmation = replacementConfirmation
+        self.occupiedSampleChoice = occupiedSampleChoice
         self.stereoChannelChooser = stereoChannelChooser
         self.commitHandler = commitHandler
         self.errorHandler = errorHandler
@@ -150,18 +199,34 @@ final class SampleEditorWAVImportCoordinator {
         guard let url else { finish(token); return }
         guard capture.isCurrent(in: contextProvider()) else { finish(token); return }
         if capture.destination.requiresReplacementConfirmation {
-            replacementConfirmation { [weak self] confirmed in
+            occupiedSampleChoice(capture.canAddAsNew) { [weak self] choice in
                 guard let self, self.isCurrent(token) else { return }
-                guard confirmed else { self.finish(token); return }
+                guard capture.isCurrent(in: self.contextProvider()) else { self.finish(token); return }
+                guard let choice else { self.finish(token); return }
+                switch choice {
+                case .replaceCurrent: self.action = .fillOrReplace(capture.destination)
+                case .addAsNew:
+                    guard capture.canAddAsNew else {
+                        self.finish(token)
+                        self.errorHandler(SampleEditorOccupiedImportAlert.maximumMessage)
+                        return
+                    }
+                    self.action = .addAsNew(instrumentIndex: capture.destination.instrumentIndex, originalSampleCount: capture.originalRepresentedSampleCount)
+                }
                 self.startInspection(url, token: token)
             }
         } else {
+            action = .fillOrReplace(capture.destination)
             startInspection(url, token: token)
         }
     }
 
     private func startInspection(_ url: URL, token: UUID) {
-        guard let capture, capture.isCurrent(in: contextProvider()) else { finish(token); return }
+        guard let action, let capture,
+              capture.isCurrent(in: contextProvider(), action: action) else {
+            finish(token)
+            return
+        }
         let worker = worker
         Task { [weak self] in
             let result = await worker.inspect(url)
@@ -174,7 +239,8 @@ final class SampleEditorWAVImportCoordinator {
         url: URL,
         token: UUID
     ) {
-        guard isCurrent(token), let capture, capture.isCurrent(in: contextProvider()) else {
+        guard isCurrent(token), let capture,
+              capture.isCurrent(in: contextProvider(), action: action) else {
             finish(token)
             return
         }
@@ -196,7 +262,11 @@ final class SampleEditorWAVImportCoordinator {
     }
 
     private func startNormalization(_ url: URL, mode: SampleImportChannelMode, token: UUID) {
-        guard let capture, capture.isCurrent(in: contextProvider()) else { finish(token); return }
+        guard let capture,
+              capture.isCurrent(in: contextProvider(), action: action) else {
+            finish(token)
+            return
+        }
         let worker = worker
         Task { [weak self] in
             let result = await worker.normalize(url, mode)
@@ -205,7 +275,8 @@ final class SampleEditorWAVImportCoordinator {
     }
 
     private func didNormalize(_ result: Result<NormalizedSampleImport, SampleImportError>, token: UUID) {
-        guard isCurrent(token), let capture, capture.isCurrent(in: contextProvider()) else {
+        guard isCurrent(token), let capture, let action,
+              capture.isCurrent(in: contextProvider(), action: action) else {
             finish(token)
             return
         }
@@ -213,7 +284,7 @@ final class SampleEditorWAVImportCoordinator {
         case let .failure(error): fail(error, token: token)
         case let .success(candidate):
             guard candidate.isValidDocumentSample else { fail(.nonFinitePCM, token: token); return }
-            _ = commitHandler(candidate, capture.destination)
+            _ = commitHandler(candidate, action)
             finish(token)
         }
     }
@@ -229,6 +300,7 @@ final class SampleEditorWAVImportCoordinator {
         guard isCurrent(token) else { return }
         operationToken = nil
         capture = nil
+        action = nil
         importingStateHandler(false)
     }
 }

@@ -31,14 +31,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         fileChooser: { [weak self] request, completion in
             self?.chooseSampleEditorWAVFile(request: request, completion: completion) ?? completion(nil)
         },
-        replacementConfirmation: { [weak self] completion in
-            self?.confirmSampleEditorWAVReplacement(completion: completion) ?? completion(false)
+        occupiedSampleChoice: { [weak self] canAddAsNew, completion in
+            self?.chooseSampleEditorOccupiedImport(
+                canAddAsNew: canAddAsNew,
+                completion: completion
+            ) ?? completion(nil)
         },
         stereoChannelChooser: { [weak self] completion in
             self?.chooseSampleEditorWAVStereoChannel(completion: completion) ?? completion(nil)
         },
-        commitHandler: { [weak self] candidate, destination in
-            self?.commitSampleEditorWAVImport(candidate, destination: destination) ?? false
+        commitHandler: { [weak self] candidate, action in
+            self?.commitSampleEditorWAVImport(candidate, action: action) ?? false
         },
         errorHandler: { [weak self] message in self?.presentSampleEditorWAVImportError(message) },
         importingStateHandler: { [weak self] _ in
@@ -759,16 +762,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
     }
 
-    private func confirmSampleEditorWAVReplacement(
-        completion: @escaping @MainActor (Bool) -> Void
+    private func chooseSampleEditorOccupiedImport(
+        canAddAsNew: Bool,
+        completion: @escaping @MainActor (SampleEditorOccupiedSampleImportChoice?) -> Void
     ) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Replace Current Sample?"
-        alert.informativeText = "This replaces Sxx sample data and metadata while preserving its slot and keymap references."
-        alert.addButton(withTitle: "Replace")
-        alert.addButton(withTitle: "Cancel")
-        presentSampleEditorWAVAlert(alert) { completion($0 == .alertFirstButtonReturn) }
+        let alert = SampleEditorOccupiedImportAlert.make(canAddAsNew: canAddAsNew)
+        presentSampleEditorWAVAlert(alert) {
+            completion(SampleEditorOccupiedImportAlert.choice(for: $0))
+        }
     }
 
     private func chooseSampleEditorWAVStereoChannel(
@@ -791,13 +792,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func commitSampleEditorWAVImport(
         _ candidate: NormalizedSampleImport,
-        destination: SampleImportDestination
+        action: SampleEditorAudioImportAction
     ) -> Bool {
         cancelNoteAuditionForDocumentTransition()
-        guard editableDocumentEditCoordinator.importAudioSample(candidate, destination: destination) else {
-            return false
+        switch action {
+        case let .fillOrReplace(destination):
+            return editableDocumentEditCoordinator.importAudioSample(
+                candidate,
+                destination: destination
+            )
+        case let .addAsNew(instrumentIndex, originalSampleCount):
+            return editableDocumentEditCoordinator.addAudioSample(
+                candidate,
+                instrumentIndex: instrumentIndex,
+                originalSampleCount: originalSampleCount
+            )
         }
-        return true
     }
 
     private func presentSampleEditorWAVImportError(_ message: String) {

@@ -96,6 +96,25 @@ final class EditableDocumentEditCoordinator {
     }
 
     @discardableResult
+    func addAudioSample(
+        _ candidate: NormalizedSampleImport,
+        instrumentIndex: Int,
+        originalSampleCount: Int
+    ) -> Bool {
+        guard candidate.isValidDocumentSample,
+              var document = contextProvider().documentAvailableForMutation,
+              case let .represented(selectedInstrumentIndex, _) = document.selectedSampleImportDestination,
+              selectedInstrumentIndex == instrumentIndex,
+              document.instrument(forInstrument: instrumentIndex)?.samples.count == originalSampleCount,
+              let sampleIndex = document.nextAppendSampleIndex(forInstrument: instrumentIndex),
+              document.appendSample(
+                  instrumentIndex: instrumentIndex,
+                  sample: candidate.playbackSample(instrumentIndex: instrumentIndex, sampleIndex: sampleIndex)
+              ) == sampleIndex else { return false }
+        return applyEdit(label: "Add Audio Sample", updatedDocument: document)
+    }
+
+    @discardableResult
     func renameInstrument(at zeroBasedIndex: Int, name: String) -> Bool {
         guard var document = contextProvider().documentAvailableForMutation,
               document.renameInstrument(at: zeroBasedIndex, name: name) else {

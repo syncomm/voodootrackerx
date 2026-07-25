@@ -63,9 +63,10 @@ VoodooTracker X currently has:
   through one container-validating facade and background workflow. Native FLAC
   is mono/stereo 16-bit and 24-bit only; 8-bit and untested depths plus
   Ogg-FLAC are rejected, and FLAC metadata/loops are ignored. LOAD fills empty
-  S01 or confirms exact in-place replacement, with stereo Mix/Left/Right,
+  S01 or offers Replace/Add as New/Cancel, with stereo Mix/Left/Right,
   stale-result checks, one format-neutral undoable edit, and document-owned
-  mono 16-bit PCM. Add as New Sample, S02+, and processing remain unavailable.
+  mono 16-bit PCM. Add appends/selects S02+ while preserving the keymap;
+  destructive lifecycle, standalone New Sample, and keymap editing remain unavailable.
   AUDITION now toggles that selected slot directly at C-4 through the persistent
   preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
@@ -201,8 +202,8 @@ Recently completed narrow target:
   through the existing one-file picker, coordinator, background worker,
   normalized candidate, and commit path. It rejects 8-bit and untested depths,
   Ogg-FLAC, malformed/unsafe input, mismatches, and decoder disagreement without
-  mutation; FLAC metadata/loops are ignored. Add as New Sample and S02+ remain
-  separate work.
+  mutation; FLAC metadata/loops are ignored. Add as New reuses this path and
+  does not change keymap references.
 - Native `fLaC` preflight and bounded Apple `ExtAudioFile` decode now support
   16/24-bit mono/stereo sources through the shared canonical importer. Valid
   8-bit FLAC and all untested depths are rejected before decode; tags, pictures,
@@ -212,8 +213,8 @@ Recently completed narrow target:
   Header-based dispatch, extension/container mismatch rejection,
   stereo Mix/Left/Right, background decode, operation/document revision checks,
   document-owned canonical mono 16-bit PCM, all-S01 first-sample mapping, and
-  one format-neutral import/replace undo action are implemented. Add as New
-  Sample, S02+, drag/drop, and global import remain separate work.
+  one format-neutral import/replace/add undo action are implemented. Delete,
+  clear, reorder, duplication, keymap editing, drag/drop, and global import remain separate work.
 - Labeled whole-editable-document snapshots now flow through
   `EditableDocumentEditCoordinator` and a capped `UndoManager`. Clear Current
   Pattern is the first routed operation; undo/redo refresh existing editor
@@ -776,7 +777,7 @@ Remaining VTX 1.0 scope:
 
 - the dependency-ordered from-scratch instrument/sample workflow in
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md),
-  continuing with represented sample-slot lifecycle and Add as New Sample
+  continuing with explicit sample-keymap editing
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit
 - editable loop mode/range behind applyEdit, followed by separately scoped PCM

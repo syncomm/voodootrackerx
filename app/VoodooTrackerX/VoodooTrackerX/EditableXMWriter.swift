@@ -90,7 +90,6 @@ struct EditableXMWriter {
     private static let maxXMChannels = 32
     private static let maxXMPatternRows = 256
     private static let maxXMInstruments = BlankTrackerDocument.maximumInstrumentCount
-    private static let maxXMSamplesPerInstrument = 16
 
     func data(from document: BlankTrackerDocument) throws -> Data {
         let orderTable = effectiveOrderTable(for: document)
@@ -269,7 +268,7 @@ struct EditableXMWriter {
                 }
                 return lhs.sampleIndex < rhs.sampleIndex
             }
-        guard samplesWithPayload.count <= Self.maxXMSamplesPerInstrument else {
+        guard samplesWithPayload.count <= BlankTrackerDocument.maximumSampleCountPerInstrument else {
             throw EditableXMWriterError.unsupportedInstrumentSampleCount(
                 instrumentIndex: instrumentIndex,
                 sampleCount: samplesWithPayload.count

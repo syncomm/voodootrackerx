@@ -743,6 +743,7 @@ enum SampleImportDestination: Equatable, Sendable {
 
 struct BlankTrackerDocument: Equatable {
     static let maximumInstrumentCount = 255
+    static let maximumSampleCountPerInstrument = 16
     static let defaultTitle = "Untitled"
     static let defaultSongLength = 1
     static let defaultCurrentPosition = 0
@@ -999,8 +1000,24 @@ struct BlankTrackerDocument: Equatable {
             return .emptyS01(instrumentIndex: instrument.index)
         }
         guard let sample = instrument.sample(selectedSampleSlot: selection.selectedSample),
-              (0..<16).contains(sample.sampleIndex) else { return nil }
+              (0..<Self.maximumSampleCountPerInstrument).contains(sample.sampleIndex) else { return nil }
         return .represented(instrumentIndex: instrument.index, sampleIndex: sample.sampleIndex)
+    }
+
+    func nextAppendSampleIndex(forInstrument instrumentIndex: Int) -> Int? {
+        guard let instrument = instrument(forInstrument: instrumentIndex),
+              !instrument.samples.isEmpty,
+              instrument.samples.count < Self.maximumSampleCountPerInstrument else { return nil }
+        let indices = instrument.samples.map(\.sampleIndex)
+        guard Set(indices).count == indices.count,
+              indices.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }),
+              let highestIndex = indices.max() else { return nil }
+        let nextIndex = highestIndex + 1
+        return nextIndex < Self.maximumSampleCountPerInstrument ? nextIndex : nil
+    }
+
+    func canAppendSample(toInstrument instrumentIndex: Int) -> Bool {
+        nextAppendSampleIndex(forInstrument: instrumentIndex) != nil
     }
 
     /// Fills the selected empty S01 with one validated sample while preserving all unrelated document state.
@@ -1074,6 +1091,38 @@ struct BlankTrackerDocument: Equatable {
             instrumentPalette: palette, patterns: patterns
         )
         return true
+    }
+
+    /// Appends one complete represented sample without compacting indices or changing the keymap.
+    @discardableResult
+    mutating func appendSample(instrumentIndex: Int, sample: PlaybackSample) -> Int? {
+        guard selection.selectedInstrument == instrumentIndex,
+              let instrument = instrumentPalette[instrumentIndex],
+              let sampleIndex = nextAppendSampleIndex(forInstrument: instrumentIndex),
+              sample.instrumentIndex == instrumentIndex,
+              sample.sampleIndex == sampleIndex,
+              Self.isCompleteRepresentedSample(sample) else { return nil }
+
+        var palette = instrumentPalette
+        palette[instrumentIndex] = PlaybackInstrument(
+            index: instrument.index,
+            name: instrument.name,
+            samples: instrument.samples + [sample],
+            volumeEnvelope: instrument.volumeEnvelope,
+            panningEnvelope: instrument.panningEnvelope,
+            autoVibrato: instrument.autoVibrato,
+            noteSampleMap: instrument.noteSampleMap
+        )
+        self = BlankTrackerDocument(
+            title: title, songLength: songLength, currentPosition: currentPosition, restartPosition: restartPosition,
+            currentPatternIndex: currentPatternIndex, tempo: tempo, speed: speed, orderTable: orderTable,
+            selection: TrackerEditorSelection(
+                selectedInstrument: instrumentIndex,
+                selectedSample: sampleIndex + 1
+            ),
+            instrumentPalette: palette, patterns: patterns
+        )
+        return sampleIndex
     }
 
     /// Appends a represented unnamed instrument and selects its empty S01 destination.
@@ -1676,6 +1725,25 @@ struct BlankTrackerDocument: Equatable {
         palette.values.contains { instrument in
             instrument.samples.contains { !$0.pcm.isEmpty }
         }
+    }
+
+    private static func isCompleteRepresentedSample(_ sample: PlaybackSample) -> Bool {
+        guard sample.sampleLength > 0,
+              sample.sampleLength == sample.pcm.count,
+              sample.sampleLength <= SampleImportResourcePolicy.maximumFrameCount,
+              sample.pcm.allSatisfy({ $0.isFinite && (-1...1).contains($0) }),
+              sample.volume.isFinite, (0...1).contains(sample.volume),
+              sample.baseSampleRate.isFinite, sample.baseSampleRate > 0,
+              PlaybackSample.xmRelativeNoteRange.contains(sample.relativeNote),
+              PlaybackSample.xmFinetuneRange.contains(sample.finetune),
+              sample.sourceBitDepthBits == 8 || sample.sourceBitDepthBits == 16,
+              sample.sourceIsSignedPCM == true,
+              sample.sourceIsDeltaEncoded == true else { return false }
+        if sample.loopType == 0 { return sample.loopStart >= 0 && sample.loopLength >= 0 }
+        guard sample.loopType == 1 || sample.loopType == 2,
+              sample.loopStart >= 0, sample.loopLength > 0,
+              sample.loopStart <= sample.sampleLength - sample.loopLength else { return false }
+        return true
     }
 
     private static func copiedEditablePatterns(from metadata: ParsedModuleMetadata) -> [XMPatternData]? {

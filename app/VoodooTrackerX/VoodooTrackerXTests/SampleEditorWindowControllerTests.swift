@@ -703,6 +703,23 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(panel.allowedContentTypes.contains { $0.identifier == flacType.identifier })
     }
 
+    func testOccupiedImportAlertOffersReplaceAddAndCancelAndDisablesAddAtMaximum() {
+        let available = SampleEditorOccupiedImportAlert.make(canAddAsNew: true)
+        XCTAssertEqual(available.messageText, "Load Audio Sample")
+        XCTAssertEqual(available.buttons.map(\.title), ["Replace Current Sample", "Add as New Sample", "Cancel"])
+        XCTAssertTrue(available.buttons[1].isEnabled)
+        XCTAssertTrue(available.informativeText.contains("keymap unchanged"))
+        XCTAssertEqual(
+            [NSApplication.ModalResponse.alertFirstButtonReturn, .alertSecondButtonReturn, .alertThirdButtonReturn]
+                .map(SampleEditorOccupiedImportAlert.choice),
+            [.replaceCurrent, .addAsNew, nil]
+        )
+
+        let atMaximum = SampleEditorOccupiedImportAlert.make(canAddAsNew: false)
+        XCTAssertFalse(atMaximum.buttons[1].isEnabled)
+        XCTAssertTrue(atMaximum.informativeText.contains("\(BlankTrackerDocument.maximumSampleCountPerInstrument)"))
+    }
+
     func testWAVImportFileCancelAndDuplicateActionSuppressionCreateNoMutation() {
         let document = BlankTrackerDocument.makeDefault()
         let identity = UUID()
@@ -721,7 +738,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 normalize: { _, _ in .failure(.audioDecodeFailed) }
             ),
             fileChooser: { request, completion in requests.append(request); chooserCompletion = completion },
-            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            occupiedSampleChoice: { _, _ in XCTFail("Empty S01 must not ask for a replace/add choice") },
             stereoChannelChooser: { _ in XCTFail("Cancel must not inspect channels") },
             commitHandler: { _, _ in commits += 1; return true },
             errorHandler: { _ in XCTFail("Cancel must not show an error") },
@@ -757,7 +774,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 normalize: { _, mode in monoModes.append(mode); return .success(candidate) }
             ),
             fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
-            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            occupiedSampleChoice: { _, _ in XCTFail("Empty S01 must not ask for a replace/add choice") },
             stereoChannelChooser: { _ in monoPromptCount += 1 },
             commitHandler: { _, _ in monoCommit.fulfill(); return true },
             errorHandler: { XCTFail($0) }
@@ -785,7 +802,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                     normalize: { _, mode in normalizedModes.append(mode); return .success(candidate) }
                 ),
                 fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
-                replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+                occupiedSampleChoice: { _, _ in XCTFail("Empty S01 must not ask for a replace/add choice") },
                 stereoChannelChooser: { completion in completion(choice) },
                 commitHandler: { _, _ in committed.fulfill(); return true },
                 errorHandler: { XCTFail($0) }
@@ -808,7 +825,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 normalize: { _, _ in XCTFail("Cancelled channel choice must not decode"); return .failure(.audioDecodeFailed) }
             ),
             fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
-            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            occupiedSampleChoice: { _, _ in XCTFail("Empty S01 must not ask for a replace/add choice") },
             stereoChannelChooser: { completion in completion(nil) },
             commitHandler: { _, _ in cancelCommits += 1; return true },
             errorHandler: { XCTFail($0) },
@@ -836,7 +853,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 normalize: { _, _ in XCTFail("Cancelled replacement must not normalize"); return .failure(.audioDecodeFailed) }
             ),
             fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
-            replacementConfirmation: { completion in completion(false) },
+            occupiedSampleChoice: { _, completion in completion(nil) },
             stereoChannelChooser: { _ in XCTFail("Cancelled replacement must not choose a channel") },
             commitHandler: { _, _ in XCTFail("Cancelled replacement must not commit"); return false },
             errorHandler: { XCTFail($0) },
@@ -859,11 +876,18 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 normalize: { _, _ in order.append("normalize"); return .success(candidate) }
             ),
             fileChooser: { _, completion in order.append("file"); completion(temporaryGeneratedWAVURL) },
-            replacementConfirmation: { completion in order.append("replace"); completion(true) },
+            occupiedSampleChoice: { canAddAsNew, completion in
+                XCTAssertTrue(canAddAsNew)
+                order.append("replace")
+                completion(.replaceCurrent)
+            },
             stereoChannelChooser: { _ in XCTFail("Mono must skip channel choice") },
-            commitHandler: { _, destination in
+            commitHandler: { _, action in
                 order.append("commit")
-                XCTAssertEqual(destination, .represented(instrumentIndex: 1, sampleIndex: 0))
+                XCTAssertEqual(
+                    action,
+                    .fillOrReplace(.represented(instrumentIndex: 1, sampleIndex: 0))
+                )
                 committed.fulfill()
                 return true
             },
@@ -873,6 +897,83 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(coordinator.begin())
         await fulfillment(of: [committed], timeout: 1)
         XCTAssertEqual(order.values, ["file", "replace", "inspect", "normalize", "commit"])
+    }
+
+    func testOccupiedAddAsNewReusesAllFormatsAndStereoChoicesThroughOneAppendAction() async throws {
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(document.generateSineInSelectedEmptySample())
+        let identity = UUID()
+        let candidate = try normalizedImportCandidate(sourceChannelCount: 2)
+        let observedModes = SampleImportThreadSafeRecorder<SampleImportChannelMode>()
+        let cases: [(SampleImportFormat, SampleImportChannelMode)] = [
+            (.wav, .mixToMono), (.aiff, .left), (.aifc, .right), (.flac, .mixToMono),
+        ]
+
+        for (format, choice) in cases {
+            let committed = expectation(description: "append \(format) \(choice)")
+            let coordinator = SampleEditorWAVImportCoordinator(
+                contextProvider: {
+                    SampleEditorWAVImportContext(
+                        documentIdentity: identity, documentRevision: 9, document: document, isPlaybackActive: false
+                    )
+                },
+                worker: SampleEditorWAVImportWorker(
+                    inspect: { _ in
+                        .success(.init(format: format, sourceSampleRate: 8_363, sourceChannelCount: 2, sourceBitDepthBits: 16, frameCount: 2))
+                    },
+                    normalize: { _, mode in observedModes.append(mode); return .success(candidate) }
+                ),
+                fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
+                occupiedSampleChoice: { canAddAsNew, completion in
+                    XCTAssertTrue(canAddAsNew); completion(.addAsNew)
+                },
+                stereoChannelChooser: { completion in completion(choice) },
+                commitHandler: { _, action in
+                    XCTAssertEqual(action, .addAsNew(instrumentIndex: 1, originalSampleCount: 1))
+                    committed.fulfill(); return true
+                },
+                errorHandler: { XCTFail($0) }
+            )
+            XCTAssertTrue(coordinator.begin())
+            await fulfillment(of: [committed], timeout: 1)
+        }
+        XCTAssertEqual(observedModes.values, cases.map(\.1))
+    }
+
+    func testAttemptedAddAtMaximumExplainsCapacityWithoutDecodeCommitOrHistory() throws {
+        let candidate = try normalizedImportCandidate()
+        var atMaximum = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(atMaximum.generateSineInSelectedEmptySample())
+        for sampleIndex in 1..<BlankTrackerDocument.maximumSampleCountPerInstrument {
+            let sample = candidate.playbackSample(instrumentIndex: 1, sampleIndex: sampleIndex)
+            XCTAssertEqual(atMaximum.appendSample(instrumentIndex: 1, sample: sample), sampleIndex)
+        }
+        let identity = UUID()
+        var messages: [String] = []
+        var commits = 0
+        let coordinator = SampleEditorWAVImportCoordinator(
+            contextProvider: {
+                SampleEditorWAVImportContext(
+                    documentIdentity: identity, documentRevision: 1, document: atMaximum, isPlaybackActive: false
+                )
+            },
+            worker: SampleEditorWAVImportWorker(
+                inspect: { _ in XCTFail("Capacity failure must not inspect"); return .failure(.audioDecodeFailed) },
+                normalize: { _, _ in XCTFail("Capacity failure must not normalize"); return .failure(.audioDecodeFailed) }
+            ),
+            fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
+            occupiedSampleChoice: { canAddAsNew, completion in
+                XCTAssertFalse(canAddAsNew); completion(.addAsNew)
+            },
+            stereoChannelChooser: { _ in XCTFail("Capacity failure must not choose a channel") },
+            commitHandler: { _, _ in commits += 1; return true },
+            errorHandler: { messages.append($0) }
+        )
+
+        XCTAssertTrue(coordinator.begin())
+        XCTAssertFalse(coordinator.isImporting)
+        XCTAssertEqual(commits, 0)
+        XCTAssertEqual(messages, [SampleEditorOccupiedImportAlert.maximumMessage])
     }
 
     func testWAVImportCaptureRejectsStaleIdentityRevisionSelectionOccupancyAndPlayback() throws {
@@ -897,6 +998,16 @@ final class SampleEditorWindowControllerTests: XCTestCase {
             SampleEditorWAVImportContext(documentIdentity: nil, documentRevision: 4, document: nil, isPlaybackActive: false),
         ]
         XCTAssertTrue(staleContexts.allSatisfy { !capture.isCurrent(in: $0) })
+
+        let occupiedContext = SampleEditorWAVImportContext(
+            documentIdentity: identity, documentRevision: 8, document: occupied, isPlaybackActive: false
+        )
+        let occupiedCapture = try XCTUnwrap(SampleEditorWAVImportCapture(context: occupiedContext))
+        let second = try normalizedImportCandidate().playbackSample(instrumentIndex: 1, sampleIndex: 1)
+        XCTAssertEqual(occupied.appendSample(instrumentIndex: 1, sample: second), 1)
+        XCTAssertFalse(occupiedCapture.isCurrent(in: .init(
+            documentIdentity: identity, documentRevision: 8, document: occupied, isPlaybackActive: false
+        )))
     }
 
     func testWAVImportDoesNotMutateBeforeCandidateCompletesAndRejectsStaleAsyncResult() async throws {
@@ -918,7 +1029,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 normalize: { _, _ in .success(await gate.wait()) }
             ),
             fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
-            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            occupiedSampleChoice: { _, _ in XCTFail("Empty S01 must not ask for a replace/add choice") },
             stereoChannelChooser: { _ in XCTFail("Mono must skip channel choice") },
             commitHandler: { _, _ in commits += 1; return true },
             errorHandler: { XCTFail($0) },
@@ -1010,7 +1121,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 normalize: { _, _ in XCTFail("Failed inspection must not normalize"); return .failure(.audioDecodeFailed) }
             ),
             fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
-            replacementConfirmation: { _ in XCTFail("Empty S01 must not ask for replacement") },
+            occupiedSampleChoice: { _, _ in XCTFail("Empty S01 must not ask for a replace/add choice") },
             stereoChannelChooser: { _ in XCTFail("Failed inspection must not choose a channel") },
             commitHandler: { _, _ in commits += 1; return true },
             errorHandler: { presentedMessages.append($0) },

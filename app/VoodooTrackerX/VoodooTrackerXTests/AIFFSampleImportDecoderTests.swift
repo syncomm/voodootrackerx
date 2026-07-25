@@ -92,6 +92,138 @@ final class AIFFSampleImportDecoderTests: XCTestCase {
         XCTAssertTrue(aiffCandidate.isValidDocumentSample)
         XCTAssertEqual(aiffCandidate.pcm.count, samples.count)
     }
+    func testFormatNeutralFacadeDispatchesWAVAIFFAndAIFCToEqualOwnedCandidates() throws {
+        let samples: [Int64] = [-32_768, -4_096, 0, 12_345, 32_767]
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sources: [(URL, SampleImportFormat, Data)] = [
+            (
+                directory.appendingPathComponent("Equivalent.wav"), .wav,
+                wav16(samples: samples, sampleRate: 48_000)
+            ),
+            (
+                directory.appendingPathComponent("Equivalent.aiff"), .aiff,
+                aiff(
+                    sampleRate: 48_000, bits: 16, frameCount: samples.count,
+                    pcm: signedPCM(samples, bytes: 2, littleEndian: false)
+                )
+            ),
+            (
+                directory.appendingPathComponent("Equivalent.aifc"), .aifc,
+                aiff(
+                    formType: "AIFC", sampleRate: 48_000, bits: 16,
+                    frameCount: samples.count, compression: "twos",
+                    pcm: signedPCM(samples, bytes: 2, littleEndian: false)
+                )
+            ),
+        ]
+        for (url, _, data) in sources { try data.write(to: url) }
+
+        let decoder = SampleImportDecoder()
+        var candidates = [NormalizedSampleImport]()
+        for (url, format, _) in sources {
+            let inspection = try decoder.inspect(url: url)
+            XCTAssertEqual(inspection.format, format)
+            XCTAssertEqual(inspection.sourceChannelCount, 1)
+            candidates.append(try decoder.normalizedImport(url: url, channelMode: .mixToMono))
+        }
+        XCTAssertEqual(candidates, Array(repeating: candidates[0], count: sources.count))
+
+        for (url, _, _) in sources { try FileManager.default.removeItem(at: url) }
+        XCTAssertTrue(candidates.allSatisfy(\.isValidDocumentSample))
+        XCTAssertTrue(candidates.allSatisfy { $0.pcm.count == samples.count })
+    }
+    func testFormatNeutralFacadeRejectsExtensionContainerMismatchAndUnknownContainer() throws {
+        let samples: [Int64] = [0, 1_000]
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mismatches = [
+            (
+                directory.appendingPathComponent("wav-as-aiff.aiff"),
+                wav16(samples: samples, sampleRate: 8_363)
+            ),
+            (
+                directory.appendingPathComponent("aiff-as-wav.wav"),
+                aiff(
+                    sampleRate: 8_363, bits: 16, frameCount: samples.count,
+                    pcm: signedPCM(samples, bytes: 2, littleEndian: false)
+                )
+            ),
+            (
+                directory.appendingPathComponent("aifc-as-aif.aif"),
+                aiff(
+                    formType: "AIFC", sampleRate: 8_363, bits: 16,
+                    frameCount: samples.count, compression: "NONE",
+                    pcm: signedPCM(samples, bytes: 2, littleEndian: false)
+                )
+            ),
+        ]
+        let decoder = SampleImportDecoder()
+        for (url, data) in mismatches {
+            try data.write(to: url)
+            XCTAssertThrowsError(try decoder.inspect(url: url)) {
+                XCTAssertEqual($0 as? SampleImportError, .fileExtensionMismatch)
+            }
+        }
+
+        let unknown = directory.appendingPathComponent("unknown.wav")
+        try Data(repeating: 0, count: 12).write(to: unknown)
+        XCTAssertThrowsError(try decoder.inspect(url: unknown)) {
+            XCTAssertEqual($0 as? SampleImportError, .unsupportedContainer)
+        }
+    }
+    func testSampleEditorLiveWorkerUsesFacadeForAIFCOffMainThread() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("Worker.aifc")
+        try aiff(
+            formType: "AIFC", bits: 16, frameCount: 2, compression: "sowt",
+            pcm: signedPCM([-16_384, 16_384], bytes: 2, littleEndian: true)
+        ).write(to: url)
+
+        let worker = SampleEditorWAVImportWorker.live()
+        guard case let .success(inspection) = await worker.inspect(url) else {
+            return XCTFail("Expected AIFC inspection")
+        }
+        XCTAssertEqual(inspection.format, .aifc)
+        guard case let .success(candidate) = await worker.normalize(url, .mixToMono) else {
+            return XCTFail("Expected AIFC normalization")
+        }
+        XCTAssertEqual(candidate.name, "Worker")
+        XCTAssertTrue(candidate.isValidDocumentSample)
+    }
+    func testAIFFAndAIFCCandidatesFillEmptyS01AndExportXMWithoutSourceDependency() throws {
+        for (filename, formType, compression, littleEndian) in [
+            ("Imported.aiff", "AIFF", "NONE", false),
+            ("Imported.aifc", "AIFC", "twos", false),
+        ] {
+            let directory = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let source = directory.appendingPathComponent(filename)
+            try aiff(
+                formType: formType, bits: 16, frameCount: 3, compression: compression,
+                pcm: signedPCM([-16_384, 0, 16_384], bytes: 2, littleEndian: littleEndian)
+            ).write(to: source)
+            let candidate = try SampleImportDecoder().normalizedImport(
+                url: source, channelMode: .mixToMono
+            )
+            try FileManager.default.removeItem(at: source)
+
+            var document = BlankTrackerDocument.makeDefault()
+            let destination = try XCTUnwrap(document.selectedSampleImportDestination)
+            XCTAssertTrue(document.importAudioSample(candidate, destination: destination))
+            let imported = try XCTUnwrap(document.instrumentPalette[1]?.samples.first)
+            let exported = directory.appendingPathComponent("round-trip.xm")
+            try EditableXMWriter().data(from: document).write(to: exported)
+            let metadata = try ModuleMetadataLoader().load(fromPath: exported.path)
+            let reopened = try PlaybackSongBuilder.build(
+                from: metadata, modulePath: exported.path
+            ).instrument(forInstrument: 1)?.sample(mappedSampleIndex: 0)
+
+            XCTAssertEqual(reopened, imported)
+            XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap, Array(repeating: 0, count: 96))
+        }
+    }
     func testRejectsMalformedUnsupportedAndResourceViolations() throws {
         let missingCOMM = form(type: "AIFF", chunks: [chunk("SSND", ssnd(pcm: Data([0, 0])))])
         let missingSSND = form(type: "AIFF", chunks: [chunk("COMM", comm(bits: 16, frameCount: 1))])

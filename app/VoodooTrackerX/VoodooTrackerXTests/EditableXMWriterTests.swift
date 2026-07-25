@@ -710,7 +710,7 @@ final class EditableXMWriterTests: XCTestCase {
             name: "Imported Kick.wav", pcm: [-1, -0.5, 0, 0.5, Float(Int16.max) / 32_768]
         )
         let destination = try XCTUnwrap(document.selectedSampleImportDestination)
-        XCTAssertTrue(document.importWAVSample(candidate, destination: destination))
+        XCTAssertTrue(document.importAudioSample(candidate, destination: destination))
         let imported = try XCTUnwrap(document.instrumentPalette[1]?.samples.first)
         let url = try temporaryExportURL(filename: "imported-wav.xm")
         try EditableXMWriter().data(from: document).write(to: url, options: .atomic)

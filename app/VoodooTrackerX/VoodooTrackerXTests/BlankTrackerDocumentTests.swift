@@ -63,7 +63,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let destination = try XCTUnwrap(document.selectedSampleImportDestination)
 
         XCTAssertEqual(destination, .emptyS01(instrumentIndex: 1))
-        XCTAssertTrue(document.importWAVSample(candidate, destination: destination))
+        XCTAssertTrue(document.importAudioSample(candidate, destination: destination))
 
         let instrument = try XCTUnwrap(document.instrumentPalette[1])
         let sample = try XCTUnwrap(instrument.samples.first)
@@ -110,7 +110,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let destination = try XCTUnwrap(document.selectedSampleImportDestination)
 
         XCTAssertEqual(destination, .represented(instrumentIndex: 1, sampleIndex: 1))
-        XCTAssertTrue(document.importWAVSample(candidate, destination: destination))
+        XCTAssertTrue(document.importAudioSample(candidate, destination: destination))
 
         let updated = try XCTUnwrap(document.instrumentPalette[1])
         XCTAssertEqual(updated.samples[0], first)
@@ -120,7 +120,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(updated.volumeEnvelope, instrument.volumeEnvelope)
         XCTAssertEqual(document.selection, before.selection)
         XCTAssertEqual(document.patterns, before.patterns)
-        XCTAssertFalse(document.importWAVSample(candidate, destination: .emptyS01(instrumentIndex: 1)))
+        XCTAssertFalse(document.importAudioSample(candidate, destination: .emptyS01(instrumentIndex: 1)))
     }
 
     func testDefaultBlankDocumentUsesTrackerStartupDefaults() {

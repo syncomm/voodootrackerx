@@ -776,7 +776,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     ) {
         let alert = NSAlert()
         alert.messageText = "Choose Stereo Channel"
-        alert.informativeText = "Choose how this stereo WAV should become a mono XM sample."
+        alert.informativeText = "Choose how this stereo audio file should become a mono XM sample."
         ["Mix to Mono", "Left", "Right", "Cancel"].forEach { alert.addButton(withTitle: $0) }
         presentSampleEditorWAVAlert(alert) { response in
             let mode: SampleImportChannelMode? = switch response {
@@ -794,7 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         destination: SampleImportDestination
     ) -> Bool {
         cancelNoteAuditionForDocumentTransition()
-        guard editableDocumentEditCoordinator.importWAVSample(candidate, destination: destination) else {
+        guard editableDocumentEditCoordinator.importAudioSample(candidate, destination: destination) else {
             return false
         }
         return true
@@ -803,7 +803,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func presentSampleEditorWAVImportError(_ message: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "WAV Import Failed"
+        alert.messageText = "Sample Import Failed"
         alert.informativeText = message
         presentSampleEditorWAVAlert(alert) { _ in }
     }

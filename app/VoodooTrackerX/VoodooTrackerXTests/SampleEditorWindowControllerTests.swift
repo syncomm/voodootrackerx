@@ -664,6 +664,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         for copy in ["SMP", "NAME", "FORMAT", "AUDITION", "SAMPLES", "WAVEFORM", "LOOP", "SAMPLE PARAMS", "GENERATE", "FILE", "EDIT"] {
             XCTAssertTrue(values.contains(copy), copy)
         }
+        XCTAssertTrue(values.contains("— WAV · AIFF · AIFC LOAD"))
         let future = descendants.compactMap { $0 as? NSControl }.filter {
             $0.identifier?.rawValue.hasPrefix(SampleEditorViewIdentifier.futureControlPrefix) == true
         }
@@ -687,16 +688,17 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(editableControls.allSatisfy { $0.target == nil && $0.action == nil })
     }
 
-    func testWAVOpenPanelConfigurationIsSingleFileWAVOnly() {
-        let request = SampleEditorWAVFileRequest.wav
+    func testSampleOpenPanelConfigurationIsSingleFileAndFormatNeutral() {
+        let request = SampleEditorWAVFileRequest.audio
         let panel = SampleEditorWAVOpenPanel.make(request: request)
 
         XCTAssertTrue(panel.canChooseFiles)
         XCTAssertFalse(panel.canChooseDirectories)
         XCTAssertFalse(panel.allowsMultipleSelection)
-        XCTAssertEqual(request.allowedFileExtensions, ["wav", "wave"])
+        XCTAssertEqual(request.allowedFileExtensions, ["wav", "wave", "aif", "aiff", "aifc"])
+        XCTAssertEqual(panel.message, "Load Sample")
         XCTAssertFalse(panel.allowedContentTypes.isEmpty)
-        XCTAssertTrue(panel.allowedContentTypes.allSatisfy { $0.conforms(to: .audio) || $0.preferredFilenameExtension == "wav" })
+        XCTAssertTrue(panel.allowedContentTypes.allSatisfy { $0.conforms(to: .audio) })
     }
 
     func testWAVImportFileCancelAndDuplicateActionSuppressionCreateNoMutation() {
@@ -727,14 +729,14 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(coordinator.begin())
         XCTAssertTrue(coordinator.isImporting)
         XCTAssertFalse(coordinator.begin())
-        XCTAssertEqual(requests, [.wav])
+        XCTAssertEqual(requests, [.audio])
         chooserCompletion?(nil)
         XCTAssertFalse(coordinator.isImporting)
         XCTAssertEqual(importingStates, [true, false])
         XCTAssertEqual(commits, 0)
     }
 
-    func testWAVImportMonoSkipsChannelChoiceAndStereoUsesExplicitMixLeftRightOrCancel() async throws {
+    func testSampleImportMonoAIFFSkipsChannelChoiceAndStereoAIFFAIFCReuseExplicitChoices() async throws {
         let document = BlankTrackerDocument.makeDefault()
         let identity = UUID()
         let candidate = try normalizedImportCandidate(sourceChannelCount: 2)
@@ -749,7 +751,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 )
             },
             worker: SampleEditorWAVImportWorker(
-                inspect: { _ in .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2)) },
+                inspect: { _ in .success(.init(format: .aiff, sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2)) },
                 normalize: { _, mode in monoModes.append(mode); return .success(candidate) }
             ),
             fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
@@ -764,7 +766,11 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(monoModes.values, [.mixToMono])
 
         let normalizedModes = SampleImportThreadSafeRecorder<SampleImportChannelMode>()
-        for choice in [SampleImportChannelMode.mixToMono, .left, .right] {
+        for (format, choice) in [
+            (SampleImportFormat.aiff, SampleImportChannelMode.mixToMono),
+            (.aifc, .left),
+            (.aifc, .right),
+        ] {
             let committed = expectation(description: "stereo \(choice)")
             let coordinator = SampleEditorWAVImportCoordinator(
                 contextProvider: {
@@ -773,7 +779,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                     )
                 },
                 worker: SampleEditorWAVImportWorker(
-                    inspect: { _ in .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 2, sourceBitDepthBits: 16, frameCount: 2)) },
+                    inspect: { _ in .success(.init(format: format, sourceSampleRate: 8_363, sourceChannelCount: 2, sourceBitDepthBits: 16, frameCount: 2)) },
                     normalize: { _, mode in normalizedModes.append(mode); return .success(candidate) }
                 ),
                 fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
@@ -796,7 +802,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 )
             },
             worker: SampleEditorWAVImportWorker(
-                inspect: { _ in .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 2, sourceBitDepthBits: 16, frameCount: 2)) },
+                inspect: { _ in .success(.init(format: .aifc, sourceSampleRate: 8_363, sourceChannelCount: 2, sourceBitDepthBits: 16, frameCount: 2)) },
                 normalize: { _, _ in XCTFail("Cancelled channel choice must not decode"); return .failure(.audioDecodeFailed) }
             ),
             fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
@@ -847,7 +853,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
                 )
             },
             worker: SampleEditorWAVImportWorker(
-                inspect: { _ in order.append("inspect"); return .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2)) },
+                inspect: { _ in order.append("inspect"); return .success(.init(format: .aifc, sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2)) },
                 normalize: { _, _ in order.append("normalize"); return .success(candidate) }
             ),
             fileChooser: { _, completion in order.append("file"); completion(temporaryGeneratedWAVURL) },
@@ -905,7 +911,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
             contextProvider: { context },
             worker: SampleEditorWAVImportWorker(
                 inspect: { _ in
-                    .success(.init(sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2))
+                    .success(.init(format: .aiff, sourceSampleRate: 8_363, sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2))
                 },
                 normalize: { _, _ in .success(await gate.wait()) }
             ),
@@ -934,7 +940,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         let worker = SampleEditorWAVImportWorker.background(
             inspect: { _ in
                 .init(
-                    sourceSampleRate: Thread.isMainThread ? -1 : 8_363,
+                    format: .wav, sourceSampleRate: Thread.isMainThread ? -1 : 8_363,
                     sourceChannelCount: 1, sourceBitDepthBits: 16, frameCount: 2
                 )
             },
@@ -956,7 +962,10 @@ final class SampleEditorWindowControllerTests: XCTestCase {
 
     func testWAVImportErrorsAreConciseTypedAndDoNotExposeRawCasesOrPaths() async {
         let errors: [SampleImportError] = [
+            .unsupportedContainer, .fileExtensionMismatch,
             .malformedWAV, .truncatedWAV, .unsupportedEncoding(formatCode: 99, bitsPerSample: 12),
+            .malformedAIFF, .truncatedAIFF, .unsupportedPCMBitDepth(12),
+            .unsupportedAIFFCompression("ulaw"),
             .emptySource, .unsupportedChannelCount(6), .invalidSampleRate, .resourceLimitExceeded,
             .integerOverflow, .audioDecodeFailed, .decoderMetadataMismatch,
             .nonFinitePCM, .tuningOutOfRange, .unreadableSource,

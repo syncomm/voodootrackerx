@@ -5,6 +5,7 @@ enum SampleImportChannelMode: Equatable, Sendable {
     case mixToMono, left, right
 }
 enum SampleImportError: Error, Equatable, Sendable {
+    case unsupportedContainer, fileExtensionMismatch
     case unreadableSource, malformedWAV, truncatedWAV
     case malformedAIFF, truncatedAIFF
     case unsupportedEncoding(formatCode: UInt16, bitsPerSample: Int)
@@ -15,7 +16,9 @@ enum SampleImportError: Error, Equatable, Sendable {
 
     var userFacingMessage: String {
         switch self {
-        case .unreadableSource: "The WAV file could not be read."
+        case .unsupportedContainer: "This is not a supported WAV, AIFF, or AIFC file."
+        case .fileExtensionMismatch: "The file extension does not match the audio container."
+        case .unreadableSource: "The audio file could not be read."
         case .malformedWAV: "This file is not a valid WAV file."
         case .truncatedWAV: "The WAV file is incomplete or truncated."
         case .malformedAIFF: "This file is not a valid AIFF/AIFC file."
@@ -24,13 +27,13 @@ enum SampleImportError: Error, Equatable, Sendable {
         case .unsupportedPCMBitDepth: "This AIFF/AIFC sample width is not supported."
         case .unsupportedAIFFCompression: "This AIFC compression is not supported."
         case let .unsupportedChannelCount(count):
-            count > 2 ? "WAV files with more than two channels are not supported." : "This WAV channel layout is not supported."
-        case .emptySource: "The WAV file contains no sample frames."
-        case .invalidSampleRate: "The WAV file has an invalid sample rate."
-        case .resourceLimitExceeded, .integerOverflow: "The WAV file is too large to import safely."
-        case .audioDecodeFailed, .decoderMetadataMismatch: "The WAV audio could not be decoded completely."
-        case .nonFinitePCM: "The WAV file contains invalid sample values."
-        case .tuningOutOfRange: "The WAV sample rate is outside the supported tuning range."
+            count > 2 ? "Audio files with more than two channels are not supported." : "This audio channel layout is not supported."
+        case .emptySource: "The audio file contains no sample frames."
+        case .invalidSampleRate: "The audio file has an invalid sample rate."
+        case .resourceLimitExceeded, .integerOverflow: "The audio file is too large to import safely."
+        case .audioDecodeFailed, .decoderMetadataMismatch: "The audio could not be decoded completely."
+        case .nonFinitePCM: "The audio file contains invalid sample values."
+        case .tuningOutOfRange: "The audio sample rate is outside the supported tuning range."
         }
     }
 }
@@ -175,6 +178,102 @@ struct NormalizedSampleImport: Equatable, Sendable {
         )
     }
 }
+
+enum SampleImportFormat: Equatable, Sendable {
+    case wav, aiff, aifc
+}
+
+struct SampleImportInspection: Equatable, Sendable {
+    let format: SampleImportFormat
+    let sourceSampleRate: Double
+    let sourceChannelCount, sourceBitDepthBits, frameCount: Int
+}
+
+/// Dispatches validated WAV/AIFF/AIFC containers into their existing decoders.
+struct SampleImportDecoder: Sendable {
+    let wavDecoder: WAVSampleImportDecoder
+    let aiffDecoder: AIFFSampleImportDecoder
+
+    init(
+        wavDecoder: WAVSampleImportDecoder = WAVSampleImportDecoder(),
+        aiffDecoder: AIFFSampleImportDecoder = AIFFSampleImportDecoder()
+    ) {
+        self.wavDecoder = wavDecoder
+        self.aiffDecoder = aiffDecoder
+    }
+
+    func inspect(url: URL) throws -> SampleImportInspection {
+        switch try SampleImportContainerIdentity.detect(url: url) {
+        case .wav:
+            let value = try wavDecoder.inspect(url: url)
+            return SampleImportInspection(
+                format: .wav, sourceSampleRate: value.sourceSampleRate,
+                sourceChannelCount: value.sourceChannelCount,
+                sourceBitDepthBits: value.sourceBitDepthBits, frameCount: value.frameCount
+            )
+        case let format:
+            let value = try aiffDecoder.inspect(url: url)
+            return SampleImportInspection(
+                format: format, sourceSampleRate: value.sourceSampleRate,
+                sourceChannelCount: value.sourceChannelCount,
+                sourceBitDepthBits: value.sourceBitDepthBits, frameCount: value.frameCount
+            )
+        }
+    }
+
+    func normalizedImport(url: URL, channelMode: SampleImportChannelMode) throws -> NormalizedSampleImport {
+        switch try SampleImportContainerIdentity.detect(url: url) {
+        case .wav:
+            try wavDecoder.normalizedImport(url: url, channelMode: channelMode)
+        case .aiff, .aifc:
+            try aiffDecoder.normalizedImport(url: url, channelMode: channelMode)
+        }
+    }
+}
+
+private enum SampleImportContainerIdentity {
+    static func detect(url: URL) throws -> SampleImportFormat {
+        let handle: FileHandle
+        do { handle = try FileHandle(forReadingFrom: url) } catch { throw SampleImportError.unreadableSource }
+        defer { try? handle.close() }
+
+        let header: Data
+        do { header = try handle.read(upToCount: 12) ?? Data() } catch {
+            throw SampleImportError.unreadableSource
+        }
+        let expected = expectedFormat(forExtension: url.pathExtension)
+        guard header.count >= 12 else {
+            // A supported extension may route an incomplete file to the matching decoder
+            // so its format-specific truncated error remains actionable.
+            guard let expected else { throw SampleImportError.unsupportedContainer }
+            return expected
+        }
+
+        let detected: SampleImportFormat
+        let container = String(decoding: header[0..<4], as: UTF8.self)
+        let form = String(decoding: header[8..<12], as: UTF8.self)
+        switch (container, form) {
+        case ("RIFF", "WAVE"): detected = .wav
+        case ("FORM", "AIFF"): detected = .aiff
+        case ("FORM", "AIFC"): detected = .aifc
+        default: throw SampleImportError.unsupportedContainer
+        }
+        if let expected, expected != detected {
+            throw SampleImportError.fileExtensionMismatch
+        }
+        return detected
+    }
+
+    private static func expectedFormat(forExtension pathExtension: String) -> SampleImportFormat? {
+        switch pathExtension.lowercased() {
+        case "wav", "wave": .wav
+        case "aif", "aiff": .aiff
+        case "aifc": .aifc
+        default: nil
+        }
+    }
+}
+
 struct WAVSampleImportDecoder: Sendable {
     let chunkFrameCount: AVAudioFrameCount
     init(chunkFrameCount: Int = 32_768) {

@@ -19,17 +19,16 @@ instrument through one labeled `applyEdit`/undo action. The command is limited
 to stopped editable documents with capacity; loaded modules and playback remain
 read-only. The current dense palette/writer model appends after the highest
 represented slot and does not fill sparse holes. Sample Editor SINE now fills eligible
-S01 with deterministic looped PCM and an all-note map. A UI-independent WAV
-foundation now preflights and chunk-decodes mono/stereo linear PCM, applies an
-explicit channel mode, canonicalizes to XM-representable 16-bit mono PCM, and
-derives filename naming plus C-4 tuning. A manual AIFF/AIFC foundation returns
-the same candidate for signed 8/16/24/32-bit AIFF PCM and AIFC
-`NONE`/`twos`/`sowt`, reusing shared policies. Sample Editor LOAD still exposes
-WAV only and uses the foundation off the main thread: it fills empty S01 or confirms in-place
+S01 with deterministic looped PCM and an all-note map. A UI-independent audio
+import facade now validates container identity before dispatching WAV/WAVE,
+AIFF/AIF, or AIFC to the existing bounded decoders. They return the same
+value-owned XM-representable 16-bit mono candidate, including signed
+8/16/24/32-bit AIFF PCM and AIFC `NONE`/`twos`/`sowt`. Sample Editor LOAD uses
+that facade off the main thread: it fills empty S01 or confirms in-place
 replacement of the exact represented selection, offers stereo Mix/Left/Right,
-and commits one `Import WAV Sample` edit with stale-result protection. Add as
-New Sample, drag/drop, global import, AIFF/AIFC picker wiring, and FLAC remain
-future work.
+and commits one `Import Audio Sample` or `Replace Audio Sample` edit with
+stale-result protection. Add as New Sample, drag/drop, global import, and FLAC
+remain future work.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -103,18 +102,20 @@ no/forward/ping-pong loop region now derive from one represented sample.
 Unnamed represented samples show `(unnamed sample)`; absent samples clear every
 sample surface. FORMAT reports represented bit depth and mono without treating
 playback-policy `baseSampleRate` as source metadata.
-SINE and WAV LOAD are the current Sample Editor mutations. LOAD is available
+SINE and audio LOAD are the current Sample Editor mutations. LOAD is available
 only for a stopped editable empty S01 or represented selected sample and is
-disabled during an active import. It uses a single-file WAV panel, optional
-stereo Mix/Left/Right choice, background decode/normalization, and exact
-document identity/revision/selection/occupancy revalidation. One `Import WAV
-Sample` edit owns canonical mono 16-bit PCM; empty import establishes the
-all-S01 map, while replacement preserves the exact slot, keymap, and unrelated
-instrument data. Commit cancels stale preview once, refreshes every editor, and
-does not auto-audition; the next trigger uses imported PCM, pan, gain, and
-tuning. Undo/redo restores exact prior/imported state, and no source path is
-retained. Other mutation remains deferred, and preview-stream/runtime
-architecture is unchanged.
+disabled during an active import. Its single-file panel accepts WAV/WAVE,
+AIFF/AIF, and AIFC; container identity is authoritative and recognized
+extension/container mismatches are rejected. Mono skips channel choice, while
+stereo offers Mix/Left/Right. Decode/normalization runs in the background with
+exact document identity/revision/selection/occupancy revalidation. One `Import
+Audio Sample` or `Replace Audio Sample` edit owns canonical mono 16-bit PCM;
+empty import establishes the all-S01 map, while replacement preserves the
+exact slot, keymap, and unrelated instrument data. Commit cancels stale preview
+once, refreshes every editor, and does not auto-audition; the next trigger uses
+imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
+state, and no source path is retained. Other mutation remains deferred, and
+preview-stream/runtime architecture is unchanged.
 Sample Editor AUDITION now toggles the represented selected slot directly at
 C-4 through the persistent preview stream for loaded/read-only and editable
 sources, preserving existing PCM/loop/volume/pan/tuning planning without keymap
@@ -146,7 +147,7 @@ selector exposes their graph, point count, enabled, sustain, and loop state;
 they remain runtime-inert and create no document or undo mutation. These
 metadata slices add no loop, PCM, envelope, waveform, vibrato,
 keymap or XI mutation. Save/Save As,
-loaded-module direct editing, broader Instrument Editor editing, Sample Editor mutation beyond SINE/WAV LOAD, PCM16 product export,
+loaded-module direct editing, broader Instrument Editor editing, Sample Editor mutation beyond SINE/audio LOAD, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 

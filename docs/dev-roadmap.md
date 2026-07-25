@@ -59,12 +59,11 @@ VoodooTracker X currently has:
   waveform, and display-only loop region; unnamed samples remain distinct from
   absent samples and no source rate is fabricated. Stopped-editable empty-S01
   SINE creates deterministic looped PCM with all-note mapping and Export XM;
-  Sample Editor LOAD now uses the WAV foundation in the background to fill
-  empty S01 or confirm exact in-place replacement, with stereo Mix/Left/Right,
-  stale-result checks, one undoable edit, and document-owned mono 16-bit PCM.
-  A manual foundation also decodes 8/16/24/32-bit AIFF and AIFC
-  `NONE`/`twos`/`sowt` into that candidate. The panel remains WAV-only; Add as
-  New Sample, AIFF/AIFC UI wiring, FLAC, and processing remain unavailable.
+  Sample Editor LOAD now accepts WAV/WAVE, AIFF/AIF, and AIFC through one
+  container-validating facade and background workflow. It fills empty S01 or
+  confirms exact in-place replacement, with stereo Mix/Left/Right,
+  stale-result checks, one format-neutral undoable edit, and document-owned
+  mono 16-bit PCM. Add as New Sample, FLAC, and processing remain unavailable.
   AUDITION now toggles that selected slot directly at C-4 through the persistent
   preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
@@ -161,10 +160,9 @@ Recently completed target:
 8. Done: start the ADR 012 sequence with an unnamed instrument and honest empty
    S01 destination through one `applyEdit` action. The current allocation policy
    appends after the highest represented instrument and does not fill sparse holes.
-   Deterministic SINE and the WAV decode/canonical-normalization foundation are
-   done. AIFF/AIFC decode/canonical normalization is also done through the
-   shared candidate, while Sample Editor WAV load/replace remains the only
-   UI path for empty S01 and exact represented destinations.
+   Deterministic SINE and WAV/AIFF/AIFC decode/canonical normalization are done
+   through the shared candidate. Sample Editor audio load/replace is the only
+   current import UI path for empty S01 and exact represented destinations.
 9. Pattern editor completion for instrument, volume-column, and effect-column
    entry remains part of the complete composition gate. XI stays a separate
    broader VTX 1.0 target.
@@ -196,13 +194,13 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
-- Sample Editor LOAD now imports one WAV into stopped editable empty S01 or
-  confirms replacement of the exact represented selected sample. Stereo
-  Mix/Left/Right, background decode, operation/document revision checks,
+- Sample Editor LOAD now imports one WAV/WAVE, AIFF/AIF, or AIFC into stopped
+  editable empty S01 or confirms replacement of the exact represented selected
+  sample. Header-based dispatch, extension/container mismatch rejection,
+  stereo Mix/Left/Right, background decode, operation/document revision checks,
   document-owned canonical mono 16-bit PCM, all-S01 first-sample mapping, and
-  one `Import WAV Sample` undo action are implemented. AIFF/AIFC decode now
-  shares normalization, but Add as New Sample, drag/drop, global import,
-  AIFF/AIFC UI exposure, and FLAC remain separate work.
+  one format-neutral import/replace undo action are implemented. Add as New
+  Sample, drag/drop, global import, and FLAC remain separate work.
 - Labeled whole-editable-document snapshots now flow through
   `EditableDocumentEditCoordinator` and a capped `UndoManager`. Clear Current
   Pattern is the first routed operation; undo/redo refresh existing editor

@@ -318,7 +318,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(InstrumentEditorListRowControl.acceptsPrimarySelection(buttonNumber: 1, clickCount: 1))
         XCTAssertEqual(
             InstrumentEditorCopy.keymapSummary,
-            "FULL 96-NOTE MAP SUMMARY · ASSIGNMENT READ-ONLY · CLICK/DRAG KEYS TO AUDITION"
+            "FULL 96-NOTE MAP SUMMARY · CLICK/DRAG KEYS TO AUDITION"
         )
         XCTAssertEqual(InstrumentEditorCopy.auditionKeyboard, "AUDITION KEYBOARD · CLICK / DRAG TO PREVIEW")
     }
@@ -509,6 +509,372 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(state.keymapRanges.map(\.sampleDisplay), ["S01", "S02", "S01"])
         XCTAssertEqual(state.keymapRanges.map(\.colorIndex), [0, 1, 0])
+    }
+
+    func testRangeAssignmentEligibilityRequiresStoppedEditableRepresentedSampleAndCanonicalMap() {
+        let editable = makeInstrumentEditorRangeDocument()
+        XCTAssertTrue(InstrumentEditorDisplayState.editableDocument(editable).isKeymapRangeAssignmentEnabled)
+        let disabledStates: [InstrumentEditorDisplayState] = [
+            .loadedModule(
+                playbackSong: makePlaybackSong(instruments: editable.instrumentPalette),
+                selection: editable.selection
+            ),
+            .editableDocument(editable, isPlaybackActive: true),
+            .editableDocument(editable, allowsKeymapRangeAssignment: false),
+            .editableDocument(.makeDefault()),
+            .editableDocument(makeInstrumentEditorRangeDocument(
+                selection: TrackerEditorSelection(selectedInstrument: 3, selectedSample: 2)
+            )),
+            .editableDocument(makeInstrumentEditorRangeDocument(
+                noteSampleMap: Array(repeating: 0, count: 95)
+            )),
+            .editableDocument(makeInstrumentEditorRangeDocument(samples: [
+                makeInstrumentEditorSample(instrument: 2, sample: 0, name: "S01"),
+            ])),
+        ]
+        XCTAssertTrue(disabledStates.allSatisfy { !$0.isKeymapRangeAssignmentEnabled })
+    }
+
+    func testLoadedRangeAssignmentIsVisiblyAndDefensivelyUnavailable() throws {
+        var protectedDocument = makeInstrumentEditorRangeDocument()
+        let before = protectedDocument
+        let undoManager = UndoManager()
+        let undoTarget = NSObject()
+        var revision = 0
+        var handlerCallCount = 0
+        let controller = InstrumentEditorWindowController(
+            displayState: .loadedModule(
+                playbackSong: makePlaybackSong(instruments: protectedDocument.instrumentPalette),
+                selection: protectedDocument.selection
+            ),
+            keymapRangeAssignmentHandler: { _ in
+                handlerCallCount += 1
+                revision += 1
+                protectedDocument.selectSample(1)
+                undoManager.registerUndo(withTarget: undoTarget) { _ in }
+                return true
+            }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let button = try view.keymapRangeAssignmentButton()
+        let fieldValues = Set(view.instrumentEditorDescendants.compactMap { ($0 as? NSTextField)?.stringValue })
+
+        XCTAssertFalse(button.isEnabled)
+        XCTAssertLessThan(button.alphaValue, 1)
+        XCTAssertNil(button.target)
+        XCTAssertNil(button.action)
+        XCTAssertFalse(button.isAccessibilityEnabled())
+        XCTAssertTrue(fieldValues.contains("READ-ONLY"))
+        XCTAssertTrue(fieldValues.contains("EDITING UNAVAILABLE"))
+
+        button.performClick(nil)
+        button.isEnabled = true
+        button.target = view
+        button.action = NSSelectorFromString("requestKeymapRangeAssignment:")
+        button.performClick(nil)
+
+        XCTAssertEqual(handlerCallCount, 0)
+        XCTAssertEqual(revision, 0)
+        XCTAssertFalse(undoManager.canUndo)
+        XCTAssertEqual(protectedDocument, before)
+    }
+
+    func testRangeAssignmentGatingRefreshesAcrossEditableLoadedCopyAndPlaybackStates() throws {
+        let document = makeInstrumentEditorRangeDocument()
+        var handlerCallCount = 0
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(document),
+            keymapRangeAssignmentHandler: { _ in handlerCallCount += 1; return true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+
+        var button = try view.keymapRangeAssignmentButton()
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertEqual(button.alphaValue, 1)
+        XCTAssertNotNil(button.target)
+        XCTAssertNotNil(button.action)
+
+        XCTAssertTrue(controller.apply(displayState: .loadedModule(
+            playbackSong: makePlaybackSong(instruments: document.instrumentPalette),
+            selection: document.selection
+        )))
+        button = try view.keymapRangeAssignmentButton()
+        var fieldValues = Set(view.instrumentEditorDescendants.compactMap { ($0 as? NSTextField)?.stringValue })
+        XCTAssertFalse(button.isEnabled)
+        XCTAssertLessThan(button.alphaValue, 1)
+        XCTAssertNil(button.target)
+        XCTAssertNil(button.action)
+        XCTAssertTrue(fieldValues.contains("READ-ONLY"))
+        XCTAssertTrue(fieldValues.contains("EDITING UNAVAILABLE"))
+
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(document)))
+        button = try view.keymapRangeAssignmentButton()
+        fieldValues = Set(view.instrumentEditorDescendants.compactMap { ($0 as? NSTextField)?.stringValue })
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertEqual(button.alphaValue, 1)
+        XCTAssertNotNil(button.target)
+        XCTAssertNotNil(button.action)
+        XCTAssertFalse(fieldValues.contains("READ-ONLY"))
+        XCTAssertFalse(fieldValues.contains("EDITING UNAVAILABLE"))
+        button.performClick(nil)
+        XCTAssertEqual(handlerCallCount, 1)
+
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(
+            document, isPlaybackActive: true
+        )))
+        button = try view.keymapRangeAssignmentButton()
+        XCTAssertFalse(button.isEnabled)
+        XCTAssertNil(button.target)
+        XCTAssertNil(button.action)
+        XCTAssertEqual(handlerCallCount, 1)
+    }
+
+    func testRangeAssignmentConfirmationGateDoesNotInvokeCoordinatorForReadOnlyContext() {
+        var protectedDocument = makeInstrumentEditorRangeDocument()
+        let before = protectedDocument
+        let undoManager = UndoManager()
+        let undoTarget = NSObject()
+        var revision = 0
+        var coordinatorCallCount = 0
+        let readOnly = InstrumentKeymapRangeAssignmentContext(
+            documentIdentity: nil,
+            documentRevision: 7,
+            editContext: .loadedReadOnly,
+            hasConflictingModalSheet: false
+        )
+
+        let rejected: Result<SampleKeymapRangeAssignmentOutcome, SampleKeymapRangeEditFailure>? =
+            InstrumentKeymapRangeAssignmentConfirmationGate.perform(in: readOnly) {
+                coordinatorCallCount += 1
+                revision += 1
+                protectedDocument.selectSample(1)
+                undoManager.registerUndo(withTarget: undoTarget) { _ in }
+                return .failure(.editApplicationRejected)
+            }
+
+        XCTAssertNil(rejected)
+        XCTAssertEqual(coordinatorCallCount, 0)
+        XCTAssertEqual(revision, 0)
+        XCTAssertFalse(undoManager.canUndo)
+        XCTAssertEqual(protectedDocument, before)
+
+        let editable = makeRangeAssignmentContext(UUID(), 7, protectedDocument)
+        let accepted = InstrumentKeymapRangeAssignmentConfirmationGate.perform(in: editable) {
+            coordinatorCallCount += 1
+            return Result<SampleKeymapRangeAssignmentOutcome, SampleKeymapRangeEditFailure>.success(.init(
+                instrumentIndex: 1, sampleIndex: 1, noteRange: 48...59, changedNoteCount: 12
+            ))
+        }
+        XCTAssertEqual(try? accepted?.get().noteRange, 48...59)
+        XCTAssertEqual(coordinatorCallCount, 1)
+    }
+
+    func testRangeAssignmentSheetDismissalRefreshesEligibilityOnNextMainQueueTurn() async throws {
+        let document = makeInstrumentEditorRangeDocument()
+        var hasConflictingModalSheet = true
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(
+                document, allowsKeymapRangeAssignment: !hasConflictingModalSheet
+            ),
+            keymapRangeAssignmentHandler: { _ in true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let button = try view.keymapRangeAssignmentButton()
+        let refreshed = expectation(description: "range eligibility refreshed after sheet dismissal")
+
+        InstrumentKeymapRangeAssignmentSheetLifecycle.refreshAfterDismissal {
+            _ = controller.apply(displayState: .editableDocument(
+                document, allowsKeymapRangeAssignment: !hasConflictingModalSheet
+            ))
+            refreshed.fulfill()
+        }
+
+        XCTAssertFalse(button.isEnabled)
+        hasConflictingModalSheet = false
+        await fulfillment(of: [refreshed], timeout: 1)
+        let refreshedButton = try view.keymapRangeAssignmentButton()
+        XCTAssertTrue(refreshedButton.isEnabled)
+        XCTAssertNotNil(refreshedButton.target)
+        XCTAssertNotNil(refreshedButton.action)
+    }
+
+    func testRangeAssignmentButtonPublishesFocusedNoteAndAccessibilityWithoutMutatingSelection() throws {
+        let document = makeInstrumentEditorRangeDocument()
+        var focusedNote: UInt8?
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(document),
+            keymapRangeAssignmentHandler: { focusedNote = $0; return true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let button = try view.keymapRangeAssignmentButton()
+
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertEqual(button.title, "MAP RANGE…")
+        XCTAssertEqual(button.accessibilityLabel(), "Map selected sample to note range")
+        view.synchronizeActivePreviewToken(.init(
+            generation: 1,
+            keyIdentity: .instrumentEditorKeyboard,
+            noteValue: 53,
+            selectedOctave: 4
+        ))
+        button.performClick(nil)
+
+        XCTAssertEqual(focusedNote, 53)
+        _ = view.shiftKeyboardVisibleRange(.higher)
+        _ = view.shiftKeyboardVisibleRange(.higher)
+        _ = view.shiftKeyboardVisibleRange(.higher)
+        focusedNote = 96
+        button.performClick(nil)
+        XCTAssertNil(focusedNote)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2))
+    }
+
+    func testRangeAssignmentDefaultPolicyUsesFocusedNoteThenSelectedOctaveThenC4() {
+        XCTAssertEqual(InstrumentKeymapRangeDefaultPolicy.noteRange(focusedNote: 53, selectedOctave: 6), 52...52)
+        XCTAssertEqual(InstrumentKeymapRangeDefaultPolicy.noteRange(focusedNote: nil, selectedOctave: 6), 72...83)
+        XCTAssertEqual(InstrumentKeymapRangeDefaultPolicy.noteRange(focusedNote: nil, selectedOctave: nil), 48...59)
+        XCTAssertEqual(InstrumentKeymapRangeDefaultPolicy.noteRange(focusedNote: 0, selectedOctave: 8), 48...59)
+    }
+
+    func testRangeAssignmentSheetSpansCanonicalNotesAndDisablesReversedRange() throws {
+        let sheet = InstrumentKeymapRangeAssignmentSheet(request: .init(
+            operationToken: UUID(), sampleDisplay: "S02", initialNoteRange: 48...59
+        ))
+
+        XCTAssertEqual(sheet.firstNotePopup.numberOfItems, 96)
+        XCTAssertEqual(
+            [sheet.firstNotePopup.itemTitle(at: 0), sheet.lastNotePopup.itemTitle(at: 95)],
+            ["C-0", "B-7"]
+        )
+        XCTAssertEqual([sheet.firstNote, sheet.lastNote], [48, 59])
+        XCTAssertTrue(sheet.mapButton.isEnabled)
+        XCTAssertEqual(
+            [sheet.firstNotePopup.accessibilityLabel(), sheet.lastNotePopup.accessibilityLabel(),
+             sheet.mapButton.accessibilityLabel()],
+            ["First note", "Last note", "Map selected sample"]
+        )
+        XCTAssertEqual(sheet.summaryLabel.accessibilityLabel(), "Selected sample S02. Inclusive range C-4 through B-4.")
+
+        sheet.selectNoteRange(lowerNote: 60, upperNote: 48)
+        XCTAssertFalse(sheet.mapButton.isEnabled)
+        sheet.selectNoteRange(lowerNote: 0, upperNote: 95)
+        XCTAssertTrue(sheet.mapButton.isEnabled)
+        XCTAssertEqual([sheet.firstNote, sheet.lastNote], [0, 95])
+        XCTAssertEqual(sheet.summaryLabel.accessibilityLabel(), "Selected sample S02. Inclusive range C-0 through B-7.")
+    }
+
+    func testRangeAssignmentCoordinatorCapturesTargetCommitsOnceAndCancelsCleanly() throws {
+        let identity = UUID()
+        var document = makeInstrumentEditorRangeDocument()
+        var commitCalls: [(Int, Int, Int, Int)] = []
+        let coordinator = InstrumentKeymapRangeAssignmentCoordinator(
+            contextProvider: { makeRangeAssignmentContext(identity, 4, document) },
+            commitHandler: { instrument, sample, lower, upper in
+                commitCalls.append((instrument, sample, lower, upper))
+                return .success(.init(
+                    instrumentIndex: instrument,
+                    sampleIndex: sample,
+                    noteRange: lower...upper,
+                    changedNoteCount: upper - lower + 1
+                ))
+            }
+        )
+        let request = try XCTUnwrap(coordinator.begin(focusedNote: nil, selectedOctave: 4))
+        document.selectSample(1)
+
+        XCTAssertEqual(request.sampleDisplay, "S02")
+        XCTAssertEqual(request.initialNoteRange, 48...59)
+        _ = coordinator.commit(
+            operationToken: request.operationToken,
+            lowerNote: 48,
+            upperNote: 59
+        )
+        XCTAssertEqual(commitCalls.map { [$0.0, $0.1, $0.2, $0.3] }, [[1, 1, 48, 59]])
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
+
+        let cancelled = try XCTUnwrap(coordinator.begin(focusedNote: nil, selectedOctave: 3))
+        XCTAssertTrue(coordinator.cancel(operationToken: cancelled.operationToken))
+        XCTAssertEqual(commitCalls.count, 1)
+    }
+
+    func testRangeAssignmentCoordinatorRejectsStaleContextsBeforeFoundationCommit() throws {
+        let originalIdentity = UUID()
+        let originalDocument = makeInstrumentEditorRangeDocument()
+        let staleContexts: [(InstrumentKeymapRangeAssignmentContext, SampleKeymapRangeEditFailure)] = [
+            (.init(
+                documentIdentity: nil, documentRevision: 9, editContext: .loadedReadOnly,
+                hasConflictingModalSheet: false
+            ), .readOnlyDocument),
+            (makeRangeAssignmentContext(UUID(), 9, originalDocument), .noEditableDocument),
+            (makeRangeAssignmentContext(originalIdentity, 10, originalDocument), .noEditableDocument),
+            (makeRangeAssignmentContext(originalIdentity, 9, originalDocument, isPlaying: true), .playbackActive),
+            (makeRangeAssignmentContext(originalIdentity, 9, makeInstrumentEditorRangeDocument(
+                selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
+            )), .instrumentNotSelected(1)),
+            (makeRangeAssignmentContext(originalIdentity, 9, makeInstrumentEditorRangeDocument(samples: [
+                makeInstrumentEditorSample(instrument: 2, sample: 0, name: "S01"),
+            ])), .sampleNotRepresented(instrumentIndex: 1, sampleIndex: 1)),
+            (makeRangeAssignmentContext(originalIdentity, 9, makeInstrumentEditorRangeDocument(
+                noteSampleMap: Array(repeating: 0, count: 95)
+            )), .malformedKeymap(expectedCount: 96, actualCount: nil)),
+        ]
+
+        var context = makeRangeAssignmentContext(originalIdentity, 9, originalDocument)
+        var foundationCallCount = 0
+        let coordinator = InstrumentKeymapRangeAssignmentCoordinator(
+            contextProvider: { context },
+            commitHandler: { _, _, _, _ in
+                foundationCallCount += 1
+                return .failure(.editApplicationRejected)
+            }
+        )
+        for (staleContext, expectedFailure) in staleContexts {
+            context = makeRangeAssignmentContext(originalIdentity, 9, originalDocument)
+            let request = try XCTUnwrap(coordinator.begin(focusedNote: nil, selectedOctave: 4))
+            context = staleContext
+            XCTAssertEqual(
+                coordinator.commit(operationToken: request.operationToken, lowerNote: 48, upperNote: 59),
+                .failure(expectedFailure)
+            )
+        }
+        XCTAssertEqual(foundationCallCount, 0)
+    }
+
+    func testRangeAssignmentRefreshPreservesSelectionAndKeyboardRangeAndShowsOwnership() throws {
+        let samples = (0..<16).map {
+            makeInstrumentEditorSample(instrument: 2, sample: $0, name: String(format: "S%02X", $0 + 1))
+        }
+        var document = makeInstrumentEditorRangeDocument(samples: samples)
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(document),
+            keymapRangeAssignmentHandler: { _ in true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        _ = view.shiftKeyboardVisibleRange(.higher)
+        _ = view.shiftKeyboardVisibleRange(.higher)
+        let selection = document.selection
+        let samplePanel = try XCTUnwrap(view.instrumentEditorDescendants.first {
+            $0.identifier?.rawValue == InstrumentEditorViewIdentifier.sampleSlotsPanel
+        })
+        let sampleScroll = try XCTUnwrap(samplePanel.subviews.compactMap { $0 as? NSScrollView }.first)
+        sampleScroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        sampleScroll.reflectScrolledClipView(sampleScroll.contentView)
+
+        _ = try document.assignSample(
+            instrumentIndex: 1,
+            sampleIndex: 1,
+            lowerNote: 48,
+            upperNote: 59
+        ).get()
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(document)))
+
+        XCTAssertEqual(view.keyboardVisibleRange.startNote, 49)
+        XCTAssertEqual(view.displayState.selectedSampleSlot, 2)
+        XCTAssertEqual(view.displayState.keymapRanges.map(\.sampleDisplay), ["S01", "S02", "S01"])
+        XCTAssertEqual(view.displayState.keymapRanges.map(\.startNote), [1, 49, 61])
+        let refreshedScroll = try XCTUnwrap(view.instrumentEditorDescendants.compactMap { $0 as? NSScrollView }.last)
+        XCTAssertEqual(refreshedScroll.contentView.bounds.origin.y, 100, accuracy: 0.1)
+        XCTAssertEqual(document.selection, selection)
     }
 
     func testKeyboardVisibleRangeShiftsOneOctaveAndStopsAtXMMapBounds() throws {
@@ -2221,7 +2587,10 @@ private func makePlaybackSong(instruments: [Int: PlaybackInstrument]) -> Playbac
     )
 }
 
-private func makeEditableDocument(palette: [Int: PlaybackInstrument]) -> BlankTrackerDocument {
+private func makeEditableDocument(
+    palette: [Int: PlaybackInstrument],
+    selection: TrackerEditorSelection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+) -> BlankTrackerDocument {
     let base = BlankTrackerDocument.makeDefault()
     return BlankTrackerDocument(
         title: base.title,
@@ -2232,9 +2601,39 @@ private func makeEditableDocument(palette: [Int: PlaybackInstrument]) -> BlankTr
         tempo: base.tempo,
         speed: base.speed,
         orderTable: base.orderTable,
-        selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2),
+        selection: selection,
         instrumentPalette: palette,
         patterns: base.patterns
+    )
+}
+
+private func makeInstrumentEditorRangeDocument(
+    noteSampleMap: [Int]? = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue),
+    samples: [PlaybackSample]? = nil,
+    selection: TrackerEditorSelection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+) -> BlankTrackerDocument {
+    var palette = makeInstrumentPalette()
+    let instrument = palette[2]!
+    palette[2] = PlaybackInstrument(
+        index: 2,
+        name: "Lead",
+        samples: samples ?? instrument.samples,
+        noteSampleMap: noteSampleMap
+    )
+    return makeEditableDocument(palette: palette, selection: selection)
+}
+
+private func makeRangeAssignmentContext(
+    _ identity: UUID,
+    _ revision: UInt64,
+    _ document: BlankTrackerDocument,
+    isPlaying: Bool = false
+) -> InstrumentKeymapRangeAssignmentContext {
+    InstrumentKeymapRangeAssignmentContext(
+        documentIdentity: identity,
+        documentRevision: revision,
+        editContext: .editable(document: document, isPlaybackActive: isPlaying),
+        hasConflictingModalSheet: false
     )
 }
 
@@ -2278,6 +2677,12 @@ private extension NSView {
             : InstrumentEditorViewIdentifier.keymapNextOctave
         return try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? VTXEditorButton }.first {
             $0.identifier?.rawValue == identifier
+        })
+    }
+
+    func keymapRangeAssignmentButton() throws -> VTXEditorButton {
+        try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? VTXEditorButton }.first {
+            $0.identifier?.rawValue == InstrumentEditorViewIdentifier.keymapRangeAssignment
         })
     }
 

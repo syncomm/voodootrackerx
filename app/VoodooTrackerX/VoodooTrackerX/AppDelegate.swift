@@ -21,6 +21,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         contextProvider: { [weak self] in self?.currentEditableDocumentEditContext() ?? .none },
         documentApplyHandler: { [weak self] document in self?.applyEditableDocumentSnapshot(document) }
     )
+    private lazy var instrumentKeymapRangeAssignmentCoordinator =
+        InstrumentKeymapRangeAssignmentCoordinator(
+            contextProvider: { [weak self] in
+                self?.currentInstrumentKeymapRangeAssignmentContext() ?? .unavailable
+            },
+            commitHandler: { [weak self] instrument, sample, lower, upper in
+                self?.editableDocumentEditCoordinator.mapSampleToNoteRange(
+                    instrumentIndex: instrument,
+                    sampleIndex: sample,
+                    lowerNote: lower,
+                    upperNote: upper
+                ) ?? .failure(.noEditableDocument)
+            },
+            stateChangeHandler: { [weak self] in self?.refreshInstrumentEditor() }
+        )
     private lazy var sampleEditorWAVImportCoordinator = SampleEditorWAVImportCoordinator(
         contextProvider: { [weak self] in
             self?.currentSampleEditorWAVImportContext() ?? SampleEditorWAVImportContext(
@@ -675,6 +690,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     panning: panning
                 ) ?? false
             },
+            keymapRangeAssignmentHandler: { [weak self] focusedNote in
+                self?.beginInstrumentKeymapRangeAssignment(focusedNote: focusedNote) ?? false
+            },
             onScreenNoteHandler: { [weak self] intent in
                 switch intent {
                 case let .press(noteValue): self?.handleInstrumentEditorOnScreenNotePress(noteValue) ?? false
@@ -695,12 +713,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func currentInstrumentEditorDisplayState() -> InstrumentEditorDisplayState {
         if let blankDocument {
-            return .editableDocument(blankDocument, isPlaybackActive: playbackEngine.state.isPlaying)
+            return .editableDocument(
+                blankDocument,
+                isPlaybackActive: playbackEngine.state.isPlaying,
+                allowsKeymapRangeAssignment: instrumentKeymapRangeAssignmentCoordinator.canBegin
+            )
         }
         if loadedMetadata != nil {
             return .loadedModule(playbackSong: playbackEngine.song, selection: loadedModuleSelection)
         }
         return .empty
+    }
+
+    private func currentInstrumentKeymapRangeAssignmentContext() -> InstrumentKeymapRangeAssignmentContext {
+        InstrumentKeymapRangeAssignmentContext(
+            documentIdentity: loadedMetadata == nil ? editableDocumentIdentity : nil,
+            documentRevision: editableDocumentRevision,
+            editContext: currentEditableDocumentEditContext(),
+            hasConflictingModalSheet: mainWindow?.attachedSheet != nil || NSApp.modalWindow != nil
+        )
+    }
+
+    private func beginInstrumentKeymapRangeAssignment(focusedNote: UInt8?) -> Bool {
+        guard let request = instrumentKeymapRangeAssignmentCoordinator.begin(
+            focusedNote: focusedNote,
+            selectedOctave: selectedOctave
+        ) else { return false }
+        let sheet = InstrumentKeymapRangeAssignmentSheet(request: request)
+        let completion: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            defer {
+                InstrumentKeymapRangeAssignmentSheetLifecycle.refreshAfterDismissal { [weak self] in
+                    self?.refreshInstrumentEditor()
+                }
+            }
+            guard response == .alertFirstButtonReturn else {
+                self.instrumentKeymapRangeAssignmentCoordinator.cancel(operationToken: request.operationToken)
+                return
+            }
+            guard let result = InstrumentKeymapRangeAssignmentConfirmationGate.perform(
+                in: self.currentInstrumentKeymapRangeAssignmentContext(),
+                commit: {
+                    self.instrumentKeymapRangeAssignmentCoordinator.commit(
+                        operationToken: request.operationToken,
+                        lowerNote: sheet.firstNote,
+                        upperNote: sheet.lastNote
+                    )
+                }
+            ) else {
+                self.instrumentKeymapRangeAssignmentCoordinator.cancel(
+                    operationToken: request.operationToken
+                )
+                return
+            }
+            if case let .failure(failure) = result {
+                self.presentInstrumentKeymapRangeAssignmentError(failure)
+            }
+        }
+        presentDocumentSheet(
+            begin: { hostWindow, restoreAuxiliaryWindow in
+                sheet.alert.beginSheetModal(for: hostWindow) { response in
+                    restoreAuxiliaryWindow()
+                    completion(response)
+                }
+            },
+            fallback: { completion(sheet.alert.runModal()) }
+        )
+        return true
+    }
+
+    private func presentInstrumentKeymapRangeAssignmentError(
+        _ failure: SampleKeymapRangeEditFailure
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Note Range Not Mapped"
+        alert.informativeText = failure.keymapRangeAssignmentMessage
+        presentSampleEditorWAVAlert(alert) { _ in }
     }
 
     @objc
@@ -849,14 +938,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             auxiliaryWindow.orderBack(nil)
             hostWindow.makeKeyAndOrderFront(nil)
         }
-        begin(hostWindow) { [weak auxiliaryWindow] in
-            guard let auxiliaryWindow else { return }
-            if let panel = auxiliaryWindow as? NSPanel, let auxiliaryWasFloating {
-                panel.isFloatingPanel = auxiliaryWasFloating
+        begin(hostWindow) { [weak self, weak auxiliaryWindow] in
+            if let auxiliaryWindow {
+                if let panel = auxiliaryWindow as? NSPanel, let auxiliaryWasFloating {
+                    panel.isFloatingPanel = auxiliaryWasFloating
+                }
+                if auxiliaryWindow.isVisible, auxiliaryWindow.sheetParent == nil {
+                    auxiliaryWindow.makeKeyAndOrderFront(nil)
+                }
             }
-            guard auxiliaryWindow.isVisible, auxiliaryWindow.sheetParent == nil else { return }
-            auxiliaryWindow.makeKeyAndOrderFront(nil)
+            self?.refreshInstrumentEditor()
         }
+        refreshInstrumentEditor()
+    }
+
+    private func refreshInstrumentEditor() {
+        instrumentEditorWindowPresenter.refresh(displayState: currentInstrumentEditorDisplayState())
     }
 
     private func generateSineFromSampleEditor() -> Bool {

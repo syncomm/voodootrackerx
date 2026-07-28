@@ -21,11 +21,12 @@ the three-octave on-screen keyboard defaults to C-2...B-4, shifts by octave acro
 and auditions exact primary-click pitches through the same path without changing selection. Accepted
 focused computer notes use that same pressed-key visual only while visible; generation identity keeps
 mouse/computer replacement monophonic and stale releases harmless. Range navigation is session UI
-state with no document/undo mutation. The window remains read-only for keymap
-assignment; a UI-independent operation now maps an inclusive range through one undo action. Represented instrument/sample
+state with no document/undo mutation. `MAP RANGE…` now maps the selected
+represented nonempty sample through an explicit inclusive C-0...B-7 sheet and
+one undo action. Represented instrument/sample
 rows share canonical control-panel selection in loaded/editable and stopped/playing states. Selection
 is non-mutating, creates no undo, cancels stale preview before context changes, and drives metadata
-and audition; transport gates mutation only, and keymap assignment UI remains read-only. The editor closes normally through its red close button
+and audition; transport gates mutation only. The editor closes normally through its red close button
 or Command-W and reopens as one clean presenter-owned window. Broader sample/XI,
 envelope/keymap, waveform, and
 autovibrato playback work remains future scope. Represented XM panning-envelope data is
@@ -55,14 +56,17 @@ gain-law, or scheduling logic changed.
 Undo/redo refresh this window and the main control panel. Sample-header panning initializes the next
 focused preview/runtime/export trigger; instrument autovibrato remains runtime-inert. Panning-envelope metadata is preserved but not yet
 applied to playback; its VOL/PAN selector changes only local display mode, and every envelope edit
-control remains disabled/inert alongside XI, keymap assignment, and loaded-module NAME.
+control remains disabled/inert alongside XI and loaded-module NAME.
 
-The keymap foundation uses zero-based map indices `0...95` (XM notes `1...96`,
+Keymap assignment uses zero-based map indices `0...95` (XM notes `1...96`,
 C-0...B-7) and zero-based sample indices displayed as S01...S16. It requires
-the selected represented instrument and a nonempty represented sample, preserves
-selection/unrelated state, and creates at most one `Map Sample to Note Range`
-action. No-ops create no history; existing audition/playback/export paths consume
-the result, but no editor control invokes it yet.
+the stopped editable selected instrument and a nonempty represented selected
+sample, captures document/revision/target identity, and creates at most one
+`Map Sample to Note Range` action. The sheet defaults to a focused keymap note,
+otherwise the selected octave's C...B span, otherwise C-4...B-4. No-ops create
+no history; selection and assignments outside the inclusive range remain exact.
+Existing Instrument Editor/pattern playback consumes the map while Sample
+Editor audition remains direct-selected-sample.
 
 The close lifecycle remains standard AppKit behavior: the red close button and Command-W close only
 the utility window, the Window menu recreates one controller/router when asked, and close cancels any
@@ -210,7 +214,8 @@ the window does not own separate file semantics.
 - Knobs: vertical drag, double-click to type; every knob has an exact numeric segment. Pan uses the
   center-detent slider.
 - Keymap: primary press auditions that exact note with the current instrument; dragging across keys
-  releases/presses notes for audition. Assignment UI/color updates remain future work atop the foundation.
+  releases/presses notes for audition. `MAP RANGE…` assigns the captured selected
+  sample; graphical drag and automatic assignment remain future work.
 - All audition goes through the isolated preview path — never full-song playback.
 
 ### Implemented polish: transient live numeric readouts with one commit
@@ -254,7 +259,9 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 - **Knobs / pan slider / LEDs / switches / segments:** reuse the shared control library
   (`docs/design/editor-control-vocabulary.md`).
 - **Keymap:** one shared scaled key geometry drives drawing and black-key-first hit testing. The
-  keyboard exposes semantic press/release intents to isolated preview; deferred assignment UI must call the coordinator.
+  keyboard exposes semantic press/release intents to isolated preview. The
+  explicit range sheet calls the existing edit coordinator once; graphical
+  assignment must reuse that path.
 - All future edits must submit a new whole document through
   `EditableDocumentEditCoordinator.applyEdit`; direct palette write-back is not
   an editor integration path; the implemented name field follows this rule.
@@ -282,7 +289,8 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 17. Envelope editing (points, sustain, loop, add/del) wired.
 18. Vibrato + remaining defaults controls wired.
 19. Done: UI-independent keymap range assignment through `applyEdit`.
-20. Keymap drag-to-assign-range UI after sample creation/import foundations.
+20. Done: explicit selected-sample inclusive note-range assignment sheet.
+21. Keymap drag-to-assign-range UI after sample creation/import foundations.
 
 ---
 
@@ -307,9 +315,13 @@ gate mutation, never row selection. Graphical keys must not change the explicit 
 Verify autovibrato likewise survives while VIBRATO remains disabled
 and playback/audition output is unchanged. Verify panning-envelope graph/readouts in loaded and
 editable-copy states, clean disabled/empty states, local VOL/PAN switching across undo/redo, and
-unchanged playback. Keep screenshots/exports local and untracked.
+unchanged playback. For range assignment, select represented S02, map C-4...B-4,
+confirm S02 stays selected and the strip reads S02 inside while C-3/C-5 retain
+their prior ownership, then verify one undo/redo action. Keep screenshots/exports
+local and untracked.
 
-Loop, PCM, waveform, envelope, keymap UI, XI, and broader sample-import editing remain future work.
+Loop, PCM, waveform, envelope, graphical/automatic keymap mapping, XI, and
+broader sample-import editing remain future work.
 
 For later interactive slices, screenshot before/after per PR and verify the surface reads as calm at
 fixed size. Envelope: points

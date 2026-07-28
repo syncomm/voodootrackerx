@@ -4,8 +4,9 @@
 
 Accepted as the product and architecture contract for the from-scratch composition workstream. Empty instruments,
 first-sample generation/import, and occupied LOAD with Replace/Add as New/Cancel are now implemented. Add appends
-and selects represented S02+ without changing keymap references. Inclusive keymap range mutation now exists
-behind `applyEdit` without UI; interactive assignment and destructive lifecycle remain future work.
+and selects represented S02+ without changing keymap references. Instrument Editor now exposes inclusive
+selected-sample keymap range mutation through one `applyEdit` sheet; graphical/automatic mapping and
+destructive lifecycle remain future work.
 
 ## Context
 
@@ -14,7 +15,7 @@ create playable material, compose and arrange a song, and produce both XM and re
 
 The current app provides blank pattern/order composition, isolated note audition when represented PCM exists,
 editable metadata, Export XM, and WAV/M4A export. Creation/import/generation and range mutation are implemented;
-destructive lifecycle and assignment UI are not.
+destructive lifecycle and graphical/automatic assignment are not.
 
 There is one important current-versus-target difference. `File > New` creates an untitled editable song with eight
 channels, one 64-row pattern at order 0, and I01/S01 selected, but `BlankTrackerDocument.makeDefault()` uses an empty
@@ -114,7 +115,11 @@ The first represented sample maps across all 96 XM notes. Sample 1 is the implic
 has a neutral keyboard appearance. Adding S02 or later never changes mappings; later samples need explicit assignment.
 
 Mapping and transient audition highlight are separate layers. Keymap mutation uses `applyEdit`/undo; read-only
-visualization may land first. `instrument-envelopes-keymap.xm` is the split-map public reference fixture.
+visualization landed first, followed by an explicit selected-represented-sample
+C-0...B-7 inclusive range sheet. Selection and notes outside the range remain
+unchanged; Instrument Editor/pattern playback follows the map while Sample
+Editor audition remains direct-selected-sample. `instrument-envelopes-keymap.xm`
+is the split-map public reference fixture.
 
 ### Sample Naming And Ownership
 
@@ -301,17 +306,15 @@ This is a sequence of focused PRs, not one large implementation PR:
 9. Add sample add/duplicate/clear-in-place/rename/replace.
 10. Polish read-only keymap visualization: neutral S01, visible S02+ mapping,
     and a separate active-note layer.
-11. Done: add editable keymap range assignment through `applyEdit`; paint/drag
-    UI remains separate.
-12. Add reference-preserving instrument and sample move/swap.
-13. Run the complete automated and manual from-scratch acceptance slice.
-14. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
+11. Done: add editable keymap range assignment through `applyEdit`.
+12. Done: wire explicit selected-sample inclusive range assignment UI; paint/drag
+    and automatic mapping remain separate.
+13. Add reference-preserving instrument and sample move/swap.
+14. Run the complete automated and manual from-scratch acceptance slice.
+15. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
 
-The recommended next implementation PR is:
-
-```text
-instrument: wire selected-sample note-range assignment UI
-```
+The explicit note-range UI slice is complete. Select later lifecycle, envelope,
+loop, and graphical-mapping work as separate focused PRs.
 
 ## Test And Fixture Plan
 

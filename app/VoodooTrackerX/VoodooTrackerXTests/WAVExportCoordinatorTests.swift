@@ -105,28 +105,17 @@ final class WAVExportCoordinatorTests: XCTestCase {
     }
 
     func testEditableStoppedDocumentBuildsPlanWritesWAVAndDoesNotMutateDocument() throws {
-        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
-        pattern.rows[0][0] = XMPatternEventCell(
+        var document = makeSampleKeymapEditableDocument()
+        document.pattern.rows[0][0] = XMPatternEventCell(
             note: 49,
             instrument: 1,
             volumeColumn: 0,
             effectType: 0,
             effectParam: 0
         )
-        let sample = try XCTUnwrap(DeterministicSampleGenerator.sine(instrumentIndex: 1))
-        let document = BlankTrackerDocument(
-            title: "Editable Demo",
-            songLength: 1,
-            currentPosition: 0,
-            restartPosition: 0,
-            currentPatternIndex: 0,
-            tempo: 125,
-            speed: 6,
-            orderTable: [0],
-            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])],
-            patterns: [pattern]
-        )
+        _ = try document.assignSample(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 48
+        ).get()
         let originalDocument = document
         let destination = try temporaryDestination(filename: "editable.wav")
         let provider = FakeWAVExportDestinationProvider(destination: destination)
@@ -143,6 +132,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
         }
         XCTAssertEqual(selectedDestination, destination)
         XCTAssertEqual(document, originalDocument)
+        XCTAssertEqual(plan.request.song.instrument(forInstrument: 1)?.mappedSampleIndex(forNote: 49), 1)
 
         let completion = WAVExportCoordinator.export(plan: plan, to: selectedDestination)
 

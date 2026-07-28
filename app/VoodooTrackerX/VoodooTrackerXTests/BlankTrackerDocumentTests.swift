@@ -188,6 +188,136 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(oneSample, beforeInvalid)
     }
 
+    func testSampleKeymapRangeAssignmentChangesOnlyInclusiveRangeAndPreservesState() throws {
+        var document = makeSampleKeymapEditableDocument()
+        let before = document
+        let originalInstrument = try XCTUnwrap(before.instrumentPalette[1])
+
+        let outcome = try document.assignSample(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
+        ).get()
+
+        XCTAssertEqual(outcome, SampleKeymapRangeAssignmentOutcome(
+            instrumentIndex: 0, sampleIndex: 1, noteRange: 48...59, changedNoteCount: 12
+        ))
+        XCTAssertFalse(outcome.isNoOp)
+        let editedInstrument = try XCTUnwrap(document.instrumentPalette[1])
+        let editedMap = try XCTUnwrap(editedInstrument.noteSampleMap)
+        XCTAssertEqual(Array(editedMap[48...59]), Array(repeating: 1, count: 12))
+        XCTAssertEqual(Array(editedMap[..<48]), Array(repeating: 0, count: 48))
+        XCTAssertEqual(Array(editedMap[60...]), Array(repeating: 0, count: 36))
+        XCTAssertEqual(editedInstrument.samples, originalInstrument.samples)
+        XCTAssertEqual(editedInstrument.name, originalInstrument.name)
+        XCTAssertEqual(editedInstrument.volumeEnvelope, originalInstrument.volumeEnvelope)
+        XCTAssertEqual(editedInstrument.panningEnvelope, originalInstrument.panningEnvelope)
+        XCTAssertEqual(editedInstrument.autoVibrato, originalInstrument.autoVibrato)
+        XCTAssertEqual(document.instrumentPalette[2], before.instrumentPalette[2])
+        XCTAssertEqual(document.selection, before.selection)
+        XCTAssertEqual(document.patterns, before.patterns)
+        XCTAssertEqual(document.orderTable, before.orderTable)
+    }
+
+    func testSampleKeymapRangeAssignmentSupportsSingleNoteS16AndExactNoOp() throws {
+        var document = makeSampleKeymapEditableDocument(sampleIndices: [0, 15])
+        let single = try document.assignSample(
+            instrumentIndex: 0, sampleIndex: 15, lowerNote: 95, upperNote: 95
+        ).get()
+        XCTAssertEqual(single.noteRange, 95...95)
+        XCTAssertEqual(single.changedNoteCount, 1)
+        XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap?[95], 15)
+
+        let beforeNoOp = document
+        let noOp = try document.assignSample(
+            instrumentIndex: 0, sampleIndex: 15, lowerNote: 95, upperNote: 95
+        ).get()
+        XCTAssertTrue(noOp.isNoOp)
+        XCTAssertEqual(noOp.changedNoteCount, 0)
+        XCTAssertEqual(document, beforeNoOp)
+    }
+
+    func testSampleKeymapRangeAssignmentRejectsInvalidInputsWithoutPartialMutation() {
+        let valid = makeSampleKeymapEditableDocument()
+        let malformed = makeSampleKeymapEditableDocument(noteSampleMap: nil)
+        let empty = makeSampleKeymapEditableDocument(emptySampleIndices: [1])
+        let unrepresented = makeSampleKeymapEditableDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 3, selectedSample: 1)
+        )
+        let cases: [(BlankTrackerDocument, Int, Int, Int, Int, SampleKeymapRangeEditFailure)] = [
+            (valid, -1, 1, 0, 0, .invalidInstrumentIndex(-1)),
+            (valid, 2, 1, 0, 0, .instrumentNotSelected(2)),
+            (unrepresented, 2, 1, 0, 0, .instrumentNotRepresented(2)),
+            (valid, 0, 16, 0, 0, .invalidSampleIndex(16)),
+            (valid, 0, 2, 0, 0, .sampleNotRepresented(instrumentIndex: 0, sampleIndex: 2)),
+            (empty, 0, 1, 0, 0, .emptySampleDestination(instrumentIndex: 0, sampleIndex: 1)),
+            (valid, 0, 1, -1, 0, .invalidNoteRange(lowerBound: -1, upperBound: 0)),
+            (valid, 0, 1, 95, 96, .invalidNoteRange(lowerBound: 95, upperBound: 96)),
+            (valid, 0, 1, 10, 9, .invalidNoteRange(lowerBound: 10, upperBound: 9)),
+            (malformed, 0, 1, 0, 0, .malformedKeymap(expectedCount: 96, actualCount: nil)),
+        ]
+
+        for (source, instrumentIndex, sampleIndex, lowerNote, upperNote, expectedFailure) in cases {
+            var document = source
+            let result = document.assignSample(
+                instrumentIndex: instrumentIndex, sampleIndex: sampleIndex,
+                lowerNote: lowerNote, upperNote: upperNote
+            )
+            XCTAssertEqual(result, .failure(expectedFailure))
+            XCTAssertEqual(document, source)
+        }
+    }
+
+    func testSampleKeymapRangeAssignmentFeedsInstrumentAuditionPatternPlanningAndLeavesDirectSampleAudition() throws {
+        var document = makeSampleKeymapEditableDocument()
+        document.pattern.rows[0][0] = XMPatternEventCell(
+            note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
+        )
+        document.pattern.rows[1][0] = XMPatternEventCell(
+            note: 37, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
+        )
+        _ = try document.assignSample(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
+        ).get()
+        let instrument = try XCTUnwrap(document.instrumentPalette[1])
+
+        let insideRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
+            noteValue: 49, selection: document.selection, instrument: instrument,
+            sourceContext: .blankDocument
+        ))
+        let outsideRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
+            noteValue: 37, selection: document.selection, instrument: instrument,
+            sourceContext: .blankDocument
+        ))
+        XCTAssertEqual(insideRequest.selectedSampleIndex, 2)
+        XCTAssertEqual(outsideRequest.selectedSampleIndex, 1)
+        guard case let .potentiallyAvailable(inside) = document.noteAuditionAvailability(
+            for: TrackerEditorSelection(
+                selectedInstrument: insideRequest.selectedInstrumentIndex, selectedSample: insideRequest.selectedSampleIndex
+            )
+        ) else { return XCTFail("Expected mapped Instrument Editor audition") }
+        XCTAssertEqual(inside.sampleIndex, 1)
+
+        let sampleRequest = SampleEditorAuditionRequestFactory.request(
+            selection: document.selection,
+            sourceContext: .blankDocument
+        )
+        XCTAssertEqual(sampleRequest.selectedSampleIndex, 1)
+        guard case let .potentiallyAvailable(direct) = document.noteAuditionAvailability else {
+            return XCTFail("Expected direct selected-sample audition")
+        }
+        XCTAssertEqual(direct.sampleIndex, 0)
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(
+            EditablePlaybackSongBuilder.build(from: document),
+            orderIndex: 0,
+            sampleRate: 8_363
+        )
+        XCTAssertEqual(plan.diagnostics.eventMappings.map(\.sampleIndex), [1, 0])
+        XCTAssertEqual(plan.pattern.events.map(\.sample), [
+            MixerSampleBuffer(monoPCM: instrument.samples[1].pcm),
+            MixerSampleBuffer(monoPCM: instrument.samples[0].pcm),
+        ])
+    }
+
     func testDefaultBlankDocumentUsesTrackerStartupDefaults() {
         let document = BlankTrackerDocument.makeDefault()
 

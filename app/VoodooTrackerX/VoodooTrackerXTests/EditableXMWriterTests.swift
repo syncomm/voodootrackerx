@@ -754,6 +754,44 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual([UInt8(1), 49, 96].map(reopened.mappedSampleIndex(forNote:)), [0, 0, 0])
     }
 
+    func testEditedKeymapRangesExportReopenAndEditableCopyExactlyWithoutChangingSamples() throws {
+        var document = BlankTrackerDocument.makeDefault()
+        let firstCandidate = try normalizedImportCandidate(name: "First.wav", pcm: [-1, -0.25, 0.25])
+        XCTAssertTrue(document.importAudioSample(
+            firstCandidate, destination: try XCTUnwrap(document.selectedSampleImportDestination)
+        ))
+        let secondCandidate = try normalizedImportCandidate(name: "Second.wav", pcm: [-0.75, 0, 0.75])
+        XCTAssertEqual(document.appendSample(
+            instrumentIndex: 1, sample: secondCandidate.playbackSample(instrumentIndex: 1, sampleIndex: 1)
+        ), 1)
+        let samplesBefore = try XCTUnwrap(document.instrumentPalette[1]?.samples)
+        _ = try document.assignSample(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 12, upperNote: 23
+        ).get()
+        _ = try document.assignSample(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
+        ).get()
+        let expectedMap = try XCTUnwrap(document.instrumentPalette[1]?.noteSampleMap)
+
+        let url = try temporaryExportURL(filename: "edited-keymap-ranges.xm")
+        try EditableXMWriter().data(from: document).write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        let reopened = try XCTUnwrap(reopenedSong.instrument(forInstrument: 1))
+        let editableCopy = try XCTUnwrap(BlankTrackerDocument.makeEditableCopy(
+            from: metadata, playbackSong: reopenedSong, selection: .default
+        ))
+
+        XCTAssertEqual(expectedMap.count, TrackerNoteKeyMap.maximumNoteValue)
+        XCTAssertEqual(reopened.noteSampleMap, expectedMap)
+        XCTAssertEqual(editableCopy.instrumentPalette[1]?.noteSampleMap, expectedMap)
+        XCTAssertEqual(reopened.samples, samplesBefore)
+        XCTAssertEqual(editableCopy.instrumentPalette[1]?.samples, samplesBefore)
+        XCTAssertEqual(Array(expectedMap[12...23]), Array(repeating: 1, count: 12))
+        XCTAssertEqual(Array(expectedMap[48...59]), Array(repeating: 1, count: 12))
+        XCTAssertEqual([11, 24, 47, 60].map { expectedMap[$0] }, [0, 0, 0, 0])
+    }
+
     private func makeDocument(
         title: String = BlankTrackerDocument.defaultTitle,
         currentPatternIndex: Int = BlankTrackerDocument.defaultPatternIndex,

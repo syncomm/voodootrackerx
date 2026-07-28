@@ -741,6 +741,32 @@ enum SampleImportDestination: Equatable, Sendable {
     }
 }
 
+/// Exact result of assigning one represented sample to zero-based XM keymap entries.
+struct SampleKeymapRangeAssignmentOutcome: Equatable {
+    let instrumentIndex: Int
+    let sampleIndex: Int
+    let noteRange: ClosedRange<Int>
+    let changedNoteCount: Int
+
+    var isNoOp: Bool { changedNoteCount == 0 }
+}
+
+/// Typed rejection reasons shared by the editable-document model and its edit coordinator.
+enum SampleKeymapRangeEditFailure: Error, Equatable {
+    case noEditableDocument
+    case readOnlyDocument
+    case playbackActive
+    case invalidInstrumentIndex(Int)
+    case instrumentNotSelected(Int)
+    case instrumentNotRepresented(Int)
+    case invalidSampleIndex(Int)
+    case sampleNotRepresented(instrumentIndex: Int, sampleIndex: Int)
+    case emptySampleDestination(instrumentIndex: Int, sampleIndex: Int)
+    case invalidNoteRange(lowerBound: Int, upperBound: Int)
+    case malformedKeymap(expectedCount: Int, actualCount: Int?)
+    case editApplicationRejected
+}
+
 struct BlankTrackerDocument: Equatable {
     static let maximumInstrumentCount = 255
     static let maximumSampleCountPerInstrument = 16
@@ -1157,6 +1183,93 @@ struct BlankTrackerDocument: Equatable {
 
     mutating func selectSample(_ sampleIndex: Int) {
         selection = selection.withSelectedSample(sampleIndex)
+    }
+
+    /// Assigns a represented zero-based sample to an inclusive zero-based note range.
+    @discardableResult
+    mutating func assignSample(
+        instrumentIndex: Int,
+        sampleIndex: Int,
+        lowerNote: Int,
+        upperNote: Int
+    ) -> Result<SampleKeymapRangeAssignmentOutcome, SampleKeymapRangeEditFailure> {
+        guard (0..<Self.maximumInstrumentCount).contains(instrumentIndex) else {
+            return .failure(.invalidInstrumentIndex(instrumentIndex))
+        }
+        guard selection.selectedInstrument == instrumentIndex + 1 else {
+            return .failure(.instrumentNotSelected(instrumentIndex))
+        }
+        guard let instrument = instrumentPalette[instrumentIndex + 1] else {
+            return .failure(.instrumentNotRepresented(instrumentIndex))
+        }
+        guard (0..<Self.maximumSampleCountPerInstrument).contains(sampleIndex) else {
+            return .failure(.invalidSampleIndex(sampleIndex))
+        }
+        guard let sample = instrument.sample(mappedSampleIndex: sampleIndex) else {
+            return .failure(.sampleNotRepresented(
+                instrumentIndex: instrumentIndex,
+                sampleIndex: sampleIndex
+            ))
+        }
+        guard sample.sampleLength > 0, !sample.pcm.isEmpty else {
+            return .failure(.emptySampleDestination(
+                instrumentIndex: instrumentIndex,
+                sampleIndex: sampleIndex
+            ))
+        }
+        let noteCount = TrackerNoteKeyMap.maximumNoteValue
+        guard lowerNote <= upperNote,
+              (0..<noteCount).contains(lowerNote),
+              (0..<noteCount).contains(upperNote) else {
+            return .failure(.invalidNoteRange(lowerBound: lowerNote, upperBound: upperNote))
+        }
+        guard let currentMap = instrument.noteSampleMap, currentMap.count == noteCount else {
+            return .failure(.malformedKeymap(
+                expectedCount: noteCount,
+                actualCount: instrument.noteSampleMap?.count
+            ))
+        }
+
+        let noteRange = lowerNote...upperNote
+        let changedNoteCount = noteRange.reduce(into: 0) { count, noteIndex in
+            if currentMap[noteIndex] != sampleIndex { count += 1 }
+        }
+        let outcome = SampleKeymapRangeAssignmentOutcome(
+            instrumentIndex: instrumentIndex,
+            sampleIndex: sampleIndex,
+            noteRange: noteRange,
+            changedNoteCount: changedNoteCount
+        )
+        guard !outcome.isNoOp else { return .success(outcome) }
+
+        var updatedMap = currentMap
+        for noteIndex in noteRange {
+            updatedMap[noteIndex] = sampleIndex
+        }
+        var palette = instrumentPalette
+        palette[instrumentIndex + 1] = PlaybackInstrument(
+            index: instrument.index,
+            name: instrument.name,
+            samples: instrument.samples,
+            volumeEnvelope: instrument.volumeEnvelope,
+            panningEnvelope: instrument.panningEnvelope,
+            autoVibrato: instrument.autoVibrato,
+            noteSampleMap: updatedMap
+        )
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: currentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: currentPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
+            selection: selection,
+            instrumentPalette: palette,
+            patterns: patterns
+        )
+        return .success(outcome)
     }
 
     @discardableResult

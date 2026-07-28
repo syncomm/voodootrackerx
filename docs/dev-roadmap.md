@@ -66,7 +66,8 @@ VoodooTracker X currently has:
   S01 or offers Replace/Add as New/Cancel, with stereo Mix/Left/Right,
   stale-result checks, one format-neutral undoable edit, and document-owned
   mono 16-bit PCM. Add appends/selects S02+ while preserving the keymap;
-  destructive lifecycle, standalone New Sample, and keymap editing remain unavailable.
+  an undoable inclusive keymap-range foundation is now available without UI.
+  Destructive lifecycle, standalone New Sample, and assignment controls remain unavailable.
   AUDITION now toggles that selected slot directly at C-4 through the persistent
   preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
@@ -198,6 +199,9 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- A UI-independent selected-instrument keymap mutation maps a represented sample
+  across inclusive `0...95` indices in one undoable action. It preserves selection,
+  round-trips through editable copy/XM, and feeds existing audition and audio paths.
 - Sample Editor LOAD now exposes native mono/stereo 16-bit and 24-bit FLAC
   through the existing one-file picker, coordinator, background worker,
   normalized candidate, and commit path. It rejects 8-bit and untested depths,
@@ -214,7 +218,7 @@ Recently completed narrow target:
   stereo Mix/Left/Right, background decode, operation/document revision checks,
   document-owned canonical mono 16-bit PCM, all-S01 first-sample mapping, and
   one format-neutral import/replace/add undo action are implemented. Delete,
-  clear, reorder, duplication, keymap editing, drag/drop, and global import remain separate work.
+  clear, reorder, duplication, keymap UI wiring, drag/drop, and global import remain separate work.
 - Labeled whole-editable-document snapshots now flow through
   `EditableDocumentEditCoordinator` and a capped `UndoManager`. Clear Current
   Pattern is the first routed operation; undo/redo refresh existing editor
@@ -226,8 +230,8 @@ Recently completed narrow target:
   Clear Song transitions, and main control-panel instrument/sample selection;
   shows represented metadata, immutable volume-envelope and keymap-range data,
   and clean empty states. XI, envelope/keymap assignment, and waveform controls
-  remain disabled; isolated computer and graphical audition are now implemented.
-  It adds no audition mutation or envelope/keymap editing;
+  remain disabled; isolated computer/graphical audition and the unwired range backend are implemented.
+  It adds no audition mutation or envelope editing;
   playback, parser, writer, and export behavior remain unchanged.
 - App M4A export now reuses the existing whole-song product WAV plan and
   completed scaled Float32 temp output, then encodes fixed 192 kbps AAC through
@@ -777,7 +781,7 @@ Remaining VTX 1.0 scope:
 
 - the dependency-ordered from-scratch instrument/sample workflow in
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md),
-  continuing with explicit sample-keymap editing
+  continuing with Instrument Editor UI wiring for the keymap range foundation
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit
 - editable loop mode/range behind applyEdit, followed by separately scoped PCM
@@ -788,7 +792,7 @@ Remaining VTX 1.0 scope:
 - sample trimming and loop editing foundation
 - envelope editing foundation
 
-Future Instrument Editor keymap polish remains mapping-first and audition-second;
+Future Instrument Editor keymap polish can wire the foundation while keeping audition distinct;
 see `docs/roadmap.md` and `docs/design/instrument-editor-window.md` for the
 assignment, audition-layer, fixture, and `applyEdit` direction.
 

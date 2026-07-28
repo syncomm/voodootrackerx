@@ -4,7 +4,8 @@
 
 Accepted as the product and architecture contract for the from-scratch composition workstream. Empty instruments,
 first-sample generation/import, and occupied LOAD with Replace/Add as New/Cancel are now implemented. Add appends
-and selects represented S02+ without changing keymap references; explicit keymap editing and destructive lifecycle remain future work.
+and selects represented S02+ without changing keymap references. Inclusive keymap range mutation now exists
+behind `applyEdit` without UI; interactive assignment and destructive lifecycle remain future work.
 
 ## Context
 
@@ -12,8 +13,8 @@ VTX 1.0 is a self-contained XM-style sample/instrument tracker. A user must be a
 create playable material, compose and arrange a song, and produce both XM and rendered audio without first opening XM.
 
 The current app provides blank pattern/order composition, isolated note audition when represented PCM exists,
-editable metadata, Export XM, and WAV/M4A export. Instrument/sample creation, import, generation, and keymap
-mutation do not yet exist.
+editable metadata, Export XM, and WAV/M4A export. Creation/import/generation and range mutation are implemented;
+destructive lifecycle and assignment UI are not.
 
 There is one important current-versus-target difference. `File > New` creates an untitled editable song with eight
 channels, one 64-row pattern at order 0, and I01/S01 selected, but `BlankTrackerDocument.makeDefault()` uses an empty
@@ -300,7 +301,8 @@ This is a sequence of focused PRs, not one large implementation PR:
 9. Add sample add/duplicate/clear-in-place/rename/replace.
 10. Polish read-only keymap visualization: neutral S01, visible S02+ mapping,
     and a separate active-note layer.
-11. Add editable keymap range/paint assignment through `applyEdit`.
+11. Done: add editable keymap range assignment through `applyEdit`; paint/drag
+    UI remains separate.
 12. Add reference-preserving instrument and sample move/swap.
 13. Run the complete automated and manual from-scratch acceptance slice.
 14. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
@@ -308,7 +310,7 @@ This is a sequence of focused PRs, not one large implementation PR:
 The recommended next implementation PR is:
 
 ```text
-sample: add explicit sample keymap editing foundation
+instrument: wire selected-sample note-range assignment UI
 ```
 
 ## Test And Fixture Plan

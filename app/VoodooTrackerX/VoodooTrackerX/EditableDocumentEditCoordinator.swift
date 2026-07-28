@@ -183,6 +183,41 @@ final class EditableDocumentEditCoordinator {
         return applyEdit(label: "Change Sample Panning", updatedDocument: document)
     }
 
+    /// Maps one represented sample to an inclusive zero-based XM note range in one undoable edit.
+    @discardableResult
+    func mapSampleToNoteRange(
+        instrumentIndex: Int,
+        sampleIndex: Int,
+        lowerNote: Int,
+        upperNote: Int
+    ) -> Result<SampleKeymapRangeAssignmentOutcome, SampleKeymapRangeEditFailure> {
+        let context = contextProvider()
+        switch context {
+        case .none:
+            return .failure(.noEditableDocument)
+        case .loadedReadOnly:
+            return .failure(.readOnlyDocument)
+        case .editable(_, true):
+            return .failure(.playbackActive)
+        case var .editable(document, false):
+            let result = document.assignSample(
+                instrumentIndex: instrumentIndex,
+                sampleIndex: sampleIndex,
+                lowerNote: lowerNote,
+                upperNote: upperNote
+            )
+            guard case let .success(outcome) = result else { return result }
+            guard !outcome.isNoOp else { return result }
+            guard applyEdit(
+                label: "Map Sample to Note Range",
+                updatedDocument: document
+            ) else {
+                return .failure(.editApplicationRejected)
+            }
+            return result
+        }
+    }
+
     @discardableResult
     func undo() -> Bool {
         guard canUndo else { return false }

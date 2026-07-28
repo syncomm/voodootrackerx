@@ -526,7 +526,10 @@ func makePlaybackSample(
     baseSampleRate: Double = 100,
     loopStart: Int = 0,
     loopLength: Int = 0,
-    loopType: Int = 0
+    loopType: Int = 0,
+    sourceBitDepthBits: Int? = nil,
+    sourceIsSignedPCM: Bool? = nil,
+    sourceIsDeltaEncoded: Bool? = nil
 ) -> PlaybackSample {
     PlaybackSample(
         instrumentIndex: instrumentIndex,
@@ -541,7 +544,10 @@ func makePlaybackSample(
         sampleLength: pcm.count,
         loopStart: loopStart,
         loopLength: loopLength,
-        loopType: loopType
+        loopType: loopType,
+        sourceBitDepthBits: sourceBitDepthBits,
+        sourceIsSignedPCM: sourceIsSignedPCM,
+        sourceIsDeltaEncoded: sourceIsDeltaEncoded
     )
 }
 
@@ -627,6 +633,47 @@ func makeNoteSampleMap(defaultSampleIndex: Int = 0, overrides: [UInt8: Int] = [:
         map[Int(note) - 1] = sampleIndex
     }
     return map
+}
+
+func makeSampleKeymapEditableDocument(
+    sampleIndices: [Int] = [0, 1],
+    emptySampleIndices: Set<Int> = [],
+    noteSampleMap: [Int]? = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue),
+    selection: TrackerEditorSelection = .default
+) -> BlankTrackerDocument {
+    let base = BlankTrackerDocument.makeDefault()
+    let samples = sampleIndices.map { sampleIndex in
+        makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: sampleIndex, name: "Sample \(sampleIndex + 1)",
+            pcm: emptySampleIndices.contains(sampleIndex) ? [] : (sampleIndex == 0 ? [0, 0] : [0.75, -0.75]),
+            volume: sampleIndex == 0 ? 0.5 : 1, panning: sampleIndex == 0 ? 32 : 224,
+            relativeNote: sampleIndex, finetune: -sampleIndex,
+            baseSampleRate: PlaybackSample.xmNeutralSampleRate,
+            sourceBitDepthBits: 16, sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+    }
+    let instrument = PlaybackInstrument(
+        index: 1, name: "Range Map", samples: samples,
+        volumeEnvelope: .init(
+            enabled: true, points: [.init(tick: 0, value: 64), .init(tick: 8, value: 32)],
+            sustainPointIndex: 0, loopStartPointIndex: 0, loopEndPointIndex: 1,
+            typeFlags: 0x07, fadeout: 512
+        ),
+        panningEnvelope: .init(
+            enabled: true, points: [.init(tick: 0, value: 16), .init(tick: 8, value: 48)],
+            sustainPointIndex: 1, loopStartPointIndex: 0, loopEndPointIndex: 1,
+            typeFlags: 0x07
+        ),
+        autoVibrato: .init(waveformType: 2, sweep: 3, depth: 4, rate: 5),
+        noteSampleMap: noteSampleMap
+    )
+    return BlankTrackerDocument(
+        title: base.title, songLength: base.songLength, currentPosition: base.currentPosition,
+        restartPosition: base.restartPosition, currentPatternIndex: base.currentPatternIndex,
+        tempo: base.tempo, speed: base.speed, orderTable: base.orderTable, selection: selection,
+        instrumentPalette: [1: instrument, 2: PlaybackInstrument(index: 2, name: "Unrelated", samples: [])],
+        patterns: base.patterns
+    )
 }
 
 enum TestPlaybackMode: Equatable {

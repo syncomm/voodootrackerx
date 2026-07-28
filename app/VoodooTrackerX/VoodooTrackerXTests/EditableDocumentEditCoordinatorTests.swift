@@ -363,6 +363,66 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         }
     }
 
+    func testSampleKeymapRangeEditIsOneUndoActionWithExactSelectionUndoRedo() throws {
+        let before = makeSampleKeymapEditableDocument()
+        let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+        let originalExport = try EditableXMWriter().data(from: before)
+
+        let outcome = try harness.coordinator.mapSampleToNoteRange(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
+        ).get()
+        let edited = try XCTUnwrap(harness.editableDocument)
+
+        XCTAssertEqual(outcome.changedNoteCount, 12)
+        XCTAssertEqual(outcome.noteRange, 48...59)
+        XCTAssertEqual(edited.selection, before.selection)
+        XCTAssertEqual(harness.appliedDocuments, [edited])
+        XCTAssertEqual(harness.revision, 1)
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Map Sample to Note Range")
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual(
+            try EditableXMWriter().data(from: XCTUnwrap(harness.editableDocument)),
+            originalExport
+        )
+        XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Map Sample to Note Range")
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, edited)
+        XCTAssertEqual(harness.appliedDocuments, [edited, before, edited])
+    }
+
+    func testSampleKeymapRangeNoOpAndRejectedContextsCreateNoHistoryOrRevision() throws {
+        var alreadyMapped = makeSampleKeymapEditableDocument()
+        _ = try alreadyMapped.assignSample(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
+        ).get()
+        let noOpHarness = EditHarness(context: .editable(document: alreadyMapped, isPlaybackActive: false))
+        let noOp = try noOpHarness.coordinator.mapSampleToNoteRange(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
+        ).get()
+        XCTAssertTrue(noOp.isNoOp)
+        XCTAssertTrue(noOpHarness.appliedDocuments.isEmpty)
+        XCTAssertEqual(noOpHarness.revision, 0)
+        XCTAssertFalse(noOpHarness.undoManager.canUndo)
+
+        let source = makeSampleKeymapEditableDocument()
+        let cases: [(EditableDocumentEditContext, SampleKeymapRangeEditFailure)] = [
+            (.none, .noEditableDocument),
+            (.loadedReadOnly, .readOnlyDocument),
+            (.editable(document: source, isPlaybackActive: true), .playbackActive),
+        ]
+        for (context, failure) in cases {
+            let harness = EditHarness(context: context)
+            let result = harness.coordinator.mapSampleToNoteRange(
+                instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
+            )
+            XCTAssertEqual(result, .failure(failure))
+            XCTAssertTrue(harness.appliedDocuments.isEmpty)
+            XCTAssertEqual(harness.revision, 0)
+            XCTAssertFalse(harness.undoManager.canUndo)
+        }
+    }
+
     func testSampleRelativeNoteMutationPreservesSignedByteRangeAndNeighboringValues() throws {
         let before = documentWithInstrumentName(
             "Snapshot",
@@ -852,6 +912,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
 private final class EditHarness {
     var context: EditableDocumentEditContext
     private(set) var appliedDocuments: [BlankTrackerDocument] = []
+    private(set) var revision = 0
     let undoManager = UndoManager()
     private let onApply: (BlankTrackerDocument) -> Void
 
@@ -861,6 +922,7 @@ private final class EditHarness {
         documentApplyHandler: { [unowned self] document in
             context = .editable(document: document, isPlaybackActive: false)
             appliedDocuments.append(document)
+            revision += 1
             onApply(document)
         }
     )

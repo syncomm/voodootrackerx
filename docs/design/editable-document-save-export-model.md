@@ -19,7 +19,9 @@ the existing gain mapping without runtime engine, DSP, or scheduling changes. Ex
 sample finetune (`-128...127`) now follows the same stopped/editable, applyEdit/undo, and Export
 XM/reopen boundary; later playback uses existing pitch adaptation without any pitch-formula,
 runtime-engine, DSP, or scheduling change. Exact signed-byte sample relative note now follows that
-same boundary and existing pitch path. A
+same boundary and existing pitch path. Inclusive keymap range mutation now uses
+the same one-applyEdit boundary; no-ops create no history, and existing editable-copy,
+XM, and product-audio export paths preserve or consume the result. A
 document-level applyEdit/whole-snapshot undo funnel owns replacement. Save, Save As,
 loaded-module direct editing, broader instrument/sample mutation, Sample Editor
 mutation beyond SINE/import, runtime playback changes, parser architecture changes,
@@ -197,8 +199,8 @@ First-writer limitations:
 - Sample Editor mutation is limited to stopped-editable SINE plus format-neutral
   audio import, in-place replacement, and append-only Add as New
 - no panning-envelope playback/editing, vibrato playback/editing, broader loop,
-  PCM/waveform, destructive lifecycle, keymap editing, XI import,
-  or arbitrary non-XM-derived payload support in the current writer
+  PCM/waveform, destructive lifecycle, XI import, or arbitrary non-XM-derived
+  payload support in the current writer; keymap assignment remains UI-unwired
 - no private corpus dependency
 - no generated XM/WAV artifacts committed outside explicit reviewed fixture PRs
 - no broad parser/writer architecture rewrite
@@ -286,7 +288,8 @@ Keep future PRs narrow and testable:
 23. Done: `sample: add FLAC import decode foundation`
 24. Done: `sample: expose FLAC through Sample Editor load workflow`
 25. Done: `sample: add represented sample-slot lifecycle and Add as New Sample`
-26. `sample: add editable loop mode and range behind applyEdit`
+26. Done: `instrument: add editable keymap range foundation behind applyEdit`
+27. `sample: add editable loop mode and range behind applyEdit`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

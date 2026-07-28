@@ -95,9 +95,13 @@ final class M4AExportCoordinatorTests: XCTestCase {
     }
 
     func testEditableExportDoesNotMutateDocument() throws {
-        var document = BlankTrackerDocument.makeDefault()
-        XCTAssertTrue(document.generateSineInSelectedEmptySample())
-        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        var document = makeSampleKeymapEditableDocument()
+        document.pattern.rows[0][0] = XMPatternEventCell(
+            note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
+        )
+        _ = try document.assignSample(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 48
+        ).get()
         let original = document
         let destination = try temporaryDirectory().appendingPathComponent("editable.m4a")
         let plan = try M4AExportCoordinator.makePlan(context: .editable(
@@ -105,6 +109,7 @@ final class M4AExportCoordinatorTests: XCTestCase {
             displayName: document.title,
             isPlaybackActive: false
         ))
+        XCTAssertEqual(plan.renderPlan.request.song.instrument(forInstrument: 1)?.mappedSampleIndex(forNote: 49), 1)
 
         let completion = M4AExportCoordinator.export(plan: plan, to: destination)
 

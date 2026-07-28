@@ -473,7 +473,8 @@ Recommended next product PR:
   decode/canonical normalization are complete, and Sample Editor LOAD now
   fills empty S01 or offers Replace/Add as New/Cancel for an occupied selection.
   Append-only S02+ lifecycle preserves the keymap and selects the new sample.
-  Next, add explicit keymap editing; keep destructive lifecycle and
+  Inclusive keymap range mutation is now available through `applyEdit` without UI.
+  Next, wire a focused Instrument Editor surface; keep destructive lifecycle and
   reference-preserving reorder separate from runtime/backend work.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
@@ -486,6 +487,9 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- selected-instrument keymap range assignment across inclusive `0...95` indices
+  through one labeled applyEdit action, with exact history/selection, XM/copy
+  round-trip, existing audio-path consumption, and no UI
 - Editable XM export now writes existing palette/sample payloads for stopped
   editable documents when the editable copy safely represents XM-derived signed
   8-bit or 16-bit PCM. The supported subset includes instrument names,
@@ -780,7 +784,7 @@ Current implemented foundation:
 
 Next composition targets after backend foundation freeze:
 
-- explicit sample-keymap editing through applyEdit as separate focused work
+- Instrument Editor range-assignment UI atop the completed applyEdit foundation
 - envelope playback/editing and broader instrument/sample metadata behind applyEdit
 - editable Sample Editor loop mode/range behind applyEdit, followed by separate
   PCM/waveform mutation slices
@@ -824,8 +828,8 @@ full 96-note map. A full default Sample 1 assignment should stay neutral;
 non-default assignments may use muted sample-number labels or colors, the
 selected sample should receive stronger persistent emphasis, and transient
 audition must remain a distinct pressed-key layer above the mapping. Read-only
-polish may precede mutation. Keymap editing waits for stable sample-palette and
-Sample Editor foundations and must use `applyEdit`/undo. Use
+polish may precede mutation. The range-mutation foundation is complete;
+interactive assignment must reuse it without a second write path. Use
 `instrument-envelopes-keymap.xm` as the public reference and keep this direction
 linked to `docs/design/instrument-editor-window.md` and
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).

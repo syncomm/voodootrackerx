@@ -6,9 +6,10 @@ typealias InstrumentEditorNoteAuditionCancelHandler = () -> Void
 typealias InstrumentEditorInstrumentSelectionHandler = (_ oneBasedInstrumentSlot: Int) -> Bool
 typealias InstrumentEditorSampleSelectionHandler = (_ oneBasedSampleSlot: Int) -> Bool
 typealias InstrumentKeyboardVisibleRangeChangeHandler = (InstrumentKeyboardVisibleRange) -> Void
+typealias InstrumentKeymapRangeAssignmentHandler = (_ focusedNote: UInt8?) -> Bool
 
 enum InstrumentEditorCopy {
-    static let keymapSummary = "FULL 96-NOTE MAP SUMMARY · ASSIGNMENT READ-ONLY · CLICK/DRAG KEYS TO AUDITION"
+    static let keymapSummary = "FULL 96-NOTE MAP SUMMARY · CLICK/DRAG KEYS TO AUDITION"
     static let auditionKeyboard = "AUDITION KEYBOARD · CLICK / DRAG TO PREVIEW"
 }
 
@@ -54,6 +55,269 @@ struct InstrumentKeyboardVisibleRange: Equatable {
         guard canShift(direction) else { return self }
         let delta = direction == .lower ? -Self.octaveStep : Self.octaveStep
         return InstrumentKeyboardVisibleRange(startNote: startNote + delta) ?? self
+    }
+}
+
+enum InstrumentKeymapRangeDefaultPolicy {
+    static func noteRange(focusedNote: UInt8?, selectedOctave: Int?) -> ClosedRange<Int> {
+        if let focusedNote, (1...TrackerNoteKeyMap.maximumNoteValue).contains(Int(focusedNote)) {
+            let noteIndex = Int(focusedNote) - 1
+            return noteIndex...noteIndex
+        }
+        if let selectedOctave, (0...7).contains(selectedOctave) {
+            return (selectedOctave * 12)...(selectedOctave * 12 + 11)
+        }
+        return 48...59 // C-4...B-4
+    }
+}
+
+struct InstrumentKeymapRangeAssignmentContext: Equatable {
+    static let unavailable = Self(
+        documentIdentity: nil, documentRevision: 0, editContext: .none,
+        hasConflictingModalSheet: false
+    )
+    let documentIdentity: UUID?
+    let documentRevision: UInt64
+    let editContext: EditableDocumentEditContext
+    let hasConflictingModalSheet: Bool
+}
+
+@MainActor
+enum InstrumentKeymapRangeAssignmentConfirmationGate {
+    typealias CommitResult = Result<
+        SampleKeymapRangeAssignmentOutcome, SampleKeymapRangeEditFailure
+    >
+
+    static func perform(
+        in context: InstrumentKeymapRangeAssignmentContext,
+        commit: () -> CommitResult
+    ) -> CommitResult? {
+        guard context.documentIdentity != nil,
+              case .editable(_, false) = context.editContext else { return nil }
+        return commit()
+    }
+}
+
+@MainActor
+enum InstrumentKeymapRangeAssignmentSheetLifecycle {
+    static func refreshAfterDismissal(_ refresh: @escaping @MainActor () -> Void) {
+        // AppKit can still report the completed sheet as attached inside its
+        // completion callback, so recompute modal eligibility on the next turn.
+        DispatchQueue.main.async {
+            refresh()
+        }
+    }
+}
+
+struct InstrumentKeymapRangeAssignmentRequest: Equatable {
+    let operationToken: UUID
+    let sampleDisplay: String
+    let initialNoteRange: ClosedRange<Int>
+}
+
+extension SampleKeymapRangeEditFailure {
+    var keymapRangeAssignmentMessage: String {
+        switch self {
+        case .noEditableDocument: "The document changed before the note range could be mapped."
+        case .readOnlyDocument: "This document is read-only."
+        case .playbackActive: "Stop playback before mapping a note range."
+        case .invalidInstrumentIndex, .instrumentNotSelected, .instrumentNotRepresented:
+            "The selected instrument is no longer available."
+        case .invalidSampleIndex, .sampleNotRepresented, .emptySampleDestination:
+            "The selected sample is no longer represented."
+        case .invalidNoteRange: "Choose a valid first and last note."
+        case .malformedKeymap: "This instrument does not have the canonical 96-note map."
+        case .editApplicationRejected: "This note-range assignment is no longer active."
+        }
+    }
+}
+
+private struct InstrumentKeymapRangeAssignmentCapture {
+    let documentIdentity: UUID
+    let documentRevision: UInt64
+    let instrumentIndex, sampleIndex: Int
+
+    init?(context: InstrumentKeymapRangeAssignmentContext) {
+        guard !context.hasConflictingModalSheet,
+              let documentIdentity = context.documentIdentity,
+              case let .editable(document, false) = context.editContext else { return nil }
+        let instrumentIndex = document.selection.selectedInstrument - 1
+        let sampleIndex = document.selection.selectedSample - 1
+        guard let instrument = document.instrument(forInstrument: instrumentIndex + 1),
+              let sample = instrument.sample(mappedSampleIndex: sampleIndex),
+              sample.sampleLength > 0,
+              !sample.pcm.isEmpty,
+              instrument.noteSampleMap?.count == TrackerNoteKeyMap.maximumNoteValue else { return nil }
+        self.documentIdentity = documentIdentity
+        documentRevision = context.documentRevision
+        self.instrumentIndex = instrumentIndex
+        self.sampleIndex = sampleIndex
+    }
+
+    func failure(in context: InstrumentKeymapRangeAssignmentContext) -> SampleKeymapRangeEditFailure? {
+        if context.editContext == .loadedReadOnly { return .readOnlyDocument }
+        guard context.documentIdentity == documentIdentity,
+              context.documentRevision == documentRevision else { return .noEditableDocument }
+        guard case let .editable(document, isPlaying) = context.editContext else { return .noEditableDocument }
+        guard !isPlaying else { return .playbackActive }
+        guard document.selection.selectedInstrument == instrumentIndex + 1 else {
+            return .instrumentNotSelected(instrumentIndex)
+        }
+        guard let instrument = document.instrument(forInstrument: instrumentIndex + 1) else {
+            return .instrumentNotRepresented(instrumentIndex)
+        }
+        guard let sample = instrument.sample(mappedSampleIndex: sampleIndex) else {
+            return .sampleNotRepresented(instrumentIndex: instrumentIndex, sampleIndex: sampleIndex)
+        }
+        guard sample.sampleLength > 0, !sample.pcm.isEmpty else {
+            return .emptySampleDestination(instrumentIndex: instrumentIndex, sampleIndex: sampleIndex)
+        }
+        guard instrument.noteSampleMap?.count == TrackerNoteKeyMap.maximumNoteValue else {
+            return .malformedKeymap(expectedCount: TrackerNoteKeyMap.maximumNoteValue,
+                                    actualCount: instrument.noteSampleMap?.count)
+        }
+        return nil
+    }
+}
+
+@MainActor
+final class InstrumentKeymapRangeAssignmentCoordinator {
+    typealias CommitHandler = (Int, Int, Int, Int) -> Result<
+        SampleKeymapRangeAssignmentOutcome, SampleKeymapRangeEditFailure
+    >
+
+    private let contextProvider: () -> InstrumentKeymapRangeAssignmentContext
+    private let commitHandler: CommitHandler
+    private let stateChangeHandler: () -> Void
+    private var activeOperation: (token: UUID, capture: InstrumentKeymapRangeAssignmentCapture)?
+
+    init(
+        contextProvider: @escaping () -> InstrumentKeymapRangeAssignmentContext,
+        commitHandler: @escaping CommitHandler,
+        stateChangeHandler: @escaping () -> Void = {}
+    ) {
+        self.contextProvider = contextProvider
+        self.commitHandler = commitHandler
+        self.stateChangeHandler = stateChangeHandler
+    }
+
+    var canBegin: Bool {
+        activeOperation == nil && InstrumentKeymapRangeAssignmentCapture(context: contextProvider()) != nil
+    }
+
+    func begin(focusedNote: UInt8?, selectedOctave: Int?) -> InstrumentKeymapRangeAssignmentRequest? {
+        guard activeOperation == nil,
+              let capture = InstrumentKeymapRangeAssignmentCapture(context: contextProvider()) else { return nil }
+        let token = UUID()
+        activeOperation = (token, capture)
+        stateChangeHandler()
+        return InstrumentKeymapRangeAssignmentRequest(
+            operationToken: token,
+            sampleDisplay: String(format: "S%02X", capture.sampleIndex + 1),
+            initialNoteRange: InstrumentKeymapRangeDefaultPolicy.noteRange(
+                focusedNote: focusedNote, selectedOctave: selectedOctave
+            )
+        )
+    }
+
+    @discardableResult
+    func cancel(operationToken: UUID) -> Bool {
+        guard activeOperation?.token == operationToken else { return false }
+        finish()
+        return true
+    }
+
+    func commit(
+        operationToken: UUID,
+        lowerNote: Int,
+        upperNote: Int
+    ) -> Result<SampleKeymapRangeAssignmentOutcome, SampleKeymapRangeEditFailure> {
+        guard let activeOperation, activeOperation.token == operationToken else {
+            return .failure(.editApplicationRejected)
+        }
+        defer { finish() }
+        let capture = activeOperation.capture
+        if let failure = capture.failure(in: contextProvider()) {
+            return .failure(failure)
+        }
+        return commitHandler(capture.instrumentIndex, capture.sampleIndex, lowerNote, upperNote)
+    }
+
+    private func finish() {
+        activeOperation = nil
+        stateChangeHandler()
+    }
+}
+
+@MainActor
+final class InstrumentKeymapRangeAssignmentSheet: NSObject {
+    static let noteTitles = (1...TrackerNoteKeyMap.maximumNoteValue)
+        .map { ModuleMetadataLoader.formatXMNote(UInt8($0)) }
+
+    let alert = NSAlert()
+    let firstNotePopup = NSPopUpButton()
+    let lastNotePopup = NSPopUpButton()
+    let summaryLabel = NSTextField(labelWithString: "")
+    private let sampleDisplay: String
+    var mapButton: NSButton { alert.buttons[0] }
+    var firstNote: Int { firstNotePopup.indexOfSelectedItem }
+    var lastNote: Int { lastNotePopup.indexOfSelectedItem }
+
+    init(request: InstrumentKeymapRangeAssignmentRequest) {
+        sampleDisplay = request.sampleDisplay
+        super.init()
+        alert.alertStyle = .informational
+        alert.messageText = "Map Selected Sample to Note Range"
+        alert.informativeText = "Notes in this inclusive range will use \(request.sampleDisplay).\nAssignments outside the range will not change."
+        alert.addButton(withTitle: "Map Range")
+        alert.addButton(withTitle: "Cancel")
+        mapButton.setAccessibilityLabel("Map selected sample")
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+
+        [(firstNotePopup, "First note"), (lastNotePopup, "Last note")].forEach { popup, label in
+            popup.addItems(withTitles: Self.noteTitles)
+            popup.target = self
+            popup.action = #selector(noteSelectionChanged(_:))
+            popup.setAccessibilityLabel(label)
+            popup.widthAnchor.constraint(equalToConstant: 100).isActive = true
+        }
+        summaryLabel.alignment = .center
+        summaryLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        let rangeRow = NSStackView(views: [
+            NSTextField(labelWithString: "From:"), firstNotePopup,
+            NSTextField(labelWithString: "To:"), lastNotePopup,
+        ])
+        rangeRow.spacing = 6
+        let accessory = NSStackView(views: [
+            NSTextField(labelWithString: "Sample: \(request.sampleDisplay)"),
+            rangeRow,
+            summaryLabel,
+        ])
+        accessory.orientation = .vertical
+        accessory.alignment = .centerX
+        accessory.spacing = 8
+        accessory.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        accessory.frame.size = NSSize(width: 340, height: 86)
+        alert.accessoryView = accessory
+        selectNoteRange(lowerNote: request.initialNoteRange.lowerBound,
+                        upperNote: request.initialNoteRange.upperBound)
+    }
+
+    func selectNoteRange(lowerNote: Int, upperNote: Int) {
+        firstNotePopup.selectItem(at: min(95, max(0, lowerNote)))
+        lastNotePopup.selectItem(at: min(95, max(0, upperNote)))
+        updateSummaryAndConfirmation()
+    }
+
+    @objc private func noteSelectionChanged(_ sender: Any?) { updateSummaryAndConfirmation() }
+
+    private func updateSummaryAndConfirmation() {
+        let firstTitle = Self.noteTitles[firstNote]
+        let lastTitle = Self.noteTitles[lastNote]
+        mapButton.isEnabled = firstNote <= lastNote
+        mapButton.setAccessibilityEnabled(mapButton.isEnabled)
+        summaryLabel.stringValue = "\(sampleDisplay) · \(firstTitle) THROUGH \(lastTitle) · INCLUSIVE"
+        summaryLabel.setAccessibilityLabel("Selected sample \(sampleDisplay). Inclusive range \(firstTitle) through \(lastTitle).")
     }
 }
 
@@ -321,6 +585,7 @@ enum InstrumentEditorViewIdentifier {
     static let defaultsPanel = "instrumentEditor.defaultsPanel"
     static let noteKeymapPanel = "instrumentEditor.noteKeymapPanel"
     static let keymapRangeStrip = "instrumentEditor.keymapRangeStrip"
+    static let keymapRangeAssignment = "instrumentEditor.keymapRangeAssignment"
     static let keymapPreviousOctave = "instrumentEditor.keymapPreviousOctave"
     static let keymapNextOctave = "instrumentEditor.keymapNextOctave"
     static let keyboardPlaceholder = "instrumentEditor.keyboardPlaceholder"
@@ -605,6 +870,7 @@ struct InstrumentEditorDisplayState: Equatable {
         isSampleRelativeNoteEditable: false,
         isSampleFinetuneEditable: false,
         isSamplePanningEditable: false,
+        isKeymapRangeAssignmentEnabled: false,
         sampleCount: 0,
         selectedSampleSlot: nil,
         emptySampleDestinationSlot: nil,
@@ -626,6 +892,7 @@ struct InstrumentEditorDisplayState: Equatable {
     let isSampleRelativeNoteEditable: Bool
     let isSampleFinetuneEditable: Bool
     let isSamplePanningEditable: Bool
+    let isKeymapRangeAssignmentEnabled: Bool
     let sampleCount: Int
     let selectedSampleSlot: Int?
     let emptySampleDestinationSlot: Int?
@@ -672,19 +939,22 @@ struct InstrumentEditorDisplayState: Equatable {
             source: .loadedModule,
             palette: playbackSong?.instrumentsByIndex ?? [:],
             selection: selection,
-            allowsInstrumentNameEditing: false
+            allowsInstrumentNameEditing: false,
+            allowsKeymapRangeAssignment: false
         )
     }
 
     static func editableDocument(
         _ document: BlankTrackerDocument,
-        isPlaybackActive: Bool = false
+        isPlaybackActive: Bool = false,
+        allowsKeymapRangeAssignment: Bool = true
     ) -> InstrumentEditorDisplayState {
         make(
             source: .editableDocument,
             palette: document.instrumentPalette,
             selection: document.selection,
-            allowsInstrumentNameEditing: !isPlaybackActive
+            allowsInstrumentNameEditing: !isPlaybackActive,
+            allowsKeymapRangeAssignment: allowsKeymapRangeAssignment
         )
     }
 
@@ -692,7 +962,8 @@ struct InstrumentEditorDisplayState: Equatable {
         source: Source,
         palette: [Int: PlaybackInstrument],
         selection: TrackerEditorSelection,
-        allowsInstrumentNameEditing: Bool
+        allowsInstrumentNameEditing: Bool,
+        allowsKeymapRangeAssignment: Bool
     ) -> InstrumentEditorDisplayState {
         let instrumentSlots = palette
             .filter { (1...255).contains($0.key) }
@@ -721,6 +992,7 @@ struct InstrumentEditorDisplayState: Equatable {
                 isSampleRelativeNoteEditable: false,
                 isSampleFinetuneEditable: false,
                 isSamplePanningEditable: false,
+                isKeymapRangeAssignmentEnabled: false,
                 sampleCount: 0,
                 selectedSampleSlot: nil,
                 emptySampleDestinationSlot: nil,
@@ -754,6 +1026,10 @@ struct InstrumentEditorDisplayState: Equatable {
             isSampleRelativeNoteEditable: allowsSelectedSampleEditing,
             isSampleFinetuneEditable: allowsSelectedSampleEditing,
             isSamplePanningEditable: allowsSelectedSampleEditing,
+            isKeymapRangeAssignmentEnabled: source == .editableDocument &&
+                allowsKeymapRangeAssignment &&
+                allowsSelectedSampleEditing &&
+                instrument.noteSampleMap?.count == TrackerNoteKeyMap.maximumNoteValue,
             sampleCount: instrument.samples.count,
             selectedSampleSlot: selectedSampleSlot,
             emptySampleDestinationSlot: emptySampleDestinationSlot,
@@ -847,6 +1123,7 @@ final class InstrumentEditorWindowPresenter {
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil,
+        keymapRangeAssignmentHandler: InstrumentKeymapRangeAssignmentHandler? = nil,
         onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler? = nil,
         noteAuditionKeyDownHandler: InstrumentEditorNoteAuditionKeyDownHandler? = nil,
         noteAuditionKeyUpHandler: InstrumentEditorNoteAuditionKeyUpHandler? = nil,
@@ -860,6 +1137,7 @@ final class InstrumentEditorWindowPresenter {
             windowController.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
             windowController.sampleFinetuneEditHandler = sampleFinetuneEditHandler
             windowController.samplePanningEditHandler = samplePanningEditHandler
+            windowController.keymapRangeAssignmentHandler = keymapRangeAssignmentHandler
             windowController.onScreenNoteHandler = onScreenNoteHandler
             windowController.noteAuditionKeyDownHandler = noteAuditionKeyDownHandler
             windowController.noteAuditionKeyUpHandler = noteAuditionKeyUpHandler
@@ -879,6 +1157,7 @@ final class InstrumentEditorWindowPresenter {
             sampleRelativeNoteEditHandler: sampleRelativeNoteEditHandler,
             sampleFinetuneEditHandler: sampleFinetuneEditHandler,
             samplePanningEditHandler: samplePanningEditHandler,
+            keymapRangeAssignmentHandler: keymapRangeAssignmentHandler,
             onScreenNoteHandler: onScreenNoteHandler,
             keyboardVisibleRange: keyboardVisibleRange,
             keyboardVisibleRangeChangeHandler: { [weak self] in self?.keyboardVisibleRange = $0 },
@@ -947,6 +1226,12 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             (window?.contentView as? InstrumentEditorView)?.samplePanningEditHandler = samplePanningEditHandler
         }
     }
+    var keymapRangeAssignmentHandler: InstrumentKeymapRangeAssignmentHandler? {
+        didSet {
+            (window?.contentView as? InstrumentEditorView)?.keymapRangeAssignmentHandler =
+                keymapRangeAssignmentHandler
+        }
+    }
     var onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler? {
         didSet {
             (window?.contentView as? InstrumentEditorView)?.onScreenNoteHandler = onScreenNoteHandler
@@ -978,6 +1263,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil,
+        keymapRangeAssignmentHandler: InstrumentKeymapRangeAssignmentHandler? = nil,
         onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler? = nil,
         keyboardVisibleRange: InstrumentKeyboardVisibleRange = .defaultRange,
         keyboardVisibleRangeChangeHandler: InstrumentKeyboardVisibleRangeChangeHandler? = nil,
@@ -992,6 +1278,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         self.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
         self.sampleFinetuneEditHandler = sampleFinetuneEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
+        self.keymapRangeAssignmentHandler = keymapRangeAssignmentHandler
         self.onScreenNoteHandler = onScreenNoteHandler
         self.keyboardVisibleRangeChangeHandler = keyboardVisibleRangeChangeHandler
         self.noteAuditionKeyDownHandler = noteAuditionKeyDownHandler
@@ -1007,6 +1294,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             sampleRelativeNoteEditHandler: sampleRelativeNoteEditHandler,
             sampleFinetuneEditHandler: sampleFinetuneEditHandler,
             samplePanningEditHandler: samplePanningEditHandler,
+            keymapRangeAssignmentHandler: keymapRangeAssignmentHandler,
             onScreenNoteHandler: onScreenNoteHandler,
             keyboardVisibleRange: keyboardVisibleRange,
             keyboardVisibleRangeChangeHandler: keyboardVisibleRangeChangeHandler
@@ -1092,6 +1380,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         sampleRelativeNoteEditHandler = nil
         sampleFinetuneEditHandler = nil
         samplePanningEditHandler = nil
+        keymapRangeAssignmentHandler = nil
         keyboardVisibleRangeChangeHandler = nil
         noteAuditionKeyDownHandler = nil
         noteAuditionKeyUpHandler = nil
@@ -1137,6 +1426,9 @@ final class InstrumentEditorView: FlippedEditorView {
     private weak var sampleFinetuneReadout: VTXEditorSegmentReadout?
     private weak var samplePanningControl: VTXEditorPanSliderControl?
     private weak var samplePanningReadout: NSTextField?
+    private weak var keymapRangeAssignmentButton: VTXEditorButton?
+    private weak var instrumentListScrollView: NSScrollView?
+    private weak var sampleListScrollView: NSScrollView?
     private var instrumentRowControls: [Int: InstrumentEditorListRowControl] = [:]
     private var sampleRowControls: [Int: InstrumentEditorListRowControl] = [:]
     var instrumentSelectionHandler: InstrumentEditorInstrumentSelectionHandler?
@@ -1146,6 +1438,9 @@ final class InstrumentEditorView: FlippedEditorView {
     var sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler?
     var sampleFinetuneEditHandler: SampleFinetuneEditHandler?
     var samplePanningEditHandler: SamplePanningEditHandler?
+    var keymapRangeAssignmentHandler: InstrumentKeymapRangeAssignmentHandler? {
+        didSet { updateKeymapRangeAssignmentButton() }
+    }
     var onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler?
     var keyboardVisibleRangeChangeHandler: InstrumentKeyboardVisibleRangeChangeHandler?
 
@@ -1159,6 +1454,7 @@ final class InstrumentEditorView: FlippedEditorView {
         sampleRelativeNoteEditHandler: SampleRelativeNoteEditHandler? = nil,
         sampleFinetuneEditHandler: SampleFinetuneEditHandler? = nil,
         samplePanningEditHandler: SamplePanningEditHandler? = nil,
+        keymapRangeAssignmentHandler: InstrumentKeymapRangeAssignmentHandler? = nil,
         onScreenNoteHandler: InstrumentEditorOnScreenNoteHandler? = nil,
         keyboardVisibleRange: InstrumentKeyboardVisibleRange = .defaultRange,
         keyboardVisibleRangeChangeHandler: InstrumentKeyboardVisibleRangeChangeHandler? = nil
@@ -1171,6 +1467,7 @@ final class InstrumentEditorView: FlippedEditorView {
         self.sampleRelativeNoteEditHandler = sampleRelativeNoteEditHandler
         self.sampleFinetuneEditHandler = sampleFinetuneEditHandler
         self.samplePanningEditHandler = samplePanningEditHandler
+        self.keymapRangeAssignmentHandler = keymapRangeAssignmentHandler
         self.onScreenNoteHandler = onScreenNoteHandler
         self.keyboardVisibleRange = keyboardVisibleRange
         self.keyboardVisibleRangeChangeHandler = keyboardVisibleRangeChangeHandler
@@ -1209,6 +1506,9 @@ final class InstrumentEditorView: FlippedEditorView {
             restoreCommittedControlDisplays()
             return false
         }
+        let scrollOrigins = [instrumentListScrollView, sampleListScrollView].map {
+            $0?.contentView.bounds.origin
+        }
         self.displayState = displayState
         rebuildCount += 1
         subviews.forEach { $0.removeFromSuperview() }
@@ -1216,6 +1516,11 @@ final class InstrumentEditorView: FlippedEditorView {
         instrumentRowControls.removeAll()
         sampleRowControls.removeAll()
         buildShell()
+        for (scrollView, origin) in zip([instrumentListScrollView, sampleListScrollView], scrollOrigins) {
+            guard let scrollView, let origin else { continue }
+            scrollView.contentView.scroll(to: origin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
         return true
     }
 
@@ -1432,9 +1737,11 @@ final class InstrumentEditorView: FlippedEditorView {
                 addLabel("\(instrument.sampleCount)", to: row, frame: NSRect(x: 128, y: 4, width: 14, height: 12), color: rowTextColor(selected: instrument.isSelected).withAlphaComponent(0.68), size: 8, alignment: .right)
             }
         }
-        addScrollView(to: panel, frame: frame, documentView: rowsView,
-                      rowCount: displayState.instrumentSlots.count, rowHeight: rowHeight,
-                      selectedRowIndex: displayState.instrumentSlots.firstIndex(where: \.isSelected))
+        instrumentListScrollView = addScrollView(
+            to: panel, frame: frame, documentView: rowsView,
+            rowCount: displayState.instrumentSlots.count, rowHeight: rowHeight,
+            selectedRowIndex: displayState.instrumentSlots.firstIndex(where: \.isSelected)
+        )
     }
 
     private func buildSampleSlots(_ panel: NSView) {
@@ -1478,11 +1785,13 @@ final class InstrumentEditorView: FlippedEditorView {
                 addLabel(sample.name, to: row, frame: NSRect(x: 42, y: 4, width: 100, height: 12), color: rowTextColor(selected: sample.isSelected), size: 9)
             }
         }
-        addScrollView(to: panel, frame: frame, documentView: rowsView,
-                      rowCount: rowCount, rowHeight: rowHeight,
-                      selectedRowIndex: displayState.emptySampleDestinationSlot == nil
-                          ? displayState.sampleSlots.firstIndex(where: \.isSelected)
-                          : 0)
+        sampleListScrollView = addScrollView(
+            to: panel, frame: frame, documentView: rowsView,
+            rowCount: rowCount, rowHeight: rowHeight,
+            selectedRowIndex: displayState.emptySampleDestinationSlot == nil
+                ? displayState.sampleSlots.firstIndex(where: \.isSelected)
+                : 0
+        )
     }
 
     @objc
@@ -1935,7 +2244,8 @@ final class InstrumentEditorView: FlippedEditorView {
     }
 
     private func buildKeymap(_ panel: NSView) {
-        addLabel(InstrumentEditorCopy.keymapSummary, to: panel, frame: NSRect(x: 91, y: 9, width: 560, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.32), size: 8)
+        addLabel(InstrumentEditorCopy.keymapSummary, to: panel, frame: NSRect(x: 91, y: 9, width: 505, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.32), size: 8)
+        addKeymapRangeAssignmentButton(to: panel, frame: NSRect(x: 606, y: 5, width: 106, height: 25))
         addKeyboardRangeButton(.lower, to: panel, frame: NSRect(x: 722, y: 5, width: 78, height: 25))
         addKeyboardRangeButton(.higher, to: panel, frame: NSRect(x: 806, y: 5, width: 80, height: 25))
 
@@ -2024,6 +2334,40 @@ final class InstrumentEditorView: FlippedEditorView {
         button.identifier = futureControlIdentifier(id)
         button.toolTip = "Read-only shell — editing coming later"
         addControl(button, to: parent, frame: frame)
+    }
+
+    private func addKeymapRangeAssignmentButton(to parent: NSView, frame: NSRect) {
+        let button = VTXEditorControlFactory.makeButton(title: "MAP RANGE…", fixedWidth: frame.width)
+        button.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.keymapRangeAssignment)
+        button.setAccessibilityLabel("Map selected sample to note range")
+        keymapRangeAssignmentButton = button
+        updateKeymapRangeAssignmentButton()
+        addControl(button, to: parent, frame: frame)
+    }
+
+    private func updateKeymapRangeAssignmentButton() {
+        let isEnabled = displayState.isKeymapRangeAssignmentEnabled &&
+            keymapRangeAssignmentHandler != nil
+        guard let button = keymapRangeAssignmentButton else { return }
+        button.isEnabled = isEnabled
+        button.target = isEnabled ? self : nil
+        button.action = isEnabled ? #selector(requestKeymapRangeAssignment(_:)) : nil
+        button.alphaValue = isEnabled ? 1 : 0.38
+        button.setAccessibilityEnabled(isEnabled)
+        button.toolTip = isEnabled
+            ? "Map the selected represented sample to an inclusive note range"
+            : "Available only for an editable, stopped document with a represented sample"
+    }
+
+    @objc private func requestKeymapRangeAssignment(_ sender: Any?) {
+        guard displayState.source == .editableDocument,
+              displayState.isKeymapRangeAssignmentEnabled,
+              keymapRangeAssignmentButton?.isEnabled == true,
+              let keymapRangeAssignmentHandler else { return }
+        let focusedNote = [activePreviewToken?.noteValue, activeOnScreenNoteValue]
+            .compactMap { $0 }
+            .first(where: keyboardVisibleRange.contains)
+        _ = keymapRangeAssignmentHandler(focusedNote)
     }
 
     private func addKeyboardRangeButton(
@@ -2116,7 +2460,7 @@ final class InstrumentEditorView: FlippedEditorView {
         rowCount: Int,
         rowHeight: CGFloat,
         selectedRowIndex: Int?
-    ) {
+    ) -> NSScrollView {
         let scrollView = NSScrollView(frame: frame)
         scrollView.drawsBackground = false
         scrollView.borderType = .lineBorder
@@ -2128,6 +2472,7 @@ final class InstrumentEditorView: FlippedEditorView {
             documentView.scrollToVisible(NSRect(x: 0, y: CGFloat(selectedRowIndex) * rowHeight,
                                                 width: documentView.bounds.width, height: rowHeight))
         }
+        return scrollView
     }
 
     private func codeColor(selected: Bool) -> NSColor {

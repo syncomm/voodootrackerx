@@ -77,9 +77,11 @@ complete. Empty instruments/S01 destinations, deterministic Sine, and the
 Sample Editor WAV/AIFF/AIFC/native-FLAC LOAD now offers Replace, Add as New,
 and Cancel for occupied samples. Add appends/selects represented S02+ without
 changing keymap references; Sample Editor auditions it directly while pattern
-and Instrument Editor audition remain keymap-driven. Delete, clear, reorder,
-duplication, standalone New Sample, and keymap editing remain deferred, as does
-the complete clean-launch-to-export acceptance gate.
+and Instrument Editor audition remain keymap-driven. Instrument Editor now maps
+the selected represented sample to an explicit inclusive C-0...B-7 note range
+through one undoable sheet action. Delete, clear, reorder, duplication,
+standalone New Sample, graphical drag mapping, and automatic mapping remain
+deferred, as does the complete clean-launch-to-export acceptance gate.
 
 What works today:
 
@@ -94,7 +96,8 @@ What works today:
   paginated Pattern Bank.
 - `Window > Instrument Editor` opens the fixed v1-mockup editor with selectable
   represented instrument/sample rows, stopped-editable metadata controls, read-only
-  envelope/keymap displays, and isolated computer/on-screen keyboard audition.
+  envelope/keymap displays, isolated computer/on-screen keyboard audition, and a
+  stopped-editable `MAP RANGE…` sheet for the selected represented sample.
 - `Window > Sample Editor` opens a fixed HTML-mockup-aligned window
   with a compact instrument popup bound to the same canonical instrument/sample
   selection. Instrument changes are non-mutating/no-undo, and the selected row,

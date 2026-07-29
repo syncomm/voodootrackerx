@@ -30,8 +30,9 @@ Replace/Add as New/Cancel for the exact represented selection, reuses stereo
 Mix/Left/Right, and commits one import, replace, or append edit with stale-result
 protection. Add appends/selects the next represented Sxx without changing the
 keymap. Its panel accepts WAV/AIFF/AIFC and native FLAC; Ogg-FLAC is unsupported,
-and FLAC metadata/loops are ignored. Destructive lifecycle and Instrument Editor
-keymap assignment controls remain deferred.
+and FLAC metadata/loops are ignored. Instrument Editor now exposes explicit
+selected-sample note-range assignment; destructive lifecycle, graphical drag
+mapping, and automatic mapping remain deferred.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -122,11 +123,13 @@ once, refreshes every editor, and does not auto-audition; the next trigger uses
 imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
 state, and no source path is retained. Destructive sample lifecycle remains deferred.
 Separately, stopped editable documents can map a nonempty represented sample in
-the selected instrument to an inclusive 96-note range through one `Map Sample
-to Note Range` edit. Failures and no-ops create no revision/history; undo/redo
-is exact. Existing audition, planning, editable-copy, XM, WAV, and M4A paths
-consume the map, while Sample Editor audition stays direct. This adds no UI,
-automatic mapping, sample lifecycle, or auto-audition.
+the selected instrument through the Instrument Editor's `MAP RANGE…` sheet over
+the canonical C-0...B-7 domain. The inclusive range defaults to a focused
+keymap note, otherwise the selected octave's C...B span, otherwise C-4...B-4.
+One `Map Sample to Note Range` edit preserves selection and notes outside the
+range; failures and no-ops create no revision/history, and undo/redo is exact.
+Instrument Editor/pattern playback consume the map while Sample Editor audition
+stays direct-selected-sample. There is no automatic/drag mapping or auto-audition.
 Sample Editor AUDITION now toggles the represented selected slot directly at
 C-4 through the persistent preview stream for loaded/read-only and editable
 sources, preserving existing PCM/loop/volume/pan/tuning planning without keymap
@@ -369,7 +372,9 @@ Recently completed narrow targets:
 - `Window > Instrument Editor` now opens one reusable fixed 920 × 638 utility
   window aligned to `assets/mockups/instrument-editor-v1.html`, bound to the current document and selection.
   Supported stopped-editable metadata routes through undo, and computer/graphical keys use isolated preview.
-  XI, envelope/keymap assignment UI, and waveform controls stay disabled; the range-edit foundation is not wired to the window. Loaded modules stay read-only,
+  Its explicit selected-sample range sheet wires the existing one-edit keymap
+  foundation; XI, envelope editing, graphical mapping, and waveform controls
+  stay disabled. Loaded modules stay read-only,
   and no parser, runtime transport, or broad writer/export behavior changed.
 - `File > Export Audio > M4A...` now reuses the stopped product WAV plan and
   scaled Float32 temp output for loaded modules, editable documents, and

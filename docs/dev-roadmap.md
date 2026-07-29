@@ -66,8 +66,9 @@ VoodooTracker X currently has:
   S01 or offers Replace/Add as New/Cancel, with stereo Mix/Left/Right,
   stale-result checks, one format-neutral undoable edit, and document-owned
   mono 16-bit PCM. Add appends/selects S02+ while preserving the keymap;
-  an undoable inclusive keymap-range foundation is now available without UI.
-  Destructive lifecycle, standalone New Sample, and assignment controls remain unavailable.
+  Instrument Editor now exposes the undoable inclusive keymap-range foundation
+  through a selected-represented-sample sheet. Destructive lifecycle, standalone
+  New Sample, graphical drag mapping, and automatic mapping remain unavailable.
   AUDITION now toggles that selected slot directly at C-4 through the persistent
   preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
@@ -202,6 +203,9 @@ Recently completed narrow target:
 - A UI-independent selected-instrument keymap mutation maps a represented sample
   across inclusive `0...95` indices in one undoable action. It preserves selection,
   round-trips through editable copy/XM, and feeds existing audition and audio paths.
+- Instrument Editor now exposes that foundation through `MAP RANGE…`: a compact
+  C-0...B-7 inclusive sheet captures and revalidates the represented selected
+  sample, preserves selection/outside assignments, and adds no auto-audition.
 - Sample Editor LOAD now exposes native mono/stereo 16-bit and 24-bit FLAC
   through the existing one-file picker, coordinator, background worker,
   normalized candidate, and commit path. It rejects 8-bit and untested depths,
@@ -218,7 +222,8 @@ Recently completed narrow target:
   stereo Mix/Left/Right, background decode, operation/document revision checks,
   document-owned canonical mono 16-bit PCM, all-S01 first-sample mapping, and
   one format-neutral import/replace/add undo action are implemented. Delete,
-  clear, reorder, duplication, keymap UI wiring, drag/drop, and global import remain separate work.
+  clear, reorder, duplication, graphical keymap mapping, drag/drop, and global
+  import remain separate work.
 - Labeled whole-editable-document snapshots now flow through
   `EditableDocumentEditCoordinator` and a capped `UndoManager`. Clear Current
   Pattern is the first routed operation; undo/redo refresh existing editor
@@ -229,8 +234,9 @@ Recently completed narrow target:
   note-keymap hierarchy. It follows File New, module load, Make Editable Copy,
   Clear Song transitions, and main control-panel instrument/sample selection;
   shows represented metadata, immutable volume-envelope and keymap-range data,
-  and clean empty states. XI, envelope/keymap assignment, and waveform controls
-  remain disabled; isolated computer/graphical audition and the unwired range backend are implemented.
+  and clean empty states. The selected-sample range sheet is implemented; XI,
+  envelope editing, graphical mapping, and waveform controls remain disabled.
+  Isolated computer/graphical audition remains distinct from assignment.
   It adds no audition mutation or envelope editing;
   playback, parser, writer, and export behavior remain unchanged.
 - App M4A export now reuses the existing whole-song product WAV plan and
@@ -780,8 +786,7 @@ Implemented foundation:
 Remaining VTX 1.0 scope:
 
 - the dependency-ordered from-scratch instrument/sample workflow in
-  [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md),
-  continuing with Instrument Editor UI wiring for the keymap range foundation
+  [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md)
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit
 - editable loop mode/range behind applyEdit, followed by separately scoped PCM
@@ -792,7 +797,7 @@ Remaining VTX 1.0 scope:
 - sample trimming and loop editing foundation
 - envelope editing foundation
 
-Future Instrument Editor keymap polish can wire the foundation while keeping audition distinct;
+Future Instrument Editor keymap polish can add graphical interaction while keeping audition distinct;
 see `docs/roadmap.md` and `docs/design/instrument-editor-window.md` for the
 assignment, audition-layer, fixture, and `applyEdit` direction.
 

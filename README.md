@@ -72,17 +72,20 @@ Loaded modules remain read-only, Save and Save As remain disabled, Export XM
 remains scoped to the current editable subset, and advanced audio export
 options remain future work.
 
-The proposed future `v0.3.0-alpha.1` From-Scratch Composition Alpha is not yet
-complete. Empty instruments/S01 destinations, deterministic Sine, and the
+The proposed `v0.3.0-alpha.1` From-Scratch Composition Alpha is blocked by a
+maintainer-reproduced editable keymap-routing defect.
+Empty instruments/S01 destinations, deterministic Sine, and the
 Sample Editor WAV/AIFF/AIFC/native-FLAC LOAD now offers Replace, Add as New,
 and Cancel for occupied samples. Add appends/selects represented S02+ without
-changing keymap references; Sample Editor auditions it directly while pattern
-and Instrument Editor audition remain keymap-driven. Instrument Editor now
+changing keymap references; Sample Editor auditions it directly. Pattern and
+Instrument Editor audition are intended to follow the keymap, but mapped S02
+notes can sound as S01 and selected-sample UI state can affect live routing.
+Instrument Editor now
 selects an inclusive range on its full C-0...B-7 summary bar without mutation;
 `MAP RANGE…` prefills the existing one-undo sheet from that selection. Delete,
 clear, reorder, duplication, standalone New Sample, drag-to-paint mapping, and
-automatic mapping remain deferred, as does the complete clean-launch-to-export
-acceptance gate.
+automatic mapping remain deferred. Deterministic XM export/reopen is covered,
+but the release gate must be rerun after a dedicated playback correction PR.
 
 What works today:
 
@@ -129,7 +132,8 @@ What works today:
 - Order Ops `INSERT`, `DELETE`, `DUP`, `MOVE UP`, `MOVE DOWN`, and `PTN -/+`
   for stopped editable documents.
 - `File > Make Editable Copy` for stopped supported loaded read-only XM
-  modules. The copy is untitled/in-memory and does not claim the source path.
+  modules. The copy is untitled/in-memory and does not claim the source path;
+  Amiga-frequency-table XM is refused because the editable subset is Linear.
 - `File > Export XM...` for stopped editable documents, covering the current
   VTX editable subset and supported existing palette/sample payloads.
 - `File > Export Audio > WAV...` for stopped loaded modules, editable
@@ -162,8 +166,8 @@ What is still future work:
   export settings.
 - Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
-- Additional sample slots/lifecycle operations, square/triangle/saw/noise
-  generation, keymap editing, editable loop and PCM/waveform work, and
+- Destructive sample lifecycle operations, square/triangle/saw/noise
+  generation, drag-to-paint/automatic keymap assignment, editable loop and PCM/waveform work, and
   destructive processing. Loaded modules remain read-only; see
   [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md).
 - Live Loop retargeting during active playback, loop-range editing, arbitrary

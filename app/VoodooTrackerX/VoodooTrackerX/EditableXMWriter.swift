@@ -58,6 +58,8 @@ enum EditableXMWriterError: Error, Equatable {
     case unsupportedOrderLength(Int)
     case unsupportedPatternIndex(Int)
     case unsupportedPatternCount(Int)
+    case unsupportedChannelCount(Int)
+    case unsupportedPatternRowCount(patternIndex: Int, rowCount: Int)
     case unsupportedInstrumentCount(Int)
     case unsupportedInstrumentSampleCount(instrumentIndex: Int, sampleCount: Int)
     case unsupportedDuplicateSampleIndex(instrumentIndex: Int, sampleIndex: Int)
@@ -72,6 +74,9 @@ enum EditableXMWriterError: Error, Equatable {
     case unsupportedSampleLoopType(instrumentIndex: Int, sampleIndex: Int, loopType: Int)
     case unsupportedSampleLoopRegion(instrumentIndex: Int, sampleIndex: Int, loopStart: Int, loopLength: Int)
     case unsupportedSampleLength(instrumentIndex: Int, sampleIndex: Int, frameCount: Int, bitDepth: Int)
+    case unsupportedSamplePCM(instrumentIndex: Int, sampleIndex: Int)
+    case unsupportedSampleIndexOrder(instrumentIndex: Int, sampleIndices: [Int])
+    case unsupportedNoteSampleMap(instrumentIndex: Int, entryCount: Int?, sampleIndex: Int?)
     case unsupportedVolumeEnvelopePointCount(instrumentIndex: Int, pointCount: Int)
     case unsupportedPanningEnvelopePointCount(instrumentIndex: Int, pointCount: Int)
 }
@@ -113,8 +118,14 @@ struct EditableXMWriter {
             throw EditableXMWriterError.unsupportedInstrumentCount(instrumentCount)
         }
 
+        let channelCount = try validatedChannelCount(for: document)
+        for pattern in document.patterns where !(1...Self.maxXMPatternRows).contains(pattern.rowCount) {
+            throw EditableXMWriterError.unsupportedPatternRowCount(
+                patternIndex: pattern.index,
+                rowCount: pattern.rowCount
+            )
+        }
         let exportedInstruments = try exportedInstruments(for: document, instrumentCount: instrumentCount)
-        let channelCount = effectiveChannelCount(for: document)
         let patternsByIndex = Dictionary(document.patterns.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
 
         var writer = XMByteWriter()
@@ -165,8 +176,13 @@ struct EditableXMWriter {
         return max(BlankTrackerDocument.defaultPatternIndex, highestAllocatedPattern, highestOrderedPattern) + 1
     }
 
-    private func effectiveChannelCount(for document: BlankTrackerDocument) -> Int {
-        max(1, min(document.pattern.channels, Self.maxXMChannels))
+    private func validatedChannelCount(for document: BlankTrackerDocument) throws -> Int {
+        let channelCount = document.pattern.channels
+        guard (1...Self.maxXMChannels).contains(channelCount),
+              document.patterns.allSatisfy({ $0.channels == channelCount }) else {
+            throw EditableXMWriterError.unsupportedChannelCount(channelCount)
+        }
+        return channelCount
     }
 
     private func effectiveRowCount(for pattern: XMPatternData?, fallback: Int) -> Int {
@@ -261,7 +277,6 @@ struct EditableXMWriter {
         }
 
         let samplesWithPayload = paletteInstrument.samples
-            .filter { !$0.pcm.isEmpty }
             .sorted { lhs, rhs in
                 if lhs.sampleIndex == rhs.sampleIndex {
                     return lhs.name ?? "" < rhs.name ?? ""
@@ -283,6 +298,13 @@ struct EditableXMWriter {
                     sampleIndex: sample.sampleIndex
                 )
             }
+        }
+        let sampleIndices = samplesWithPayload.map(\.sampleIndex)
+        guard sampleIndices == Array(0..<samplesWithPayload.count) else {
+            throw EditableXMWriterError.unsupportedSampleIndexOrder(
+                instrumentIndex: instrumentIndex,
+                sampleIndices: sampleIndices
+            )
         }
 
         guard !samplesWithPayload.isEmpty else {
@@ -309,8 +331,9 @@ struct EditableXMWriter {
                 (sample.sampleIndex, UInt8(outputIndex))
             }
         )
-        let noteSampleMap = exportedNoteSampleMap(
+        let noteSampleMap = try exportedNoteSampleMap(
             paletteInstrument.noteSampleMap,
+            instrumentIndex: instrumentIndex,
             sampleIndexToOutputIndex: sampleIndexToOutputIndex
         )
 
@@ -341,6 +364,13 @@ struct EditableXMWriter {
                 instrumentIndex: instrumentIndex,
                 sampleIndex: sample.sampleIndex,
                 bitDepth: bitDepth
+            )
+        }
+        guard !sample.pcm.isEmpty,
+              sample.pcm.allSatisfy({ $0.isFinite && (-1...1).contains($0) }) else {
+            throw EditableXMWriterError.unsupportedSamplePCM(
+                instrumentIndex: instrumentIndex,
+                sampleIndex: sample.sampleIndex
             )
         }
         guard sample.loopType == 0 || sample.loopType == 1 || sample.loopType == 2 else {
@@ -411,13 +441,28 @@ struct EditableXMWriter {
 
     private func exportedNoteSampleMap(
         _ noteSampleMap: [Int]?,
+        instrumentIndex: Int,
         sampleIndexToOutputIndex: [Int: UInt8]
-    ) -> [UInt8] {
-        guard let noteSampleMap, noteSampleMap.count == 96 else {
+    ) throws -> [UInt8] {
+        guard let noteSampleMap else {
             return Array(repeating: 0, count: 96)
         }
-        return noteSampleMap.map { mappedSampleIndex in
-            sampleIndexToOutputIndex[mappedSampleIndex] ?? 0
+        guard noteSampleMap.count == 96 else {
+            throw EditableXMWriterError.unsupportedNoteSampleMap(
+                instrumentIndex: instrumentIndex,
+                entryCount: noteSampleMap.count,
+                sampleIndex: nil
+            )
+        }
+        return try noteSampleMap.map { mappedSampleIndex in
+            guard let outputIndex = sampleIndexToOutputIndex[mappedSampleIndex] else {
+                throw EditableXMWriterError.unsupportedNoteSampleMap(
+                    instrumentIndex: instrumentIndex,
+                    entryCount: noteSampleMap.count,
+                    sampleIndex: mappedSampleIndex
+                )
+            }
+            return outputIndex
         }
     }
 

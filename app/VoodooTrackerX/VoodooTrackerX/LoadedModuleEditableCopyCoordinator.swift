@@ -115,7 +115,9 @@ struct LoadedModuleEditableCopyCoordinator {
         guard context.loadedPlaybackSong != nil else {
             return .missingPlaybackSong
         }
-        guard metadata.type == "XM", !metadata.xmPatterns.isEmpty else {
+        guard metadata.type == "XM",
+              metadata.usesLinearFrequencyTable,
+              !metadata.xmPatterns.isEmpty else {
             return .unsupportedLoadedModule
         }
         guard makeSupportedEditableCopy(context: context) != nil else {

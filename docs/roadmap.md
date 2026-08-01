@@ -18,8 +18,10 @@ AAC-encoded M4A export for convenient sharing. Both formats write only to a
 user-selected destination. Loaded modules remain read-only, Save/Save As remain
 disabled, and advanced audio export options remain future work.
 
-The proposed next major milestone is the future `v0.3.0-alpha.1` From-Scratch
-Composition Alpha. It is not yet released; its complete acceptance gate and
+The proposed next major milestone is `v0.3.0-alpha.1` From-Scratch
+Composition Alpha. It is not yet released; its automated XM round-trip gate is
+a no-go after maintainer testing proved incorrect live editable keymap routing.
+Its complete acceptance gate and
 dependency-ordered PR plan are defined by
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
 The first gate slice is implemented: File New represents empty I01/S01 and
@@ -33,6 +35,9 @@ untested depths plus Ogg-FLAC are rejected, and FLAC metadata/loops are ignored.
 Sample Editor AUDITION toggles its represented selected slot directly at C-4
 through the persistent preview stream for loaded/read-only and editable sources,
 without keymap lookup or mutation.
+The project-owned release-gate builder proves deterministic supported-state XM
+reopen and static sample planning, but not correct live audition/runtime routing; see
+`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 
 ## Project Goals
 

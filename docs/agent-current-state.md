@@ -37,7 +37,8 @@ assignment; destructive lifecycle, drag-to-paint, and automatic mapping remain d
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
 which creates an untitled in-memory editable copy without claiming the opened
-source path.
+source path. The current editable model is Linear-frequency-table only, so
+Amiga-table XMs are refused rather than silently converted.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 
@@ -48,6 +49,12 @@ direction; it does not expand v1, add a target, or change the runtime. See
 `docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
 
 Release status: `v0.2.0-alpha.5` is the released Rendered Audio Export Alpha.
+The `v0.3.0-alpha.1` composition/XM round-trip gate is blocked. Maintainer testing
+proves live editable Instrument Editor audition, pattern-entry audition, and song
+playback can route S02-mapped notes to S01, with selected-sample UI state affecting
+the result. Static planning and XM export/reopen remain green, but the full gate
+must be rerun after a dedicated correction PR. See
+`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
 `File > Export Audio` for stopped loaded modules, editable documents, and
 editable copies. Export is non-mutating, writes only to the selected
@@ -128,12 +135,13 @@ the canonical C-0...B-7 domain. A transient range dragged on the full-map summar
 is the first sheet default, followed by a focused note, selected octave, then C-4...B-4.
 One `Map Sample to Note Range` edit preserves selection and notes outside the
 range; failures and no-ops create no revision/history, and undo/redo is exact.
-Instrument Editor/pattern playback consume the map while Sample Editor audition
-stays direct-selected-sample. There is no automatic/drag mapping or auto-audition.
+Instrument Editor/pattern playback are intended to consume the map while Sample
+Editor audition stays direct-selected-sample. Live editable routing is a proven
+release blocker; there is no automatic/drag mapping or auto-audition.
 Sample Editor AUDITION now toggles the represented selected slot directly at
 C-4 through the persistent preview stream for loaded/read-only and editable
 sources, preserving existing PCM/loop/volume/pan/tuning planning without keymap
-lookup or mutation. Instrument Editor remains keymap-driven. Note selection and
+lookup or mutation. Instrument Editor is intended to remain keymap-driven. Note selection and
 natural-completion UI notification remain future work; no polling is used.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing

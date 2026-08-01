@@ -468,6 +468,80 @@ final class EditableXMWriterTests: XCTestCase {
         }
     }
 
+    func testWriterRejectsInvalidDimensionsPCMSampleOrderAndKeymapInsteadOfCanonicalizingThem() {
+        let invalidChannels = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 33)]
+        )
+        XCTAssertThrowsError(try EditableXMWriter().data(from: invalidChannels)) { error in
+            XCTAssertEqual(error as? EditableXMWriterError, .unsupportedChannelCount(33))
+        }
+
+        let mismatchedChannels = makeDocument(
+            orderTable: [0, 1],
+            patterns: [
+                BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1),
+                BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 1, channels: 2),
+            ]
+        )
+        XCTAssertThrowsError(try EditableXMWriter().data(from: mismatchedChannels))
+
+        let invalidRows = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 257, channels: 1)]
+        )
+        XCTAssertThrowsError(try EditableXMWriter().data(from: invalidRows)) { error in
+            XCTAssertEqual(
+                error as? EditableXMWriterError,
+                .unsupportedPatternRowCount(patternIndex: 0, rowCount: 257)
+            )
+        }
+
+        let invalidPCMValues: [[Float]] = [[], [.nan], [1.01]]
+        for pcm in invalidPCMValues {
+            let invalidPCM = makeDocument(
+                orderTable: [0],
+                patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+                instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [makeXMSourceSample(pcm: pcm)])]
+            )
+            XCTAssertThrowsError(try EditableXMWriter().data(from: invalidPCM)) { error in
+                XCTAssertEqual(error as? EditableXMWriterError, .unsupportedSamplePCM(instrumentIndex: 1, sampleIndex: 0))
+            }
+        }
+
+        let sparseSamples = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [makeXMSourceSample(sampleIndex: 1, pcm: [0])])]
+        )
+        XCTAssertThrowsError(try EditableXMWriter().data(from: sparseSamples)) { error in
+            XCTAssertEqual(
+                error as? EditableXMWriterError,
+                .unsupportedSampleIndexOrder(instrumentIndex: 1, sampleIndices: [1])
+            )
+        }
+
+        let firstSample = makeXMSourceSample(pcm: [0])
+        let secondSample = makeXMSourceSample(sampleIndex: 1, pcm: [0])
+        let invalidKeymap = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [firstSample, secondSample],
+                    noteSampleMap: Array(repeating: 2, count: 96)
+                )
+            ]
+        )
+        XCTAssertThrowsError(try EditableXMWriter().data(from: invalidKeymap)) { error in
+            XCTAssertEqual(
+                error as? EditableXMWriterError,
+                .unsupportedNoteSampleMap(instrumentIndex: 1, entryCount: 96, sampleIndex: 2)
+            )
+        }
+    }
+
     func testMultiplePatternsAndOrderReferencesPreserveAllocatedSlots() throws {
         var firstPattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 2)
         var secondPattern = BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 6, channels: 2)
@@ -792,6 +866,80 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual([11, 24, 47, 60].map { expectedMap[$0] }, [0, 0, 0, 0])
     }
 
+    @MainActor
+    func testCompositionReleaseGateRoundTripsSupportedStateAndRendersReopenedXM() throws {
+        var document = makeCompositionReleaseGateDocument()
+        let coordinator = EditableDocumentEditCoordinator(
+            contextProvider: { .editable(document: document, isPlaybackActive: false) },
+            documentApplyHandler: { document = $0 }
+        )
+        XCTAssertTrue(coordinator.setSamplePanning(instrumentAt: 0, sampleAt: 0, panning: 73))
+        let exportState = document
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertEqual(document, exportState)
+        let plannedSampleIndices = [1, 2].map { selectedSample -> [Int] in
+            var snapshot = document
+            snapshot.selectSample(selectedSample)
+            return PlaybackSongSyntheticAdapter.adapt(
+                EditablePlaybackSongBuilder.build(from: snapshot), orderIndex: 0, sampleRate: 8_363
+            ).diagnostics.eventMappings.map(\.sampleIndex)
+        }
+        XCTAssertEqual(plannedSampleIndices, [[0, 1], [0, 1]])
+
+        let firstExport = try EditableXMWriter().data(from: document)
+        XCTAssertEqual(try EditableXMWriter().data(from: document), firstExport)
+        XCTAssertEqual(firstExport.ascii(offset: 0, length: 17), "Extended Module: ")
+        XCTAssertEqual(firstExport.le16(at: 58), 0x0104)
+        XCTAssertEqual(firstExport.le32(at: 60), 276)
+        let firstPattern = firstExport.patternHeader(at: 336)
+        let secondPattern = firstExport.patternHeader(at: firstPattern.nextOffset)
+        let firstInstrument = firstExport.instrumentHeader(at: secondPattern.nextOffset)
+        let secondInstrument = firstExport.instrumentHeader(at: firstInstrument.nextOffset)
+        XCTAssertGreaterThan(firstPattern.packedSize, 0)
+        XCTAssertGreaterThan(secondPattern.packedSize, 0)
+        XCTAssertEqual(firstInstrument.sampleCount, 2)
+        XCTAssertEqual(secondInstrument.sampleCount, 0)
+        XCTAssertEqual(secondInstrument.nextOffset, firstExport.count)
+        let privatePathPrefix = Data(["/", "Users"].joined().utf8)
+        XCTAssertNil(firstExport.range(of: privatePathPrefix))
+
+        let xmURL = try temporaryExportURL(filename: "composition-release-gate.xm")
+        try firstExport.write(to: xmURL, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: xmURL.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: xmURL.path)
+        XCTAssertEqual(metadata.title, document.title)
+        XCTAssertEqual(metadata.orderTable, document.orderTable)
+        XCTAssertEqual(metadata.restartPosition, document.restartPosition)
+        XCTAssertEqual(metadata.channels, document.pattern.channels)
+        XCTAssertEqual(metadata.xmPatterns, document.patterns)
+        XCTAssertEqual(metadata.instruments, 2)
+        XCTAssertEqual(metadata.xmFlags, 0x0001)
+        XCTAssertEqual(metadata.defaultTempo, document.speed)
+        XCTAssertEqual(metadata.defaultBPM, document.tempo)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex, document.instrumentPalette)
+
+        let reopenedContext = WAVExportDocumentContext.loadedReadOnly(
+            playbackSong: reopenedSong,
+            displayName: metadata.title,
+            isPlaybackActive: false
+        )
+        let wavURL = xmURL.deletingLastPathComponent().appendingPathComponent("reopened.wav")
+        guard case let .exported(_, wavRender) = WAVExportCoordinator.export(
+            plan: try WAVExportCoordinator.makePlan(context: reopenedContext),
+            to: wavURL
+        ) else { return XCTFail("Expected WAV export from reopened XM") }
+        XCTAssertGreaterThan(wavRender.exportDiagnostics?.preExportPeak ?? 0, 0)
+
+        let m4aURL = xmURL.deletingLastPathComponent().appendingPathComponent("reopened.m4a")
+        guard case let .exported(_, m4aRender, _) = M4AExportCoordinator.export(
+            plan: try M4AExportCoordinator.makePlan(context: reopenedContext),
+            to: m4aURL
+        ) else { return XCTFail("Expected M4A export from reopened XM") }
+        XCTAssertGreaterThan(m4aRender.exportDiagnostics?.preExportPeak ?? 0, 0)
+        XCTAssertGreaterThan(try Data(contentsOf: m4aURL).count, 0)
+    }
+
     private func makeDocument(
         title: String = BlankTrackerDocument.defaultTitle,
         currentPatternIndex: Int = BlankTrackerDocument.defaultPatternIndex,
@@ -814,6 +962,55 @@ final class EditableXMWriterTests: XCTestCase {
             selection: .default,
             instrumentPalette: instrumentPalette,
             patterns: patterns
+        )
+    }
+
+    private func makeCompositionReleaseGateDocument() -> BlankTrackerDocument {
+        var firstPattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 2)
+        var secondPattern = BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 4, channels: 2)
+        firstPattern.rows[0][0] = XMPatternEventCell(note: 24, instrument: 1, volumeColumn: 0x30, effectType: 0x0F, effectParam: 0x06)
+        firstPattern.rows[2][1] = XMPatternEventCell(note: 60, instrument: 1, volumeColumn: 0x40, effectType: 0x0C, effectParam: 0x20)
+        firstPattern.rows[3][1] = XMPatternEventCell(note: XMPatternEventCell.keyOffNoteValue, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
+        secondPattern.rows[0][0] = XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        secondPattern.rows[2][0] = XMPatternEventCell(note: XMPatternEventCell.keyOffNoteValue, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
+
+        let low = makeXMSourceSample(
+            name: "Low Pulse", pcm: (0..<64).map { $0 % 2 == 0 ? -0.5 : 0.5 },
+            volume: 0.75, panning: 40, relativeNote: -2, finetune: 17,
+            loopStart: 8, loopLength: 40, loopType: 1
+        )
+        let high = makeXMSourceSample(
+            sampleIndex: 1, name: "High Ramp", pcm: (0..<96).map { Float(($0 % 32) - 16) / 32 },
+            volume: 0.5, panning: 220, relativeNote: 3, finetune: -31,
+            loopStart: 16, loopLength: 64, loopType: 2, sourceBitDepthBits: 16
+        )
+        let volumeEnvelope = PlaybackVolumeEnvelope(
+            enabled: true,
+            points: [.init(tick: 0, value: 64), .init(tick: 8, value: 48), .init(tick: 16, value: 32)],
+            sustainPointIndex: 1, loopStartPointIndex: 0, loopEndPointIndex: 2,
+            typeFlags: 0x07, fadeout: 2_048
+        )
+        let panningEnvelope = PlaybackPanningEnvelope(
+            enabled: true,
+            points: [.init(tick: 0, value: 16), .init(tick: 12, value: 48)],
+            sustainPointIndex: 1, loopStartPointIndex: 0, loopEndPointIndex: 1,
+            typeFlags: 0x07
+        )
+        let mappedInstrument = PlaybackInstrument(
+            index: 1, name: "Split Instrument", samples: [low, high],
+            volumeEnvelope: volumeEnvelope, panningEnvelope: panningEnvelope,
+            autoVibrato: .init(waveformType: 2, sweep: 8, depth: 6, rate: 24),
+            noteSampleMap: Array(repeating: 0, count: 48) + Array(repeating: 1, count: 48)
+        )
+        return BlankTrackerDocument(
+            title: "Composition Gate", songLength: 2, currentPosition: 0,
+            restartPosition: 1, currentPatternIndex: 0, tempo: 132, speed: 6,
+            orderTable: [0, 1], selection: .default,
+            instrumentPalette: [
+                1: mappedInstrument,
+                2: PlaybackInstrument(index: 2, name: "Empty Instrument", samples: [])
+            ],
+            patterns: [firstPattern, secondPattern]
         )
     }
 

@@ -31,6 +31,8 @@ final class ExportXMCoordinatorTests: XCTestCase {
         let originalDocument = document
         let selectedDestination = try temporaryDestination(filename: "song")
         let expectedDestination = ExportXMCoordinator.normalizedXMURL(selectedDestination)
+        let replacedBytes = Data("replace atomically".utf8)
+        try replacedBytes.write(to: expectedDestination)
         let provider = FakeExportXMDestinationProvider(destination: selectedDestination)
         let coordinator = ExportXMCoordinator(destinationProvider: provider)
         let context = ExportXMDocumentContext.editable(
@@ -50,6 +52,7 @@ final class ExportXMCoordinatorTests: XCTestCase {
         XCTAssertEqual(result.userFacingMessage, "Export XM completed.")
         XCTAssertFalse(FileManager.default.fileExists(atPath: selectedDestination.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: expectedDestination.path))
+        XCTAssertNotEqual(try Data(contentsOf: expectedDestination), replacedBytes)
         XCTAssertEqual(document, originalDocument)
 
         let metadata = try ModuleMetadataLoader().load(fromPath: expectedDestination.path)
@@ -243,6 +246,28 @@ final class ExportXMCoordinatorTests: XCTestCase {
         XCTAssertEqual(result.userFacingTitle, "Export XM Failed")
         XCTAssertTrue(result.userFacingMessage?.contains("Could not build XM data.") == true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    func testWriterFailurePreservesExistingDestinationBytes() throws {
+        let document = makeDocument(
+            orderTable: Array(repeating: 0, count: 257),
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)]
+        )
+        let destination = try temporaryDestination(filename: "existing.xm")
+        let original = Data("existing destination".utf8)
+        try original.write(to: destination)
+        let coordinator = ExportXMCoordinator(
+            destinationProvider: FakeExportXMDestinationProvider(destination: destination)
+        )
+
+        guard case .failed(.writerFailed) = coordinator.beginExport(context: .editable(
+            document: document,
+            displayName: document.title,
+            isPlaybackActive: false
+        )) else {
+            return XCTFail("Expected writer failure")
+        }
+        XCTAssertEqual(try Data(contentsOf: destination), original)
     }
 
     func testUnsupportedSamplePayloadFailureReturnsWriterFailureWithoutWritingFile() throws {

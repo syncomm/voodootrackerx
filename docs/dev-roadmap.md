@@ -107,12 +107,15 @@ current editable subset, and advanced options such as PCM16, pattern/order
 ranges, channel/stem export, bitrate/quality controls, and diagnostic profile
 selection remain future work.
 
-The future `v0.3.0-alpha.1` From-Scratch Composition Alpha is designed and its
-empty-instrument foundation is implemented, but the release gate is not
-complete. Its gate starts from a clean launch, creates an instrument
+The `v0.3.0-alpha.1` From-Scratch Composition Alpha is designed and its
+composition/XM round-trip gate is blocked by proven incorrect live editable
+keymap routing. A dedicated correction PR must merge before the gate is rerun.
+Its gate starts
+from a clean launch, creates an instrument
 and imported/generated sample, composes and arranges a song, then proves Export
 XM/reopen and WAV/M4A export. See
-[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
+[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md) and
+`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 
 ## Backend Snapshot
 
@@ -770,7 +773,8 @@ Implemented foundation:
 - exact XM sample panning byte representation, loaded/editable-copy/snapshot/
   Export XM preservation, and eligible Instrument Editor PAN mutation; loaded
   modules stay read-only, while focused audition, runtime playback, and product
-  export initialize each new voice from the keymap-resolved sample's pan
+  export are intended to initialize each new voice from the keymap-resolved
+  sample's pan; live editable routing is currently a release blocker
 - exact XM autovibrato byte preservation and disabled VIBRATO display;
   playback, audition, adapter plans, and render output remain unchanged
 - exact XM panning-envelope point/count/index/flag preservation through loaded

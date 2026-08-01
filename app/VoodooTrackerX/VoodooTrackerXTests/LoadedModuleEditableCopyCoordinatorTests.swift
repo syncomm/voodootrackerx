@@ -74,6 +74,33 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         )
     }
 
+    func testAmigaFrequencyTableModuleIsRejectedInsteadOfSilentlyConvertedToLinear() {
+        var context = supportedLoadedContext(isPlaybackActive: false)
+        context = .loadedReadOnly(
+            metadata: context.loadedMetadata.map { metadata in
+                makeLoadedModuleMetadata(
+                    channels: metadata.channels,
+                    xmFlags: 0,
+                    orderTable: metadata.orderTable,
+                    patterns: metadata.xmPatterns
+                )
+            },
+            playbackSong: context.loadedPlaybackSong,
+            selection: context.selection,
+            currentPatternIndex: context.currentPatternIndex,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(
+            LoadedModuleEditableCopyCoordinator.unavailableReason(for: context),
+            .unsupportedLoadedModule
+        )
+        XCTAssertEqual(
+            LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context),
+            .unavailable(.unsupportedLoadedModule)
+        )
+    }
+
     @MainActor
     func testCopyIsEditableUntitledInMemoryAndDoesNotMutateLoadedSourceState() throws {
         let context = supportedLoadedContext(isPlaybackActive: false)
@@ -841,6 +868,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         title: String = "Loaded Module",
         channels: Int = 1,
         instruments: Int = 0,
+        xmFlags: Int = 0x0001,
         defaultTempo: Int = 6,
         defaultBPM: Int = 125,
         songLength: Int? = nil,
@@ -855,7 +883,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             channels: channels,
             patterns: patterns.count,
             instruments: instruments,
-            xmFlags: 0x0001,
+            xmFlags: xmFlags,
             defaultTempo: defaultTempo,
             defaultBPM: defaultBPM,
             songLength: songLength ?? orderTable.count,

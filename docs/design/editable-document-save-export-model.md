@@ -159,6 +159,12 @@ modules and active playback
 remain disabled/no-op, Save/Save As remain disabled, and the exported XM file
 does not become an owned save path.
 
+Release hardening rejects invalid channel/row dimensions, non-finite PCM,
+sparse represented sample order, and unmappable keymaps before destination
+replacement. Successful writes remain atomic. Make Editable Copy accepts only
+Linear-frequency-table XM because the editable model cannot preserve Amiga-table
+semantics; named zero-length sample headers remain outside the represented subset.
+
 ### Future Native Project Format
 
 A native VTX project format is deferred. It may be useful later for data that

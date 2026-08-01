@@ -473,10 +473,10 @@ Recommended next product PR:
   decode/canonical normalization are complete, and Sample Editor LOAD now
   fills empty S01 or offers Replace/Add as New/Cancel for an occupied selection.
   Append-only S02+ lifecycle preserves the keymap and selects the new sample.
-  Instrument Editor now exposes inclusive selected-sample range mutation through
-  one `applyEdit` sheet over C-0...B-7. Keep destructive lifecycle,
-  reference-preserving reorder, and graphical/automatic mapping separate from
-  runtime/backend work.
+  Instrument Editor now selects inclusive ranges on the full C-0...B-7 ownership
+  summary without mutation and feeds them into the existing one-`applyEdit` sheet.
+  Keep destructive lifecycle, reference-preserving reorder, drag-to-paint, and
+  automatic mapping separate from runtime/backend work.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -830,7 +830,8 @@ non-default assignments may use muted sample-number labels or colors, the
 selected sample should receive stronger persistent emphasis, and transient
 audition must remain a distinct pressed-key layer above the mapping. Read-only
 polish preceded mutation. The explicit selected-sample sheet now reuses the
-range-mutation foundation without a second write path; graphical drag and
+range-mutation foundation without a second write path; the full-map summary now
+adds a transient inclusive selection layer that prefills it. Drag-to-paint and
 automatic mapping remain future work. Use
 `instrument-envelopes-keymap.xm` as the public reference and keep this direction
 linked to `docs/design/instrument-editor-window.md` and

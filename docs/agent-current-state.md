@@ -30,9 +30,9 @@ Replace/Add as New/Cancel for the exact represented selection, reuses stereo
 Mix/Left/Right, and commits one import, replace, or append edit with stale-result
 protection. Add appends/selects the next represented Sxx without changing the
 keymap. Its panel accepts WAV/AIFF/AIFC and native FLAC; Ogg-FLAC is unsupported,
-and FLAC metadata/loops are ignored. Instrument Editor now exposes explicit
-selected-sample note-range assignment; destructive lifecycle, graphical drag
-mapping, and automatic mapping remain deferred.
+and FLAC metadata/loops are ignored. Instrument Editor now exposes non-mutating
+inclusive range selection on its full 96-note summary plus explicit selected-sample
+assignment; destructive lifecycle, drag-to-paint, and automatic mapping remain deferred.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -124,8 +124,8 @@ imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
 state, and no source path is retained. Destructive sample lifecycle remains deferred.
 Separately, stopped editable documents can map a nonempty represented sample in
 the selected instrument through the Instrument Editor's `MAP RANGE…` sheet over
-the canonical C-0...B-7 domain. The inclusive range defaults to a focused
-keymap note, otherwise the selected octave's C...B span, otherwise C-4...B-4.
+the canonical C-0...B-7 domain. A transient range dragged on the full-map summary
+is the first sheet default, followed by a focused note, selected octave, then C-4...B-4.
 One `Map Sample to Note Range` edit preserves selection and notes outside the
 range; failures and no-ops create no revision/history, and undo/redo is exact.
 Instrument Editor/pattern playback consume the map while Sample Editor audition

@@ -557,6 +557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func applyUntitledEditableCopy(_ document: BlankTrackerDocument) {
+        instrumentEditorWindowPresenter.clearKeymapRangeSelection()
         editableDocumentIdentity = UUID()
         blankDocument = document
         loadedMetadata = nil
@@ -690,8 +691,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     panning: panning
                 ) ?? false
             },
-            keymapRangeAssignmentHandler: { [weak self] focusedNote in
-                self?.beginInstrumentKeymapRangeAssignment(focusedNote: focusedNote) ?? false
+            keymapRangeAssignmentHandler: { [weak self] focusedNote, graphicalSelection in
+                self?.beginInstrumentKeymapRangeAssignment(
+                    focusedNote: focusedNote,
+                    graphicalSelection: graphicalSelection
+                ) ?? false
             },
             onScreenNoteHandler: { [weak self] intent in
                 switch intent {
@@ -734,10 +738,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
     }
 
-    private func beginInstrumentKeymapRangeAssignment(focusedNote: UInt8?) -> Bool {
+    private func beginInstrumentKeymapRangeAssignment(
+        focusedNote: UInt8?,
+        graphicalSelection: ClosedRange<Int>?
+    ) -> Bool {
         guard let request = instrumentKeymapRangeAssignmentCoordinator.begin(
             focusedNote: focusedNote,
-            selectedOctave: selectedOctave
+            selectedOctave: selectedOctave,
+            graphicalSelection: graphicalSelection
         ) else { return false }
         let sheet = InstrumentKeymapRangeAssignmentSheet(request: request)
         let completion: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
@@ -1399,6 +1407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         cancelNoteAuditionForDocumentTransition()
+        instrumentEditorWindowPresenter.clearKeymapRangeSelection()
         playbackEngine.load(song: nil)
         editableDocumentIdentity = UUID()
         blankDocument = document
@@ -1451,6 +1460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
             let stateUpdateStart = timingSession?.beginPhase()
             cancelNoteAuditionForDocumentTransition()
+            instrumentEditorWindowPresenter.clearKeymapRangeSelection()
             editableDocumentIdentity = nil
             blankDocument = nil
             loadedMetadata = metadata
@@ -1542,6 +1552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func resetToBlankTrackerDocument() {
         discardHiddenSongOrderEditorController()
         cancelNoteAuditionForDocumentTransition()
+        instrumentEditorWindowPresenter.clearKeymapRangeSelection()
         let document = BlankTrackerDocument.makeDefault()
         editableDocumentIdentity = UUID()
         blankDocument = document

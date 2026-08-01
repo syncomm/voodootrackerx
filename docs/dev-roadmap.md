@@ -67,8 +67,9 @@ VoodooTracker X currently has:
   stale-result checks, one format-neutral undoable edit, and document-owned
   mono 16-bit PCM. Add appends/selects S02+ while preserving the keymap;
   Instrument Editor now exposes the undoable inclusive keymap-range foundation
-  through a selected-represented-sample sheet. Destructive lifecycle, standalone
-  New Sample, graphical drag mapping, and automatic mapping remain unavailable.
+  through a selected-represented-sample sheet prefilled by a non-mutating drag on
+  the full 96-note summary. Destructive lifecycle, standalone New Sample,
+  drag-to-paint, and automatic mapping remain unavailable.
   AUDITION now toggles that selected slot directly at C-4 through the persistent
   preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
@@ -797,7 +798,7 @@ Remaining VTX 1.0 scope:
 - sample trimming and loop editing foundation
 - envelope editing foundation
 
-Future Instrument Editor keymap polish can add graphical interaction while keeping audition distinct;
+Future Instrument Editor keymap polish can add drag-to-paint/automatic assignment while keeping audition distinct;
 see `docs/roadmap.md` and `docs/design/instrument-editor-window.md` for the
 assignment, audition-layer, fixture, and `applyEdit` direction.
 

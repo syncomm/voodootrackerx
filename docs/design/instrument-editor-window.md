@@ -62,9 +62,11 @@ Keymap assignment uses zero-based map indices `0...95` (XM notes `1...96`,
 C-0...B-7) and zero-based sample indices displayed as S01...S16. It requires
 the stopped editable selected instrument and a nonempty represented selected
 sample, captures document/revision/target identity, and creates at most one
-`Map Sample to Note Range` action. The sheet defaults to a focused keymap note,
-otherwise the selected octave's C...B span, otherwise C-4...B-4. No-ops create
-no history; selection and assignments outside the inclusive range remain exact.
+`Map Sample to Note Range` action. The summary maps x within its inset drawable
+bounds as `floor((x - minX) / width * 96)`, clamped to `0...95`, and orders both
+drag directions inclusively. Its selection is the first sheet default, followed
+by a focused note, selected octave, then C-4...B-4. No-ops create no history;
+selection and assignments outside the inclusive range remain exact.
 Existing Instrument Editor/pattern playback consumes the map while Sample
 Editor audition remains direct-selected-sample.
 
@@ -214,8 +216,9 @@ the window does not own separate file semantics.
 - Knobs: vertical drag, double-click to type; every knob has an exact numeric segment. Pan uses the
   center-detent slider.
 - Keymap: primary press auditions that exact note with the current instrument; dragging across keys
-  releases/presses notes for audition. `MAP RANGE…` assigns the captured selected
-  sample; graphical drag and automatic assignment remain future work.
+  releases/presses notes for audition. Dragging the separate full-map summary selects
+  without audition or mutation, and `MAP RANGE…` assigns the captured sample to it.
+  Piano-based selection, drag-to-paint, and automatic assignment remain future work.
 - All audition goes through the isolated preview path — never full-song playback.
 
 ### Implemented polish: transient live numeric readouts with one commit
@@ -290,7 +293,8 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 18. Vibrato + remaining defaults controls wired.
 19. Done: UI-independent keymap range assignment through `applyEdit`.
 20. Done: explicit selected-sample inclusive note-range assignment sheet.
-21. Keymap drag-to-assign-range UI after sample creation/import foundations.
+21. Done: non-mutating full-map graphical range selection and sheet prefill.
+22. Future: drag-to-paint and automatic assignment.
 
 ---
 
@@ -320,7 +324,7 @@ confirm S02 stays selected and the strip reads S02 inside while C-3/C-5 retain
 their prior ownership, then verify one undo/redo action. Keep screenshots/exports
 local and untracked.
 
-Loop, PCM, waveform, envelope, graphical/automatic keymap mapping, XI, and
+Loop, PCM, waveform, envelope, drag-to-paint/automatic keymap mapping, XI, and
 broader sample-import editing remain future work.
 
 For later interactive slices, screenshot before/after per PR and verify the surface reads as calm at
@@ -342,5 +346,4 @@ mixer timing, audio backend, or tracker viewport while open.
 - Keymap drag-assign can be fiddly — use a small drag threshold so click-audition and drag-assign do
   not conflict.
 - Open: secondary cluster vs. explicit "advanced" disclosure for vibrato/relative note.
-- Open: drag-to-assign-range vs. per-key assignment first.
 - Open: envelope predefs in v1.0 or later (assumed later).

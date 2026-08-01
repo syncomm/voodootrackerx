@@ -5,8 +5,8 @@
 Accepted as the product and architecture contract for the from-scratch composition workstream. Empty instruments,
 first-sample generation/import, and occupied LOAD with Replace/Add as New/Cancel are now implemented. Add appends
 and selects represented S02+ without changing keymap references. Instrument Editor now exposes inclusive
-selected-sample keymap range mutation through one `applyEdit` sheet; graphical/automatic mapping and
-destructive lifecycle remain future work.
+selected-sample keymap range mutation through one `applyEdit` sheet, prefilling it from transient
+full-map graphical selection; drag-to-paint/automatic mapping and destructive lifecycle remain future work.
 
 ## Context
 
@@ -307,14 +307,14 @@ This is a sequence of focused PRs, not one large implementation PR:
 10. Polish read-only keymap visualization: neutral S01, visible S02+ mapping,
     and a separate active-note layer.
 11. Done: add editable keymap range assignment through `applyEdit`.
-12. Done: wire explicit selected-sample inclusive range assignment UI; paint/drag
-    and automatic mapping remain separate.
+12. Done: wire explicit selected-sample inclusive range assignment UI and
+    non-mutating full-map graphical selection; paint/automatic mapping remain separate.
 13. Add reference-preserving instrument and sample move/swap.
 14. Run the complete automated and manual from-scratch acceptance slice.
 15. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
 
-The explicit note-range UI slice is complete. Select later lifecycle, envelope,
-loop, and graphical-mapping work as separate focused PRs.
+The graphical range-selection slice is complete. Select later lifecycle, envelope,
+loop, drag-to-paint, and automatic-mapping work as separate focused PRs.
 
 ## Test And Fixture Plan
 

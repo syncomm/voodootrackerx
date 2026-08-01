@@ -77,11 +77,12 @@ complete. Empty instruments/S01 destinations, deterministic Sine, and the
 Sample Editor WAV/AIFF/AIFC/native-FLAC LOAD now offers Replace, Add as New,
 and Cancel for occupied samples. Add appends/selects represented S02+ without
 changing keymap references; Sample Editor auditions it directly while pattern
-and Instrument Editor audition remain keymap-driven. Instrument Editor now maps
-the selected represented sample to an explicit inclusive C-0...B-7 note range
-through one undoable sheet action. Delete, clear, reorder, duplication,
-standalone New Sample, graphical drag mapping, and automatic mapping remain
-deferred, as does the complete clean-launch-to-export acceptance gate.
+and Instrument Editor audition remain keymap-driven. Instrument Editor now
+selects an inclusive range on its full C-0...B-7 summary bar without mutation;
+`MAP RANGE…` prefills the existing one-undo sheet from that selection. Delete,
+clear, reorder, duplication, standalone New Sample, drag-to-paint mapping, and
+automatic mapping remain deferred, as does the complete clean-launch-to-export
+acceptance gate.
 
 What works today:
 

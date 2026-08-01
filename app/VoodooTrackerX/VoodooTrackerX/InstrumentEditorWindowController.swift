@@ -6,10 +6,12 @@ typealias InstrumentEditorNoteAuditionCancelHandler = () -> Void
 typealias InstrumentEditorInstrumentSelectionHandler = (_ oneBasedInstrumentSlot: Int) -> Bool
 typealias InstrumentEditorSampleSelectionHandler = (_ oneBasedSampleSlot: Int) -> Bool
 typealias InstrumentKeyboardVisibleRangeChangeHandler = (InstrumentKeyboardVisibleRange) -> Void
-typealias InstrumentKeymapRangeAssignmentHandler = (_ focusedNote: UInt8?) -> Bool
+typealias InstrumentKeymapRangeAssignmentHandler = (
+    _ focusedNote: UInt8?, _ graphicalSelection: ClosedRange<Int>?
+) -> Bool
 
 enum InstrumentEditorCopy {
-    static let keymapSummary = "FULL 96-NOTE MAP SUMMARY · CLICK/DRAG KEYS TO AUDITION"
+    static let keymapSummary = "FULL 96-NOTE MAP · DRAG SUMMARY TO SELECT · PIANO DRAG AUDITIONS"
     static let auditionKeyboard = "AUDITION KEYBOARD · CLICK / DRAG TO PREVIEW"
 }
 
@@ -58,8 +60,84 @@ struct InstrumentKeyboardVisibleRange: Equatable {
     }
 }
 
+/// Transient, zero-based selection over the canonical 96-note XM map.
+struct InstrumentKeymapRangeSelection: Equatable {
+    let anchorNoteIndex: Int
+    let endpointNoteIndex: Int
+
+    init(anchorNoteIndex: Int, endpointNoteIndex: Int) {
+        self.anchorNoteIndex = min(95, max(0, anchorNoteIndex))
+        self.endpointNoteIndex = min(95, max(0, endpointNoteIndex))
+    }
+
+    var noteRange: ClosedRange<Int> {
+        min(anchorNoteIndex, endpointNoteIndex)...max(anchorNoteIndex, endpointNoteIndex)
+    }
+
+    private var lowerName: String {
+        ModuleMetadataLoader.formatXMNote(UInt8(noteRange.lowerBound + 1))
+    }
+
+    private var upperName: String {
+        ModuleMetadataLoader.formatXMNote(UInt8(noteRange.upperBound + 1))
+    }
+
+    var readout: String {
+        noteRange.count == 1 ? "SELECTED \(lowerName)" : "SELECTED \(lowerName)…\(upperName)"
+    }
+
+    var accessibilityValue: String {
+        noteRange.count == 1
+            ? "Selected note \(lowerName)"
+            : "Selected notes \(lowerName) through \(upperName)"
+    }
+}
+
+/// Shared geometry for drawing and hit-testing the full 96-note summary strip.
+enum InstrumentKeymapSummaryGeometry {
+    static let noteCount = TrackerNoteKeyMap.maximumNoteValue
+    static let borderInset: CGFloat = 1
+
+    static func drawableBounds(in bounds: NSRect) -> NSRect? {
+        let drawable = bounds.insetBy(dx: borderInset, dy: borderInset)
+        guard drawable.width > 0, drawable.height > 0,
+              drawable.width.isFinite, drawable.height.isFinite else { return nil }
+        return drawable
+    }
+
+    static func noteIndex(atX x: CGFloat, in bounds: NSRect) -> Int? {
+        guard x.isFinite, let drawable = drawableBounds(in: bounds) else { return nil }
+        let clampedX = min(drawable.maxX, max(drawable.minX, x))
+        // floor((x - minX) / width * 96), clamped so maxX can never yield 96.
+        let rawIndex = Int(floor((clampedX - drawable.minX) / drawable.width * CGFloat(noteCount)))
+        return min(noteCount - 1, max(0, rawIndex))
+    }
+
+    static func rect(for noteIndices: ClosedRange<Int>, in bounds: NSRect) -> NSRect? {
+        guard let drawable = drawableBounds(in: bounds) else { return nil }
+        let lower = min(noteCount - 1, max(0, noteIndices.lowerBound))
+        let upper = min(noteCount - 1, max(lower, noteIndices.upperBound))
+        let cellWidth = drawable.width / CGFloat(noteCount)
+        return NSRect(
+            x: drawable.minX + CGFloat(lower) * cellWidth,
+            y: drawable.minY,
+            width: CGFloat(upper - lower + 1) * cellWidth,
+            height: drawable.height
+        )
+    }
+}
+
 enum InstrumentKeymapRangeDefaultPolicy {
-    static func noteRange(focusedNote: UInt8?, selectedOctave: Int?) -> ClosedRange<Int> {
+    static func noteRange(
+        graphicalSelection: ClosedRange<Int>? = nil,
+        focusedNote: UInt8?,
+        selectedOctave: Int?
+    ) -> ClosedRange<Int> {
+        if let graphicalSelection,
+           graphicalSelection.lowerBound >= 0,
+           graphicalSelection.upperBound < InstrumentKeymapSummaryGeometry.noteCount {
+            return graphicalSelection
+        }
         if let focusedNote, (1...TrackerNoteKeyMap.maximumNoteValue).contains(Int(focusedNote)) {
             let noteIndex = Int(focusedNote) - 1
             return noteIndex...noteIndex
@@ -205,7 +283,11 @@ final class InstrumentKeymapRangeAssignmentCoordinator {
         activeOperation == nil && InstrumentKeymapRangeAssignmentCapture(context: contextProvider()) != nil
     }
 
-    func begin(focusedNote: UInt8?, selectedOctave: Int?) -> InstrumentKeymapRangeAssignmentRequest? {
+    func begin(
+        focusedNote: UInt8?,
+        selectedOctave: Int?,
+        graphicalSelection: ClosedRange<Int>? = nil
+    ) -> InstrumentKeymapRangeAssignmentRequest? {
         guard activeOperation == nil,
               let capture = InstrumentKeymapRangeAssignmentCapture(context: contextProvider()) else { return nil }
         let token = UUID()
@@ -215,7 +297,9 @@ final class InstrumentKeymapRangeAssignmentCoordinator {
             operationToken: token,
             sampleDisplay: String(format: "S%02X", capture.sampleIndex + 1),
             initialNoteRange: InstrumentKeymapRangeDefaultPolicy.noteRange(
-                focusedNote: focusedNote, selectedOctave: selectedOctave
+                graphicalSelection: graphicalSelection,
+                focusedNote: focusedNote,
+                selectedOctave: selectedOctave
             )
         )
     }
@@ -480,6 +564,20 @@ enum InstrumentEditorWindowEventRoutingPolicy {
     static func shouldInspectForNoteAudition(_ eventType: NSEvent.EventType) -> Bool {
         eventType == .keyDown || eventType == .keyUp
     }
+
+    static func shouldClearKeymapSelection(
+        _ event: NSEvent,
+        isKeyWindow: Bool,
+        firstResponder: NSResponder?,
+        hasAttachedSheet: Bool,
+        hasModalWindow: Bool
+    ) -> Bool {
+        let protectedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .function]
+        return isKeyWindow && event.type == .keyDown && event.keyCode == 53 &&
+            event.modifierFlags.intersection(protectedModifiers).isEmpty &&
+            !(firstResponder is NSTextView) && !(firstResponder is NSTextField) &&
+            !hasAttachedSheet && !hasModalWindow
+    }
 }
 
 @MainActor
@@ -554,6 +652,7 @@ final class InstrumentEditorKeyboardAuditionRouter {
 @MainActor
 final class InstrumentEditorPanel: NSPanel {
     let keyboardAuditionRouter = InstrumentEditorKeyboardAuditionRouter()
+    var keymapSelectionClearHandler: (() -> Bool)?
 
     override func sendEvent(_ event: NSEvent) {
         // Title-bar, traffic-light, and activation events must reach NSPanel untouched.
@@ -566,6 +665,15 @@ final class InstrumentEditorPanel: NSPanel {
             isKeyWindow: isKeyWindow,
             firstResponder: firstResponder
         ) {
+            return
+        }
+        if InstrumentEditorWindowEventRoutingPolicy.shouldClearKeymapSelection(
+            event,
+            isKeyWindow: isKeyWindow,
+            firstResponder: firstResponder,
+            hasAttachedSheet: attachedSheet != nil,
+            hasModalWindow: NSApp.modalWindow != nil
+        ), keymapSelectionClearHandler?() == true {
             return
         }
         super.sendEvent(event)
@@ -585,6 +693,7 @@ enum InstrumentEditorViewIdentifier {
     static let defaultsPanel = "instrumentEditor.defaultsPanel"
     static let noteKeymapPanel = "instrumentEditor.noteKeymapPanel"
     static let keymapRangeStrip = "instrumentEditor.keymapRangeStrip"
+    static let keymapSelectionReadout = "instrumentEditor.keymapSelectionReadout"
     static let keymapRangeAssignment = "instrumentEditor.keymapRangeAssignment"
     static let keymapPreviousOctave = "instrumentEditor.keymapPreviousOctave"
     static let keymapNextOctave = "instrumentEditor.keymapNextOctave"
@@ -914,6 +1023,15 @@ struct InstrumentEditorDisplayState: Equatable {
         sampleSlots.first(where: \.isSelected)
     }
 
+    var hasCanonicalKeymap: Bool {
+        guard keymapRanges.first?.startNote == 1,
+              keymapRanges.last?.endNote == TrackerNoteKeyMap.maximumNoteValue,
+              keymapRanges.allSatisfy({ $0.startNote <= $0.endNote }) else { return false }
+        return zip(keymapRanges, keymapRanges.dropFirst()).allSatisfy { pair in
+            pair.0.endNote + 1 == pair.1.startNote
+        }
+    }
+
     func envelope(for mode: InstrumentEnvelopeDisplayMode) -> InstrumentEditorEnvelopeDisplayState? {
         switch mode {
         case .volume:
@@ -1185,6 +1303,8 @@ final class InstrumentEditorWindowPresenter {
 
     func clearOnScreenPressedState() { windowController?.clearOnScreenPressedState() }
 
+    func clearKeymapRangeSelection() { windowController?.clearKeymapRangeSelection() }
+
     func synchronizeActivePreviewToken(_ token: EditorNoteAuditionPreviewToken?) {
         windowController?.synchronizeActivePreviewToken(token)
     }
@@ -1318,6 +1438,9 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
         panel.collectionBehavior = [.fullScreenAuxiliary]
         panel.keyboardAuditionRouter.noteKeyDownHandler = noteAuditionKeyDownHandler
         panel.keyboardAuditionRouter.noteKeyUpHandler = noteAuditionKeyUpHandler
+        panel.keymapSelectionClearHandler = { [weak contentView] in
+            contentView?.clearGraphicalKeymapSelection() ?? false
+        }
         panel.initialFirstResponder = contentView
         panel.center()
         super.init(window: panel)
@@ -1356,6 +1479,10 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
 
     func clearOnScreenPressedState() { (window?.contentView as? InstrumentEditorView)?.clearOnScreenPressedState() }
 
+    func clearKeymapRangeSelection() {
+        _ = (window?.contentView as? InstrumentEditorView)?.clearGraphicalKeymapSelection()
+    }
+
     func synchronizeActivePreviewToken(_ token: EditorNoteAuditionPreviewToken?) {
         (window?.contentView as? InstrumentEditorView)?.synchronizeActivePreviewToken(token)
     }
@@ -1372,6 +1499,7 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             cancelAuditionForLifecycleTransition(in: view, cancelUntrackedPreview: true)
         }
         noteAuditionCancelHandler = nil
+        (window as? InstrumentEditorPanel)?.keymapSelectionClearHandler = nil
         onScreenNoteHandler = nil
         instrumentSelectionHandler = nil
         sampleSelectionHandler = nil
@@ -1415,10 +1543,13 @@ final class InstrumentEditorView: FlippedEditorView {
     private(set) var activeOnScreenNoteValue: UInt8?
     private(set) var activePreviewToken: EditorNoteAuditionPreviewToken?
     private(set) var keyboardVisibleRange: InstrumentKeyboardVisibleRange
+    private(set) var graphicalKeymapSelection: InstrumentKeymapRangeSelection?
     private(set) var rebuildCount = 0
     private(set) var controlDragSession: InstrumentControlDragSession?
     private var envelopePanelView: NSView?
     private var keymapPanelView: NSView?
+    private weak var keymapRangeView: InstrumentEditorKeymapRangeView?
+    private weak var keymapSelectionReadout: NSTextField?
     private weak var onScreenKeyboardView: InstrumentEditorKeyboardPlaceholderView?
     private weak var sampleVolumeControl: VTXEditorKnobControl?
     private weak var sampleVolumeReadout: VTXEditorSegmentReadout?
@@ -1489,6 +1620,15 @@ final class InstrumentEditorView: FlippedEditorView {
         onScreenKeyboardView?.synchronizeActivePreviewToken(nil)
     }
 
+    @discardableResult
+    func clearGraphicalKeymapSelection() -> Bool {
+        guard graphicalKeymapSelection != nil else { return false }
+        graphicalKeymapSelection = nil
+        keymapRangeView?.setSelection(nil)
+        updateKeymapSelectionReadout()
+        return true
+    }
+
     func synchronizeActivePreviewToken(_ token: EditorNoteAuditionPreviewToken?) {
         activePreviewToken = token
         onScreenKeyboardView?.synchronizeActivePreviewToken(token)
@@ -1506,6 +1646,11 @@ final class InstrumentEditorView: FlippedEditorView {
             restoreCommittedControlDisplays()
             return false
         }
+        if self.displayState.source != displayState.source ||
+            self.displayState.selectedInstrumentSlot != displayState.selectedInstrumentSlot ||
+            !displayState.hasCanonicalKeymap {
+            graphicalKeymapSelection = nil
+        }
         let scrollOrigins = [instrumentListScrollView, sampleListScrollView].map {
             $0?.contentView.bounds.origin
         }
@@ -1513,6 +1658,8 @@ final class InstrumentEditorView: FlippedEditorView {
         rebuildCount += 1
         subviews.forEach { $0.removeFromSuperview() }
         keymapPanelView = nil
+        keymapRangeView = nil
+        keymapSelectionReadout = nil
         instrumentRowControls.removeAll()
         sampleRowControls.removeAll()
         buildShell()
@@ -2244,7 +2391,19 @@ final class InstrumentEditorView: FlippedEditorView {
     }
 
     private func buildKeymap(_ panel: NSView) {
-        addLabel(InstrumentEditorCopy.keymapSummary, to: panel, frame: NSRect(x: 91, y: 9, width: 505, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.32), size: 8)
+        let selectionReadout = addLabel(
+            graphicalKeymapSelection?.readout ?? InstrumentEditorCopy.keymapSummary,
+            to: panel,
+            frame: NSRect(x: 91, y: 9, width: 505, height: 11),
+            color: VTXEditorControlTheme.warmValueText.withAlphaComponent(
+                graphicalKeymapSelection == nil ? 0.32 : 0.72
+            ),
+            size: 8
+        )
+        selectionReadout.identifier = NSUserInterfaceItemIdentifier(
+            InstrumentEditorViewIdentifier.keymapSelectionReadout
+        )
+        keymapSelectionReadout = selectionReadout
         addKeymapRangeAssignmentButton(to: panel, frame: NSRect(x: 606, y: 5, width: 106, height: 25))
         addKeyboardRangeButton(.lower, to: panel, frame: NSRect(x: 722, y: 5, width: 78, height: 25))
         addKeyboardRangeButton(.higher, to: panel, frame: NSRect(x: 806, y: 5, width: 80, height: 25))
@@ -2252,10 +2411,16 @@ final class InstrumentEditorView: FlippedEditorView {
         let strip = InstrumentEditorKeymapRangeView(
             frame: NSRect(x: 10, y: 34, width: 876, height: 18),
             ranges: displayState.keymapRanges,
-            visibleRange: keyboardVisibleRange
+            selection: graphicalKeymapSelection,
+            allowsSelection: displayState.hasCanonicalKeymap,
+            selectionChangedHandler: { [weak self] selection in
+                self?.graphicalKeymapSelection = selection
+                self?.updateKeymapSelectionReadout()
+            }
         )
         strip.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.keymapRangeStrip)
         panel.addSubview(strip)
+        keymapRangeView = strip
 
         let keyboard = InstrumentEditorKeyboardPlaceholderView(
             frame: NSRect(x: 10, y: 52, width: 876, height: 96),
@@ -2279,6 +2444,13 @@ final class InstrumentEditorView: FlippedEditorView {
         onScreenKeyboardView = keyboard
 
         addLabel(sampleMetadataSummary, to: panel, frame: NSRect(x: 10, y: 157, width: 876, height: 13), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.52), size: 8.5, alignment: .center)
+    }
+
+    private func updateKeymapSelectionReadout() {
+        keymapSelectionReadout?.stringValue = graphicalKeymapSelection?.readout ?? InstrumentEditorCopy.keymapSummary
+        keymapSelectionReadout?.textColor = VTXEditorControlTheme.warmValueText.withAlphaComponent(
+            graphicalKeymapSelection == nil ? 0.32 : 0.72
+        )
     }
 
     private var sampleMetadataSummary: String {
@@ -2367,7 +2539,7 @@ final class InstrumentEditorView: FlippedEditorView {
         let focusedNote = [activePreviewToken?.noteValue, activeOnScreenNoteValue]
             .compactMap { $0 }
             .first(where: keyboardVisibleRange.contains)
-        _ = keymapRangeAssignmentHandler(focusedNote)
+        _ = keymapRangeAssignmentHandler(focusedNote, graphicalKeymapSelection?.noteRange)
     }
 
     private func addKeyboardRangeButton(
@@ -2702,43 +2874,55 @@ final class InstrumentEditorEnvelopeGraphView: FlippedEditorView {
     }
 }
 
-enum InstrumentEditorKeymapProjection {
-    static func visibleRanges(
-        _ ranges: [InstrumentEditorDisplayState.KeymapRange],
-        in visibleRange: InstrumentKeyboardVisibleRange
-    ) -> [InstrumentEditorDisplayState.KeymapRange] {
+final class InstrumentEditorKeymapRangeView: FlippedEditorView {
+    private let ranges: [InstrumentEditorDisplayState.KeymapRange]
+    private let allowsSelection: Bool
+    private let selectionChangedHandler: (InstrumentKeymapRangeSelection?) -> Void
+    private(set) var selection: InstrumentKeymapRangeSelection?
+    private var isDraggingSelection = false
+
+    override var acceptsFirstResponder: Bool { allowsSelection }
+
+    var ownershipRects: [NSRect] {
         ranges.compactMap { range in
-            let start = max(range.startNote, visibleRange.startNote)
-            let end = min(range.endNote, visibleRange.endNote)
-            guard start <= end else { return nil }
-            return InstrumentEditorDisplayState.KeymapRange(
-                startNote: start,
-                endNote: end,
-                sampleSlot: range.sampleSlot,
-                sampleName: range.sampleName,
-                isSelected: range.isSelected
+            guard range.startNote <= range.endNote else { return nil }
+            return InstrumentKeymapSummaryGeometry.rect(
+                for: (range.startNote - 1)...(range.endNote - 1),
+                in: bounds
             )
         }
     }
-}
 
-final class InstrumentEditorKeymapRangeView: FlippedEditorView {
-    private let ranges: [InstrumentEditorDisplayState.KeymapRange]
-    private let visibleRange: InstrumentKeyboardVisibleRange
+    var selectionOverlayRect: NSRect? {
+        selection.flatMap { InstrumentKeymapSummaryGeometry.rect(for: $0.noteRange, in: bounds) }
+    }
 
     init(
         frame frameRect: NSRect,
         ranges: [InstrumentEditorDisplayState.KeymapRange],
-        visibleRange: InstrumentKeyboardVisibleRange = .defaultRange
+        selection: InstrumentKeymapRangeSelection? = nil,
+        allowsSelection: Bool,
+        selectionChangedHandler: @escaping (InstrumentKeymapRangeSelection?) -> Void = { _ in }
     ) {
-        self.ranges = InstrumentEditorKeymapProjection.visibleRanges(ranges, in: visibleRange)
-        self.visibleRange = visibleRange
+        self.ranges = ranges
+        self.selection = selection
+        self.allowsSelection = allowsSelection
+        self.selectionChangedHandler = selectionChangedHandler
         super.init(frame: frameRect)
         style(
             background: VTXEditorControlTheme.recessedReadoutBackground,
             border: VTXEditorControlTheme.mutedGoldBorderSubtle,
             radius: 3
         )
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Instrument sample keymap")
+        setAccessibilityHelp("Drag to select a note range for sample assignment")
+        setAccessibilityEnabled(allowsSelection)
+        toolTip = allowsSelection
+            ? "Drag to select an inclusive note range for MAP RANGE…"
+            : "No canonical 96-note keymap is available"
+        updateAccessibilityValue()
     }
 
     @available(*, unavailable)
@@ -2747,8 +2931,64 @@ final class InstrumentEditorKeymapRangeView: FlippedEditorView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        allowsSelection && super.hitTest(point) != nil ? self : nil
     }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        allowsSelection && event?.type == .leftMouseDown
+    }
+
+    func setSelection(_ selection: InstrumentKeymapRangeSelection?) {
+        updateSelection(selection, publish: false)
+    }
+
+    @discardableResult
+    func handlePointerDown(at point: NSPoint, buttonNumber: Int) -> Bool {
+        guard allowsSelection, buttonNumber == 0,
+              let noteIndex = InstrumentKeymapSummaryGeometry.noteIndex(atX: point.x, in: bounds) else {
+            return false
+        }
+        isDraggingSelection = true
+        window?.makeFirstResponder(self)
+        updateSelection(
+            InstrumentKeymapRangeSelection(anchorNoteIndex: noteIndex, endpointNoteIndex: noteIndex),
+            publish: true
+        )
+        return true
+    }
+
+    @discardableResult
+    func handlePointerDrag(to point: NSPoint) -> Bool {
+        guard isDraggingSelection, let selection,
+              let noteIndex = InstrumentKeymapSummaryGeometry.noteIndex(atX: point.x, in: bounds) else {
+            return false
+        }
+        updateSelection(
+            InstrumentKeymapRangeSelection(
+                anchorNoteIndex: selection.anchorNoteIndex,
+                endpointNoteIndex: noteIndex
+            ),
+            publish: true
+        )
+        return true
+    }
+
+    @discardableResult
+    func handlePointerUp() -> Bool {
+        guard isDraggingSelection else { return false }
+        isDraggingSelection = false
+        return true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        _ = handlePointerDown(at: convert(event.locationInWindow, from: nil), buttonNumber: event.buttonNumber)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        _ = handlePointerDrag(to: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseUp(with event: NSEvent) { _ = handlePointerUp() }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -2757,16 +2997,7 @@ final class InstrumentEditorKeymapRangeView: FlippedEditorView {
             return
         }
 
-        let content = bounds.insetBy(dx: 1, dy: 1)
-        for range in ranges {
-            let startFraction = CGFloat(range.startNote - visibleRange.startNote) / CGFloat(visibleRange.noteCount)
-            let noteCount = max(1, range.endNote - range.startNote + 1)
-            let rect = NSRect(
-                x: content.minX + (startFraction * content.width),
-                y: content.minY,
-                width: CGFloat(noteCount) / CGFloat(visibleRange.noteCount) * content.width,
-                height: content.height
-            )
+        for (range, rect) in zip(ranges, ownershipRects) {
             rangeColor(range).setFill()
             NSBezierPath(rect: rect).fill()
             if range.isSelected {
@@ -2781,6 +3012,38 @@ final class InstrumentEditorKeymapRangeView: FlippedEditorView {
                     : "\(range.sampleDisplay) · \(range.sampleName)"
                 drawText(label, in: rect.insetBy(dx: 3, dy: 1), color: range.sampleSlot == nil ? VTXEditorControlTheme.warmValueText.withAlphaComponent(0.30) : .white.withAlphaComponent(0.82))
             }
+        }
+        drawSelectionOverlay()
+    }
+
+    private func updateSelection(_ selection: InstrumentKeymapRangeSelection?, publish: Bool) {
+        guard self.selection != selection else { return }
+        self.selection = selection
+        updateAccessibilityValue()
+        needsDisplay = true
+        if publish { selectionChangedHandler(selection) }
+    }
+
+    private func updateAccessibilityValue() {
+        setAccessibilityValue(selection?.accessibilityValue ?? "No note range selected")
+    }
+
+    private func drawSelectionOverlay() {
+        guard let rect = selectionOverlayRect else { return }
+        VTXEditorControlTheme.indigoSelection.withAlphaComponent(0.34).setFill()
+        NSBezierPath(rect: rect).fill()
+        NSColor.white.withAlphaComponent(0.92).setStroke()
+        let outline = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
+        outline.lineWidth = 1
+        outline.stroke()
+
+        VTXEditorControlTheme.accentGold.withAlphaComponent(0.95).setStroke()
+        for x in [rect.minX + 0.5, rect.maxX - 0.5] {
+            let boundary = NSBezierPath()
+            boundary.move(to: NSPoint(x: x, y: rect.minY + 1))
+            boundary.line(to: NSPoint(x: x, y: rect.maxY - 1))
+            boundary.lineWidth = 1
+            boundary.stroke()
         }
     }
 

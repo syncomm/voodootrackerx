@@ -988,7 +988,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 loadedPlaybackSong: playbackEngine.song
             )
         } else if let blankDocument {
-            availability = blankDocument.noteAuditionAvailability(for: selection)
+            availability = blankDocument.noteAuditionAvailability(for: request)
         } else {
             availability = .unavailable(.blankDocumentMissingInstrumentSamplePayload)
         }
@@ -2348,13 +2348,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func handleInstrumentEditorOnScreenNotePress(_ noteValue: UInt8) -> Bool {
         let selection = currentEditorSelection()
-        let instrument = loadedMetadata != nil
-            ? playbackEngine.song?.instrument(forInstrument: selection.selectedInstrument)
-            : blankDocument?.instrument(forInstrument: selection.selectedInstrument)
         guard let request = InstrumentEditorAuditionRequestFactory.request(
             noteValue: noteValue,
             selection: selection,
-            instrument: instrument,
             sourceContext: currentEditorNoteAuditionSourceContext(),
             channelIndex: cursor.channel,
             rowIndex: cursor.row
@@ -2368,10 +2364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 loadedPlaybackSong: playbackEngine.song
             )
         } else if let document = blankDocument {
-            availability = document.noteAuditionAvailability(for: TrackerEditorSelection(
-                selectedInstrument: request.selectedInstrumentIndex,
-                selectedSample: request.selectedSampleIndex
-            ))
+            availability = document.noteAuditionAvailability(for: request)
         } else {
             availability = .unavailable(.blankDocumentMissingInstrumentSamplePayload)
         }
@@ -2432,21 +2425,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let selection = currentEditorSelection()
         let request: EditorNoteAuditionRequest?
         if resolvesInstrumentKeymap {
-            let instrument = loadedMetadata != nil
-                ? playbackEngine.song?.instrument(forInstrument: selection.selectedInstrument)
-                : blankDocument?.instrument(forInstrument: selection.selectedInstrument)
             request = InstrumentEditorAuditionRequestFactory.request(
                 trackerKey: character,
                 selectedOctave: selectedOctave,
                 selection: selection,
-                instrument: instrument,
                 sourceContext: sourceContext,
                 channelIndex: cursor.channel,
                 rowIndex: cursor.row,
                 isRepeatedKeyDown: isRepeat
             )
         } else {
-            request = EditorNoteAuditionRequest.noteOn(
+            request = PatternNoteAuditionRequestFactory.request(
                 trackerKey: character,
                 selectedOctave: selectedOctave,
                 selection: selection,
@@ -2466,12 +2455,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 )
             } ?? .unavailable(.selectedInstrumentSampleNotPlayable)
         } else if let document = blankDocument {
-            availability = request.map {
-                document.noteAuditionAvailability(for: TrackerEditorSelection(
-                    selectedInstrument: $0.selectedInstrumentIndex,
-                    selectedSample: $0.selectedSampleIndex
-                ))
-            } ?? .unavailable(.selectedInstrumentSampleNotPlayable)
+            availability = request.map(document.noteAuditionAvailability(for:))
+                ?? .unavailable(.selectedInstrumentSampleNotPlayable)
         } else {
             availability = .unavailable(.blankDocumentMissingInstrumentSamplePayload)
         }

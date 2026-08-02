@@ -1192,6 +1192,46 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackEngineLiveSchedulerTriggersDistinctKeymapSamplesInOrder() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let lowSample = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, pcm: [0.25, -0.25],
+            volume: 0.5, panning: 24, relativeNote: -2, finetune: 5
+        )
+        let highSample = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 1, pcm: [1, 0, -1],
+            volume: 1, panning: 232, relativeNote: 7, finetune: -11
+        )
+        let instrument = PlaybackInstrument(
+            index: 1,
+            samples: [lowSample, highSample],
+            noteSampleMap: Array(repeating: 0, count: 48) + Array(repeating: 1, count: 48)
+        )
+        let engine = PlaybackEngine(audioEngine: audioOutput, startsRealtimeTimer: false)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 37, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1),
+            ]],
+            instrumentsByIndex: [1: instrument]
+        ))
+
+        engine.play(from: PlaybackStartContext(
+            moduleTitle: "keymap", songPosition: 0, patternIndex: 2, row: 0
+        ))
+        for _ in 0..<PlaybackTiming.xmDefault.ticksPerRow {
+            engine.advanceOneTick()
+        }
+
+        XCTAssertEqual(audioOutput.triggeredRequests.map(\.sample.sampleIndex), [0, 1])
+        XCTAssertEqual(audioOutput.triggeredRequests.map(\.sample.pcm), [lowSample.pcm, highSample.pcm])
+        XCTAssertEqual(audioOutput.triggeredRequests.map(\.sample.panning), [24, 232])
+        XCTAssertEqual(audioOutput.triggeredRequests.map(\.sample.relativeNote), [-2, 7])
+        XCTAssertEqual(audioOutput.triggeredRequests.map(\.sample.finetune), [5, -11])
+    }
+
+    @MainActor
     func testPlaybackEngineStartsFromDebugOrderRowAndAnnotatesTrace() {
         let traceWriter = TestPlaybackTraceWriter()
         let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput(), traceWriter: traceWriter)

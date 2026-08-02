@@ -52,6 +52,9 @@ VoodooTracker X currently has:
   edited volume and tuning through the unchanged adapter gain and pitch paths; the Instrument Editor
   piano range shifts across the read-only 96-note map and focused computer audition shares its
   visible monophonic pressed-key state with mouse audition without document/undo mutation
+- one canonical note-to-sample resolver now drives Instrument Editor computer/mouse
+  audition, pattern-entry audition, editable live scheduling, and adapter planning;
+  selected sample remains editing focus while Sample Editor AUDITION stays direct
 - one fixed `Window > Sample Editor` utility window aligned to
   `assets/mockups/sample-editor-v1.html`, with a compact non-mutating instrument
   popup bound to canonical instrument/sample selection. Canonical normalization
@@ -108,8 +111,9 @@ ranges, channel/stem export, bitrate/quality controls, and diagnostic profile
 selection remain future work.
 
 The `v0.3.0-alpha.1` From-Scratch Composition Alpha is designed and its
-composition/XM round-trip gate is blocked by proven incorrect live editable
-keymap routing. A dedicated correction PR must merge before the gate is rerun.
+composition/XM round-trip gate remains blocked pending merge and rerun. The
+proven live editable keymap-routing defect now has a dedicated correction with
+distinct-sample preview, scheduling, and planning tests.
 Its gate starts
 from a clean launch, creates an instrument
 and imported/generated sample, composes and arranges a song, then proves Export
@@ -528,19 +532,19 @@ Recently completed narrow target:
   changing playback, backend, parser, tracker viewport, editor, save/export, or
   loaded-module read-only behavior. Loaded-module TIME now follows the adapter
   plan lifecycle above; no duration is inferred from module title text.
-- Loaded-module audition now has explicit selected-sample slot controls in the
-  existing control panel. Preview resolves the selected 1-based `Sxx` slot on
-  the selected instrument, routes non-first sample slots into the preview
-  descriptor when payload exists, and returns preview-unavailable for missing
-  or empty selected slots instead of falling back to `S01`. Instrument changes
+- Loaded-module audition has explicit instrument/sample controls in the existing
+  control panel. Tracker and Instrument Editor note preview resolve the selected
+  instrument's exact note map; Sample Editor preview resolves its selected `Sxx`
+  directly. Either route returns preview-unavailable for an invalid target rather
+  than falling back to `S01`. Instrument changes
   preserve the selected sample slot when possible and otherwise reset to the
   first available sample slot, or `S01` when no sample slots are exposed.
-  Loaded modules remain read-only, blank documents remain preview-unavailable,
+  Loaded modules remain read-only, payload-less blank documents remain preview-unavailable,
   and runtime song playback, Play/Stop transport, backend selection, C mixer
   DSP, parser architecture, tracker viewport behavior, save/export behavior,
   and AVAudio runtime backend policy remain unchanged.
 - Non-Edit-mode tracker note keys now use an explicit editor input policy:
-  loaded-module note keys may audition selected previewable instrument/sample
+  loaded-module note keys may audition a keymap-resolved instrument/sample
   payload without mutating pattern data, blank documents remain preview
   unavailable without real sample payload, keyUp cancels only the matching
   preview and never writes `===`, backtick/Delete/Backspace mutate only where
@@ -569,9 +573,9 @@ Recently completed narrow target:
   envelope parity and non-Edit-mode audition remain deferred.
 - Editor note preview now maps lower-row keys to the selected octave and
   upper-row keys to selected octave + 1 for preview pitch in the same
-  preview-only mixer path used by the audible sink. Loaded-module preview used
-  the selected instrument and the then-current sample-map/first-playable
-  sample selection policy, new preview notes clear prior preview voices before
+  preview-only mixer path used by the audible sink. Instrument-note preview uses
+  the selected instrument and exact current sample map, while Sample Editor uses
+  its direct-selected slot; new preview notes clear prior preview voices before
   replacement, and preview gain uses loaded-module adapter sample gain at
   neutral channel/global volume plus default runtime C mixer output headroom,
   with a final preview-only safety cap inside the isolated preview sink.
@@ -772,9 +776,9 @@ Implemented foundation:
   preview path while text editing and shortcuts retain normal precedence
 - exact XM sample panning byte representation, loaded/editable-copy/snapshot/
   Export XM preservation, and eligible Instrument Editor PAN mutation; loaded
-  modules stay read-only, while focused audition, runtime playback, and product
-  export are intended to initialize each new voice from the keymap-resolved
-  sample's pan; live editable routing is currently a release blocker
+  modules stay read-only, while focused audition, pattern-entry audition,
+  runtime playback, and product export initialize each new voice from the
+  keymap-resolved sample's metadata; selected-sample UI state does not override it
 - exact XM autovibrato byte preservation and disabled VIBRATO display;
   playback, audition, adapter plans, and render output remain unchanged
 - exact XM panning-envelope point/count/index/flag preservation through loaded

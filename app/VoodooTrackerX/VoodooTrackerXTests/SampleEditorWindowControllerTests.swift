@@ -449,7 +449,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
             selection: selection, sourceContext: .loadedModule(patternIndex: 0))
         let instrumentRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
             noteValue: UInt8(PlaybackPitchCalculator.c4NoteValue), selection: selection,
-            instrument: instrument, sourceContext: .loadedModule(patternIndex: 0)
+            sourceContext: .loadedModule(patternIndex: 0)
         ))
         guard case let .potentiallyAvailable(descriptor) =
             EditorNoteAuditionAvailabilityResolver.availability(for: sampleRequest, loadedPlaybackSong: song) else {
@@ -458,7 +458,9 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         let selectedSample = try XCTUnwrap(instrument.sample(selectedSampleSlot: 2))
         XCTAssertEqual(sampleRequest.kind, .noteOn(noteValue: 49, selectedOctave: 4))
         XCTAssertEqual(sampleRequest.selectedSampleIndex, 2)
-        XCTAssertEqual(instrumentRequest.selectedSampleIndex, 1)
+        XCTAssertEqual(sampleRequest.sampleResolution, .directSelectedSample)
+        XCTAssertEqual(instrumentRequest.sampleResolution, .instrumentKeymap)
+        XCTAssertEqual(instrumentRequest.selectedSampleIndex, 2)
         XCTAssertEqual(descriptor.previewPCM, selectedSample.pcm)
         XCTAssertEqual(descriptor.previewLoop, PlaybackSongSyntheticAdapter.mixerLoop(from: selectedSample))
         XCTAssertEqual(instrument.noteSampleMap?[PlaybackPitchCalculator.c4NoteValue - 1], 0)

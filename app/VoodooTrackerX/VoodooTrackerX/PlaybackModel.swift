@@ -381,7 +381,7 @@ struct PlaybackInstrument: Equatable {
         self.volumeEnvelope = volumeEnvelope
         self.panningEnvelope = panningEnvelope
         self.autoVibrato = autoVibrato
-        self.noteSampleMap = noteSampleMap?.count == 96 ? noteSampleMap : nil
+        self.noteSampleMap = noteSampleMap
     }
 
     var firstPlayableSample: PlaybackSample? {
@@ -390,10 +390,6 @@ struct PlaybackInstrument: Equatable {
 
     var availableSampleSlots: [Int] {
         Array(Set(samples.map { min(255, max(1, $0.sampleIndex + 1)) })).sorted()
-    }
-
-    var hasNoteSampleMap: Bool {
-        noteSampleMap != nil
     }
 
     func withName(_ name: String?) -> PlaybackInstrument {
@@ -410,7 +406,8 @@ struct PlaybackInstrument: Equatable {
 
     func mappedSampleIndex(forNote note: UInt8) -> Int? {
         guard (1...96).contains(note),
-              let noteSampleMap else {
+              let noteSampleMap,
+              noteSampleMap.count == 96 else {
             return nil
         }
         return noteSampleMap[Int(note) - 1]
@@ -425,6 +422,74 @@ struct PlaybackInstrument: Equatable {
             return nil
         }
         return sample(mappedSampleIndex: selectedSampleSlot - 1)
+    }
+}
+
+struct ResolvedPlaybackSample: Equatable {
+    let instrumentIndex: Int
+    let sampleIndex: Int
+    let sample: PlaybackSample
+}
+
+enum PlaybackInstrumentMissingKeymapPolicy: Equatable {
+    case fail
+    case firstPlayableSample
+}
+
+/// Canonical note-to-sample lookup for represented playback instruments.
+enum PlaybackInstrumentSampleResolver {
+    static func resolveSample(
+        instrumentIndex: Int,
+        note: UInt8,
+        instrumentsByIndex: [Int: PlaybackInstrument],
+        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .fail
+    ) -> ResolvedPlaybackSample? {
+        guard let instrument = instrumentsByIndex[instrumentIndex] else {
+            return nil
+        }
+        return resolveSample(
+            instrumentIndex: instrumentIndex,
+            note: note,
+            instrument: instrument,
+            missingKeymapPolicy: missingKeymapPolicy
+        )
+    }
+
+    static func resolveSample(
+        instrumentIndex: Int,
+        note: UInt8,
+        instrument: PlaybackInstrument,
+        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .fail
+    ) -> ResolvedPlaybackSample? {
+        guard instrumentIndex > 0,
+              (1...96).contains(note),
+              instrument.index == instrumentIndex else {
+            return nil
+        }
+
+        let sample: PlaybackSample?
+        if let noteSampleMap = instrument.noteSampleMap {
+            guard noteSampleMap.count == 96 else { return nil }
+            let mappedSampleIndex = noteSampleMap[Int(note) - 1]
+            guard mappedSampleIndex >= 0 else { return nil }
+            sample = instrument.sample(mappedSampleIndex: mappedSampleIndex)
+        } else if missingKeymapPolicy == .firstPlayableSample {
+            sample = instrument.firstPlayableSample
+        } else {
+            sample = nil
+        }
+
+        guard let sample,
+              sample.instrumentIndex == instrumentIndex,
+              sample.sampleIndex >= 0,
+              sample.isPlayable else {
+            return nil
+        }
+        return ResolvedPlaybackSample(
+            instrumentIndex: instrumentIndex,
+            sampleIndex: sample.sampleIndex,
+            sample: sample
+        )
     }
 }
 
@@ -535,11 +600,17 @@ struct PlaybackSong: Equatable {
         return pattern.rows[position.rowIndex]
     }
 
-    func sample(forInstrument instrumentIndex: Int) -> PlaybackSample? {
-        guard instrumentIndex > 0 else {
-            return nil
-        }
-        return instrumentsByIndex[instrumentIndex]?.firstPlayableSample
+    func resolveSample(
+        instrumentIndex: Int,
+        note: UInt8,
+        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .fail
+    ) -> ResolvedPlaybackSample? {
+        PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: instrumentIndex,
+            note: note,
+            instrumentsByIndex: instrumentsByIndex,
+            missingKeymapPolicy: missingKeymapPolicy
+        )
     }
 
     func instrument(forInstrument instrumentIndex: Int) -> PlaybackInstrument? {

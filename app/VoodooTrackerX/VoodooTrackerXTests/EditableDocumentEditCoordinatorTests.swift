@@ -232,10 +232,12 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         let sampleRequest = SampleEditorAuditionRequestFactory.request(selection: added.selection, sourceContext: .blankDocument)
         let instrumentRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
             noteValue: UInt8(PlaybackPitchCalculator.c4NoteValue),
-            selection: added.selection, instrument: added.instrumentPalette[1], sourceContext: .blankDocument
+            selection: added.selection, sourceContext: .blankDocument
         ))
         XCTAssertEqual(sampleRequest.selectedSampleIndex, 2)
-        XCTAssertEqual(instrumentRequest.selectedSampleIndex, 1)
+        XCTAssertEqual(sampleRequest.sampleResolution, .directSelectedSample)
+        XCTAssertEqual(instrumentRequest.sampleResolution, .instrumentKeymap)
+        XCTAssertEqual(instrumentRequest.selectedSampleIndex, 2)
         XCTAssertEqual(harness.appliedDocuments, [added])
         XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Add Audio Sample")
 
@@ -364,9 +366,34 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
     }
 
     func testSampleKeymapRangeEditIsOneUndoActionWithExactSelectionUndoRedo() throws {
-        let before = makeSampleKeymapEditableDocument()
+        var before = makeSampleKeymapEditableDocument()
+        before.pattern.rows[0][0] = XMPatternEventCell(
+            note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
+        )
         let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
         let originalExport = try EditableXMWriter().data(from: before)
+        let auditionRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
+            noteValue: 49, selection: before.selection, sourceContext: .blankDocument
+        ))
+        func resolvedSampleIndex(in document: BlankTrackerDocument?) -> Int? {
+            guard let document,
+                  case let .potentiallyAvailable(descriptor) = document.noteAuditionAvailability(for: auditionRequest) else {
+                return nil
+            }
+            return descriptor.sampleIndex
+        }
+        func scheduledSampleIndex(in document: BlankTrackerDocument?) -> Int? {
+            guard let document else { return nil }
+            return RuntimeCMixerAdapterEventPlan.make(
+                song: EditablePlaybackSongBuilder.build(from: document), sampleRate: 8_363
+            ).events.compactMap { event -> Int? in
+                guard case let .noteTrigger(_, _, mapping) = event.action else { return nil }
+                return mapping.sampleIndex
+            }.first
+        }
+
+        XCTAssertEqual(resolvedSampleIndex(in: before), 0)
+        XCTAssertEqual(scheduledSampleIndex(in: before), 0)
 
         let outcome = try harness.coordinator.mapSampleToNoteRange(
             instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
@@ -379,8 +406,12 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.appliedDocuments, [edited])
         XCTAssertEqual(harness.revision, 1)
         XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Map Sample to Note Range")
+        XCTAssertEqual(resolvedSampleIndex(in: edited), 1)
+        XCTAssertEqual(scheduledSampleIndex(in: edited), 1)
         XCTAssertTrue(harness.coordinator.undo())
         XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual(resolvedSampleIndex(in: harness.editableDocument), 0)
+        XCTAssertEqual(scheduledSampleIndex(in: harness.editableDocument), 0)
         XCTAssertEqual(
             try EditableXMWriter().data(from: XCTUnwrap(harness.editableDocument)),
             originalExport
@@ -388,6 +419,8 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Map Sample to Note Range")
         XCTAssertTrue(harness.coordinator.redo())
         XCTAssertEqual(harness.editableDocument, edited)
+        XCTAssertEqual(resolvedSampleIndex(in: harness.editableDocument), 1)
+        XCTAssertEqual(scheduledSampleIndex(in: harness.editableDocument), 1)
         XCTAssertEqual(harness.appliedDocuments, [edited, before, edited])
     }
 

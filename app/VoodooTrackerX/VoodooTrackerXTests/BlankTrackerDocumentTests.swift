@@ -266,7 +266,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         }
     }
 
-    func testSampleKeymapRangeAssignmentFeedsInstrumentAuditionPatternPlanningAndLeavesDirectSampleAudition() throws {
+    func testSampleKeymapRangeAssignmentFeedsInstrumentAndPatternAuditionWithoutSelectedSampleLeak() throws {
         var document = makeSampleKeymapEditableDocument()
         document.pattern.rows[0][0] = XMPatternEventCell(
             note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
@@ -278,41 +278,64 @@ final class BlankTrackerDocumentTests: XCTestCase {
             instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
         ).get()
         let instrument = try XCTUnwrap(document.instrumentPalette[1])
+        var selectedS02 = document
+        selectedS02.selectSample(2)
 
         let insideRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
-            noteValue: 49, selection: document.selection, instrument: instrument,
+            noteValue: 49, selection: document.selection,
             sourceContext: .blankDocument
         ))
         let outsideRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
-            noteValue: 37, selection: document.selection, instrument: instrument,
+            noteValue: 37, selection: selectedS02.selection,
             sourceContext: .blankDocument
         ))
-        XCTAssertEqual(insideRequest.selectedSampleIndex, 2)
-        XCTAssertEqual(outsideRequest.selectedSampleIndex, 1)
-        guard case let .potentiallyAvailable(inside) = document.noteAuditionAvailability(
-            for: TrackerEditorSelection(
-                selectedInstrument: insideRequest.selectedInstrumentIndex, selectedSample: insideRequest.selectedSampleIndex
-            )
-        ) else { return XCTFail("Expected mapped Instrument Editor audition") }
+        let lowerPatternRequest = try XCTUnwrap(PatternNoteAuditionRequestFactory.request(
+            trackerKey: "z", selectedOctave: 3, selection: selectedS02.selection,
+            sourceContext: .blankDocument
+        ))
+        let upperPatternRequest = try XCTUnwrap(PatternNoteAuditionRequestFactory.request(
+            trackerKey: "z", selectedOctave: 4, selection: document.selection,
+            sourceContext: .blankDocument
+        ))
+        guard case let .potentiallyAvailable(inside) = document.noteAuditionAvailability(for: insideRequest),
+              case let .potentiallyAvailable(outside) = selectedS02.noteAuditionAvailability(for: outsideRequest),
+              case let .potentiallyAvailable(lowerPattern) = selectedS02.noteAuditionAvailability(for: lowerPatternRequest),
+              case let .potentiallyAvailable(upperPattern) = document.noteAuditionAvailability(for: upperPatternRequest) else {
+            return XCTFail("Expected keymap-resolved instrument and pattern audition")
+        }
+        XCTAssertEqual(insideRequest.sampleResolution, .instrumentKeymap)
+        XCTAssertEqual(outsideRequest.sampleResolution, .instrumentKeymap)
+        XCTAssertEqual(lowerPatternRequest.sampleResolution, .instrumentKeymap)
+        XCTAssertEqual(upperPatternRequest.sampleResolution, .instrumentKeymap)
         XCTAssertEqual(inside.sampleIndex, 1)
+        XCTAssertEqual(outside.sampleIndex, 0)
+        XCTAssertEqual(lowerPattern.sampleIndex, 0)
+        XCTAssertEqual(upperPattern.sampleIndex, 1)
+        XCTAssertEqual(document.selection.selectedSample, 1)
+        XCTAssertEqual(selectedS02.selection.selectedSample, 2)
+        XCTAssertEqual(selectedS02.pattern.rows[0][0], XMPatternEventCell(
+            note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
+        ))
 
         let sampleRequest = SampleEditorAuditionRequestFactory.request(
-            selection: document.selection,
+            selection: selectedS02.selection,
             sourceContext: .blankDocument
         )
-        XCTAssertEqual(sampleRequest.selectedSampleIndex, 1)
-        guard case let .potentiallyAvailable(direct) = document.noteAuditionAvailability else {
+        XCTAssertEqual(sampleRequest.sampleResolution, .directSelectedSample)
+        guard case let .potentiallyAvailable(direct) = selectedS02.noteAuditionAvailability(for: sampleRequest) else {
             return XCTFail("Expected direct selected-sample audition")
         }
-        XCTAssertEqual(direct.sampleIndex, 0)
+        XCTAssertEqual(direct.sampleIndex, 1)
 
-        let plan = PlaybackSongSyntheticAdapter.adapt(
-            EditablePlaybackSongBuilder.build(from: document),
-            orderIndex: 0,
-            sampleRate: 8_363
+        let runtimePlan = RuntimeCMixerAdapterEventPlan.make(
+            song: EditablePlaybackSongBuilder.build(from: selectedS02), sampleRate: 8_363
         )
-        XCTAssertEqual(plan.diagnostics.eventMappings.map(\.sampleIndex), [1, 0])
-        XCTAssertEqual(plan.pattern.events.map(\.sample), [
+        let triggers = runtimePlan.events.compactMap { event -> (SyntheticTrackerEvent, PlaybackSongSyntheticEventMapping)? in
+            guard case let .noteTrigger(_, trigger, mapping) = event.action else { return nil }
+            return (trigger, mapping)
+        }
+        XCTAssertEqual(triggers.map { $0.1.sampleIndex }, [1, 0])
+        XCTAssertEqual(triggers.map { $0.0.sample }, [
             MixerSampleBuffer(monoPCM: instrument.samples[1].pcm),
             MixerSampleBuffer(monoPCM: instrument.samples[0].pcm),
         ])
@@ -3601,7 +3624,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
     }
 
     @MainActor
-    func testActiveEditableLoopSampleChangeDoesNotMutatePatternOrRefreshPlaybackAndUpdatesAudition() {
+    func testActiveEditableLoopSampleChangeDoesNotMutatePatternOrRefreshPlaybackAndUpdatesDirectSampleAvailability() {
         var document = makeTwoSampleLoadedModuleEditableDocument(rowCount: 4)
         let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
         let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)

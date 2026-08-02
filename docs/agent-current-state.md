@@ -49,11 +49,12 @@ direction; it does not expand v1, add a target, or change the runtime. See
 `docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
 
 Release status: `v0.2.0-alpha.5` is the released Rendered Audio Export Alpha.
-The `v0.3.0-alpha.1` composition/XM round-trip gate is blocked. Maintainer testing
-proves live editable Instrument Editor audition, pattern-entry audition, and song
-playback can route S02-mapped notes to S01, with selected-sample UI state affecting
-the result. Static planning and XM export/reopen remain green, but the full gate
-must be rerun after a dedicated correction PR. See
+The `v0.3.0-alpha.1` composition/XM round-trip gate remains blocked pending a
+full rerun. Maintainer testing proved that live editable Instrument Editor audition,
+pattern-entry audition, and song playback could route S02-mapped notes to S01.
+The dedicated correction now resolves those instrument-note paths through one
+96-note keymap resolver, with distinct-sample integration coverage; it still must
+merge and pass the complete release gate. See
 `docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
 `File > Export Audio` for stopped loaded modules, editable documents, and
@@ -80,7 +81,8 @@ through snapshots and Export XM. Loaded modules, playing documents, missing or
 empty sample slots, and all unimplemented mutation controls remain read-only/inert.
 Represented instrument/sample rows share the main control-panel selection in loaded or editable
 documents, including during playback. Row selection is non-mutating, creates no undo, cancels stale
-preview before switching context, and drives metadata and the next audition; transport gates mutation only.
+preview before switching context, and drives metadata; sample selection drives only direct Sample
+Editor audition, while instrument-note audition ignores it. Transport gates mutation only.
 The floating Instrument Editor closes through its red close button or Command-W without
 closing the main app window, and `Window > Instrument Editor` recreates one clean
 controller/router afterward. Its computer-key audition router inspects only keyDown/keyUp events;
@@ -135,13 +137,14 @@ the canonical C-0...B-7 domain. A transient range dragged on the full-map summar
 is the first sheet default, followed by a focused note, selected octave, then C-4...B-4.
 One `Map Sample to Note Range` edit preserves selection and notes outside the
 range; failures and no-ops create no revision/history, and undo/redo is exact.
-Instrument Editor/pattern playback are intended to consume the map while Sample
-Editor audition stays direct-selected-sample. Live editable routing is a proven
-release blocker; there is no automatic/drag mapping or auto-audition.
+Instrument Editor computer/graphical audition, pattern-entry audition, and editable
+playback consume the map without consulting selected-sample UI state. Sample Editor
+audition stays direct-selected-sample. Distinct S01/S02 tests cover the former
+alpha.1 blocker; there is no automatic/drag mapping or auto-audition.
 Sample Editor AUDITION now toggles the represented selected slot directly at
 C-4 through the persistent preview stream for loaded/read-only and editable
 sources, preserving existing PCM/loop/volume/pan/tuning planning without keymap
-lookup or mutation. Instrument Editor is intended to remain keymap-driven. Note selection and
+lookup or mutation. Instrument Editor remains keymap-driven. Note selection and
 natural-completion UI notification remain future work; no polling is used.
 Selected-sample volume now likewise preserves exact XM `0...64` values through
 `applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing

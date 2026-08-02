@@ -17,7 +17,8 @@ enum SampleEditorAuditionRequestFactory {
     static func request(selection: TrackerEditorSelection,
                         sourceContext: EditorNoteAuditionSourceContext) -> EditorNoteAuditionRequest {
         EditorNoteAuditionRequest(kind: .noteOn(noteValue: noteValue, selectedOctave: octave),
-                                  selection: selection, sourceContext: sourceContext)
+                                  selection: selection, sampleResolution: .directSelectedSample,
+                                  sourceContext: sourceContext)
     }
 }
 

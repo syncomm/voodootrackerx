@@ -1652,7 +1652,11 @@ final class PlaybackEngine: PlaybackTransport {
                 )
                 continue
             }
-            guard let sample = song.sample(forInstrument: Int(cell.instrument)) else {
+            guard let sample = song.resolveSample(
+                instrumentIndex: Int(cell.instrument),
+                note: cell.note,
+                missingKeymapPolicy: .firstPlayableSample
+            )?.sample else {
                 traceChannelEvent(
                     at: position,
                     tickInRow: 0,

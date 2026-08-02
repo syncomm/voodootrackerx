@@ -668,38 +668,29 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func selectSample(forNote note: UInt8, from instrument: PlaybackInstrument) -> SampleSelection {
-        let mapPresent = instrument.hasNoteSampleMap
+        let mapPresent = instrument.noteSampleMap != nil
         let mappedSampleIndex = instrument.mappedSampleIndex(forNote: note)
         let mappedSample = mappedSampleIndex.flatMap { instrument.sample(mappedSampleIndex: $0) }
         let mappedSampleValid = mappedSample?.isPlayable == true
-        let shouldUseMap = mapPresent && instrument.samples.count > 1
         let mapMissingOrDeferred = !mapPresent && instrument.samples.count > 1
+        let resolved = PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: instrument.index,
+            note: note,
+            instrument: instrument,
+            missingKeymapPolicy: .firstPlayableSample
+        )
 
-        if shouldUseMap {
-            if let mappedSample, mappedSample.isPlayable {
+        if mapPresent {
+            if let resolved {
                 return SampleSelection(
-                    sample: mappedSample,
-                    diagnosticSample: mappedSample,
+                    sample: resolved.sample,
+                    diagnosticSample: resolved.sample,
                     skippedReason: nil,
                     sampleMapKeymapPresent: true,
-                    mappedSampleIndex: mappedSampleIndex,
+                    mappedSampleIndex: resolved.sampleIndex,
                     mappedSampleValid: true,
                     method: .sampleMap,
                     firstPlayableSampleFallbackUsed: false,
-                    sampleMapKeymapBehaviorDeferred: false,
-                    sampleMapKeymapMissingOrDeferred: false
-                )
-            }
-            if let fallback = instrument.firstPlayableSample {
-                return SampleSelection(
-                    sample: fallback,
-                    diagnosticSample: mappedSample ?? fallback,
-                    skippedReason: nil,
-                    sampleMapKeymapPresent: true,
-                    mappedSampleIndex: mappedSampleIndex,
-                    mappedSampleValid: mappedSampleValid,
-                    method: .fallbackAfterInvalidMap,
-                    firstPlayableSampleFallbackUsed: true,
                     sampleMapKeymapBehaviorDeferred: false,
                     sampleMapKeymapMissingOrDeferred: false
                 )
@@ -718,7 +709,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        if let sample = instrument.firstPlayableSample {
+        if let sample = resolved?.sample {
             return SampleSelection(
                 sample: sample,
                 diagnosticSample: sample,

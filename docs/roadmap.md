@@ -19,8 +19,8 @@ user-selected destination. Loaded modules remain read-only, Save/Save As remain
 disabled, and advanced audio export options remain future work.
 
 The proposed next major milestone is `v0.3.0-alpha.1` From-Scratch
-Composition Alpha. It is not yet released; its automated XM round-trip gate is
-a no-go after maintainer testing proved incorrect live editable keymap routing.
+Composition Alpha. It is not yet released; its XM round-trip gate remains a
+no-go pending merge and full rerun of the dedicated live keymap-routing correction.
 Its complete acceptance gate and
 dependency-ordered PR plan are defined by
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
@@ -35,8 +35,10 @@ untested depths plus Ogg-FLAC are rejected, and FLAC metadata/loops are ignored.
 Sample Editor AUDITION toggles its represented selected slot directly at C-4
 through the persistent preview stream for loaded/read-only and editable sources,
 without keymap lookup or mutation.
-The project-owned release-gate builder proves deterministic supported-state XM
-reopen and static sample planning, but not correct live audition/runtime routing; see
+Instrument Editor and pattern-entry audition plus editable playback now share
+exact note-map resolution, independent of selected-sample editing focus. Distinct
+S01/S02 tests cover preview, live scheduling, and offline planning; the complete
+release gate still must be rerun after merge. See
 `docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 
 ## Project Goals
@@ -585,19 +587,19 @@ Recently completed product foundation:
   changing playback, backend, parser, tracker viewport, editor, save/export, or
   loaded-module read-only behavior. Loaded-module TIME now follows the adapter
   plan lifecycle above; no duration is inferred from module title text.
-- Loaded-module audition now has explicit selected-sample slot controls in the
-  existing control panel. Preview resolves the selected 1-based `Sxx` slot on
-  the selected instrument, routes non-first sample slots into the preview
-  descriptor when payload exists, and returns preview-unavailable for missing
-  or empty selected slots instead of falling back to `S01`. Instrument changes
+- Loaded-module audition has explicit instrument/sample controls in the existing
+  control panel. Tracker and Instrument Editor note preview resolve the selected
+  instrument's exact note map; Sample Editor preview resolves its selected `Sxx`
+  directly. Either route returns preview-unavailable for an invalid target rather
+  than falling back to `S01`. Instrument changes
   preserve the selected sample slot when possible and otherwise reset to the
   first available sample slot, or `S01` when no sample slots are exposed.
-  Loaded modules remain read-only, blank documents remain preview-unavailable,
+  Loaded modules remain read-only, payload-less blank documents remain preview-unavailable,
   and runtime song playback, Play/Stop transport, backend selection, C mixer
   DSP, parser architecture, tracker viewport behavior, save/export behavior,
   and AVAudio runtime backend policy remain unchanged.
 - Non-Edit-mode tracker note keys now use an explicit editor input policy:
-  loaded-module note keys may audition selected previewable instrument/sample
+  loaded-module note keys may audition a keymap-resolved instrument/sample
   payload without mutating pattern data, blank documents remain preview
   unavailable without real sample payload, keyUp cancels only the matching
   preview and never writes `===`, backtick/Delete/Backspace mutate only where
@@ -819,8 +821,9 @@ audio backends. Planned sequencing is:
   map, current octave/selection, availability resolver, and preview sink
 - the on-screen Instrument Editor keyboard now auditions exact clicked pitches,
   including release/press transitions while dragging, through the shared preview sink
-- continue note audition using the selected instrument/sample source; the
-  editor-side request and preview sink exist for loaded-module sample payloads
+- resolve tracker and Instrument Editor note audition from the selected instrument,
+  played note, and exact 96-entry keymap; selected sample remains editing focus
+- keep Sample Editor audition as the sole direct-selected-sample preview route
 - treat key release as preview key-off only
 - keep pattern key-off as explicit `===` entry through the tracker key binding
 - allow loaded modules to become auditionable before they become editable

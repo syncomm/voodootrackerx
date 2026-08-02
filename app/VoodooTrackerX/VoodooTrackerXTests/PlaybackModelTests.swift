@@ -3,6 +3,92 @@ import AudioToolbox
 import XCTest
 
 final class PlaybackModelTests: XCTestCase {
+    func testInstrumentNoteSampleResolverUsesExactKeymapBoundariesAndImmutableSampleIdentity() throws {
+        let lowSample = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, pcm: [0.25, -0.25],
+            volume: 0.5, panning: 24, relativeNote: -1, finetune: 3
+        )
+        let highSample = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 1, pcm: [1, 0, -1],
+            volume: 1, panning: 232, relativeNote: 7, finetune: -9
+        )
+        let map = Array(repeating: 0, count: 48) + Array(repeating: 1, count: 48)
+        let instrument = PlaybackInstrument(
+            index: 1, samples: [lowSample, highSample], noteSampleMap: map
+        )
+        let palette = [1: instrument]
+
+        let lowerBoundary = try XCTUnwrap(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 48, instrumentsByIndex: palette
+        ))
+        let upperBoundary = try XCTUnwrap(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: palette
+        ))
+        let lastNote = try XCTUnwrap(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 96, instrumentsByIndex: palette
+        ))
+
+        XCTAssertEqual(lowerBoundary.instrumentIndex, 1)
+        XCTAssertEqual(lowerBoundary.sampleIndex, 0)
+        XCTAssertEqual(lowerBoundary.sample, lowSample)
+        XCTAssertEqual(upperBoundary.sampleIndex, 1)
+        XCTAssertEqual(upperBoundary.sample, highSample)
+        XCTAssertEqual(lastNote.sampleIndex, 1)
+        XCTAssertEqual(palette, [1: instrument])
+    }
+
+    func testInstrumentNoteSampleResolverFailsSafelyForInvalidOrMalformedRepresentation() {
+        let playable = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, pcm: [0.5], volume: 1
+        )
+        let empty = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 1, pcm: [], volume: 1
+        )
+        let validMap = Array(repeating: 0, count: 96)
+        let valid = PlaybackInstrument(index: 1, samples: [playable], noteSampleMap: validMap)
+        let malformed = PlaybackInstrument(
+            index: 1, samples: [playable], noteSampleMap: Array(repeating: 0, count: 95)
+        )
+        let missingMap = PlaybackInstrument(index: 1, samples: [playable])
+        let negativeTarget = PlaybackInstrument(
+            index: 1, samples: [playable], noteSampleMap: Array(repeating: -1, count: 96)
+        )
+        let missingTarget = PlaybackInstrument(
+            index: 1, samples: [playable], noteSampleMap: Array(repeating: 1, count: 96)
+        )
+        let emptyTarget = PlaybackInstrument(
+            index: 1, samples: [playable, empty], noteSampleMap: Array(repeating: 1, count: 96)
+        )
+
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 0, note: 49, instrumentsByIndex: [1: valid]
+        ))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 2, note: 49, instrumentsByIndex: [1: valid]
+        ))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 0, instrumentsByIndex: [1: valid]
+        ))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 97, instrumentsByIndex: [1: valid]
+        ))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: [1: malformed]
+        ))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: [1: missingMap]
+        ))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: [1: negativeTarget]
+        ))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: [1: missingTarget]
+        ))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: [1: emptyTarget]
+        ))
+    }
+
     func testPlaybackSongVolumeColumnDecoderClassifiesSupportedIgnoredAndDeferredCommands() {
         let empty = PlaybackSongVolumeColumnDecoder.decode(0)
         let setVolume = PlaybackSongVolumeColumnDecoder.decode(0x3D)
@@ -574,7 +660,7 @@ final class PlaybackModelTests: XCTestCase {
         )
     }
 
-    func testPlaybackSongFindsFirstPlayableInstrumentSample() {
+    func testPlaybackSongUsesFirstPlayableSampleOnlyWithExplicitMissingKeymapPolicy() {
         let silent = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
         let playable = PlaybackSample(instrumentIndex: 1, sampleIndex: 1, pcm: [0, 0.5, -0.5], volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
         let song = makePlaybackSong(
@@ -583,9 +669,16 @@ final class PlaybackModelTests: XCTestCase {
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [silent, playable])]
         )
 
-        XCTAssertEqual(song.sample(forInstrument: 1), playable)
-        XCTAssertNil(song.sample(forInstrument: 0))
-        XCTAssertNil(song.sample(forInstrument: 2))
+        XCTAssertNil(song.resolveSample(instrumentIndex: 1, note: 49))
+        XCTAssertEqual(song.resolveSample(
+            instrumentIndex: 1, note: 49, missingKeymapPolicy: .firstPlayableSample
+        )?.sample, playable)
+        XCTAssertNil(song.resolveSample(
+            instrumentIndex: 0, note: 49, missingKeymapPolicy: .firstPlayableSample
+        ))
+        XCTAssertNil(song.resolveSample(
+            instrumentIndex: 2, note: 49, missingKeymapPolicy: .firstPlayableSample
+        ))
     }
 
     func testPlaybackSampleDefaultsToXMCenterPanning() {

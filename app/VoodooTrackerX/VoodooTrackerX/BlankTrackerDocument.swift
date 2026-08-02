@@ -155,10 +155,16 @@ enum EditorNoteAuditionRequestKind: Equatable {
     case previewKeyOff
 }
 
+enum EditorNoteAuditionSampleResolution: Equatable {
+    case instrumentKeymap
+    case directSelectedSample
+}
+
 struct EditorNoteAuditionRequest: Equatable {
     let kind: EditorNoteAuditionRequestKind
     let selectedInstrumentIndex: Int
     let selectedSampleIndex: Int
+    let sampleResolution: EditorNoteAuditionSampleResolution
     let sourceContext: EditorNoteAuditionSourceContext
     let channelIndex: Int?
     let rowIndex: Int?
@@ -167,6 +173,7 @@ struct EditorNoteAuditionRequest: Equatable {
     init(
         kind: EditorNoteAuditionRequestKind,
         selection: TrackerEditorSelection,
+        sampleResolution: EditorNoteAuditionSampleResolution = .directSelectedSample,
         sourceContext: EditorNoteAuditionSourceContext,
         channelIndex: Int? = nil,
         rowIndex: Int? = nil,
@@ -175,6 +182,7 @@ struct EditorNoteAuditionRequest: Equatable {
         self.kind = kind
         selectedInstrumentIndex = selection.selectedInstrument
         selectedSampleIndex = selection.selectedSample
+        self.sampleResolution = sampleResolution
         self.sourceContext = sourceContext
         self.channelIndex = channelIndex.map { max(0, $0) }
         self.rowIndex = rowIndex.map { max(0, $0) }
@@ -185,6 +193,7 @@ struct EditorNoteAuditionRequest: Equatable {
         trackerKey: Character,
         selectedOctave: Int,
         selection: TrackerEditorSelection,
+        sampleResolution: EditorNoteAuditionSampleResolution = .directSelectedSample,
         sourceContext: EditorNoteAuditionSourceContext,
         channelIndex: Int? = nil,
         rowIndex: Int? = nil,
@@ -196,6 +205,7 @@ struct EditorNoteAuditionRequest: Equatable {
         return EditorNoteAuditionRequest(
             kind: .noteOn(noteValue: noteValue, selectedOctave: selectedOctave),
             selection: selection,
+            sampleResolution: sampleResolution,
             sourceContext: sourceContext,
             channelIndex: channelIndex,
             rowIndex: rowIndex,
@@ -215,6 +225,29 @@ struct EditorNoteAuditionRequest: Equatable {
             sourceContext: sourceContext,
             channelIndex: channelIndex,
             rowIndex: rowIndex
+        )
+    }
+}
+
+enum PatternNoteAuditionRequestFactory {
+    static func request(
+        trackerKey: Character,
+        selectedOctave: Int,
+        selection: TrackerEditorSelection,
+        sourceContext: EditorNoteAuditionSourceContext,
+        channelIndex: Int? = nil,
+        rowIndex: Int? = nil,
+        isRepeatedKeyDown: Bool = false
+    ) -> EditorNoteAuditionRequest? {
+        EditorNoteAuditionRequest.noteOn(
+            trackerKey: trackerKey,
+            selectedOctave: selectedOctave,
+            selection: selection,
+            sampleResolution: .instrumentKeymap,
+            sourceContext: sourceContext,
+            channelIndex: channelIndex,
+            rowIndex: rowIndex,
+            isRepeatedKeyDown: isRepeatedKeyDown
         )
     }
 }
@@ -362,6 +395,7 @@ enum EditorNoteAuditionUnavailableReason: Equatable {
     case selectedSampleUnavailable
     case selectedSampleMissingPayload
     case selectedInstrumentSampleNotPlayable
+    case instrumentKeymapUnavailable
 }
 
 struct EditorNoteAuditionSampleDescriptor: Equatable {
@@ -633,15 +667,37 @@ enum EditorNoteAuditionAvailabilityResolver {
         guard let song else {
             return .unavailable(.loadedModuleMissingPlaybackSong)
         }
-        guard let instrument = song.instrument(forInstrument: request.selectedInstrumentIndex) else {
+        return availability(for: request, instrumentsByIndex: song.instrumentsByIndex)
+    }
+
+    static func availability(
+        for request: EditorNoteAuditionRequest,
+        instrumentsByIndex: [Int: PlaybackInstrument]
+    ) -> EditorNoteAuditionAvailability {
+        guard let instrument = instrumentsByIndex[request.selectedInstrumentIndex],
+              instrument.index == request.selectedInstrumentIndex else {
             return .unavailable(.selectedInstrumentUnavailable)
         }
-
-        guard case .noteOn = request.kind else {
+        guard case let .noteOn(noteValue, _) = request.kind else {
             return .unavailable(.selectedSampleUnavailable)
         }
-        guard let sample = instrument.sample(selectedSampleSlot: request.selectedSampleIndex) else {
-            return .unavailable(.selectedSampleUnavailable)
+
+        let sample: PlaybackSample
+        switch request.sampleResolution {
+        case .instrumentKeymap:
+            guard let resolved = PlaybackInstrumentSampleResolver.resolveSample(
+                instrumentIndex: request.selectedInstrumentIndex,
+                note: noteValue,
+                instrumentsByIndex: instrumentsByIndex
+            ) else {
+                return .unavailable(.instrumentKeymapUnavailable)
+            }
+            sample = resolved.sample
+        case .directSelectedSample:
+            guard let directSample = instrument.sample(selectedSampleSlot: request.selectedSampleIndex) else {
+                return .unavailable(.selectedSampleUnavailable)
+            }
+            sample = directSample
         }
 
         let frameCount = min(max(0, sample.sampleLength), sample.pcm.count)
@@ -958,34 +1014,26 @@ struct BlankTrackerDocument: Equatable {
     }
 
     func noteAuditionAvailability(for selection: TrackerEditorSelection) -> EditorNoteAuditionAvailability {
-        guard let instrument = instrument(forInstrument: selection.selectedInstrument) else {
-            return .unavailable(hasInstrumentSamplePalette ? .selectedInstrumentUnavailable : .blankDocumentMissingInstrumentSamplePayload)
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(
+                noteValue: UInt8(PlaybackPitchCalculator.c4NoteValue),
+                selectedOctave: (PlaybackPitchCalculator.c4NoteValue - 1) / 12
+            ),
+            selection: selection,
+            sampleResolution: .directSelectedSample,
+            sourceContext: noteAuditionSourceContext
+        )
+        return noteAuditionAvailability(for: request)
+    }
+
+    func noteAuditionAvailability(for request: EditorNoteAuditionRequest) -> EditorNoteAuditionAvailability {
+        guard !instrumentPalette.isEmpty else {
+            return .unavailable(.blankDocumentMissingInstrumentSamplePayload)
         }
-        guard let sample = instrument.sample(selectedSampleSlot: selection.selectedSample) else {
-            return .unavailable(.selectedSampleUnavailable)
-        }
-        let frameCount = min(max(0, sample.sampleLength), sample.pcm.count)
-        guard frameCount > 0 else {
-            return .unavailable(.selectedSampleMissingPayload)
-        }
-        guard sample.isPlayable else {
-            return .unavailable(.selectedInstrumentSampleNotPlayable)
-        }
-        return .potentiallyAvailable(EditorNoteAuditionSampleDescriptor(
-            instrumentIndex: instrument.index,
-            sampleIndex: sample.sampleIndex,
-            sampleFrameCount: frameCount,
-            hasSamplePayload: true,
-            hasLoopMetadata: sample.loopRegion.isEnabled,
-            previewLoop: PlaybackSongSyntheticAdapter.mixerLoop(from: sample),
-            sourceContext: noteAuditionSourceContext,
-            previewPCM: Array(sample.pcm.prefix(frameCount)),
-            previewVolume: sample.volume,
-            previewPanning: sample.panning,
-            previewBaseSampleRate: sample.baseSampleRate,
-            previewRelativeNote: sample.relativeNote,
-            previewFinetune: sample.finetune
-        ))
+        return EditorNoteAuditionAvailabilityResolver.availability(
+            for: request,
+            instrumentsByIndex: instrumentPalette
+        )
     }
 
     var hasInstrumentSamplePalette: Bool {

@@ -427,21 +427,16 @@ enum InstrumentEditorAuditionRequestFactory {
     static func request(
         noteValue: UInt8,
         selection: TrackerEditorSelection,
-        instrument: PlaybackInstrument?,
         sourceContext: EditorNoteAuditionSourceContext,
         channelIndex: Int? = nil,
         rowIndex: Int? = nil,
         isRepeatedKeyDown: Bool = false
     ) -> EditorNoteAuditionRequest? {
         guard (1...96).contains(noteValue) else { return nil }
-        let mappedSampleSlot = instrument?.mappedSampleIndex(forNote: noteValue).map { $0 + 1 }
-        let previewSelection = TrackerEditorSelection(
-            selectedInstrument: selection.selectedInstrument,
-            selectedSample: mappedSampleSlot ?? selection.selectedSample
-        )
         return EditorNoteAuditionRequest(
             kind: .noteOn(noteValue: noteValue, selectedOctave: (Int(noteValue) - 1) / 12),
-            selection: previewSelection,
+            selection: selection,
+            sampleResolution: .instrumentKeymap,
             sourceContext: sourceContext,
             channelIndex: channelIndex,
             rowIndex: rowIndex,
@@ -453,7 +448,6 @@ enum InstrumentEditorAuditionRequestFactory {
         trackerKey: Character,
         selectedOctave: Int,
         selection: TrackerEditorSelection,
-        instrument: PlaybackInstrument?,
         sourceContext: EditorNoteAuditionSourceContext,
         channelIndex: Int? = nil,
         rowIndex: Int? = nil,
@@ -465,7 +459,6 @@ enum InstrumentEditorAuditionRequestFactory {
         return request(
             noteValue: noteValue,
             selection: selection,
-            instrument: instrument,
             sourceContext: sourceContext,
             channelIndex: channelIndex,
             rowIndex: rowIndex,

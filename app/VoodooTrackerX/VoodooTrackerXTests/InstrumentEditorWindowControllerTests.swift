@@ -206,21 +206,18 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         let lowGraphicalRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
             noteValue: 48,
             selection: selection,
-            instrument: instrument,
             sourceContext: .loadedModule(patternIndex: 0)
         ))
         let lowFocusedRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
             trackerKey: "z",
             selectedOctave: 3,
             selection: selection,
-            instrument: instrument,
             sourceContext: .loadedModule(patternIndex: 0)
         ))
         let highFocusedRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
             trackerKey: "q",
             selectedOctave: 4,
             selection: selection,
-            instrument: instrument,
             sourceContext: .loadedModule(patternIndex: 0)
         ))
         let lowAvailability = EditorNoteAuditionAvailabilityResolver.availability(for: lowFocusedRequest, loadedPlaybackSong: song)
@@ -230,9 +227,11 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             return XCTFail("expected both mapped samples to be previewable")
         }
 
-        XCTAssertEqual(lowGraphicalRequest.selectedSampleIndex, 1)
-        XCTAssertEqual(lowFocusedRequest.selectedSampleIndex, 1)
+        XCTAssertEqual(lowGraphicalRequest.selectedSampleIndex, 2)
+        XCTAssertEqual(lowFocusedRequest.selectedSampleIndex, 2)
         XCTAssertEqual(highFocusedRequest.selectedSampleIndex, 2)
+        XCTAssertEqual([lowGraphicalRequest, lowFocusedRequest, highFocusedRequest].map(\.sampleResolution),
+                       Array(repeating: .instrumentKeymap, count: 3))
         XCTAssertEqual(lowDescriptor.previewPanning, 64)
         XCTAssertEqual(highDescriptor.previewPanning, 192)
         XCTAssertEqual(PlaybackSamplePanningPolicy.plannedPan(lowDescriptor.previewPanning), -0.5)
@@ -980,7 +979,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             ])), .sampleNotRepresented(instrumentIndex: 1, sampleIndex: 1)),
             (makeRangeAssignmentContext(originalIdentity, 9, makeInstrumentEditorRangeDocument(
                 noteSampleMap: Array(repeating: 0, count: 95)
-            )), .malformedKeymap(expectedCount: 96, actualCount: nil)),
+            )), .malformedKeymap(expectedCount: 96, actualCount: 95)),
         ]
 
         var context = makeRangeAssignmentContext(originalIdentity, 9, originalDocument)
@@ -1136,7 +1135,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
 
         func synchronize() { presenter.synchronizeActivePreviewToken(previewer.activePreviewToken) }
         func pressComputer(_ key: Character, octave: Int, repeatKey: Bool = false) -> EditorNoteAuditionPreviewOutcome {
-            let request = EditorNoteAuditionRequest.noteOn(
+            let request = InstrumentEditorAuditionRequestFactory.request(
                 trackerKey: key, selectedOctave: octave, selection: .default,
                 sourceContext: .loadedModule(patternIndex: 0), isRepeatedKeyDown: repeatKey
             )
@@ -1161,7 +1160,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
                 switch intent {
                 case let .press(note):
                     let request = InstrumentEditorAuditionRequestFactory.request(
-                        noteValue: note, selection: .default, instrument: song.instrument(forInstrument: 1),
+                        noteValue: note, selection: .default,
                         sourceContext: .loadedModule(patternIndex: 0)
                     )
                     let accepted = previewer.preview(
@@ -1311,12 +1310,11 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         let fixtureURL = try referenceXMFixtureURL("generated/instrument-envelopes-keymap.xm")
         let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
-        let instrument = try XCTUnwrap(song.instrumentsByIndex[1])
         let selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
 
         let requests = try [UInt8(48), 49].map { note in
             try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
-                noteValue: note, selection: selection, instrument: instrument,
+                noteValue: note, selection: selection,
                 sourceContext: .loadedModule(patternIndex: 0)
             ))
         }
@@ -1324,7 +1322,8 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             EditorNoteAuditionAvailabilityResolver.availability(for: $0, loadedPlaybackSong: song)
         }
         XCTAssertEqual(requests.map(\.kind), [.noteOn(noteValue: 48, selectedOctave: 3), .noteOn(noteValue: 49, selectedOctave: 4)])
-        XCTAssertEqual(requests.map(\.selectedSampleIndex), [1, 2])
+        XCTAssertEqual(requests.map(\.selectedSampleIndex), [2, 2])
+        XCTAssertEqual(requests.map(\.sampleResolution), [.instrumentKeymap, .instrumentKeymap])
         XCTAssertEqual(availabilities.compactMap { if case let .potentiallyAvailable(value) = $0 { value.sampleIndex } else { nil } }, [0, 1])
         XCTAssertEqual(selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
         let previewer = EditorNoteAuditionPreviewer(sink: InstrumentEditorRecordingAuditionSink())
@@ -2101,7 +2100,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             selection: document.selection,
             sourceContext: document.noteAuditionSourceContext,
             selectedOctave: 4,
-            availability: { _ in document.noteAuditionAvailability }
+            availability: { document.noteAuditionAvailability(for: $0) }
         )
         var handlerMarker = 0
         let first = presenter.show(displayState: state, noteAuditionKeyDownHandler: { _, _ in
@@ -2331,14 +2330,14 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             selectedOctave: 4,
             channelIndex: cursor.channel,
             rowIndex: cursor.row,
-            availability: { _ in document.noteAuditionAvailability }
+            availability: { document.noteAuditionAvailability(for: $0) }
         )
 
         XCTAssertTrue(harness.send(keyCode: 12, characters: "q"))
         let event = try XCTUnwrap(harness.sink.events.first)
 
         XCTAssertEqual(event.noteValue, 61)
-        XCTAssertEqual(event.selectedOctave, 4)
+        XCTAssertEqual(event.selectedOctave, 5)
         XCTAssertEqual(event.request.selectedInstrumentIndex, 2)
         XCTAssertEqual(event.request.selectedSampleIndex, 2)
         XCTAssertEqual(event.request.sourceContext, .blankDocument)
@@ -2351,7 +2350,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(undoManager.canUndo)
     }
 
-    func testRoutedLoadedModuleAuditionUsesSelectedSampleAndSuppressesRepeat() throws {
+    func testRoutedLoadedModuleAuditionUsesKeymapAndSuppressesRepeat() throws {
         let song = makePlaybackSong(instruments: makeInstrumentPalette())
         let songBefore = song
         let selection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
@@ -2381,7 +2380,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             selection: document.selection,
             sourceContext: document.noteAuditionSourceContext,
             selectedOctave: 4,
-            availability: { _ in document.noteAuditionAvailability }
+            availability: { document.noteAuditionAvailability(for: $0) }
         )
 
         XCTAssertFalse(harness.send(keyCode: 6, characters: "z"))
@@ -2396,7 +2395,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             selection: document.selection,
             sourceContext: document.noteAuditionSourceContext,
             selectedOctave: 4,
-            availability: { _ in document.noteAuditionAvailability }
+            availability: { document.noteAuditionAvailability(for: $0) }
         )
         XCTAssertTrue(harness.send(keyCode: 6, characters: "z"))
 
@@ -2416,7 +2415,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             selection: document.selection,
             sourceContext: document.noteAuditionSourceContext,
             selectedOctave: 4,
-            availability: { _ in document.noteAuditionAvailability }
+            availability: { document.noteAuditionAvailability(for: $0) }
         )
 
         XCTAssertTrue(harness.send(keyCode: 6, characters: "z"))
@@ -2441,7 +2440,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             selection: document.selection,
             sourceContext: document.noteAuditionSourceContext,
             selectedOctave: 4,
-            availability: { _ in document.noteAuditionAvailability }
+            availability: { document.noteAuditionAvailability(for: $0) }
         )
 
         func triggerAndRelease() throws -> EditorNoteAuditionPreviewRenderParameters {
@@ -2610,7 +2609,7 @@ private final class InstrumentEditorAuditionHarness {
             guard route.shouldAttemptPreview else {
                 return route.shouldConsumeNonMutatingInput(previewOutcome: .skipped(.missingRequest))
             }
-            let request = EditorNoteAuditionRequest.noteOn(
+            let request = InstrumentEditorAuditionRequestFactory.request(
                 trackerKey: character,
                 selectedOctave: selectedOctave,
                 selection: selection,

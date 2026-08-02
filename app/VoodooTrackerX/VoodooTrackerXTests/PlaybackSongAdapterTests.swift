@@ -483,6 +483,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.diagnostics.eventCoverage.sampleMapSelectionEvents, 2)
         XCTAssertEqual(result.diagnostics.eventCoverage.firstPlayableSampleFallbackEvents, 0)
         XCTAssertEqual(result.diagnostics.eventCoverage.skippedNoteEvents, 0)
+        XCTAssertTrue(result.block.interleavedPCM.contains { $0 != 0 })
     }
 
     func testPlaybackSongSyntheticAdapterMappedSampleMetadataDrivesPitchLoopVolumeAndEnvelope() throws {
@@ -536,7 +537,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(mapping.mappedVolumeEnvelopePointCount, 2)
     }
 
-    func testPlaybackSongSyntheticAdapterFallsBackAfterInvalidMappedSampleIndex() throws {
+    func testPlaybackSongSyntheticAdapterSkipsInvalidMappedSampleIndex() throws {
         let fallbackSample = makePlaybackSample(sampleIndex: 0, pcm: [0.25], baseSampleRate: 100)
         let alternateSample = makePlaybackSample(sampleIndex: 1, pcm: [0.5], baseSampleRate: 100)
         let song = makePlaybackSong(
@@ -557,19 +558,19 @@ final class PlaybackSongAdapterTests: XCTestCase {
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
             frames: 1
         ))
-        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+        let ignored = try XCTUnwrap(result.diagnostics.ignoredCells.first)
 
-        XCTAssertEqual(mapping.sampleIndex, 0)
-        XCTAssertEqual(mapping.mappedSampleIndex, 9)
-        XCTAssertFalse(mapping.mappedSampleValid)
-        XCTAssertEqual(mapping.sampleSelectionMethod, .fallbackAfterInvalidMap)
-        XCTAssertTrue(mapping.firstPlayableSampleFallbackUsed)
-        XCTAssertEqual(result.diagnostics.eventCoverage.fallbackAfterInvalidSampleMapEvents, 1)
-        XCTAssertEqual(result.diagnostics.eventCoverage.firstPlayableSampleFallbackEvents, 1)
-        XCTAssertEqual(result.block.interleavedPCM, [0.25])
+        XCTAssertEqual(result.plan.pattern.events, [])
+        XCTAssertEqual(ignored.mappedSampleIndex, 9)
+        XCTAssertFalse(ignored.mappedSampleValid)
+        XCTAssertEqual(ignored.sampleSelectionMethod, .skippedNoValidSample)
+        XCTAssertFalse(ignored.firstPlayableSampleFallbackUsed)
+        XCTAssertEqual(result.diagnostics.eventCoverage.skippedNoValidSampleEvents, 1)
+        XCTAssertEqual(result.diagnostics.eventCoverage.firstPlayableSampleFallbackEvents, 0)
+        XCTAssertEqual(result.block.interleavedPCM, [0])
     }
 
-    func testPlaybackSongSyntheticAdapterMappedEmptyPCMUsesFallbackWhenAvailable() throws {
+    func testPlaybackSongSyntheticAdapterSkipsMappedEmptyPCMEvenWhenFallbackExists() throws {
         let fallbackSample = makePlaybackSample(sampleIndex: 0, pcm: [0.25], baseSampleRate: 100)
         let emptyMappedSample = makePlaybackSample(sampleIndex: 1, pcm: [], volume: 1, baseSampleRate: 100)
         let song = makePlaybackSong(
@@ -590,13 +591,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
             frames: 1
         ))
-        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+        let ignored = try XCTUnwrap(result.diagnostics.ignoredCells.first)
 
-        XCTAssertEqual(mapping.sampleIndex, 0)
-        XCTAssertEqual(mapping.mappedSampleIndex, 1)
-        XCTAssertFalse(mapping.mappedSampleValid)
-        XCTAssertEqual(mapping.sampleSelectionMethod, .fallbackAfterInvalidMap)
-        XCTAssertEqual(result.block.interleavedPCM, [0.25])
+        XCTAssertEqual(result.plan.pattern.events, [])
+        XCTAssertEqual(ignored.mappedSampleIndex, 1)
+        XCTAssertFalse(ignored.mappedSampleValid)
+        XCTAssertEqual(ignored.sampleSelectionMethod, .skippedNoValidSample)
+        XCTAssertFalse(ignored.firstPlayableSampleFallbackUsed)
+        XCTAssertEqual(result.block.interleavedPCM, [0])
     }
 
     func testPlaybackSongSyntheticAdapterSkipsMappedEmptyPCMWhenNoFallbackExists() throws {

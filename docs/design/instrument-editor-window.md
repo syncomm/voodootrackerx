@@ -25,8 +25,9 @@ state with no document/undo mutation. `MAP RANGE…` now maps the selected
 represented nonempty sample through an explicit inclusive C-0...B-7 sheet and
 one undo action. Represented instrument/sample
 rows share canonical control-panel selection in loaded/editable and stopped/playing states. Selection
-is non-mutating, creates no undo, cancels stale preview before context changes, and drives metadata
-and audition; transport gates mutation only. The editor closes normally through its red close button
+is non-mutating, creates no undo, cancels stale preview before context changes, and drives metadata;
+selected sample is editing focus only, while audition uses instrument plus note and the keymap.
+Transport gates mutation only. The editor closes normally through its red close button
 or Command-W and reopens as one clean presenter-owned window. Broader sample/XI,
 envelope/keymap, waveform, and
 autovibrato playback work remains future scope. Represented XM panning-envelope data is
@@ -67,7 +68,9 @@ bounds as `floor((x - minX) / width * 96)`, clamped to `0...95`, and orders both
 drag directions inclusively. Its selection is the first sheet default, followed
 by a focused note, selected octave, then C-4...B-4. No-ops create no history;
 selection and assignments outside the inclusive range remain exact.
-Existing Instrument Editor/pattern playback consumes the map while Sample
+One canonical resolver validates the exact 96-entry map and represented playable
+sample for Instrument Editor audition, pattern-entry audition, editable playback,
+and adapter planning. It never reads or mutates selected-sample UI state. Sample
 Editor audition remains direct-selected-sample.
 
 The close lifecycle remains standard AppKit behavior: the red close button and Command-W close only

@@ -218,12 +218,19 @@ final class BlankTrackerDocumentTests: XCTestCase {
     }
 
     func testSampleKeymapRangeAssignmentSupportsSingleNoteS16AndExactNoOp() throws {
-        var document = makeSampleKeymapEditableDocument(sampleIndices: [0, 15])
-        let single = try document.assignSample(
+        var document = makeSampleKeymapEditableDocument(sampleIndices: [0, 1, 15])
+        let c4 = try document.assignSample(
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 48
+        ).get()
+        XCTAssertEqual(c4.noteRange, 48...48)
+        XCTAssertEqual(c4.changedNoteCount, 1)
+        XCTAssertEqual([47, 48, 49].map { document.instrumentPalette[1]?.noteSampleMap?[$0] }, [0, 1, 0])
+
+        let b7 = try document.assignSample(
             instrumentIndex: 0, sampleIndex: 15, lowerNote: 95, upperNote: 95
         ).get()
-        XCTAssertEqual(single.noteRange, 95...95)
-        XCTAssertEqual(single.changedNoteCount, 1)
+        XCTAssertEqual(b7.noteRange, 95...95)
+        XCTAssertEqual(b7.changedNoteCount, 1)
         XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap?[95], 15)
 
         let beforeNoOp = document
@@ -269,32 +276,33 @@ final class BlankTrackerDocumentTests: XCTestCase {
     func testSampleKeymapRangeAssignmentFeedsInstrumentAndPatternAuditionWithoutSelectedSampleLeak() throws {
         var document = makeSampleKeymapEditableDocument()
         document.pattern.rows[0][0] = XMPatternEventCell(
-            note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
+            note: 72, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
         )
         document.pattern.rows[1][0] = XMPatternEventCell(
-            note: 37, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
+            note: 73, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
         )
         _ = try document.assignSample(
-            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 60, upperNote: 71
         ).get()
+        let map = try XCTUnwrap(document.instrumentPalette[1]?.noteSampleMap)
         let instrument = try XCTUnwrap(document.instrumentPalette[1])
         var selectedS02 = document
         selectedS02.selectSample(2)
 
         let insideRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
-            noteValue: 49, selection: document.selection,
+            noteValue: 72, selection: document.selection,
             sourceContext: .blankDocument
         ))
         let outsideRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
-            noteValue: 37, selection: selectedS02.selection,
+            noteValue: 73, selection: selectedS02.selection,
             sourceContext: .blankDocument
         ))
         let lowerPatternRequest = try XCTUnwrap(PatternNoteAuditionRequestFactory.request(
-            trackerKey: "z", selectedOctave: 3, selection: selectedS02.selection,
+            trackerKey: "m", selectedOctave: 5, selection: selectedS02.selection,
             sourceContext: .blankDocument
         ))
         let upperPatternRequest = try XCTUnwrap(PatternNoteAuditionRequestFactory.request(
-            trackerKey: "z", selectedOctave: 4, selection: document.selection,
+            trackerKey: "q", selectedOctave: 5, selection: document.selection,
             sourceContext: .blankDocument
         ))
         guard case let .potentiallyAvailable(inside) = document.noteAuditionAvailability(for: insideRequest),
@@ -309,12 +317,15 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(upperPatternRequest.sampleResolution, .instrumentKeymap)
         XCTAssertEqual(inside.sampleIndex, 1)
         XCTAssertEqual(outside.sampleIndex, 0)
-        XCTAssertEqual(lowerPattern.sampleIndex, 0)
-        XCTAssertEqual(upperPattern.sampleIndex, 1)
+        XCTAssertEqual(lowerPattern.sampleIndex, 1)
+        XCTAssertEqual(upperPattern.sampleIndex, 0)
+        XCTAssertEqual(Array(map[60...71]), Array(repeating: 1, count: 12))
+        XCTAssertEqual(map[59], 0)
+        XCTAssertEqual(map[72], 0)
         XCTAssertEqual(document.selection.selectedSample, 1)
         XCTAssertEqual(selectedS02.selection.selectedSample, 2)
         XCTAssertEqual(selectedS02.pattern.rows[0][0], XMPatternEventCell(
-            note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
+            note: 72, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0
         ))
 
         let sampleRequest = SampleEditorAuditionRequestFactory.request(

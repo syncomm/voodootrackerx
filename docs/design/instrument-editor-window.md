@@ -23,7 +23,9 @@ focused computer notes use that same pressed-key visual only while visible; gene
 mouse/computer replacement monophonic and stale releases harmless. Range navigation is session UI
 state with no document/undo mutation. `MAP RANGE…` now maps the selected
 represented nonempty sample through an explicit inclusive C-0...B-7 sheet and
-one undo action. Represented instrument/sample
+one undo action. The full 96-note strip is committed-ownership display only;
+graphical range selection is deferred because that fixed scale does not align
+with the movable three-octave audition keyboard. Represented instrument/sample
 rows share canonical control-panel selection in loaded/editable and stopped/playing states. Selection
 is non-mutating, creates no undo, cancels stale preview before context changes, and drives metadata;
 selected sample is editing focus only, while audition uses instrument plus note and the keymap.
@@ -63,11 +65,13 @@ Keymap assignment uses zero-based map indices `0...95` (XM notes `1...96`,
 C-0...B-7) and zero-based sample indices displayed as S01...S16. It requires
 the stopped editable selected instrument and a nonempty represented selected
 sample, captures document/revision/target identity, and creates at most one
-`Map Sample to Note Range` action. The summary maps x within its inset drawable
-bounds as `floor((x - minX) / width * 96)`, clamped to `0...95`, and orders both
-drag directions inclusively. Its selection is the first sheet default, followed
-by a focused note, selected octave, then C-4...B-4. No-ops create no history;
-selection and assignments outside the inclusive range remain exact.
+`Map Sample to Note Range` action. Its manual From/To controls use canonical
+note names and inclusive bounds; deterministic defaults use a focused audition
+note, selected octave, then C-4...B-4. Confirmation reads the current selectors.
+The summary draws only the committed ownership segmentation and returns no hit
+target. No-ops create no history; selection and assignments outside the
+inclusive range remain exact. Tests pin C-0=0, C-4=48, C-5=60, B-5=71,
+C-6=72, and B-7=95, including exactly 12 changed entries for C-5...B-5.
 One canonical resolver validates the exact 96-entry map and represented playable
 sample for Instrument Editor audition, pattern-entry audition, editable playback,
 and adapter planning. It never reads or mutates selected-sample UI state. Sample
@@ -153,7 +157,7 @@ full-width note keymap below.
 │ │ list fills │ └──────────────────────────────────────────────┘ │ VOL  FINETUNE│ │
 │ └────────────┘                                                   │ PAN ───●──── │ │
 │ ┌ NOTE KEYMAP  ◀C-2  C-4▶ ───────────────────────────────────────────────────┐ │
-│ │ color band: S00 | S01 | S02   [3-octave keyboard, click=audition, drag=assign]│ │
+│ │ committed band: S01 | S02 | S01   [3-octave keyboard, click/drag=audition] │ │
 │ └───────────────────────────────────────────────────────────────────────────┘ │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -177,8 +181,8 @@ DEFAULTS **VOLUME** knob carries the larger toothed halo.
 - **DEFAULTS:** relative note on the header; VOLUME (signature, larger halo) + FINETUNE knobs and a
   center-detent PAN slider.
 - **NOTE KEYMAP:** full-width keyboard (~3 octaves, with octave-shift buttons) and a color band
-  showing the sample assigned to each note range; click to audition, drag to assign the selected
-  sample to a range.
+  showing the committed sample assigned to each note range; click/drag the piano to audition and
+  use `MAP RANGE…` for manual selected-sample assignment.
 
 ---
 
@@ -219,9 +223,11 @@ the window does not own separate file semantics.
 - Knobs: vertical drag, double-click to type; every knob has an exact numeric segment. Pan uses the
   center-detent slider.
 - Keymap: primary press auditions that exact note with the current instrument; dragging across keys
-  releases/presses notes for audition. Dragging the separate full-map summary selects
-  without audition or mutation, and `MAP RANGE…` assigns the captured sample to it.
-  Piano-based selection, drag-to-paint, and automatic assignment remain future work.
+  releases/presses notes for audition. The separate full-map summary reports committed ownership
+  only and accepts no pointer selection. `MAP RANGE…` assigns the selected represented sample from
+  explicit manual selectors. Future graphical selection must operate directly on the visible piano
+  or use an explicit selection mode with an unambiguous scale; drag-to-paint and automatic
+  assignment remain future work.
 - All audition goes through the isolated preview path — never full-song playback.
 
 ### Implemented polish: transient live numeric readouts with one commit
@@ -266,8 +272,10 @@ name → sample slots → envelope → vibrato → defaults → keymap.
   (`docs/design/editor-control-vocabulary.md`).
 - **Keymap:** one shared scaled key geometry drives drawing and black-key-first hit testing. The
   keyboard exposes semantic press/release intents to isolated preview. The
-  explicit range sheet calls the existing edit coordinator once; graphical
-  assignment must reuse that path.
+  full-map summary draws committed ownership and rejects hit testing. The explicit
+  range sheet calls the existing edit coordinator once; any future graphical
+  assignment must reuse that path and align with the visible keyboard or an
+  explicit selection mode.
 - All future edits must submit a new whole document through
   `EditableDocumentEditCoordinator.applyEdit`; direct palette write-back is not
   an editor integration path; the implemented name field follows this rule.
@@ -296,7 +304,7 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 18. Vibrato + remaining defaults controls wired.
 19. Done: UI-independent keymap range assignment through `applyEdit`.
 20. Done: explicit selected-sample inclusive note-range assignment sheet.
-21. Done: non-mutating full-map graphical range selection and sheet prefill.
+21. Done: committed-ownership-only full-map summary; misleading graphical selection deferred.
 22. Future: drag-to-paint and automatic assignment.
 
 ---
@@ -322,10 +330,12 @@ gate mutation, never row selection. Graphical keys must not change the explicit 
 Verify autovibrato likewise survives while VIBRATO remains disabled
 and playback/audition output is unchanged. Verify panning-envelope graph/readouts in loaded and
 editable-copy states, clean disabled/empty states, local VOL/PAN switching across undo/redo, and
-unchanged playback. For range assignment, select represented S02, map C-4...B-4,
-confirm S02 stays selected and the strip reads S02 inside while C-3/C-5 retain
-their prior ownership, then verify one undo/redo action. Keep screenshots/exports
-local and untracked.
+unchanged playback. For range assignment, begin with all notes on S01, select
+represented S02, use the manual selectors to map C-5...B-5, and confirm the
+committed strip reads S02 for exactly that range while B-4 and C-6 remain S01.
+Confirm pointer drag on the summary creates no state or sheet prefill; verify
+B-5/C-6 audition and playback, selected-sample independence, one undo/redo
+action, and Export XM/reopen. Keep screenshots/exports local and untracked.
 
 Loop, PCM, waveform, envelope, drag-to-paint/automatic keymap mapping, XI, and
 broader sample-import editing remain future work.
@@ -334,8 +344,8 @@ For later interactive slices, screenshot before/after per PR and verify the surf
 fixed size. Envelope: points
 add/drag/delete; sustain/loop markers track point indices; VOL/PAN swaps cleanly; fadeout maps
 correctly. Knobs ↔ segments stay in sync; double-click entry clamps to valid ranges; relative note +
-fine tune affect audition pitch. Keymap assignment: color band matches assignments and drag-assign
-updates the right range; click audition already uses the preview path. No change to
+fine tune affect audition pitch. Keymap assignment: color band matches committed assignments and the
+manual sheet updates the exact inclusive range; click audition already uses the preview path. No change to
 mixer timing, audio backend, or tracker viewport while open.
 
 ---
@@ -346,7 +356,7 @@ mixer timing, audio backend, or tracker viewport while open.
   editing, to stay narrow.
 - Too many knobs could tip into "intimidating" — grouping + the single signature knob are the
   mitigations; verify with a fresh user.
-- Keymap drag-assign can be fiddly — use a small drag threshold so click-audition and drag-assign do
-  not conflict.
+- A future graphical keymap selector cannot reuse the fixed full-summary x scale beside a shifted
+  audition piano; select on the visible keyboard or provide an explicit, unmistakable mode.
 - Open: secondary cluster vs. explicit "advanced" disclosure for vibrato/relative note.
 - Open: envelope predefs in v1.0 or later (assumed later).

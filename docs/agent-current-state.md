@@ -31,8 +31,11 @@ Mix/Left/Right, and commits one import, replace, or append edit with stale-resul
 protection. Add appends/selects the next represented Sxx without changing the
 keymap. Its panel accepts WAV/AIFF/AIFC and native FLAC; Ogg-FLAC is unsupported,
 and FLAC metadata/loops are ignored. Instrument Editor now exposes non-mutating
-inclusive range selection on its full 96-note summary plus explicit selected-sample
-assignment; destructive lifecycle, drag-to-paint, and automatic mapping remain deferred.
+committed ownership on its full 96-note summary plus explicit selected-sample
+assignment through manual `MAP RANGE…` selectors. Graphical summary selection is
+deferred because the full C-0...B-7 scale does not align with the movable
+three-octave audition keyboard; destructive lifecycle, drag-to-paint, and
+automatic mapping remain deferred.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -49,12 +52,14 @@ direction; it does not expand v1, add a target, or change the runtime. See
 `docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
 
 Release status: `v0.2.0-alpha.5` is the released Rendered Audio Export Alpha.
-The `v0.3.0-alpha.1` composition/XM round-trip gate remains blocked pending a
-full rerun. Maintainer testing proved that live editable Instrument Editor audition,
-pattern-entry audition, and song playback could route S02-mapped notes to S01.
-The dedicated correction now resolves those instrument-note paths through one
-96-note keymap resolver, with distinct-sample integration coverage; it still must
-merge and pass the complete release gate. See
+The `v0.3.0-alpha.1` composition/XM round-trip gate remains blocked pending the
+final release rerun. Maintainer testing proved that live editable Instrument Editor
+audition, pattern-entry audition, and song playback could route S02-mapped notes
+to S01. The dedicated correction merged in PR #370 and now resolves those
+instrument-note paths through one 96-note keymap resolver with distinct-sample
+integration coverage. The remaining Instrument Editor UX correction keeps the
+full summary committed-ownership-only and uses the exact manual sheet workflow.
+See
 `docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
 `File > Export Audio` for stopped loaded modules, editable documents, and
@@ -133,11 +138,16 @@ imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
 state, and no source path is retained. Destructive sample lifecycle remains deferred.
 Separately, stopped editable documents can map a nonempty represented sample in
 the selected instrument through the Instrument Editor's `MAP RANGE…` sheet over
-the canonical C-0...B-7 domain. A transient range dragged on the full-map summary
-is the first sheet default, followed by a focused note, selected octave, then C-4...B-4.
+the canonical C-0...B-7 domain. The full-map summary is read-only committed
+ownership: it has no pointer selection, transient overlay, selection readout, or
+sheet-prefill state. Deterministic manual defaults use a focused audition note,
+then the selected octave, then C-4...B-4; confirmation reads the current From/To
+selectors.
 One `Map Sample to Note Range` edit preserves selection and notes outside the
 range; failures and no-ops create no revision/history, and undo/redo is exact.
-Instrument Editor computer/graphical audition, pattern-entry audition, and editable
+Exact boundary coverage pins C-0=0, C-4=48, C-5=60, B-5=71, C-6=72, and
+B-7=95; mapping S02 to C-5...B-5 changes exactly indices 60...71 while B-4
+and C-6 stay S01. Instrument Editor computer/on-screen audition, pattern-entry audition, and editable
 playback consume the map without consulting selected-sample UI state. Sample Editor
 audition stays direct-selected-sample. Distinct S01/S02 tests cover the former
 alpha.1 blocker; there is no automatic/drag mapping or auto-audition.
@@ -383,8 +393,9 @@ Recently completed narrow targets:
 - `Window > Instrument Editor` now opens one reusable fixed 920 × 638 utility
   window aligned to `assets/mockups/instrument-editor-v1.html`, bound to the current document and selection.
   Supported stopped-editable metadata routes through undo, and computer/graphical keys use isolated preview.
-  Its explicit selected-sample range sheet wires the existing one-edit keymap
-  foundation; XI, envelope editing, graphical mapping, and waveform controls
+  Its full 96-note strip shows committed ownership only, while the explicit
+  selected-sample range sheet wires the existing one-edit keymap foundation.
+  XI, envelope editing, graphical mapping, and waveform controls
   stay disabled. Loaded modules stay read-only,
   and no parser, runtime transport, or broad writer/export behavior changed.
 - `File > Export Audio > M4A...` now reuses the stopped product WAV plan and

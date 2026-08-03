@@ -20,7 +20,10 @@ disabled, and advanced audio export options remain future work.
 
 The proposed next major milestone is `v0.3.0-alpha.1` From-Scratch
 Composition Alpha. It is not yet released; its XM round-trip gate remains a
-no-go pending merge and full rerun of the dedicated live keymap-routing correction.
+no-go pending the final release rerun. The dedicated live keymap-routing
+correction merged in PR #370. The Instrument Editor's misleading full-summary
+selector is now deferred for alpha.1: the 96-note strip reports committed
+ownership only, and `MAP RANGE…` retains explicit manual From/To selectors.
 Its complete acceptance gate and
 dependency-ordered PR plan are defined by
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
@@ -38,7 +41,7 @@ without keymap lookup or mutation.
 Instrument Editor and pattern-entry audition plus editable playback now share
 exact note-map resolution, independent of selected-sample editing focus. Distinct
 S01/S02 tests cover preview, live scheduling, and offline planning; the complete
-release gate still must be rerun after merge. See
+release gate still must be rerun after the Instrument Editor deferral lands. See
 `docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 
 ## Project Goals
@@ -480,8 +483,10 @@ Recommended next product PR:
   decode/canonical normalization are complete, and Sample Editor LOAD now
   fills empty S01 or offers Replace/Add as New/Cancel for an occupied selection.
   Append-only S02+ lifecycle preserves the keymap and selects the new sample.
-  Instrument Editor now selects inclusive ranges on the full C-0...B-7 ownership
-  summary without mutation and feeds them into the existing one-`applyEdit` sheet.
+  Instrument Editor now shows committed ownership on the full C-0...B-7 summary
+  and feeds explicit manual From/To values into the existing one-`applyEdit`
+  sheet. The incompatible full-summary/three-octave-keyboard graphical selector
+  is deferred.
   Keep destructive lifecycle, reference-preserving reorder, drag-to-paint, and
   automatic mapping separate from runtime/backend work.
 - Module TIME/headroom work should follow
@@ -498,7 +503,8 @@ Recently completed product foundation:
 - selected-instrument keymap range assignment across inclusive `0...95` indices
   through one labeled applyEdit action and explicit Instrument Editor sheet,
   with exact history/selection, XM/copy round-trip, and existing audio-path
-  consumption
+  consumption. Boundary coverage pins C-5...B-5 to indices `60...71`, leaves
+  B-4/index `59` and C-6/index `72` unchanged, and proves exactly 12 entries.
 - Editable XM export now writes existing palette/sample payloads for stopped
   editable documents when the editable copy safely represents XM-derived signed
   8-bit or 16-bit PCM. The supported subset includes instrument names,
@@ -832,15 +838,18 @@ audio backends. Planned sequencing is:
 
 ### Future Instrument Keymap Direction
 
-The Instrument Editor piano is mapping-first and audition-second across the
-full 96-note map. A full default Sample 1 assignment should stay neutral;
+The Instrument Editor's full 96-note strip is committed-ownership display, while
+the movable three-octave piano is audition-only. A full default Sample 1 assignment should stay neutral;
 non-default assignments may use muted sample-number labels or colors, the
 selected sample should receive stronger persistent emphasis, and transient
 audition must remain a distinct pressed-key layer above the mapping. Read-only
 polish preceded mutation. The explicit selected-sample sheet now reuses the
-range-mutation foundation without a second write path; the full-map summary now
-adds a transient inclusive selection layer that prefills it. Drag-to-paint and
-automatic mapping remain future work. Use
+range-mutation foundation without a second write path and is the alpha.1
+workflow. Graphical range selection is deferred because horizontal positions on
+the full C-0...B-7 strip do not correspond to positions on a shifted audition
+piano. Any future graphical design must select directly on the visible keyboard
+or introduce an explicit selection mode with an unambiguous scale. Drag-to-paint
+and automatic mapping remain future work. Use
 `instrument-envelopes-keymap.xm` as the public reference and keep this direction
 linked to `docs/design/instrument-editor-window.md` and
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).

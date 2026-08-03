@@ -843,7 +843,7 @@ final class EditableXMWriterTests: XCTestCase {
             instrumentIndex: 0, sampleIndex: 1, lowerNote: 12, upperNote: 23
         ).get()
         _ = try document.assignSample(
-            instrumentIndex: 0, sampleIndex: 1, lowerNote: 48, upperNote: 59
+            instrumentIndex: 0, sampleIndex: 1, lowerNote: 60, upperNote: 71
         ).get()
         let expectedMap = try XCTUnwrap(document.instrumentPalette[1]?.noteSampleMap)
 
@@ -862,8 +862,9 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(reopened.samples, samplesBefore)
         XCTAssertEqual(editableCopy.instrumentPalette[1]?.samples, samplesBefore)
         XCTAssertEqual(Array(expectedMap[12...23]), Array(repeating: 1, count: 12))
-        XCTAssertEqual(Array(expectedMap[48...59]), Array(repeating: 1, count: 12))
-        XCTAssertEqual([11, 24, 47, 60].map { expectedMap[$0] }, [0, 0, 0, 0])
+        XCTAssertEqual(Array(expectedMap[60...71]), Array(repeating: 1, count: 12))
+        XCTAssertEqual([11, 24, 59, 72].map { expectedMap[$0] }, [0, 0, 0, 0])
+        XCTAssertEqual([UInt8(72), 73].map(reopened.mappedSampleIndex(forNote:)), [1, 0])
     }
 
     @MainActor

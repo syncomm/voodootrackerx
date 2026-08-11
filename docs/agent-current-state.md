@@ -30,12 +30,12 @@ Replace/Add as New/Cancel for the exact represented selection, reuses stereo
 Mix/Left/Right, and commits one import, replace, or append edit with stale-result
 protection. Add appends/selects the next represented Sxx without changing the
 keymap. Its panel accepts WAV/AIFF/AIFC and native FLAC; Ogg-FLAC is unsupported,
-and FLAC metadata/loops are ignored. Instrument Editor now exposes non-mutating
-committed ownership on its full 96-note summary plus explicit selected-sample
-assignment through manual `MAP RANGE…` selectors. Graphical summary selection is
-deferred because the full C-0...B-7 scale does not align with the movable
-three-octave audition keyboard; destructive lifecycle, drag-to-paint, and
-automatic mapping remain deferred.
+and FLAC metadata/loops are ignored. Instrument Editor now projects committed
+ownership for the exact visible 36-note audition range through the shared
+`InstrumentKeyboardVisibleRange` and piano geometry. The document retains its
+canonical 96-note C-0...B-7 map, and explicit selected-sample assignment remains
+the manual `MAP RANGE…` workflow. Graphical range selection, drag-to-paint,
+automatic mapping, and destructive lifecycle remain deferred.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -57,8 +57,10 @@ final release rerun. Maintainer testing proved that live editable Instrument Edi
 audition, pattern-entry audition, and song playback could route S02-mapped notes
 to S01. The dedicated correction merged in PR #370 and now resolves those
 instrument-note paths through one 96-note keymap resolver with distinct-sample
-integration coverage. The remaining Instrument Editor UX correction keeps the
-full summary committed-ownership-only and uses the exact manual sheet workflow.
+integration coverage. The Instrument Editor UX correction now keeps the strip
+committed-ownership-only while projecting the same visible 36-note range and
+horizontal geometry as the audition piano; the exact manual sheet workflow is
+unchanged.
 See
 `docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
@@ -102,7 +104,9 @@ preview sink. This window-scoped path is audition-only and its active preview is
 playback: supported controls remain editable while previewing, edits apply to the next trigger,
 and closing the window cancels its preview and detaches its handlers. The on-screen keyboard keeps a
 three-octave window that defaults to C-2...B-4 and shifts by octave across the 96-note map without
-document or undo mutation. Focused computer-key and mouse audition share one generation-token
+document or undo mutation. Its ownership strip follows that exact visible range
+and shared piano geometry in editable and read-only documents; range navigation
+changes only session UI projection state. Focused computer-key and mouse audition share one generation-token
 pressed visual when the active note is visible; both remain monophonic. Dragging crosses with
 release/press semantics.
 Mouse-up, outside drag, selection/document transitions, deactivation, and close clear its voice and pressed state. XM note maps select the clicked note's sample without changing editor selection.
@@ -138,9 +142,10 @@ imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
 state, and no source path is retained. Destructive sample lifecycle remains deferred.
 Separately, stopped editable documents can map a nonempty represented sample in
 the selected instrument through the Instrument Editor's `MAP RANGE…` sheet over
-the canonical C-0...B-7 domain. The full-map summary is read-only committed
-ownership: it has no pointer selection, transient overlay, selection readout, or
-sheet-prefill state. Deterministic manual defaults use a focused audition note,
+the canonical C-0...B-7 domain. The read-only ownership strip projects only the
+same visible 36 notes as the piano from the canonical map, using the piano's
+horizontal note boundaries. It has no pointer selection, transient overlay,
+selection readout, or sheet-prefill state. Deterministic manual defaults use a focused audition note,
 then the selected octave, then C-4...B-4; confirmation reads the current From/To
 selectors.
 One `Map Sample to Note Range` edit preserves selection and notes outside the
@@ -393,9 +398,11 @@ Recently completed narrow targets:
 - `Window > Instrument Editor` now opens one reusable fixed 920 × 638 utility
   window aligned to `assets/mockups/instrument-editor-v1.html`, bound to the current document and selection.
   Supported stopped-editable metadata routes through undo, and computer/graphical keys use isolated preview.
-  Its full 96-note strip shows committed ownership only, while the explicit
-  selected-sample range sheet wires the existing one-edit keymap foundation.
-  XI, envelope editing, graphical mapping, and waveform controls
+  Its committed-ownership strip projects the exact visible 36-note piano range
+  through the shared `InstrumentKeyboardVisibleRange` and piano geometry, while
+  the document retains the canonical 96-note map and the explicit selected-sample
+  range sheet wires the existing one-edit keymap foundation. Range navigation and
+  read-only projection are non-mutating. XI, envelope editing, graphical mapping, and waveform controls
   stay disabled. Loaded modules stay read-only,
   and no parser, runtime transport, or broad writer/export behavior changed.
 - `File > Export Audio > M4A...` now reuses the stopped product WAV plan and

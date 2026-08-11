@@ -9,7 +9,7 @@ typealias InstrumentKeyboardVisibleRangeChangeHandler = (InstrumentKeyboardVisib
 typealias InstrumentKeymapRangeAssignmentHandler = (_ focusedNote: UInt8?) -> Bool
 
 enum InstrumentEditorCopy {
-    static let keymapSummary = "FULL 96-NOTE COMMITTED OWNERSHIP · USE MAP RANGE… TO EDIT · PIANO AUDITIONS"
+    static let keymapSummary = "VISIBLE RANGE OWNERSHIP · USE MAP RANGE… TO EDIT · PIANO AUDITIONS"
     static let auditionKeyboard = "AUDITION KEYBOARD · CLICK / DRAG TO PREVIEW"
 }
 
@@ -58,29 +58,105 @@ struct InstrumentKeyboardVisibleRange: Equatable {
     }
 }
 
-/// Shared geometry for drawing committed ownership on the full 96-note summary strip.
-enum InstrumentKeymapSummaryGeometry {
-    static let noteCount = TrackerNoteKeyMap.maximumNoteValue
-    static let borderInset: CGFloat = 1
+/// Non-mutating ownership projection for the exact audition-keyboard range on screen.
+struct InstrumentEditorVisibleKeymapProjection: Equatable {
+    struct Cell: Equatable {
+        let noteValue: UInt8
+        let sampleSlot: Int?
+        let sampleName: String
+        let colorIndex: Int?
 
-    static func drawableBounds(in bounds: NSRect) -> NSRect? {
-        let drawable = bounds.insetBy(dx: borderInset, dy: borderInset)
-        guard drawable.width > 0, drawable.height > 0,
-              drawable.width.isFinite, drawable.height.isFinite else { return nil }
-        return drawable
+        var sampleDisplay: String {
+            sampleSlot.map { String(format: "S%02X", min(255, max(1, $0))) } ?? "—"
+        }
     }
 
-    static func rect(for noteIndices: ClosedRange<Int>, in bounds: NSRect) -> NSRect? {
-        guard let drawable = drawableBounds(in: bounds) else { return nil }
-        let lower = min(noteCount - 1, max(0, noteIndices.lowerBound))
-        let upper = min(noteCount - 1, max(lower, noteIndices.upperBound))
-        let cellWidth = drawable.width / CGFloat(noteCount)
-        return NSRect(
-            x: drawable.minX + CGFloat(lower) * cellWidth,
-            y: drawable.minY,
-            width: CGFloat(upper - lower + 1) * cellWidth,
-            height: drawable.height
-        )
+    struct Segment: Equatable {
+        let noteRange: ClosedRange<UInt8>
+        let sampleSlot: Int?
+        let sampleName: String
+        let colorIndex: Int?
+
+        var sampleDisplay: String {
+            sampleSlot.map { String(format: "S%02X", min(255, max(1, $0))) } ?? "—"
+        }
+    }
+
+    let visibleRange: InstrumentKeyboardVisibleRange
+    let cells: [Cell]
+    let segments: [Segment]
+
+    init(
+        ranges: [InstrumentEditorDisplayState.KeymapRange],
+        visibleRange: InstrumentKeyboardVisibleRange
+    ) {
+        self.visibleRange = visibleRange
+        guard Self.isCanonical(ranges) else {
+            cells = []
+            segments = []
+            return
+        }
+
+        let projectedCells = visibleRange.noteRange.compactMap { noteValue -> Cell? in
+            guard let range = ranges.first(where: {
+                $0.startNote <= Int(noteValue) && Int(noteValue) <= $0.endNote
+            }) else { return nil }
+            return Cell(
+                noteValue: noteValue,
+                sampleSlot: range.sampleSlot,
+                sampleName: range.sampleName,
+                colorIndex: range.colorIndex
+            )
+        }
+        guard projectedCells.count == visibleRange.noteCount else {
+            cells = []
+            segments = []
+            return
+        }
+        cells = projectedCells
+        segments = Self.makeSegments(from: projectedCells)
+    }
+
+    private static func isCanonical(_ ranges: [InstrumentEditorDisplayState.KeymapRange]) -> Bool {
+        guard ranges.first?.startNote == 1,
+              ranges.last?.endNote == TrackerNoteKeyMap.maximumNoteValue,
+              ranges.allSatisfy({
+                  $0.startNote >= 1 &&
+                      $0.startNote <= $0.endNote &&
+                      $0.endNote <= TrackerNoteKeyMap.maximumNoteValue
+              }) else { return false }
+        return zip(ranges, ranges.dropFirst()).allSatisfy { current, next in
+            current.endNote + 1 == next.startNote
+        }
+    }
+
+    private static func makeSegments(from cells: [Cell]) -> [Segment] {
+        guard let first = cells.first else { return [] }
+        var segments: [Segment] = []
+        var startNote = first.noteValue
+        var previous = first
+
+        func appendSegment(endingAt endNote: UInt8, ownership: Cell) {
+            segments.append(Segment(
+                noteRange: startNote...endNote,
+                sampleSlot: ownership.sampleSlot,
+                sampleName: ownership.sampleName,
+                colorIndex: ownership.colorIndex
+            ))
+        }
+
+        for cell in cells.dropFirst() {
+            let continuesOwnership = cell.sampleSlot == previous.sampleSlot &&
+                cell.sampleName == previous.sampleName &&
+                cell.colorIndex == previous.colorIndex
+            if !continuesOwnership {
+                appendSegment(endingAt: previous.noteValue, ownership: previous)
+                startNote = cell.noteValue
+            }
+            previous = cell
+        }
+        appendSegment(endingAt: previous.noteValue, ownership: previous)
+        return segments
     }
 }
 
@@ -2292,7 +2368,8 @@ final class InstrumentEditorView: FlippedEditorView {
 
         let strip = InstrumentEditorKeymapRangeView(
             frame: NSRect(x: 10, y: 34, width: 876, height: 18),
-            ranges: displayState.keymapRanges
+            ranges: displayState.keymapRanges,
+            visibleRange: keyboardVisibleRange
         )
         strip.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.keymapRangeStrip)
         panel.addSubview(strip)
@@ -2743,25 +2820,30 @@ final class InstrumentEditorEnvelopeGraphView: FlippedEditorView {
 }
 
 final class InstrumentEditorKeymapRangeView: FlippedEditorView {
-    private let ranges: [InstrumentEditorDisplayState.KeymapRange]
+    private let projection: InstrumentEditorVisibleKeymapProjection
 
     override var acceptsFirstResponder: Bool { false }
 
+    var visibleRange: InstrumentKeyboardVisibleRange { projection.visibleRange }
+    var ownershipCells: [InstrumentEditorVisibleKeymapProjection.Cell] { projection.cells }
+    var ownershipSegments: [InstrumentEditorVisibleKeymapProjection.Segment] { projection.segments }
+
     var ownershipRects: [NSRect] {
-        ranges.compactMap { range in
-            guard range.startNote <= range.endNote else { return nil }
-            return InstrumentKeymapSummaryGeometry.rect(
-                for: (range.startNote - 1)...(range.endNote - 1),
-                in: bounds
-            )
+        let layout = InstrumentEditorKeyboardLayout(bounds: bounds, visibleRange: visibleRange)
+        return ownershipSegments.compactMap { segment in
+            layout.ownershipRect(for: segment.noteRange)
         }
     }
 
     init(
         frame frameRect: NSRect,
-        ranges: [InstrumentEditorDisplayState.KeymapRange]
+        ranges: [InstrumentEditorDisplayState.KeymapRange],
+        visibleRange: InstrumentKeyboardVisibleRange
     ) {
-        self.ranges = ranges
+        projection = InstrumentEditorVisibleKeymapProjection(
+            ranges: ranges,
+            visibleRange: visibleRange
+        )
         super.init(frame: frameRect)
         style(
             background: VTXEditorControlTheme.recessedReadoutBackground,
@@ -2771,12 +2853,12 @@ final class InstrumentEditorKeymapRangeView: FlippedEditorView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Instrument sample keymap")
-        setAccessibilityHelp("Committed 96-note sample ownership; use Map Range to edit")
+        setAccessibilityHelp("Committed sample ownership for the visible piano range; use Map Range to edit")
         setAccessibilityEnabled(true)
         setAccessibilityValue(ownershipAccessibilityValue)
-        toolTip = ranges.isEmpty
-            ? "No canonical 96-note keymap is available"
-            : "Committed 96-note sample ownership; use MAP RANGE… to edit"
+        toolTip = ownershipCells.isEmpty
+            ? "No canonical note keymap is available for the visible piano range"
+            : "Committed sample ownership for \(visibleRange.startLabel)...\(visibleRange.endLabel); use MAP RANGE… to edit"
     }
 
     @available(*, unavailable)
@@ -2788,41 +2870,39 @@ final class InstrumentEditorKeymapRangeView: FlippedEditorView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard !ranges.isEmpty else {
+        guard !ownershipCells.isEmpty else {
             drawText("NO NOTE MAP REPRESENTED", in: bounds, color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.25))
             return
         }
 
-        for (range, rect) in zip(ranges, ownershipRects) {
-            rangeColor(range).setFill()
+        let layout = InstrumentEditorKeyboardLayout(bounds: bounds, visibleRange: visibleRange)
+        for segment in ownershipSegments {
+            guard let rect = layout.ownershipRect(for: segment.noteRange) else { continue }
+            rangeColor(segment).setFill()
             NSBezierPath(rect: rect).fill()
-            if range.isSelected {
-                NSColor.white.withAlphaComponent(0.65).setStroke()
-                let selection = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
-                selection.lineWidth = 1
-                selection.stroke()
-            }
             if rect.width >= 54 {
-                let label = range.sampleSlot == nil
+                let label = segment.sampleSlot == nil
                     ? "— · UNAVAILABLE"
-                    : "\(range.sampleDisplay) · \(range.sampleName)"
-                drawText(label, in: rect.insetBy(dx: 3, dy: 1), color: range.sampleSlot == nil ? VTXEditorControlTheme.warmValueText.withAlphaComponent(0.30) : .white.withAlphaComponent(0.82))
+                    : "\(segment.sampleDisplay) · \(segment.sampleName)"
+                drawText(label, in: rect.insetBy(dx: 3, dy: 1), color: segment.sampleSlot == nil ? VTXEditorControlTheme.warmValueText.withAlphaComponent(0.30) : .white.withAlphaComponent(0.82))
+            } else if rect.width >= 24, segment.sampleSlot != nil {
+                drawText(segment.sampleDisplay, in: rect.insetBy(dx: 2, dy: 1), color: .white.withAlphaComponent(0.82))
             }
         }
     }
 
     private var ownershipAccessibilityValue: String {
-        guard !ranges.isEmpty else { return "No committed note map represented" }
-        let descriptions = ranges.map { range in
-            let lower = ModuleMetadataLoader.formatXMNote(UInt8(range.startNote))
-            let upper = ModuleMetadataLoader.formatXMNote(UInt8(range.endNote))
-            return "\(lower) through \(upper) uses \(range.sampleDisplay)"
+        guard !ownershipSegments.isEmpty else { return "No committed note map represented" }
+        let descriptions = ownershipSegments.map { segment in
+            let lower = ModuleMetadataLoader.formatXMNote(segment.noteRange.lowerBound)
+            let upper = ModuleMetadataLoader.formatXMNote(segment.noteRange.upperBound)
+            return "\(lower) through \(upper) uses \(segment.sampleDisplay)"
         }
-        return "Committed ownership: \(descriptions.joined(separator: "; "))"
+        return "Visible ownership: \(descriptions.joined(separator: "; "))"
     }
 
-    private func rangeColor(_ range: InstrumentEditorDisplayState.KeymapRange) -> NSColor {
-        guard let colorIndex = range.colorIndex else {
+    private func rangeColor(_ segment: InstrumentEditorVisibleKeymapProjection.Segment) -> NSColor {
+        guard let colorIndex = segment.colorIndex else {
             return VTXEditorControlTheme.interactiveFieldBackground
         }
         let colors = [
@@ -2851,8 +2931,8 @@ struct InstrumentEditorKeyboardLayout {
         let frame: NSRect
     }
 
-    static let displayedNoteRange = InstrumentKeyboardVisibleRange.defaultRange.noteRange
     let visibleRange: InstrumentKeyboardVisibleRange
+    let contentBounds: NSRect
     let whiteKeys: [Key]
     let blackKeys: [Key]
     var keys: [Key] { whiteKeys + blackKeys }
@@ -2860,7 +2940,9 @@ struct InstrumentEditorKeyboardLayout {
     init(bounds: NSRect, visibleRange: InstrumentKeyboardVisibleRange = .defaultRange) {
         self.visibleRange = visibleRange
         let content = bounds.insetBy(dx: 1, dy: 1)
-        guard content.width > 0, content.height > 0 else {
+        contentBounds = content
+        guard content.width > 0, content.height > 0,
+              content.width.isFinite, content.height.isFinite else {
             whiteKeys = []
             blackKeys = []
             return
@@ -2899,6 +2981,41 @@ struct InstrumentEditorKeyboardLayout {
         }
         whiteKeys = whites
         blackKeys = blacks
+    }
+
+    func key(for noteValue: UInt8) -> Key? {
+        whiteKeys.first { $0.noteValue == noteValue } ??
+            blackKeys.first { $0.noteValue == noteValue }
+    }
+
+    func xBoundary(before noteValue: UInt8) -> CGFloat? {
+        guard visibleRange.contains(noteValue),
+              let current = key(for: noteValue) else { return nil }
+        guard noteValue != visibleRange.noteRange.lowerBound else { return contentBounds.minX }
+        guard let previous = key(for: noteValue - 1) else { return nil }
+        // Partition overlapping white/black key frames at the midpoint between note centers.
+        return (previous.frame.midX + current.frame.midX) * 0.5
+    }
+
+    func xBoundary(after noteValue: UInt8) -> CGFloat? {
+        guard visibleRange.contains(noteValue) else { return nil }
+        guard noteValue != visibleRange.noteRange.upperBound else { return contentBounds.maxX }
+        return xBoundary(before: noteValue + 1)
+    }
+
+    func ownershipRect(for noteRange: ClosedRange<UInt8>) -> NSRect? {
+        guard visibleRange.noteRange.contains(noteRange.lowerBound),
+              visibleRange.noteRange.contains(noteRange.upperBound),
+              noteRange.lowerBound <= noteRange.upperBound,
+              let minX = xBoundary(before: noteRange.lowerBound),
+              let maxX = xBoundary(after: noteRange.upperBound),
+              maxX > minX else { return nil }
+        return NSRect(
+            x: minX,
+            y: contentBounds.minY,
+            width: maxX - minX,
+            height: contentBounds.height
+        )
     }
 
     func noteValue(at point: NSPoint) -> UInt8? {

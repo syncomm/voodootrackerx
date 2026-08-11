@@ -21,9 +21,10 @@ disabled, and advanced audio export options remain future work.
 The proposed next major milestone is `v0.3.0-alpha.1` From-Scratch
 Composition Alpha. It is not yet released; its XM round-trip gate remains a
 no-go pending the final release rerun. The dedicated live keymap-routing
-correction merged in PR #370. The Instrument Editor's misleading full-summary
-selector is now deferred for alpha.1: the 96-note strip reports committed
-ownership only, and `MAP RANGE…` retains explicit manual From/To selectors.
+correction merged in PR #370. The Instrument Editor ownership strip now projects
+the same visible 36-note range and horizontal geometry as its audition piano,
+while the document keeps the canonical 96-note map. `MAP RANGE…` retains explicit
+manual From/To selectors; graphical range selection and painting remain deferred.
 Its complete acceptance gate and
 dependency-ordered PR plan are defined by
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
@@ -41,7 +42,7 @@ without keymap lookup or mutation.
 Instrument Editor and pattern-entry audition plus editable playback now share
 exact note-map resolution, independent of selected-sample editing focus. Distinct
 S01/S02 tests cover preview, live scheduling, and offline planning; the complete
-release gate still must be rerun after the Instrument Editor deferral lands. See
+release gate still must be rerun. See
 `docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 
 ## Project Goals
@@ -483,10 +484,11 @@ Recommended next product PR:
   decode/canonical normalization are complete, and Sample Editor LOAD now
   fills empty S01 or offers Replace/Add as New/Cancel for an occupied selection.
   Append-only S02+ lifecycle preserves the keymap and selects the new sample.
-  Instrument Editor now shows committed ownership on the full C-0...B-7 summary
-  and feeds explicit manual From/To values into the existing one-`applyEdit`
-  sheet. The incompatible full-summary/three-octave-keyboard graphical selector
-  is deferred.
+  Instrument Editor now projects committed ownership for the visible 36-note
+  piano range through the shared `InstrumentKeyboardVisibleRange` and piano
+  geometry, and feeds explicit manual From/To values into the existing
+  one-`applyEdit` sheet over the canonical C-0...B-7 map. Graphical selection and
+  painting remain deferred.
   Keep destructive lifecycle, reference-preserving reorder, drag-to-paint, and
   automatic mapping separate from runtime/backend work.
 - Module TIME/headroom work should follow
@@ -838,18 +840,20 @@ audio backends. Planned sequencing is:
 
 ### Future Instrument Keymap Direction
 
-The Instrument Editor's full 96-note strip is committed-ownership display, while
-the movable three-octave piano is audition-only. A full default Sample 1 assignment should stay neutral;
-non-default assignments may use muted sample-number labels or colors, the
-selected sample should receive stronger persistent emphasis, and transient
-audition must remain a distinct pressed-key layer above the mapping. Read-only
-polish preceded mutation. The explicit selected-sample sheet now reuses the
-range-mutation foundation without a second write path and is the alpha.1
-workflow. Graphical range selection is deferred because horizontal positions on
-the full C-0...B-7 strip do not correspond to positions on a shifted audition
-piano. Any future graphical design must select directly on the visible keyboard
-or introduce an explicit selection mode with an unambiguous scale. Drag-to-paint
-and automatic mapping remain future work. Use
+The document retains its canonical 96-note C-0...B-7 keymap. The Instrument
+Editor's committed-ownership strip projects only the current 36-note audition
+range, taking both that range from `InstrumentKeyboardVisibleRange` and its
+horizontal boundaries from the piano geometry. Range navigation and the same
+projection for loaded read-only modules are session UI state only: they do not
+change document revision, undo history, instrument selection, or sample
+selection. A full default Sample 1 assignment should stay neutral; non-default
+assignments may use muted sample-number labels or colors, while transient
+audition remains a distinct pressed-key layer above ownership. The explicit
+selected-sample sheet reuses the range-mutation foundation without a second write
+path and remains the alpha.1 workflow over the full canonical map. Graphical
+range selection, drag-to-paint, and automatic mapping remain future work; any
+future graphical editing must operate on this unambiguous visible-key geometry
+and reuse the existing edit path. Use
 `instrument-envelopes-keymap.xm` as the public reference and keep this direction
 linked to `docs/design/instrument-editor-window.md` and
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).

@@ -317,7 +317,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(InstrumentEditorListRowControl.acceptsPrimarySelection(buttonNumber: 1, clickCount: 1))
         XCTAssertEqual(
             InstrumentEditorCopy.keymapSummary,
-            "FULL 96-NOTE COMMITTED OWNERSHIP · USE MAP RANGE… TO EDIT · PIANO AUDITIONS"
+            "VISIBLE RANGE OWNERSHIP · USE MAP RANGE… TO EDIT · PIANO AUDITIONS"
         )
         XCTAssertEqual(InstrumentEditorCopy.auditionKeyboard, "AUDITION KEYBOARD · CLICK / DRAG TO PREVIEW")
     }
@@ -510,36 +510,119 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(state.keymapRanges.map(\.colorIndex), [0, 1, 0])
     }
 
-    func testKeymapSummaryGeometryPinsC5ThroughB5BeforeC6() throws {
-        let bounds = NSRect(x: 10, y: 4, width: 962, height: 20)
-        let drawable = try XCTUnwrap(InstrumentKeymapSummaryGeometry.drawableBounds(in: bounds))
-        let full = try XCTUnwrap(InstrumentKeymapSummaryGeometry.rect(for: 0...95, in: bounds))
-        let c5ThroughB5 = try XCTUnwrap(InstrumentKeymapSummaryGeometry.rect(for: 60...71, in: bounds))
-        let c6ThroughB7 = try XCTUnwrap(InstrumentKeymapSummaryGeometry.rect(for: 72...95, in: bounds))
+    func testVisibleOwnershipProjectionUsesExactlyKeyboardRangeAndCommittedMap() throws {
+        let map = Array(repeating: 0, count: 60)
+            + Array(repeating: 1, count: 12)
+            + Array(repeating: 0, count: 24)
+        let visibleRange = try XCTUnwrap(InstrumentKeyboardVisibleRange(startNote: 49))
+        let selectedS02 = makeInstrumentEditorRangeDocument(noteSampleMap: map)
+        let before = selectedS02
+        let selectedS01 = makeInstrumentEditorRangeDocument(
+            noteSampleMap: map,
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1)
+        )
+        let s02Projection = InstrumentEditorVisibleKeymapProjection(
+            ranges: InstrumentEditorDisplayState.editableDocument(selectedS02).keymapRanges,
+            visibleRange: visibleRange
+        )
+        let s01Projection = InstrumentEditorVisibleKeymapProjection(
+            ranges: InstrumentEditorDisplayState.editableDocument(selectedS01).keymapRanges,
+            visibleRange: visibleRange
+        )
 
-        XCTAssertEqual(drawable, NSRect(x: 11, y: 5, width: 960, height: 18))
-        XCTAssertEqual(full, drawable)
-        XCTAssertEqual(c5ThroughB5, NSRect(x: 611, y: 5, width: 120, height: 18))
-        XCTAssertEqual(c5ThroughB5.maxX, c6ThroughB7.minX)
+        XCTAssertEqual(s02Projection.cells.count, 36)
+        XCTAssertEqual(s02Projection.cells.map(\.noteValue), (49...84).map(UInt8.init))
+        XCTAssertEqual(s02Projection.cells.first { $0.noteValue == 60 }?.sampleSlot, 1) // B-4
+        XCTAssertEqual(s02Projection.cells.first { $0.noteValue == 61 }?.sampleSlot, 2) // C-5
+        XCTAssertEqual(s02Projection.cells.first { $0.noteValue == 72 }?.sampleSlot, 2) // B-5
+        XCTAssertEqual(s02Projection.cells.first { $0.noteValue == 73 }?.sampleSlot, 1) // C-6
+        XCTAssertEqual(s02Projection.cells.filter { $0.sampleSlot == 2 }.count, 12)
+        XCTAssertEqual(s02Projection, s01Projection, "editing focus must not alter ownership rendering")
+        XCTAssertEqual(selectedS02, before)
     }
 
-    func testKeymapSummaryIsCommittedOwnershipOnlyAndRejectsHitTesting() throws {
+    func testVisibleOwnershipBoundariesReuseKeyboardGeometryAcrossLayoutsAndBackingScales() throws {
+        let map = Array(repeating: 0, count: 60)
+            + Array(repeating: 1, count: 12)
+            + Array(repeating: 0, count: 24)
+        let state = InstrumentEditorDisplayState.editableDocument(
+            makeInstrumentEditorRangeDocument(noteSampleMap: map)
+        )
+        let visibleRange = try XCTUnwrap(InstrumentKeyboardVisibleRange(startNote: 49))
+
+        for width in [CGFloat(438), 875.5, 876] {
+            let frame = NSRect(x: 0, y: 0, width: width, height: 18)
+            let strip = InstrumentEditorKeymapRangeView(
+                frame: frame,
+                ranges: state.keymapRanges,
+                visibleRange: visibleRange
+            )
+            let keyboardLayout = InstrumentEditorKeyboardLayout(
+                bounds: NSRect(x: 0, y: 0, width: width, height: 96),
+                visibleRange: visibleRange
+            )
+            let s02Index = try XCTUnwrap(strip.ownershipSegments.firstIndex { $0.sampleSlot == 2 })
+            let c6Index = try XCTUnwrap(strip.ownershipSegments.firstIndex { $0.noteRange.lowerBound == 73 })
+            let c5Boundary = try XCTUnwrap(keyboardLayout.xBoundary(before: 61))
+            let c6Boundary = try XCTUnwrap(keyboardLayout.xBoundary(before: 73))
+
+            XCTAssertEqual(strip.ownershipRects[s02Index].minX, c5Boundary, accuracy: 0.000_001)
+            XCTAssertEqual(strip.ownershipRects[s02Index].maxX, c6Boundary, accuracy: 0.000_001)
+            XCTAssertEqual(strip.ownershipRects[c6Index].minX, c6Boundary, accuracy: 0.000_001)
+            XCTAssertEqual(c5Boundary, try XCTUnwrap(keyboardLayout.key(for: 61)).frame.minX, accuracy: 0.000_001)
+            XCTAssertEqual(c6Boundary, try XCTUnwrap(keyboardLayout.key(for: 73)).frame.minX, accuracy: 0.000_001)
+        }
+
+        let controller = InstrumentEditorWindowController(
+            displayState: state,
+            keyboardVisibleRange: visibleRange
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let strip = try view.keymapRangeStrip()
+        let keyboard = try instrumentEditorKeyboard(in: controller)
+        let panel = try XCTUnwrap(strip.superview)
+        XCTAssertTrue(keyboard.superview === panel)
+        XCTAssertEqual(strip.frame.minX, keyboard.frame.minX, accuracy: 0.000_001)
+        XCTAssertEqual(strip.frame.width, keyboard.frame.width, accuracy: 0.000_001)
+
+        let s02Index = try XCTUnwrap(strip.ownershipSegments.firstIndex { $0.sampleSlot == 2 })
+        let s02Rect = strip.ownershipRects[s02Index]
+        let actualLayout = keyboard.keyboardLayout
+        let c5Boundary = try XCTUnwrap(actualLayout.xBoundary(before: 61))
+        let c6Boundary = try XCTUnwrap(actualLayout.xBoundary(before: 73))
+        let stripC5 = strip.convert(NSPoint(x: s02Rect.minX, y: 0), to: panel).x
+        let stripC6 = strip.convert(NSPoint(x: s02Rect.maxX, y: 0), to: panel).x
+        let keyboardC5 = keyboard.convert(NSPoint(x: c5Boundary, y: 0), to: panel).x
+        let keyboardC6 = keyboard.convert(NSPoint(x: c6Boundary, y: 0), to: panel).x
+        XCTAssertEqual(stripC5, keyboardC5, accuracy: 0.000_001)
+        XCTAssertEqual(stripC6, keyboardC6, accuracy: 0.000_001)
+        for backingScale in [CGFloat(1), 2, 3] {
+            XCTAssertEqual((stripC5 * backingScale).rounded(), (keyboardC5 * backingScale).rounded())
+            XCTAssertEqual((stripC6 * backingScale).rounded(), (keyboardC6 * backingScale).rounded())
+        }
+    }
+
+    func testKeymapStripIsVisibleCommittedOwnershipOnlyAndRejectsHitTesting() throws {
         let document = makeInstrumentEditorRangeDocument()
         let before = document
         let undoManager = UndoManager()
         let state = InstrumentEditorDisplayState.editableDocument(document)
+        let visibleRange = try XCTUnwrap(InstrumentKeyboardVisibleRange(startNote: 49))
         let strip = InstrumentEditorKeymapRangeView(
             frame: NSRect(x: 0, y: 0, width: 962, height: 20),
-            ranges: state.keymapRanges
+            ranges: state.keymapRanges,
+            visibleRange: visibleRange
         )
 
-        XCTAssertEqual(strip.ownershipRects.count, state.keymapRanges.count)
+        XCTAssertEqual(strip.visibleRange, visibleRange)
+        XCTAssertEqual(strip.ownershipCells.count, 36)
+        XCTAssertEqual(strip.ownershipRects.count, 1)
         XCTAssertFalse(strip.acceptsFirstResponder)
         XCTAssertNil(strip.hitTest(NSPoint(x: strip.bounds.midX, y: strip.bounds.midY)))
         XCTAssertEqual(strip.accessibilityLabel(), "Instrument sample keymap")
-        XCTAssertEqual(strip.accessibilityValue() as? String, "Committed ownership: C-0 through B-7 uses S01")
-        XCTAssertEqual(strip.accessibilityHelp(), "Committed 96-note sample ownership; use Map Range to edit")
-        XCTAssertEqual(strip.toolTip, "Committed 96-note sample ownership; use MAP RANGE… to edit")
+        XCTAssertEqual(strip.accessibilityValue() as? String, "Visible ownership: C-4 through B-6 uses S01")
+        XCTAssertEqual(strip.accessibilityHelp(), "Committed sample ownership for the visible piano range; use Map Range to edit")
+        XCTAssertEqual(strip.toolTip, "Committed sample ownership for C-4...B-6; use MAP RANGE… to edit")
         XCTAssertEqual(document, before)
         XCTAssertFalse(undoManager.canUndo)
     }
@@ -625,7 +708,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(fieldValues.contains("READ-ONLY"))
         XCTAssertTrue(fieldValues.contains("EDITING UNAVAILABLE"))
         XCTAssertNil(strip.hitTest(NSPoint(x: strip.bounds.midX, y: strip.bounds.midY)))
-        XCTAssertEqual(strip.accessibilityValue() as? String, "Committed ownership: C-0 through B-7 uses S01")
+        XCTAssertEqual(strip.accessibilityValue() as? String, "Visible ownership: C-2 through B-4 uses S01")
 
         button.performClick(nil)
         button.isEnabled = true
@@ -946,9 +1029,57 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(view.displayState.keymapRanges.map(\.sampleDisplay), ["S01", "S02", "S01"])
         XCTAssertEqual(view.displayState.keymapRanges.map(\.startNote), [1, 61, 73])
         XCTAssertEqual(view.displayState.keymapRanges.map(\.endNote), [60, 72, 96])
+        let strip = try view.keymapRangeStrip()
+        XCTAssertEqual(strip.visibleRange, view.keyboardVisibleRange)
+        XCTAssertEqual(strip.ownershipCells.count, 36)
+        XCTAssertEqual(strip.ownershipCells.filter { $0.sampleSlot == 2 }.count, 12)
+        XCTAssertEqual(strip.ownershipCells.first { $0.noteValue == 60 }?.sampleSlot, 1)
+        XCTAssertEqual(strip.ownershipCells.first { $0.noteValue == 61 }?.sampleSlot, 2)
+        XCTAssertEqual(strip.ownershipCells.first { $0.noteValue == 72 }?.sampleSlot, 2)
+        XCTAssertEqual(strip.ownershipCells.first { $0.noteValue == 73 }?.sampleSlot, 1)
         let refreshedScroll = try XCTUnwrap(view.instrumentEditorDescendants.compactMap { $0 as? NSScrollView }.last)
         XCTAssertEqual(refreshedScroll.contentView.bounds.origin.y, 100, accuracy: 0.1)
         XCTAssertEqual(document.selection, selection)
+    }
+
+    func testRangeAssignmentUndoRedoRefreshesExactVisibleOwnership() throws {
+        var document = makeInstrumentEditorRangeDocument()
+        let original = document
+        let selection = document.selection
+        let undoManager = UndoManager()
+        var controller: InstrumentEditorWindowController?
+        let coordinator = EditableDocumentEditCoordinator(
+            undoManager: undoManager,
+            contextProvider: { .editable(document: document, isPlaybackActive: false) },
+            documentApplyHandler: { updatedDocument in
+                document = updatedDocument
+                controller?.apply(displayState: .editableDocument(updatedDocument))
+            }
+        )
+        controller = InstrumentEditorWindowController(displayState: .editableDocument(document))
+        let view = try XCTUnwrap(controller?.window?.contentView as? InstrumentEditorView)
+        XCTAssertTrue(view.shiftKeyboardVisibleRange(.higher))
+        XCTAssertTrue(view.shiftKeyboardVisibleRange(.higher))
+
+        _ = try coordinator.mapSampleToNoteRange(
+            instrumentIndex: 1,
+            sampleIndex: 1,
+            lowerNote: 60,
+            upperNote: 71
+        ).get()
+        XCTAssertEqual(try view.keymapRangeStrip().ownershipCells.filter { $0.sampleSlot == 2 }.count, 12)
+        XCTAssertEqual(view.keyboardVisibleRange.startNote, 49)
+        XCTAssertEqual(document.selection, selection)
+
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(try view.keymapRangeStrip().ownershipCells.filter { $0.sampleSlot == 2 }.count, 0)
+        XCTAssertEqual(document, original)
+        XCTAssertEqual(view.keyboardVisibleRange.startNote, 49)
+
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertEqual(try view.keymapRangeStrip().ownershipCells.filter { $0.sampleSlot == 2 }.count, 12)
+        XCTAssertEqual(document.selection, selection)
+        XCTAssertEqual(view.keyboardVisibleRange.startNote, 49)
     }
 
     func testKeyboardVisibleRangeShiftsOneOctaveAndStopsAtXMMapBounds() throws {
@@ -969,38 +1100,50 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertNil(InstrumentKeyboardVisibleRange(startNote: 2)); XCTAssertNil(InstrumentKeyboardVisibleRange(startNote: 73))
     }
 
-    func testShiftedKeyboardGeometryKeepsTheSummaryOnTheFull96NoteMap() throws {
+    func testLoadedReadOnlyFixtureProjectsTheSameVisibleRangeAsTheKeyboard() throws {
         let fixtureURL = try referenceXMFixtureURL("generated/instrument-envelopes-keymap.xm")
         let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
         let state = InstrumentEditorDisplayState.loadedModule(playbackSong: song, selection: .default)
-        let c4Range = try XCTUnwrap(InstrumentKeyboardVisibleRange(startNote: 49))
+        let c3Range = try XCTUnwrap(InstrumentKeyboardVisibleRange(startNote: 37))
         XCTAssertEqual(state.keymapRanges.map(\.startNote), [1, 49]); XCTAssertEqual(state.keymapRanges.map(\.endNote), [48, 96])
-        let strip = InstrumentEditorKeymapRangeView(
-            frame: NSRect(x: 0, y: 0, width: 962, height: 20),
-            ranges: state.keymapRanges
+        let controller = InstrumentEditorWindowController(
+            displayState: state,
+            keyboardVisibleRange: c3Range
         )
-        XCTAssertEqual(strip.ownershipRects.count, 2)
-        XCTAssertEqual(strip.ownershipRects.map(\.width), [480, 480])
-        XCTAssertNil(strip.hitTest(NSPoint(x: strip.bounds.midX, y: strip.bounds.midY)))
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let strip = try view.keymapRangeStrip()
+        let keyboard = try instrumentEditorKeyboard(in: controller)
 
-        let layout = InstrumentEditorKeyboardLayout(
-            bounds: NSRect(x: 0, y: 0, width: 876, height: 96),
-            visibleRange: c4Range
-        )
-        XCTAssertEqual(layout.keys.map(\.noteValue).min(), 49); XCTAssertEqual(layout.keys.map(\.noteValue).max(), 84)
-        XCTAssertEqual(layout.whiteKeys.count, 21); XCTAssertEqual(layout.blackKeys.count, 15)
-        XCTAssertTrue(layout.keys.allSatisfy {
-            layout.noteValue(at: NSPoint(x: $0.frame.midX, y: $0.frame.midY)) == $0.noteValue
-        })
+        XCTAssertEqual(strip.visibleRange, c3Range)
+        XCTAssertEqual(keyboard.keyboardLayout.visibleRange, c3Range)
+        XCTAssertEqual(strip.ownershipCells.map(\.noteValue), (37...72).map(UInt8.init))
+        XCTAssertEqual(strip.ownershipCells.first { $0.noteValue == 48 }?.sampleSlot, 1) // B-3
+        XCTAssertEqual(strip.ownershipCells.first { $0.noteValue == 49 }?.sampleSlot, 2) // C-4
+        XCTAssertEqual(strip.ownershipCells.filter { $0.sampleSlot == 1 }.count, 12)
+        XCTAssertEqual(strip.ownershipCells.filter { $0.sampleSlot == 2 }.count, 24)
+        XCTAssertFalse(try view.keymapRangeAssignmentButton().isEnabled)
+        XCTAssertEqual(strip.ownershipRects.count, 2)
+        XCTAssertNil(strip.hitTest(NSPoint(x: strip.bounds.midX, y: strip.bounds.midY)))
+        XCTAssertEqual(song, try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path))
     }
 
     func testRangeControlsAreAccessibleNonMutatingAndPersistForPresenterSession() throws {
         let document = makeEditableDocument(palette: makeInstrumentPalette())
         let before = document
         let undoManager = UndoManager()
+        let undoTarget = NSObject()
+        var unexpectedMutationRequests = 0
+        let mutationSentinel: InstrumentKeymapRangeAssignmentHandler = { _ in
+            unexpectedMutationRequests += 1
+            undoManager.registerUndo(withTarget: undoTarget) { _ in }
+            return true
+        }
         let presenter = InstrumentEditorWindowPresenter()
-        var controller = presenter.show(displayState: .editableDocument(document))
+        var controller = presenter.show(
+            displayState: .editableDocument(document),
+            keymapRangeAssignmentHandler: mutationSentinel
+        )
         var view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
 
         XCTAssertEqual(view.keyboardVisibleRange, .defaultRange)
@@ -1016,19 +1159,29 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(view.shiftKeyboardVisibleRange(.higher))
         XCTAssertTrue(view.shiftKeyboardVisibleRange(.higher))
         XCTAssertEqual(view.keyboardVisibleRange.startLabel, "C-4")
+        XCTAssertEqual(try view.keymapRangeStrip().visibleRange, view.keyboardVisibleRange)
+        XCTAssertEqual(try instrumentEditorKeyboard(in: controller).keyboardLayout.visibleRange, view.keyboardVisibleRange)
+        XCTAssertEqual(try view.keymapRangeStrip().ownershipCells.map(\.noteValue), (49...84).map(UInt8.init))
         presenter.refresh(displayState: .editableDocument(document))
         XCTAssertEqual(view.keyboardVisibleRange.startNote, 49)
         controller.window?.close()
 
-        controller = presenter.show(displayState: .editableDocument(document))
+        controller = presenter.show(
+            displayState: .editableDocument(document),
+            keymapRangeAssignmentHandler: mutationSentinel
+        )
         view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
         XCTAssertEqual(view.keyboardVisibleRange.startNote, 49)
         for _ in 0..<8 { _ = view.shiftKeyboardVisibleRange(.higher) }
+        XCTAssertEqual(try view.keymapRangeStrip().visibleRange, view.keyboardVisibleRange)
+        XCTAssertEqual(try instrumentEditorKeyboard(in: controller).keyboardLayout.visibleRange, view.keyboardVisibleRange)
+        XCTAssertEqual(try view.keymapRangeStrip().ownershipCells.map(\.noteValue), (61...96).map(UInt8.init))
         lower = try view.keyboardRangeButton(.lower)
         higher = try view.keyboardRangeButton(.higher)
         XCTAssertTrue(lower.isEnabled)
         XCTAssertFalse(higher.isEnabled)
         XCTAssertEqual(document, before)
+        XCTAssertEqual(unexpectedMutationRequests, 0)
         XCTAssertFalse(undoManager.canUndo)
         controller.window?.close()
     }

@@ -51,7 +51,9 @@ VoodooTracker X currently has:
   exact signed-byte `-128...127` sample-relative-note and finetune edits; later playback consumes
   edited volume and tuning through the unchanged adapter gain and pitch paths; the Instrument Editor
   piano range shifts across the read-only 96-note map and focused computer audition shares its
-  visible monophonic pressed-key state with mouse audition without document/undo mutation
+  visible monophonic pressed-key state with mouse audition without document/undo mutation; its
+  committed-ownership strip projects the exact same 36-note range through shared piano geometry,
+  including during non-mutating range navigation and read-only viewing
 - one canonical note-to-sample resolver now drives Instrument Editor computer/mouse
   audition, pattern-entry audition, editable live scheduling, and adapter planning;
   selected sample remains editing focus while Sample Editor AUDITION stays direct
@@ -70,9 +72,10 @@ VoodooTracker X currently has:
   stale-result checks, one format-neutral undoable edit, and document-owned
   mono 16-bit PCM. Add appends/selects S02+ while preserving the keymap;
   Instrument Editor now exposes the undoable inclusive keymap-range foundation
-  through a selected-represented-sample sheet prefilled by a non-mutating drag on
-  the full 96-note summary. Destructive lifecycle, standalone New Sample,
-  drag-to-paint, and automatic mapping remain unavailable.
+  through a manual selected-represented-sample `MAP RANGE…` sheet over the
+  canonical 96-note map. The ownership strip is a non-interactive projection of
+  the visible 36-note piano range. Destructive lifecycle, standalone New Sample,
+  graphical selection, drag-to-paint, and automatic mapping remain unavailable.
   AUDITION now toggles that selected slot directly at C-4 through the persistent
   preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
@@ -111,9 +114,10 @@ ranges, channel/stem export, bitrate/quality controls, and diagnostic profile
 selection remain future work.
 
 The `v0.3.0-alpha.1` From-Scratch Composition Alpha is designed and its
-composition/XM round-trip gate remains blocked pending merge and rerun. The
-proven live editable keymap-routing defect now has a dedicated correction with
-distinct-sample preview, scheduling, and planning tests.
+composition/XM round-trip gate remains blocked pending the final rerun. The
+proven live editable keymap-routing defect has a dedicated correction with
+distinct-sample preview, scheduling, and planning tests, and the Instrument
+Editor ownership strip now shares the audition piano's visible range and geometry.
 Its gate starts
 from a clean launch, creates an instrument
 and imported/generated sample, composes and arranges a song, then proves Export
@@ -214,6 +218,10 @@ Recently completed narrow target:
 - Instrument Editor now exposes that foundation through `MAP RANGE…`: a compact
   C-0...B-7 inclusive sheet captures and revalidates the represented selected
   sample, preserves selection/outside assignments, and adds no auto-audition.
+- Its ownership strip projects exactly the current 36-note audition range from
+  the canonical 96-note map through `InstrumentKeyboardVisibleRange` and shared
+  piano geometry. Range navigation and loaded read-only projection are
+  non-mutating; graphical selection and painting remain deferred.
 - Sample Editor LOAD now exposes native mono/stereo 16-bit and 24-bit FLAC
   through the existing one-file picker, coordinator, background worker,
   normalized candidate, and commit path. It rejects 8-bit and untested depths,
@@ -242,8 +250,9 @@ Recently completed narrow target:
   note-keymap hierarchy. It follows File New, module load, Make Editable Copy,
   Clear Song transitions, and main control-panel instrument/sample selection;
   shows represented metadata, immutable volume-envelope and keymap-range data,
-  and clean empty states. The selected-sample range sheet is implemented; XI,
-  envelope editing, graphical mapping, and waveform controls remain disabled.
+  and clean empty states. Its ownership strip follows the exact visible 36-note
+  piano range without changing the canonical 96-note map. The selected-sample
+  range sheet is implemented; XI, envelope editing, graphical mapping, and waveform controls remain disabled.
   Isolated computer/graphical audition remains distinct from assignment.
   It adds no audition mutation or envelope editing;
   playback, parser, writer, and export behavior remain unchanged.
@@ -806,7 +815,8 @@ Remaining VTX 1.0 scope:
 - sample trimming and loop editing foundation
 - envelope editing foundation
 
-Future Instrument Editor keymap polish can add drag-to-paint/automatic assignment while keeping audition distinct;
+Future Instrument Editor keymap polish can add explicit graphical selection,
+drag-to-paint, or automatic assignment while keeping audition distinct and reusing the visible-key geometry;
 see `docs/roadmap.md` and `docs/design/instrument-editor-window.md` for the
 assignment, audition-layer, fixture, and `applyEdit` direction.
 

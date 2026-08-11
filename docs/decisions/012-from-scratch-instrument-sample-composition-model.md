@@ -2,11 +2,15 @@
 
 ## Status
 
+> Superseded in part by [ADR 013](013-visible-keymap-ownership-projection.md), which replaces only
+> the transient full-map graphical-selection and ownership-display direction below. The canonical
+> 96-note document map, `applyEdit`, lifecycle, ownership, and persistence decisions remain in force.
+
 Accepted as the product and architecture contract for the from-scratch composition workstream. Empty instruments,
 first-sample generation/import, and occupied LOAD with Replace/Add as New/Cancel are now implemented. Add appends
 and selects represented S02+ without changing keymap references. Instrument Editor now exposes inclusive
-selected-sample keymap range mutation through one `applyEdit` sheet, prefilling it from transient
-full-map graphical selection; drag-to-paint/automatic mapping and destructive lifecycle remain future work.
+selected-sample keymap range mutation through one manual `applyEdit` sheet; graphical selection,
+drag-to-paint/automatic mapping, and destructive lifecycle remain future work.
 
 ## Context
 

@@ -72,20 +72,28 @@ Loaded modules remain read-only, Save and Save As remain disabled, Export XM
 remains scoped to the current editable subset, and advanced audio export
 options remain future work.
 
-The proposed `v0.3.0-alpha.1` From-Scratch Composition Alpha is blocked by a
-maintainer-reproduced editable keymap-routing defect.
-Empty instruments/S01 destinations, deterministic Sine, and the
-Sample Editor WAV/AIFF/AIFC/native-FLAC LOAD now offers Replace, Add as New,
-and Cancel for occupied samples. Add appends/selects represented S02+ without
-changing keymap references; Sample Editor auditions it directly. Pattern and
-Instrument Editor audition are intended to follow the keymap, but mapped S02
-notes can sound as S01 and selected-sample UI state can affect live routing.
-Instrument Editor now
-selects an inclusive range on its full C-0...B-7 summary bar without mutation;
-`MAP RANGE…` prefills the existing one-undo sheet from that selection. Delete,
-clear, reorder, duplication, standalone New Sample, drag-to-paint mapping, and
-automatic mapping remain deferred. Deterministic XM export/reopen is covered,
-but the release gate must be rerun after a dedicated playback correction PR.
+The proposed `v0.3.0-alpha.1` From-Scratch Composition Alpha remains NO-GO
+pending the final `Edit > New Instrument` and release-checklist rerun. The
+dedicated keymap-routing correction has merged: Instrument Editor and pattern
+audition plus editable live/static playback resolve the played note through the
+canonical 96-note instrument map, independently of selected-sample editing
+focus. Sample Editor audition remains the intentional direct-selected-sample
+route.
+
+Empty instruments/S01 destinations, deterministic Sine, and Sample Editor
+WAV/AIFF/AIFC/native-FLAC LOAD offer Replace, Add as New, and Cancel for
+occupied samples. Add appends/selects represented S02+ without changing keymap
+references. In Instrument Editor, the noninteractive committed-ownership strip
+now projects exactly the same movable 36-note range as the audition piano and
+uses the piano's note-boundary geometry. For a visible C-4...B-6 piano, a
+manual C-5...B-5 assignment therefore occupies exactly those 12 keys, with
+B-4 and C-6 returning to S01. Octave navigation rebuilds both surfaces from one
+visible-range state; changing selected sample does not change ownership.
+Loaded modules use the same projection while `MAP RANGE…` remains disabled.
+The canonical C-0...B-7 map and manual inclusive `MAP RANGE…` selectors remain
+authoritative, and mapping stays one undoable edit. Graphical selection,
+drag-to-paint, automatic mapping, delete, clear, reorder, duplication, and
+standalone New Sample remain deferred.
 
 What works today:
 
@@ -100,8 +108,12 @@ What works today:
   paginated Pattern Bank.
 - `Window > Instrument Editor` opens the fixed v1-mockup editor with selectable
   represented instrument/sample rows, stopped-editable metadata controls, read-only
-  envelope/keymap displays, isolated computer/on-screen keyboard audition, and a
-  stopped-editable `MAP RANGE…` sheet for the selected represented sample.
+  envelope displays, a committed-ownership strip aligned to the same visible
+  36-note range and geometry as its movable audition piano, isolated
+  computer/on-screen keyboard audition, and a stopped-editable `MAP RANGE…`
+  sheet for the selected represented sample. The full 96-note document map
+  remains canonical; loaded modules show its visible projection with mapping
+  controls disabled.
 - `Window > Sample Editor` opens a fixed HTML-mockup-aligned window
   with a compact instrument popup bound to the same canonical instrument/sample
   selection. Instrument changes are non-mutating/no-undo, and the selected row,

@@ -827,6 +827,8 @@ final class SampleEditorView: FlippedEditorView {
         parent.addSubview(preview)
     }
 
+    // Swift 6.3.2's CopyPropagation pass crashes on this UI-only function.
+    @_optimize(none)
     private func buildParams(_ parent: NSView) {
         disabledKnob(value: Double(displayState.volume ?? 0), range: 0...64, id: "volume", title: "VOLUME", readoutValue: displayState.volumeDisplay, parent: parent, x: 25, emphasized: true)
         disabledKnob(value: Double(displayState.finetune ?? 0), range: -128...127, id: "finetune", title: "FINETUNE", readoutValue: displayState.finetuneDisplay, parent: parent, x: 116)

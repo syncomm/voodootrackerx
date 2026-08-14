@@ -113,19 +113,25 @@ current editable subset, and advanced options such as PCM16, pattern/order
 ranges, channel/stem export, bitrate/quality controls, and diagnostic profile
 selection remain future work.
 
-The `v0.3.0-alpha.1` From-Scratch Composition Alpha is designed and its final
-composition/XM round-trip gate is a conditional go with no known product blocker.
-The complete automated matrix and generated-data Debug-app workflow pass; the
-sole remaining maintainer confirmation is the AirPods idle/quick-audition smoke,
-which could not run while paired devices were unavailable. Distinct-sample
-preview, scheduling, planning, and export/reopen tests cover the corrected live
-keymap route, and the Instrument Editor ownership strip shares the audition
-piano's visible range and geometry. Its gate starts
-from a clean launch, creates an instrument
-and imported/generated sample, composes and arranges a song, then proves Export
-XM/reopen and WAV/M4A export. See
+The `v0.3.0-alpha.1` From-Scratch Composition Alpha is prepared and pending its
+maintainer post-merge tag. Its final composition/XM round-trip gate is a
+conditional go with no known product blocker. The complete automated matrix and
+generated-data Debug-app workflow pass. Distinct-sample preview, scheduling,
+planning, and export/reopen tests cover the corrected live keymap route, and the
+Instrument Editor ownership strip shares the audition piano's visible range and
+geometry. The gate starts from a clean launch, creates instruments plus
+imported/generated samples, composes and arranges a song, then proves Export
+XM/reopen and WAV/M4A export. It explicitly did not claim the AirPods smoke
+because paired devices were unavailable; an optional maintainer smoke may
+follow, but hardware unavailability alone does not block the tag absent a new
+defect. See
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md) and
-`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
+`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`, plus
+`docs/release-notes/v0.3.0-alpha.1.md`.
+
+After the tag, the recommended next step is
+`architecture: define the next v0.3.x milestone from the post-alpha backlog`.
+Do not begin a product feature automatically from this release-prep work.
 
 ## Backend Snapshot
 
@@ -148,6 +154,10 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
+
+After `v0.3.0-alpha.1` is tagged, first define the next v0.3.x milestone from
+the post-alpha backlog. Keep that planning slice separate from implementation,
+broad UI polish, MIDI, and post-v1 AUv3 work.
 
 Recently completed target:
 `sample: wire Sample Editor selected-sample audition button`.
@@ -749,6 +759,12 @@ AAC-in-M4A provides a convenient sharing format. Both write only to a selected
 destination and preserve loaded-module read-only and disabled Save/Save As
 semantics.
 
+The prepared `v0.3.0-alpha.1` release packages the current From-Scratch
+Composition Alpha flow: create instruments, generate/import and append samples,
+map note ranges manually, compose patterns/orders, Export XM/reopen, and render
+WAV/M4A. It does not promote the remaining pattern-editor, destructive sample
+lifecycle, graphical mapping, or persistence work below.
+
 Remaining phase scope:
 
 - instrument entry
@@ -800,8 +816,15 @@ Implemented foundation:
   synchronize the main window and Instrument Editor. The selected row, identity,
   exact metadata, bounded read-only waveform, and display-only loop region share
   one sample state, with unnamed represented samples distinct from absence; it
-  adds stopped-editable empty-S01 SINE through one undo action; other generators,
-  removal, loop/PCM mutation, import, processing, and audition remain deferred
+  adds stopped-editable empty-S01 SINE through one undo action; LOAD imports
+  WAV/AIFF/AIFC/supported native FLAC into empty or represented slots, occupied
+  LOAD can append S02+, and AUDITION plays the selected sample directly. Other
+  generators, destructive lifecycle, loop/PCM mutation, and processing remain
+  deferred
+- manual inclusive `MAP RANGE…` assignment over the exact 96-note keymap, with
+  Instrument Editor/pattern/playback routes consuming the map independently of
+  selected-sample editing focus and the ownership strip sharing the piano's
+  visible range/geometry; graphical selection and drag mapping remain deferred
 
 Remaining VTX 1.0 scope:
 

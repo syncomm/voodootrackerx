@@ -23,13 +23,11 @@ stapled DMG for tagged releases.
 VoodooTracker X is a real tracker project in early alpha form. Download the
 latest release DMG from GitHub Releases or build from source, then try it with
 public XM/MOD tracker modules. Expect an alpha-quality app that can open,
-display, and play supported modules, and can compose a small song from scratch
-in a blank editable document with the pattern grid and Song / Order editor.
-Supported loaded XM modules can be converted into an explicit untitled
-in-memory editable copy, and current editable documents can be exported as XM
-through the scoped Export XM v1 path. Stopped loaded modules and editable
-documents can also be rendered through `File > Export Audio` as 32-bit Float
-WAV for lossless-ish/diagnostic use or AAC-in-M4A for convenient sharing.
+display, and play supported modules. The current from-scratch workflow can
+create instruments, generate or import samples, assign multisample note ranges,
+compose patterns and orders, export XM, reopen the result, and render WAV/M4A
+audio. Supported loaded XM modules can be converted into an explicit untitled
+in-memory editable copy. Loaded source modules remain read-only.
 
 ## Try It With Tracker Modules
 
@@ -72,15 +70,18 @@ Loaded modules remain read-only, Save and Save As remain disabled, Export XM
 remains scoped to the current editable subset, and advanced audio export
 options remain future work.
 
-The proposed `v0.3.0-alpha.1` From-Scratch Composition Alpha has a conditional
-go from its final composition/XM round-trip gate. The automated matrix and
-generated-data Debug-app workflow pass with no known product blocker; the sole
-remaining maintainer confirmation is an AirPods idle/quick-audition smoke that
-could not run while paired devices were unavailable. Instrument Editor and
-pattern audition plus editable live/static playback resolve the played note
-through the canonical 96-note instrument map, independently of selected-sample
-editing focus. Sample Editor audition remains the intentional direct-selected-
-sample route.
+The prepared `v0.3.0-alpha.1` From-Scratch Composition Alpha is pending its
+maintainer post-merge tag. Its final composition/XM round-trip gate concluded
+**CONDITIONAL GO** with no known product blocker. The automated matrix and
+generated-data Debug-app workflow pass from File New through instruments,
+multiple samples, manual keymap assignment, patterns/orders, playback, XM
+export/reopen, and WAV/M4A export. Instrument Editor and pattern audition plus
+editable live/static playback resolve the played note through the canonical
+96-note instrument map, independently of selected-sample editing focus. Sample
+Editor audition remains the intentional direct-selected-sample route. The gate
+did not claim an AirPods smoke because paired devices were unavailable; an
+optional hardware smoke may follow, but unavailability alone does not block the
+tag absent a new defect.
 
 Empty instruments/S01 destinations, deterministic Sine, and Sample Editor
 WAV/AIFF/AIFC/native-FLAC LOAD offer Replace, Add as New, and Cancel for
@@ -184,6 +185,8 @@ What is still future work:
   generation, drag-to-paint/automatic keymap assignment, editable loop and PCM/waveform work, and
   destructive processing. Loaded modules remain read-only; see
   [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md).
+- XI instrument import/export and broader sample move/swap/duplicate workflows.
+- MIDI input and broad UI polish. AUv3 remains a post-v1.0 direction.
 - Live Loop retargeting during active playback, loop-range editing, arbitrary
   loop ranges, and broader tracker editing workflows.
 - Full FastTracker II, OpenMPT, or MikMod parity.
@@ -269,6 +272,7 @@ render timing.
 - [docs/design/parsed-xm-to-c-mixer-adapter.md](docs/design/parsed-xm-to-c-mixer-adapter.md) - bounded parsed-XM-to-C-mixer adapter design and non-goals.
 - [docs/decisions/](docs/decisions) - architecture decision records, including the software mixer transition and C mixer boundary.
 - [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md) - future from-scratch instrument, sample, import, mapping, lifecycle, and release contract.
+- [v0.3.0-alpha.1 release notes](docs/release-notes/v0.3.0-alpha.1.md) - From-Scratch Composition Alpha scope, limitations, checklist, and post-merge tag instructions.
 - [docs/tracker-behavior-spec.md](docs/tracker-behavior-spec.md) - tracker viewport and editor behavior rules.
 - [docs/testing.md](docs/testing.md) - local build/test commands, fixture rules, parser smoke tests, and golden snapshot workflow.
 - [AGENTS.md](AGENTS.md) - contribution and automation requirements for humans and agents.

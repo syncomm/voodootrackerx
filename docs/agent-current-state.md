@@ -52,15 +52,15 @@ direction; it does not expand v1, add a target, or change the runtime. See
 `docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
 
 Release status: `v0.2.0-alpha.5` is the released Rendered Audio Export Alpha.
-The `v0.3.0-alpha.1` composition/XM round-trip gate remains blocked pending the
-final release rerun. Maintainer testing proved that live editable Instrument Editor
-audition, pattern-entry audition, and song playback could route S02-mapped notes
-to S01. The dedicated correction merged in PR #370 and now resolves those
-instrument-note paths through one 96-note keymap resolver with distinct-sample
-integration coverage. The Instrument Editor UX correction now keeps the strip
-committed-ownership-only while projecting the same visible 36-note range and
-horizontal geometry as the audition piano; the exact manual sheet workflow is
-unchanged.
+The final `v0.3.0-alpha.1` composition/XM round-trip gate is a conditional go:
+all automated gates and the generated-data from-scratch Debug-app workflow pass,
+with no known product blocker. PR #370 resolves every instrument-note route
+through one 96-note keymap resolver, and PR #372 aligns committed ownership with
+the piano's visible 36-note range and geometry while retaining the manual sheet.
+Exact distinct-sample coverage now spans New Instrument, two patterns/orders,
+XM export/reopen, and WAV/M4A. The sole remaining maintainer confirmation is the
+AirPods idle/quick-audition smoke; paired devices were unavailable during the
+final run.
 See
 `docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from

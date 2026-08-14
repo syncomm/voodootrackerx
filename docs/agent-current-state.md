@@ -52,17 +52,25 @@ direction; it does not expand v1, add a target, or change the runtime. See
 `docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
 
 Release status: `v0.2.0-alpha.5` is the released Rendered Audio Export Alpha.
-The final `v0.3.0-alpha.1` composition/XM round-trip gate is a conditional go:
-all automated gates and the generated-data from-scratch Debug-app workflow pass,
-with no known product blocker. PR #370 resolves every instrument-note route
-through one 96-note keymap resolver, and PR #372 aligns committed ownership with
-the piano's visible 36-note range and geometry while retaining the manual sheet.
-Exact distinct-sample coverage now spans New Instrument, two patterns/orders,
-XM export/reopen, and WAV/M4A. The sole remaining maintainer confirmation is the
-AirPods idle/quick-audition smoke; paired devices were unavailable during the
-final run.
-See
-`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
+`v0.3.0-alpha.1` is prepared as the From-Scratch Composition Alpha and is
+pending its maintainer post-merge tag. Its final composition/XM round-trip gate
+is a conditional go: all automated gates and the generated-data from-scratch
+Debug-app workflow pass with no known product blocker. PR #370 resolves every
+instrument-note route through one 96-note keymap resolver, and PR #372 aligns
+committed ownership with the piano's visible 36-note range and geometry while
+retaining the manual sheet. Exact distinct-sample coverage spans New
+Instrument, two patterns/orders, XM export/reopen, and WAV/M4A. The final gate
+explicitly did not claim the AirPods idle/quick-audition smoke because paired
+devices were unavailable; an optional maintainer smoke may follow, but hardware
+unavailability alone does not block the tag absent a new defect. See the
+[release notes](release-notes/v0.3.0-alpha.1.md) and
+[final-gate readiness report](reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md).
+
+Release-prep verification on Xcode 26.5 passes clean host and universal
+`arm64 + x86_64` Release builds after PR #375 scoped one UI-only builder out of
+optimization to avoid a Swift 6.3.2 compiler crash. That resolved toolchain
+build blocker is not a user-facing alpha limitation.
+
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
 `File > Export Audio` for stopped loaded modules, editable documents, and
 editable copies. Export is non-mutating, writes only to the selected

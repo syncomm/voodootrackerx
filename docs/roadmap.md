@@ -18,16 +18,18 @@ AAC-encoded M4A export for convenient sharing. Both formats write only to a
 user-selected destination. Loaded modules remain read-only, Save/Save As remain
 disabled, and advanced audio export options remain future work.
 
-The proposed next major milestone is `v0.3.0-alpha.1` From-Scratch
-Composition Alpha. It is not yet released; its final XM round-trip gate is a
+`v0.3.0-alpha.1` is prepared as the From-Scratch Composition Alpha and is
+pending its maintainer post-merge tag. Its final XM round-trip gate is a
 conditional go with no known product blocker. The full automated matrix and the
 generated-data Debug-app workflow pass from File New through two instruments,
-two patterns/orders, playback, XM export/reopen, and WAV/M4A. The sole remaining
-maintainer confirmation is the AirPods idle/quick-audition smoke because paired
-devices were unavailable during the gate. The dedicated live keymap-routing
-correction merged in PR #370, and PR #372 aligned the ownership strip with the
-audition piano's exact visible range and geometry. `MAP RANGE…` retains explicit
-manual From/To selectors; graphical range selection and painting remain deferred.
+two patterns/orders, playback, XM export/reopen, and WAV/M4A. The final gate did
+not claim an AirPods idle/quick-audition smoke because paired devices were
+unavailable; an optional maintainer smoke may follow, but hardware
+unavailability alone does not block the tag absent a new defect. The dedicated
+live keymap-routing correction merged in PR #370, and PR #372 aligned the
+ownership strip with the audition piano's exact visible range and geometry.
+`MAP RANGE…` retains explicit manual From/To selectors; graphical range
+selection and painting remain deferred.
 Its complete acceptance gate and
 dependency-ordered PR plan are defined by
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
@@ -46,7 +48,13 @@ Instrument Editor and pattern-entry audition plus editable playback now share
 exact note-map resolution, independent of selected-sample editing focus. Distinct
 S01/S02 tests cover preview, live scheduling, offline planning, and the complete
 export/reopen composition workflow. See
-`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
+`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md` and
+`docs/release-notes/v0.3.0-alpha.1.md`.
+
+After the tag, the recommended next step is
+`architecture: define the next v0.3.x milestone from the post-alpha backlog`.
+Release preparation does not automatically begin the next feature or pull
+sample lifecycle, MIDI, broad UI polish, or AUv3 work forward.
 
 ## Project Goals
 
@@ -192,6 +200,9 @@ GUI, editor, and product milestones. During the freeze, keep backend work
 docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
+
+After `v0.3.0-alpha.1` is tagged, begin with the architecture-only milestone
+definition above before promoting a product backlog item.
 
 The three-part instrument-rich reference-pack milestone is complete. The
 existing synthetic generator now consumes a validated schema-v2 manifest and can
@@ -728,6 +739,12 @@ Export XM v1 for stopped editable documents was released as
 `v0.2.0-alpha.4`.
 Rendered audio export was released as `v0.2.0-alpha.5`. VTX 1.0 still needs the
 broader composition surface below.
+
+The prepared `v0.3.0-alpha.1` From-Scratch Composition Alpha packages the
+current File New-to-export instrument/sample workflow without claiming that the
+remaining VTX 1.0 composition scope is complete. It keeps manual `MAP RANGE…`
+as the keymap workflow and leaves graphical mapping plus broader destructive
+sample lifecycle work for later pre-v1.0 milestones.
 
 Current implemented foundation:
 

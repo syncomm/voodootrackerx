@@ -868,6 +868,131 @@ final class EditableXMWriterTests: XCTestCase {
     }
 
     @MainActor
+    func testFromScratchCompositionWorkflowCreatesMapsArrangesPlaysAndRoundTrips() throws {
+        var document = BlankTrackerDocument.makeDefault()
+        let coordinator = EditableDocumentEditCoordinator(
+            contextProvider: { .editable(document: document, isPlaybackActive: false) },
+            documentApplyHandler: { document = $0 }
+        )
+        let pulse = try normalizedImportCandidate(
+            name: "Pulse.wav",
+            pcm: (0..<64).map { $0.isMultiple(of: 2) ? -0.75 : 0.75 }
+        )
+        let percussion = try normalizedImportCandidate(
+            name: "Percussion.wav",
+            pcm: (0..<64).map { $0 == 0 ? 1 : Float(64 - $0) / -128 }
+        )
+        let secondInstrumentSample = try normalizedImportCandidate(
+            name: "Second Instrument.wav",
+            pcm: (0..<64).map { Float(($0 % 8) - 4) / 8 }
+        )
+
+        XCTAssertTrue(coordinator.importAudioSample(
+            pulse,
+            destination: try XCTUnwrap(document.selectedSampleImportDestination)
+        ))
+        XCTAssertTrue(coordinator.addAudioSample(
+            percussion,
+            instrumentIndex: 1,
+            originalSampleCount: 1
+        ))
+        let beforeMap = document
+        let mapOutcome = try coordinator.mapSampleToNoteRange(
+            instrumentIndex: 0,
+            sampleIndex: 1,
+            lowerNote: 60,
+            upperNote: 71
+        ).get()
+        XCTAssertEqual(mapOutcome.changedNoteCount, 12)
+        XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap?[59], 0) // B-4
+        XCTAssertEqual(Array(try XCTUnwrap(document.instrumentPalette[1]?.noteSampleMap)[60...71]), Array(repeating: 1, count: 12))
+        XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap?[72], 0) // C-6
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(document, beforeMap)
+        XCTAssertTrue(coordinator.redo())
+
+        XCTAssertTrue(coordinator.createInstrument())
+        let withEmptyI02 = document
+        XCTAssertEqual(withEmptyI02.instrumentPalette.keys.sorted(), [1, 2])
+        XCTAssertEqual(withEmptyI02.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
+        XCTAssertEqual(withEmptyI02.instrumentPalette[2]?.samples, [])
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertNil(document.instrumentPalette[2])
+        XCTAssertTrue(coordinator.redo())
+        XCTAssertEqual(document, withEmptyI02)
+        XCTAssertTrue(coordinator.importAudioSample(
+            secondInstrumentSample,
+            destination: try XCTUnwrap(document.selectedSampleImportDestination)
+        ))
+        XCTAssertTrue(coordinator.renameInstrument(at: 1, name: "Second Instrument"))
+
+        var arranged = document
+        XCTAssertTrue(arranged.createBlankPatternAndSelectForEditing())
+        XCTAssertTrue(coordinator.applyEdit(label: "New Pattern", updatedDocument: arranged))
+        arranged = document
+        XCTAssertTrue(arranged.insertOrderAfterSelected())
+        XCTAssertTrue(coordinator.applyEdit(label: "Insert Order", updatedDocument: arranged))
+        arranged = document
+        XCTAssertTrue(arranged.assignPatternToSelectedOrder(1))
+        XCTAssertTrue(coordinator.applyEdit(label: "Assign Pattern", updatedDocument: arranged))
+
+        func enter(
+            _ key: Character,
+            octave: Int,
+            row: Int,
+            channel: Int,
+            pattern: Int,
+            instrument: Int
+        ) {
+            document.selectInstrument(instrument)
+            var updated = document
+            XCTAssertTrue(updated.enterNote(
+                trackerKey: key,
+                octave: octave,
+                row: row,
+                channel: channel,
+                patternIndex: pattern
+            ))
+            XCTAssertTrue(coordinator.applyEdit(label: "Enter Note", updatedDocument: updated))
+        }
+
+        enter("m", octave: 4, row: 0, channel: 0, pattern: 0, instrument: 1) // B-4, S01
+        enter("q", octave: 4, row: 1, channel: 0, pattern: 0, instrument: 1) // C-5, S02
+        enter("u", octave: 4, row: 2, channel: 0, pattern: 0, instrument: 1) // B-5, S02
+        enter("q", octave: 5, row: 3, channel: 0, pattern: 0, instrument: 1) // C-6, S01
+        enter("z", octave: 4, row: 0, channel: 1, pattern: 1, instrument: 2)
+
+        XCTAssertEqual(document.orderTable, [0, 1])
+        XCTAssertEqual(document.patterns.map(\.index), [0, 1])
+        XCTAssertEqual(document.pattern(for: 0)?.rows[0...3].map { $0[0].instrument }, [1, 1, 1, 1])
+        XCTAssertEqual(document.pattern(for: 1)?.rows[0][1].instrument, 2)
+
+        let song = EditablePlaybackSongBuilder.build(from: document)
+        let runtimePlan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 8_363)
+        let routedSamples = runtimePlan.events.compactMap { event -> String? in
+            guard case let .noteTrigger(_, _, mapping) = event.action else { return nil }
+            return "\(mapping.instrumentIndex):\(mapping.sampleIndex)"
+        }
+        XCTAssertTrue(runtimePlan.generated)
+        XCTAssertEqual(routedSamples, ["1:0", "1:1", "1:1", "1:0", "2:0"])
+
+        let firstExport = try EditableXMWriter().data(from: document)
+        XCTAssertEqual(try EditableXMWriter().data(from: document), firstExport)
+        let xmURL = try temporaryExportURL(filename: "from-scratch-workflow.xm")
+        try firstExport.write(to: xmURL, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: xmURL.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: xmURL.path)
+        XCTAssertEqual(metadata.orderTable, [0, 1])
+        XCTAssertEqual(metadata.xmPatterns, document.patterns)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex, document.instrumentPalette)
+        let reopenedPlan = RuntimeCMixerAdapterEventPlan.make(song: reopenedSong, sampleRate: 8_363)
+        XCTAssertEqual(reopenedPlan.events.compactMap { event -> String? in
+            guard case let .noteTrigger(_, _, mapping) = event.action else { return nil }
+            return "\(mapping.instrumentIndex):\(mapping.sampleIndex)"
+        }, routedSamples)
+    }
+
+    @MainActor
     func testCompositionReleaseGateRoundTripsSupportedStateAndRendersReopenedXM() throws {
         var document = makeCompositionReleaseGateDocument()
         let coordinator = EditableDocumentEditCoordinator(
@@ -879,14 +1004,17 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertTrue(coordinator.undo())
         XCTAssertTrue(coordinator.redo())
         XCTAssertEqual(document, exportState)
-        let plannedSampleIndices = [1, 2].map { selectedSample -> [Int] in
+        let plannedSampleIdentities = [1, 2].map { selectedSample -> [String] in
             var snapshot = document
             snapshot.selectSample(selectedSample)
             return PlaybackSongSyntheticAdapter.adapt(
                 EditablePlaybackSongBuilder.build(from: snapshot), orderIndex: 0, sampleRate: 8_363
-            ).diagnostics.eventMappings.map(\.sampleIndex)
+            ).diagnostics.eventMappings.map { "\($0.instrumentIndex):\($0.sampleIndex)" }
         }
-        XCTAssertEqual(plannedSampleIndices, [[0, 1], [0, 1]])
+        XCTAssertEqual(plannedSampleIdentities, [
+            ["1:0", "1:1", "1:1", "1:0"],
+            ["1:0", "1:1", "1:1", "1:0"],
+        ])
 
         let firstExport = try EditableXMWriter().data(from: document)
         XCTAssertEqual(try EditableXMWriter().data(from: document), firstExport)
@@ -900,7 +1028,7 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertGreaterThan(firstPattern.packedSize, 0)
         XCTAssertGreaterThan(secondPattern.packedSize, 0)
         XCTAssertEqual(firstInstrument.sampleCount, 2)
-        XCTAssertEqual(secondInstrument.sampleCount, 0)
+        XCTAssertEqual(secondInstrument.sampleCount, 1)
         XCTAssertEqual(secondInstrument.nextOffset, firstExport.count)
         let privatePathPrefix = Data(["/", "Users"].joined().utf8)
         XCTAssertNil(firstExport.range(of: privatePathPrefix))
@@ -967,12 +1095,14 @@ final class EditableXMWriterTests: XCTestCase {
     }
 
     private func makeCompositionReleaseGateDocument() -> BlankTrackerDocument {
-        var firstPattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 2)
+        var firstPattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 6, channels: 2)
         var secondPattern = BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 4, channels: 2)
-        firstPattern.rows[0][0] = XMPatternEventCell(note: 24, instrument: 1, volumeColumn: 0x30, effectType: 0x0F, effectParam: 0x06)
-        firstPattern.rows[2][1] = XMPatternEventCell(note: 60, instrument: 1, volumeColumn: 0x40, effectType: 0x0C, effectParam: 0x20)
-        firstPattern.rows[3][1] = XMPatternEventCell(note: XMPatternEventCell.keyOffNoteValue, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
-        secondPattern.rows[0][0] = XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        firstPattern.rows[0][0] = XMPatternEventCell(note: 60, instrument: 1, volumeColumn: 0x30, effectType: 0x0F, effectParam: 0x06)
+        firstPattern.rows[1][0] = XMPatternEventCell(note: 61, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        firstPattern.rows[2][0] = XMPatternEventCell(note: 72, instrument: 1, volumeColumn: 0x40, effectType: 0x0C, effectParam: 0x20)
+        firstPattern.rows[3][0] = XMPatternEventCell(note: 73, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        firstPattern.rows[5][1] = XMPatternEventCell(note: XMPatternEventCell.keyOffNoteValue, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
+        secondPattern.rows[0][0] = XMPatternEventCell(note: 49, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0)
         secondPattern.rows[2][0] = XMPatternEventCell(note: XMPatternEventCell.keyOffNoteValue, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
 
         let low = makeXMSourceSample(
@@ -984,6 +1114,11 @@ final class EditableXMWriterTests: XCTestCase {
             sampleIndex: 1, name: "High Ramp", pcm: (0..<96).map { Float(($0 % 32) - 16) / 32 },
             volume: 0.5, panning: 220, relativeNote: 3, finetune: -31,
             loopStart: 16, loopLength: 64, loopType: 2, sourceBitDepthBits: 16
+        )
+        let secondInstrumentSample = makeXMSourceSample(
+            instrumentIndex: 2, name: "Second Pulse",
+            pcm: (0..<64).map { $0.isMultiple(of: 4) ? 0.75 : -0.25 },
+            volume: 0.625, panning: 128, sourceBitDepthBits: 16
         )
         let volumeEnvelope = PlaybackVolumeEnvelope(
             enabled: true,
@@ -1001,7 +1136,9 @@ final class EditableXMWriterTests: XCTestCase {
             index: 1, name: "Split Instrument", samples: [low, high],
             volumeEnvelope: volumeEnvelope, panningEnvelope: panningEnvelope,
             autoVibrato: .init(waveformType: 2, sweep: 8, depth: 6, rate: 24),
-            noteSampleMap: Array(repeating: 0, count: 48) + Array(repeating: 1, count: 48)
+            noteSampleMap: Array(repeating: 0, count: 60)
+                + Array(repeating: 1, count: 12)
+                + Array(repeating: 0, count: 24)
         )
         return BlankTrackerDocument(
             title: "Composition Gate", songLength: 2, currentPosition: 0,
@@ -1009,7 +1146,12 @@ final class EditableXMWriterTests: XCTestCase {
             orderTable: [0, 1], selection: .default,
             instrumentPalette: [
                 1: mappedInstrument,
-                2: PlaybackInstrument(index: 2, name: "Empty Instrument", samples: [])
+                2: PlaybackInstrument(
+                    index: 2,
+                    name: "Second Instrument",
+                    samples: [secondInstrumentSample],
+                    noteSampleMap: Array(repeating: 0, count: 96)
+                )
             ],
             patterns: [firstPattern, secondPattern]
         )

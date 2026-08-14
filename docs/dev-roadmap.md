@@ -113,12 +113,14 @@ current editable subset, and advanced options such as PCM16, pattern/order
 ranges, channel/stem export, bitrate/quality controls, and diagnostic profile
 selection remain future work.
 
-The `v0.3.0-alpha.1` From-Scratch Composition Alpha is designed and its
-composition/XM round-trip gate remains blocked pending the final rerun. The
-proven live editable keymap-routing defect has a dedicated correction with
-distinct-sample preview, scheduling, and planning tests, and the Instrument
-Editor ownership strip now shares the audition piano's visible range and geometry.
-Its gate starts
+The `v0.3.0-alpha.1` From-Scratch Composition Alpha is designed and its final
+composition/XM round-trip gate is a conditional go with no known product blocker.
+The complete automated matrix and generated-data Debug-app workflow pass; the
+sole remaining maintainer confirmation is the AirPods idle/quick-audition smoke,
+which could not run while paired devices were unavailable. Distinct-sample
+preview, scheduling, planning, and export/reopen tests cover the corrected live
+keymap route, and the Instrument Editor ownership strip shares the audition
+piano's visible range and geometry. Its gate starts
 from a clean launch, creates an instrument
 and imported/generated sample, composes and arranges a song, then proves Export
 XM/reopen and WAV/M4A export. See

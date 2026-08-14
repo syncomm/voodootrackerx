@@ -19,11 +19,14 @@ user-selected destination. Loaded modules remain read-only, Save/Save As remain
 disabled, and advanced audio export options remain future work.
 
 The proposed next major milestone is `v0.3.0-alpha.1` From-Scratch
-Composition Alpha. It is not yet released; its XM round-trip gate remains a
-no-go pending the final release rerun. The dedicated live keymap-routing
-correction merged in PR #370. The Instrument Editor ownership strip now projects
-the same visible 36-note range and horizontal geometry as its audition piano,
-while the document keeps the canonical 96-note map. `MAP RANGE…` retains explicit
+Composition Alpha. It is not yet released; its final XM round-trip gate is a
+conditional go with no known product blocker. The full automated matrix and the
+generated-data Debug-app workflow pass from File New through two instruments,
+two patterns/orders, playback, XM export/reopen, and WAV/M4A. The sole remaining
+maintainer confirmation is the AirPods idle/quick-audition smoke because paired
+devices were unavailable during the gate. The dedicated live keymap-routing
+correction merged in PR #370, and PR #372 aligned the ownership strip with the
+audition piano's exact visible range and geometry. `MAP RANGE…` retains explicit
 manual From/To selectors; graphical range selection and painting remain deferred.
 Its complete acceptance gate and
 dependency-ordered PR plan are defined by
@@ -41,8 +44,8 @@ through the persistent preview stream for loaded/read-only and editable sources,
 without keymap lookup or mutation.
 Instrument Editor and pattern-entry audition plus editable playback now share
 exact note-map resolution, independent of selected-sample editing focus. Distinct
-S01/S02 tests cover preview, live scheduling, and offline planning; the complete
-release gate still must be rerun. See
+S01/S02 tests cover preview, live scheduling, offline planning, and the complete
+export/reopen composition workflow. See
 `docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`.
 
 ## Project Goals

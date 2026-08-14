@@ -72,13 +72,15 @@ Loaded modules remain read-only, Save and Save As remain disabled, Export XM
 remains scoped to the current editable subset, and advanced audio export
 options remain future work.
 
-The proposed `v0.3.0-alpha.1` From-Scratch Composition Alpha remains NO-GO
-pending the final `Edit > New Instrument` and release-checklist rerun. The
-dedicated keymap-routing correction has merged: Instrument Editor and pattern
-audition plus editable live/static playback resolve the played note through the
-canonical 96-note instrument map, independently of selected-sample editing
-focus. Sample Editor audition remains the intentional direct-selected-sample
-route.
+The proposed `v0.3.0-alpha.1` From-Scratch Composition Alpha has a conditional
+go from its final composition/XM round-trip gate. The automated matrix and
+generated-data Debug-app workflow pass with no known product blocker; the sole
+remaining maintainer confirmation is an AirPods idle/quick-audition smoke that
+could not run while paired devices were unavailable. Instrument Editor and
+pattern audition plus editable live/static playback resolve the played note
+through the canonical 96-note instrument map, independently of selected-sample
+editing focus. Sample Editor audition remains the intentional direct-selected-
+sample route.
 
 Empty instruments/S01 destinations, deterministic Sine, and Sample Editor
 WAV/AIFF/AIFC/native-FLAC LOAD offer Replace, Add as New, and Cancel for

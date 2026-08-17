@@ -512,12 +512,21 @@ final class EditableXMWriterTests: XCTestCase {
         let sparseSamples = makeDocument(
             orderTable: [0],
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [makeXMSourceSample(sampleIndex: 1, pcm: [0])])]
+            instrumentPalette: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [
+                        makeXMSourceSample(sampleIndex: 0, pcm: [-0.25]),
+                        makeXMSourceSample(sampleIndex: 2, pcm: [0.75]),
+                    ],
+                    noteSampleMap: Array(repeating: 1, count: 96)
+                )
+            ]
         )
         XCTAssertThrowsError(try EditableXMWriter().data(from: sparseSamples)) { error in
             XCTAssertEqual(
                 error as? EditableXMWriterError,
-                .unsupportedSampleIndexOrder(instrumentIndex: 1, sampleIndices: [1])
+                .unsupportedSampleIndexOrder(instrumentIndex: 1, sampleIndices: [0, 2])
             )
         }
 
@@ -826,6 +835,62 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(reopened.noteSampleMap, map)
         XCTAssertEqual(reopened.noteSampleMap, Array(repeating: 0, count: 96))
         XCTAssertEqual([UInt8(1), 49, 96].map(reopened.mappedSampleIndex(forNote:)), [0, 0, 0])
+    }
+
+    func testReopenDropsInteriorZeroLengthHeaderWithoutCompactingLaterSampleIdentityOrKeymap() throws {
+        let first = makeXMSourceSample(sampleIndex: 0, name: "Distinct S01", pcm: [-0.25, 0.25])
+        let cleared = makeXMSourceSample(sampleIndex: 1, name: "Cleared S02", pcm: [-0.5, 0, 0.5])
+        let third = makeXMSourceSample(sampleIndex: 2, name: "Distinct S03", pcm: [-0.75, 0.75])
+        var noteSampleMap = Array(repeating: 2, count: 96)
+        noteSampleMap[48] = 1
+        let document = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [first, cleared, third],
+                    noteSampleMap: noteSampleMap
+                )
+            ]
+        )
+        var data = try EditableXMWriter().data(from: document)
+        var instrumentOffset = 60 + Int(data.le32(at: 60))
+        for _ in 0..<Int(data.le16(at: 70)) {
+            instrumentOffset = data.patternHeader(at: instrumentOffset).nextOffset
+        }
+        let instrumentHeader = data.instrumentHeader(at: instrumentOffset)
+        XCTAssertEqual(instrumentHeader.sampleCount, 3)
+        let firstHeader = data.sampleHeader(at: instrumentHeader.sampleHeaderOffset)
+        let secondHeaderOffset = instrumentHeader.sampleHeaderOffset + Int(instrumentHeader.sampleHeaderSize)
+        let secondHeader = data.sampleHeader(at: secondHeaderOffset)
+        let secondPayloadOffset = instrumentHeader.sampleDataOffset + Int(firstHeader.lengthBytes)
+        let secondPayloadRange = secondPayloadOffset..<(secondPayloadOffset + Int(secondHeader.lengthBytes))
+
+        for byteOffset in 0..<12 {
+            data[secondHeaderOffset + byteOffset] = 0
+        }
+        data.removeSubrange(secondPayloadRange)
+
+        let url = try temporaryExportURL(filename: "interior-zero-length-sample.xm")
+        try data.write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        let reopened = try XCTUnwrap(song.instrument(forInstrument: 1))
+
+        XCTAssertEqual(reopened.samples.map(\.sampleIndex), [0, 2])
+        XCTAssertEqual(reopened.availableSampleSlots, [1, 3])
+        XCTAssertEqual(reopened.sample(mappedSampleIndex: 0)?.name, "Distinct S01")
+        XCTAssertNil(reopened.sample(mappedSampleIndex: 1))
+        XCTAssertEqual(reopened.sample(mappedSampleIndex: 2), third)
+        XCTAssertEqual(reopened.noteSampleMap, noteSampleMap)
+        XCTAssertEqual(reopened.firstPlayableSample?.sampleIndex, 0)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: song.instrumentsByIndex
+        ))
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 50, instrumentsByIndex: song.instrumentsByIndex
+        )?.sampleIndex, 2)
     }
 
     func testEditedKeymapRangesExportReopenAndEditableCopyExactlyWithoutChangingSamples() throws {

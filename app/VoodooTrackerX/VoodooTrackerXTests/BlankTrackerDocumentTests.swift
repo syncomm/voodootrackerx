@@ -188,6 +188,48 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(oneSample, beforeInvalid)
     }
 
+    func testInteriorEmptySampleIdentityRetainsSelectionAndKeymapReferenceWithoutFallback() throws {
+        let first = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, name: "Distinct S01", pcm: [0.125, 0.25]
+        )
+        let third = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 2, name: "Distinct S03", pcm: [-0.75, 0.5, -0.25]
+        )
+        let mapToEmptyS02 = Array(repeating: 1, count: TrackerNoteKeyMap.maximumNoteValue)
+        let instrument = PlaybackInstrument(
+            index: 1,
+            samples: [first, third],
+            noteSampleMap: mapToEmptyS02
+        )
+        let selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
+        let document = makeBlankDocument(
+            selection: selection,
+            instrumentPalette: [1: instrument]
+        )
+
+        XCTAssertEqual(document.selection, selection)
+        XCTAssertEqual(document.availableSampleSlots(forInstrument: 1), [1, 3])
+        XCTAssertEqual(document.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 2])
+        XCTAssertNil(document.instrumentPalette[1]?.sample(selectedSampleSlot: 2))
+        XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap, mapToEmptyS02)
+        XCTAssertNotEqual(first.pcm, third.pcm)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1,
+            note: UInt8(PlaybackPitchCalculator.c4NoteValue),
+            instrumentsByIndex: document.instrumentPalette
+        ))
+
+        let request = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
+            noteValue: UInt8(PlaybackPitchCalculator.c4NoteValue),
+            selection: document.selection,
+            sourceContext: .blankDocument
+        ))
+        XCTAssertEqual(
+            document.noteAuditionAvailability(for: request),
+            .unavailable(.instrumentKeymapUnavailable)
+        )
+    }
+
     func testSampleKeymapRangeAssignmentChangesOnlyInclusiveRangeAndPreservesState() throws {
         var document = makeSampleKeymapEditableDocument()
         let before = document

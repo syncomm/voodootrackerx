@@ -248,10 +248,43 @@ final class ExportXMCoordinatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
-    func testWriterFailurePreservesExistingDestinationBytes() throws {
+    func testInteriorSparseSampleWriterFailurePreservesExistingDestinationBytes() throws {
+        let first = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [-0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+        let third = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 2,
+            pcm: [0.75],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
         let document = makeDocument(
-            orderTable: Array(repeating: 0, count: 257),
-            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)]
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [first, third],
+                    noteSampleMap: Array(repeating: 1, count: 96)
+                )
+            ]
         )
         let destination = try temporaryDestination(filename: "existing.xm")
         let original = Data("existing destination".utf8)
@@ -260,13 +293,14 @@ final class ExportXMCoordinatorTests: XCTestCase {
             destinationProvider: FakeExportXMDestinationProvider(destination: destination)
         )
 
-        guard case .failed(.writerFailed) = coordinator.beginExport(context: .editable(
+        guard case let .failed(.writerFailed(message)) = coordinator.beginExport(context: .editable(
             document: document,
             displayName: document.title,
             isPlaybackActive: false
         )) else {
             return XCTFail("Expected writer failure")
         }
+        XCTAssertTrue(message.contains("unsupportedSampleIndexOrder"))
         XCTAssertEqual(try Data(contentsOf: destination), original)
     }
 

@@ -17,8 +17,9 @@ present: File New owns one unnamed zero-sample I01 with an honest selected S01
 destination, and `Edit > New Instrument` appends/selects another zero-sample
 instrument through one labeled `applyEdit`/undo action. The command is limited
 to stopped editable documents with capacity; loaded modules and playback remain
-read-only. The current dense palette/writer model appends after the highest
-represented slot and does not fill sparse holes. Sample Editor SINE now fills eligible
+read-only. Current sample operations append after the highest represented slot
+and do not fill sparse holes. The in-memory palette can retain sparse sample
+indices, but the XM writer still requires dense represented order. Sample Editor SINE now fills eligible
 S01 with deterministic looped PCM and an all-note map. A UI-independent audio
 import facade now validates container identity before dispatching WAV/WAVE,
 AIFF/AIF, AIFC, or native `fLaC` to bounded decoders. Native FLAC is limited to

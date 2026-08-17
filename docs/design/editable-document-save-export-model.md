@@ -165,6 +165,39 @@ replacement. Successful writes remain atomic. Make Editable Copy accepts only
 Linear-frequency-table XM because the editable model cannot preserve Amiga-table
 semantics; named zero-length sample headers remain outside the represented subset.
 
+### Sample lifecycle Export XM boundary
+
+The post-alpha sample lifecycle contract is non-compacting, but current Export
+XM remains dense. `PlaybackInstrument.samples` can hold represented indices
+`[0, 2]`, retaining an interior empty S02, later S03 identity, an unchanged
+keymap reference to index `1`, and document selection at S02. The writer instead
+requires sorted indices exactly equal to `0..<samples.count` and returns the
+typed `unsupportedSampleIndexOrder(instrumentIndex:sampleIndices:)` error for
+`[0, 2]`. If order is dense but a keymap value is not represented, it returns
+`unsupportedNoteSampleMap(instrumentIndex:entryCount:sampleIndex:)`. Neither
+path compacts samples or rewrites the keymap.
+
+Validation happens while building XM data, before `Data.write(..., .atomic)`.
+An unrepresentable lifecycle state therefore fails truthfully without replacing
+an existing destination. This safety behavior must remain in force; writer
+validation must not be weakened to make a future Clear action appear
+exportable.
+
+An externally constructed XM provides limited reopen evidence: when an
+interior sample header has zero length, `PlaybackSongBuilder` drops that
+header's sample value but retains later headers' original enumerated indices
+and the exact 96 map bytes. A route to the missing index remains unavailable,
+with no S01/first-playable fallback. The empty header's name/metadata does not
+survive, and Make Editable Copy rejects the resulting sparse palette during
+its production-writer dry run. Thus zero-length headers are evidence for a
+future representation, not current supported VTX export/reopen behavior.
+
+Before Clear/Duplicate/Move/Swap can claim Export XM support, a focused sparse
+sample-slot XM round-trip foundation must define placeholder-header emission,
+reopen/editable-copy semantics, keymap validation, selection/UI handling, and
+atomic failure coverage. The evidence is precise: alpha.1 validated the
+supported VTX editable XM subset; arbitrary-XM parity is not implied.
+
 ### Future Native Project Format
 
 A native VTX project format is deferred. It may be useful later for data that

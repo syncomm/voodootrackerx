@@ -10,7 +10,8 @@ Accepted as the product and architecture contract for the from-scratch compositi
 first-sample generation/import, and occupied LOAD with Replace/Add as New/Cancel are now implemented. Add appends
 and selects represented S02+ without changing keymap references. Instrument Editor now exposes inclusive
 selected-sample keymap range mutation through one manual `applyEdit` sheet; graphical selection,
-drag-to-paint/automatic mapping, and destructive lifecycle remain future work.
+drag-to-paint/automatic mapping, and destructive lifecycle remain future work. Post-alpha characterization pins the
+current sparse in-memory representation and the dense Export XM boundary below; it adds no lifecycle behavior.
 
 ## Context
 
@@ -64,8 +65,71 @@ fabricated metadata. New documents do not have zero instruments, but remain sile
 The selected destination makes import/generation obvious without requiring the user to create lower-level structure.
 
 The editable model must preserve sparse instrument/sample identity well enough to distinguish empty destinations
-from represented samples. This adds no on-disk format; current loader/writer compaction remains until focused
-compatibility work proves the model change.
+from represented samples. This adds no on-disk format; the current dense-only writer and represented-only loader/UI
+projection remain until focused compatibility work proves the end-to-end contract.
+
+### Post-Alpha Represented-Sample Lifecycle Boundary
+
+The shipped editable model can express the specific interior-gap state needed by a future non-compacting clear, but
+the current Export XM boundary cannot write it:
+
+- `PlaybackInstrument.samples` contains only represented `PlaybackSample` values. A sample's stable identity is its
+  zero-based `sampleIndex`; `availableSampleSlots` projects those identities as one-based S01...S16.
+- File New's empty S01 is a represented instrument with `samples == []`, `noteSampleMap == nil`, and document
+  selection at S01. It is not a zero-length `PlaybackSample` and owns no fabricated sample metadata.
+- S02+ append uses `BlankTrackerDocument.nextAppendSampleIndex`, which chooses one past the highest represented
+  index, never fills a gap, preserves the keymap, and refuses indices outside `0..<16`. At most 16 represented
+  samples are supported per instrument.
+- An instrument with represented indices `[0, 2]` therefore expresses S01 + empty S02 + S03 without renumbering
+  S03. A 96-entry keymap may still contain `1`, and `BlankTrackerDocument.selection` may still be S02. No parallel
+  empty-sample object is required for that interior case.
+- The shipped import destination API recognizes only represented replacement targets or the special S01 of an
+  entirely sampleless instrument. It cannot repopulate an absent interior Sxx today; that operation remains future
+  lifecycle work.
+
+Selection is stored in the `BlankTrackerDocument` value even though ordinary row selection is UI state and creates
+no edit. Whole-document `applyEdit` snapshots therefore include selection whenever an action does change it.
+`TrackerEditorSelection.clampedToAvailableSampleSlots` currently preserves a represented selection, otherwise
+chooses the first represented slot, or S01 when none exists; instrument transitions and editable-copy construction
+use that normalization. A future same-instrument Clear must not invoke that fallback: clearing selected Sxx keeps
+Sxx selected as an empty destination, clearing another slot leaves selection unchanged, and undo/redo restores the
+exact before/after document selection. Current sample lists expose represented slots, plus the special zero-sample
+S01 destination, so interior-empty presentation remains part of the foundation before lifecycle UI.
+
+`EditableXMWriter` sorts represented samples and requires their indices to equal exactly `0..<samples.count`.
+An interior `[0, 2]` state fails with
+`EditableXMWriterError.unsupportedSampleIndexOrder(instrumentIndex:sampleIndices:)`; it is not compacted. A dense
+state whose 96-note map names no represented sample fails separately with
+`unsupportedNoteSampleMap(instrumentIndex:entryCount:sampleIndex:)`; the writer never rewrites the map to S01 or a
+playable fallback. `ExportXMCoordinator` builds all bytes before its atomic destination write, so either failure
+leaves an existing destination unchanged.
+
+The current reopen path demonstrates a narrower theoretical bridge without implementing writer support. For an XM
+that already contains an interior zero-length sample header, `PlaybackSongBuilder.loadXMSampleInstruments` omits
+that header's `PlaybackSample` but retains later headers' original enumerated indices and retains the 96 keymap
+bytes. The canonical resolver then reports a keymap target at the omitted index as unavailable, even when S01 and
+S03 are playable. The zero-length header's name and metadata are dropped, and `LoadedModuleEditableCopyCoordinator`
+refuses the sparse copy because its writer dry-run reaches the dense-order error. This is not yet an end-to-end
+export/reopen contract.
+
+Until a focused XM round-trip foundation represents and validates empty headers end to end, lifecycle work must
+fail Export XM truthfully and atomically for such a state. It must never compact sample identities, remap keymap
+entries, or serialize a different audible route merely to pass export. The lifecycle milestone is incomplete until
+every promised exportable Clear/Duplicate/Move/Swap state reopens with exact supported identity and reference
+semantics.
+
+Implementation evidence is in `PlaybackModel.swift` (`PlaybackInstrument` and
+`PlaybackInstrumentSampleResolver`), `BlankTrackerDocument.swift` (`makeDefault`, `nextAppendSampleIndex`, and
+selection normalization), `EditableXMWriter.swift` (`exportedInstrument` / `exportedNoteSampleMap`),
+`PlaybackSongBuilder.swift` (`loadXMSampleInstruments`), and `LoadedModuleEditableCopyCoordinator.swift`.
+Characterization coverage is pinned by
+`testAppendSampleNeverFillsGapsAndRejectsInvalidOrMaximumSampleWithoutMutation`,
+`testInteriorEmptySampleIdentityRetainsSelectionAndKeymapReferenceWithoutFallback`,
+`testWriterRejectsInvalidDimensionsPCMSampleOrderAndKeymapInsteadOfCanonicalizingThem`,
+`testInteriorSparseSampleWriterFailurePreservesExistingDestinationBytes`, and
+`testReopenDropsInteriorZeroLengthHeaderWithoutCompactingLaterSampleIdentityOrKeymap`. Existing
+`testAddAudioSampleIsOneApplyEditActionWithExactSelectionUndoRedo` proves the whole-snapshot selection behavior for
+the shipped append action.
 
 ### New Instrument
 
@@ -226,6 +290,9 @@ Clear Sample Sxx
 -> leave references to Sxx honestly unavailable
 ```
 
+This block is the desired lifecycle semantic, not a statement that Clear or its XM representation exists today.
+The post-alpha boundary above must land before Clear UI or mutation.
+
 Reordering is semantic, not row-only. I08 to I02 remaps every pattern instrument reference; S05 to S02 remaps all 96
 keymap entries. Move/swap preserves PCM/metadata, normalizes selection, and undoes to exact prior numbering and
 references. It follows basic lifecycle/import work and requires dedicated synthetic tests.
@@ -319,6 +386,11 @@ This is a sequence of focused PRs, not one large implementation PR:
 
 The graphical range-selection slice is complete. Select later lifecycle, envelope,
 loop, drag-to-paint, and automatic-mapping work as separate focused PRs.
+
+Post-alpha evidence selects the writer/reopen dependency outcome: the editable model can retain an interior empty
+identity, while current Export XM cannot. The one next PR is
+`sample: add sparse sample-slot XM round-trip foundation`; it must not include Clear/Duplicate/Move/Swap mutation or
+UI.
 
 ## Test And Fixture Plan
 

@@ -117,6 +117,31 @@ First-sample import/generation maps all 96 notes and becomes immediately
 auditionable in one `applyEdit` action. See
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
 
+### Post-alpha lifecycle selection contract
+
+Clear/Duplicate/Move/Swap remain unimplemented. Future Clear Sample is
+non-compacting: removing represented Sxx leaves that zero-based identity absent,
+keeps every later represented sample index and all 96 keymap values unchanged,
+and makes any route to Sxx unavailable rather than falling back to S01 or the
+first playable sample.
+
+Editable selection is stored in the `BlankTrackerDocument` value, while normal
+row selection remains a non-editing UI gesture. Clearing the selected Sxx must
+carry the same selection into the new whole-document snapshot so the editor
+shows that exact empty destination; clearing another slot must not change
+selection. Undo and redo then restore the exact prior/new selection with the
+same whole-snapshot policy already used by Add as New. The current
+available-slot normalizer may choose the first represented sample (or S01 when
+none exists) during instrument/copy transitions; a same-instrument lifecycle
+action must not call that normalizer merely because its target became empty.
+
+Today the lists expose represented samples and the special empty S01 of a
+zero-sample instrument. They do not yet render an interior empty row beside
+later represented rows. That presentation and the sparse XM round-trip
+foundation are prerequisites, not permission to redirect selection or add
+Clear UI in this characterization slice. See ADR 012's post-alpha lifecycle
+boundary.
+
 ---
 
 ## 1. Future purpose and mental model

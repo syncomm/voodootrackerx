@@ -490,21 +490,15 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- The File New-to-export workflow/design pass is complete in
-  [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
-  Empty instrument/S01 creation through `applyEdit` is complete; the current
-  dense model appends after the highest represented slot rather than filling
-  sparse holes. Deterministic SINE and UI-independent WAV/AIFF/AIFC/native-FLAC
-  decode/canonical normalization are complete, and Sample Editor LOAD now
-  fills empty S01 or offers Replace/Add as New/Cancel for an occupied selection.
-  Append-only S02+ lifecycle preserves the keymap and selects the new sample.
-  Instrument Editor now projects committed ownership for the visible 36-note
-  piano range through the shared `InstrumentKeyboardVisibleRange` and piano
-  geometry, and feeds explicit manual From/To values into the existing
-  one-`applyEdit` sheet over the canonical C-0...B-7 map. Graphical selection and
-  painting remain deferred.
-  Keep destructive lifecycle, reference-preserving reorder, drag-to-paint, and
-  automatic mapping separate from runtime/backend work.
+- Next: `sample: add sparse sample-slot XM round-trip foundation`. Post-alpha
+  characterization proves that the editable model can retain an interior empty
+  Sxx with later represented indices, selection, and keymap references intact,
+  while the current writer rejects that sparse order. An existing XM
+  zero-length header is dropped on load without compacting later indices or
+  rewriting the map, but its empty metadata is not represented and Make
+  Editable Copy refuses the writer dry-run. Define and test that narrow
+  writer/reopen/editable-copy contract before adding Clear/Duplicate/Move/Swap
+  mutation or UI. See ADR 012's post-alpha lifecycle boundary.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song

@@ -137,10 +137,10 @@ action must not call that normalizer merely because its target became empty.
 
 Today the lists expose represented samples and the special empty S01 of a
 zero-sample instrument. They do not yet render an interior empty row beside
-later represented rows. That presentation and the sparse XM round-trip
-foundation are prerequisites, not permission to redirect selection or add
-Clear UI in this characterization slice. See ADR 012's post-alpha lifecycle
-boundary.
+later represented rows. The sparse XM round-trip foundation now preserves such
+identity through Export XM/reopen, but interior-empty presentation remains a
+prerequisite, not permission to redirect selection or add Clear UI. See ADR
+012's sparse sample-slot boundary.
 
 ---
 

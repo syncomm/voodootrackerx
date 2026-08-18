@@ -139,6 +139,7 @@ struct LoadedModuleEditableCopyCoordinator {
     private static func makeSupportedEditableCopy(context: LoadedModuleEditableCopyContext) -> BlankTrackerDocument? {
         guard let metadata = context.loadedMetadata,
               let playbackSong = context.loadedPlaybackSong,
+              matchesCurrentLoadedSampleCopyBoundary(playbackSong),
               let document = BlankTrackerDocument.makeEditableCopy(
                   from: metadata,
                   playbackSong: playbackSong,
@@ -152,6 +153,23 @@ struct LoadedModuleEditableCopyCoordinator {
             return document
         } catch {
             return nil
+        }
+    }
+
+    /// The loaded model drops zero-length XM sample-header provenance. Preserve the pre-sparse-writer
+    /// editable-copy boundary until a separate source-provenance design can distinguish those headers safely.
+    private static func matchesCurrentLoadedSampleCopyBoundary(_ playbackSong: PlaybackSong) -> Bool {
+        playbackSong.instrumentsByIndex.values.allSatisfy { instrument in
+            let representedIndices = instrument.samples.map(\.sampleIndex).sorted()
+            guard representedIndices == Array(0..<instrument.samples.count) else {
+                return false
+            }
+            guard let noteSampleMap = instrument.noteSampleMap else {
+                return true
+            }
+            return noteSampleMap.count == 96 && noteSampleMap.allSatisfy {
+                representedIndices.contains($0)
+            }
         }
     }
 }

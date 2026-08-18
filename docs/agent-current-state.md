@@ -47,9 +47,15 @@ can be converted only through the explicit `File > Make Editable Copy` command,
 which creates an untitled in-memory editable copy without claiming the opened
 source path. The current editable model is Linear-frequency-table only, so
 Amiga-table XMs are refused rather than silently converted.
-Because loaded state discards zero-length sample-header provenance, Make Editable
-Copy also retains its dense represented-sample/map eligibility boundary; reopened
-sparse VTX exports remain read-only/copy-unavailable pending separate provenance work.
+The normal XM instrument walker now records source-only provenance for each
+sample-header index: decoded payload length and whether the declared 40-byte
+header is exactly all zero. Make Editable Copy accepts a sparse loaded span only
+when every missing identity has one exact canonical VTX placeholder and the
+production writer dry-run succeeds. Named or metadata-bearing zero-length
+headers, incomplete provenance, Amiga-table XM, and other existing unsupported
+state remain copy-unavailable. VTX sparse export -> reopen -> editable copy ->
+re-export is byte-identical in the focused interior, trailing-mapped, and
+only-empty cases; no empty `PlaybackSample` is fabricated.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 

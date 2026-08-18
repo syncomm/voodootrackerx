@@ -163,8 +163,9 @@ Release hardening rejects invalid channel/row dimensions, non-finite PCM,
 out-of-capacity or duplicate sample identities, malformed/out-of-capacity keymaps,
 and existing unsupported payload state before destination replacement. Successful
 writes remain atomic. Make Editable Copy accepts only Linear-frequency-table XM
-inside its retained dense loaded-sample boundary; arbitrary source zero-length
-sample-header provenance remains outside the represented subset.
+whose represented state and any canonical sparse empty identities are losslessly
+covered by the loaded source provenance; arbitrary source zero-length sample
+headers remain outside the represented subset.
 
 ### Sample lifecycle Export XM boundary
 
@@ -189,13 +190,22 @@ Validation still finishes before `Data.write(..., .atomic)`. Unsupported
 indices/maps above S16 and all existing typed writer failures preserve an
 existing destination; valid sparse replacement uses the same atomic write.
 
-The loaded model does not preserve source zero-length-header metadata or enough
-provenance to identify canonical placeholders. Make Editable Copy therefore
-retains an explicit pre-sparse dense represented-sample/map guard before its
-writer dry-run. Dense supported loaded XMs remain eligible; reopened sparse VTX
-exports intentionally remain loaded/read-only and copy-unavailable for now.
-This is a narrow editable-export boundary, not arbitrary-XM parity, and no
-Clear/Duplicate/Move/Swap mutation or UI is introduced here.
+The normal XM instrument walker now records immutable source-only facts for each
+sample-header index: decoded payload length and whether the declared header is
+exactly 40 zero bytes. Header presence is represented by the indexed provenance
+entry; the raw module and source path are not retained, and empty slots never
+become `PlaybackSample` values.
+
+Before its production-writer dry-run, Make Editable Copy requires every missing
+identity in the exact represented/keymap writer span to have a corresponding
+zero-length canonical entry, in order, with no incomplete or extra source span.
+Dense supported Linear XM remains eligible without needing sparse provenance.
+Interior, trailing mapped, and only-empty mapped placeholders written by VTX now
+recover as sparse untitled editable copies and re-export byte-identically. A
+named sample, nonzero volume/pan/tuning/loop/reserved field, extended header, or
+any other nonzero header byte remains copy-unavailable rather than being silently
+canonicalized. This is a narrow lossless compatibility boundary, not arbitrary-XM
+parity, and no Clear/Duplicate/Move/Swap mutation or UI is introduced here.
 
 ### Future Native Project Format
 
@@ -331,7 +341,8 @@ Keep future PRs narrow and testable:
 26. Done: `instrument: add editable keymap range foundation behind applyEdit`
 27. Done: `instrument: wire selected-sample note-range assignment UI`
 28. Done: `sample: add sparse sample-slot XM round-trip foundation`
-29. `sample: add editable loop mode and range behind applyEdit`
+29. Done: `xm: preserve sparse empty-slot editable-copy provenance`
+30. `sample: expose canonical interior empty slots in editor lists`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

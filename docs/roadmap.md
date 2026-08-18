@@ -54,8 +54,11 @@ export/reopen composition workflow. See
 The post-alpha sparse sample-slot XM foundation now preserves canonical S01...S16
 identity and exact keymap references through Export XM/reopen by projecting missing
 positions to all-zero zero-length headers only at the writer boundary. Dense alpha.1
-bytes remain unchanged. Loaded-module editable copy retains its prior dense safety
-boundary because source zero-length-header provenance is not represented.
+bytes remain unchanged. The normal XM load path now classifies each source sample
+header by exact index, decoded payload length, and exact canonical-placeholder bytes.
+That provenance permits only lossless canonical sparse state through Make Editable
+Copy and a byte-identical re-export; arbitrary named or metadata-bearing zero-length
+headers remain outside the supported editable subset.
 
 The post-alpha milestone selection is complete. After this persistence foundation,
 the recommended next product step is the narrowly scoped interior-empty-slot list
@@ -497,7 +500,7 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 Recommended next product PR:
 
 - Next: `sample: expose canonical interior empty slots in editor lists`. The
-  sparse writer/reopen contract is complete, but Sample Editor and shared palette
+  sparse writer/reopen/editable-copy contract is complete, but Sample Editor and shared palette
   lists still show represented samples plus only the special all-empty S01 state.
   Make interior gaps visible and selectable without adding Clear/Duplicate/Move/
   Swap mutation or changing runtime routing. See ADR 012's sparse sample-slot boundary.

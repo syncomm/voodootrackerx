@@ -545,6 +545,14 @@ enum PlaybackEndBehavior: Equatable {
     case restartFromBeginning
 }
 
+/// Source-only structural facts for one XM sample-header slot. The editable model still represents
+/// only nonempty `PlaybackSample` values; this metadata exists solely to avoid guessing at copy time.
+struct XMSourceSampleSlotProvenance: Equatable {
+    let sampleIndex: Int
+    let decodedPayloadLength: Int
+    let isCanonicalEmptySlotHeader: Bool
+}
+
 enum PlaybackStepResult: Equatable {
     case advanced(PlaybackPosition)
     case ended(restartPosition: PlaybackPosition?)
@@ -559,6 +567,7 @@ struct PlaybackSong: Equatable {
     let endBehavior: PlaybackEndBehavior
     let initialTiming: PlaybackTiming
     let usesLinearFrequencyTable: Bool
+    let xmSampleSlotProvenanceByInstrument: [Int: [XMSourceSampleSlotProvenance]]
 
     init(
         title: String,
@@ -568,7 +577,8 @@ struct PlaybackSong: Equatable {
         restartOrderIndex: Int,
         endBehavior: PlaybackEndBehavior,
         initialTiming: PlaybackTiming = .xmDefault,
-        usesLinearFrequencyTable: Bool = true
+        usesLinearFrequencyTable: Bool = true,
+        xmSampleSlotProvenanceByInstrument: [Int: [XMSourceSampleSlotProvenance]] = [:]
     ) {
         self.title = title
         self.orders = orders
@@ -578,6 +588,7 @@ struct PlaybackSong: Equatable {
         self.endBehavior = endBehavior
         self.initialTiming = initialTiming
         self.usesLinearFrequencyTable = usesLinearFrequencyTable
+        self.xmSampleSlotProvenanceByInstrument = xmSampleSlotProvenanceByInstrument
     }
 
     var startPosition: PlaybackPosition? {

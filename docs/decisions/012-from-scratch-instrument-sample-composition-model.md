@@ -11,7 +11,7 @@ first-sample generation/import, and occupied LOAD with Replace/Add as New/Cancel
 and selects represented S02+ without changing keymap references. Instrument Editor now exposes inclusive
 selected-sample keymap range mutation through one manual `applyEdit` sheet; graphical selection,
 drag-to-paint/automatic mapping, and destructive lifecycle remain future work. The post-alpha sparse sample-slot XM
-round-trip foundation is now implemented at the writer boundary; it adds no lifecycle mutation or UI.
+round-trip and loaded-source provenance foundations are now implemented; they add no lifecycle mutation or UI.
 
 ## Context
 
@@ -108,24 +108,32 @@ trailing reference to empty S02 remains exact, and a represented instrument with
 survives with supported instrument metadata. Dense alpha.1 output is pinned byte-identically. Duplicate, malformed,
 out-of-capacity, non-finite, and existing payload/loop/envelope errors still fail before atomic replacement.
 
-Loaded metadata does not retain enough provenance to distinguish canonical VTX placeholders from meaningful source
-zero-length sample headers. `LoadedModuleEditableCopyCoordinator` therefore keeps its prior dense represented-sample
-and represented-map eligibility guard before the writer dry-run. Ordinary dense supported XM remains eligible, while
-a reopened sparse VTX export intentionally remains read-only and Make Editable Copy-unavailable pending a separate
-source-provenance decision. An unreferenced trailing zero-length source header remains indistinguishable after load,
-as it was before this change; the new writer acceptance does not make any represented sparse state newly eligible.
-This does not broaden arbitrary-XM compatibility.
+The normal XM instrument walker records one source-only provenance entry for every parsed sample-header index. Each
+entry proves that a header existed, records its decoded payload length, and classifies it as canonical only when the
+declared sample-header size is exactly 40 bytes and all 40 bytes are zero. The metadata remains on `PlaybackSong`; it
+does not create a `PlaybackSample`, enter editable document state, or retain a source path or raw module blob.
+
+`LoadedModuleEditableCopyCoordinator` now admits a missing identity only when provenance covers the exact writer-
+required span in index order and every missing entry has zero payload plus the canonical classification. Existing
+Linear-table and writer dry-run requirements still apply. Interior S02, trailing mapped S02, and only-empty mapped
+S01 VTX exports can therefore reopen, become untitled editable copies, and re-export byte-identically without
+compaction, remapping, or fallback. Current selection normalization still chooses the first represented slot, or S01
+when none exists; interior empty-slot list presentation remains separate. A named, metadata-bearing, extended, or
+otherwise noncanonical zero-length header remains copy-unavailable. This is not general zero-length-sample support or
+an expansion to arbitrary XM editing.
 
 Implementation evidence is in `PlaybackModel.swift` (`PlaybackInstrument` and
 `PlaybackInstrumentSampleResolver`), `BlankTrackerDocument.swift` (`makeDefault`, `nextAppendSampleIndex`, and
 selection normalization), `EditableXMWriter.swift` (`exportedInstrument` / `validatedNoteSampleMap`),
-`PlaybackSongBuilder.swift` (`loadXMSampleInstruments`), and `LoadedModuleEditableCopyCoordinator.swift`.
+`PlaybackSongBuilder.swift` (`loadXMInstrumentState`), and `LoadedModuleEditableCopyCoordinator.swift`.
 Characterization and round-trip coverage is pinned by
 `testAppendSampleNeverFillsGapsAndRejectsInvalidOrMaximumSampleWithoutMutation`,
 `testInteriorEmptySampleIdentityRetainsSelectionAndKeymapReferenceWithoutFallback`,
 `testSparseInteriorGapWritesCanonicalPlaceholderAndReopensExactIdentityAndMap`,
-`testOnlyEmptyMappedSlotPreservesInstrumentMetadataMapAndUnavailableRoute`, and
-`testReopenedSparseVTXExportRemainsUnavailableForEditableCopyWithoutSourceProvenance`. Existing
+`testOnlyEmptyMappedSlotPreservesInstrumentMetadataMapAndUnavailableRoute`,
+`testSparseVTXExportReopensCopiesAndReexportsByteIdenticallyWithExactIdentityAndMap`,
+`testTrailingAndOnlyEmptyCanonicalSlotsRecoverAsEditableCopies`, and
+`testNoncanonicalZeroLengthSourceHeadersRemainUnavailableForEditableCopy`. Existing
 `testAddAudioSampleIsOneApplyEditActionWithExactSelectionUndoRedo` proves the whole-snapshot selection behavior for
 the shipped append action.
 
@@ -385,8 +393,8 @@ This is a sequence of focused PRs, not one large implementation PR:
 The graphical range-selection slice is complete. Select later lifecycle, envelope,
 loop, drag-to-paint, and automatic-mapping work as separate focused PRs.
 
-The sparse writer/reopen dependency is complete without Clear/Duplicate/Move/Swap mutation or UI. Interior empty-slot
-presentation remains the next prerequisite before exposing destructive lifecycle controls.
+The sparse writer/reopen/editable-copy dependency is complete without Clear/Duplicate/Move/Swap mutation or UI.
+Interior empty-slot presentation remains the next prerequisite before exposing destructive lifecycle controls.
 
 ## Test And Fixture Plan
 

@@ -139,7 +139,7 @@ struct LoadedModuleEditableCopyCoordinator {
     private static func makeSupportedEditableCopy(context: LoadedModuleEditableCopyContext) -> BlankTrackerDocument? {
         guard let metadata = context.loadedMetadata,
               let playbackSong = context.loadedPlaybackSong,
-              matchesCurrentLoadedSampleCopyBoundary(playbackSong),
+              matchesLoadedSampleCopyBoundary(playbackSong),
               let document = BlankTrackerDocument.makeEditableCopy(
                   from: metadata,
                   playbackSong: playbackSong,
@@ -156,19 +156,47 @@ struct LoadedModuleEditableCopyCoordinator {
         }
     }
 
-    /// The loaded model drops zero-length XM sample-header provenance. Preserve the pre-sparse-writer
-    /// editable-copy boundary until a separate source-provenance design can distinguish those headers safely.
-    private static func matchesCurrentLoadedSampleCopyBoundary(_ playbackSong: PlaybackSong) -> Bool {
+    /// Missing identities are copy-safe only when the normal loader saw the complete source span and
+    /// classified every corresponding zero-length header as VTX's exact 40-byte all-zero placeholder.
+    private static func matchesLoadedSampleCopyBoundary(_ playbackSong: PlaybackSong) -> Bool {
         playbackSong.instrumentsByIndex.values.allSatisfy { instrument in
             let representedIndices = instrument.samples.map(\.sampleIndex).sorted()
-            guard representedIndices == Array(0..<instrument.samples.count) else {
+            guard Set(representedIndices).count == representedIndices.count,
+                  representedIndices.allSatisfy({
+                      (0..<BlankTrackerDocument.maximumSampleCountPerInstrument).contains($0)
+                  }) else {
                 return false
             }
-            guard let noteSampleMap = instrument.noteSampleMap else {
-                return true
+
+            let mappedIndices: [Int]
+            if let noteSampleMap = instrument.noteSampleMap {
+                guard noteSampleMap.count == 96,
+                      noteSampleMap.allSatisfy({
+                          (0..<BlankTrackerDocument.maximumSampleCountPerInstrument).contains($0)
+                      }) else {
+                    return false
+                }
+                mappedIndices = noteSampleMap
+            } else {
+                mappedIndices = []
             }
-            return noteSampleMap.count == 96 && noteSampleMap.allSatisfy {
-                representedIndices.contains($0)
+
+            let highestRequiredIndex = [representedIndices.max(), mappedIndices.max()]
+                .compactMap { $0 }
+                .max()
+            let requiredSpanCount = highestRequiredIndex.map { $0 + 1 } ?? 0
+            let representedSet = Set(representedIndices)
+            let missingIndices = (0..<requiredSpanCount).filter { !representedSet.contains($0) }
+
+            guard let provenance = playbackSong.xmSampleSlotProvenanceByInstrument[instrument.index] else {
+                return missingIndices.isEmpty
+            }
+            guard provenance.count == requiredSpanCount,
+                  provenance.map(\.sampleIndex) == Array(0..<requiredSpanCount) else { return false }
+            let provenanceByIndex = Dictionary(uniqueKeysWithValues: provenance.map { ($0.sampleIndex, $0) })
+            return missingIndices.allSatisfy { sampleIndex in
+                guard let sourceSlot = provenanceByIndex[sampleIndex] else { return false }
+                return sourceSlot.decodedPayloadLength == 0 && sourceSlot.isCanonicalEmptySlotHeader
             }
         }
     }

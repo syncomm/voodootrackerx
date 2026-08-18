@@ -30,15 +30,23 @@ fallback. Existing dense alpha.1 output remains byte-identical. Duplicate or
 out-of-capacity identities, malformed/out-of-capacity maps, and prior writer
 safety failures remain typed validation errors before atomic replacement.
 
-Loaded XM state does not retain source zero-length-header provenance. Make
-Editable Copy therefore retains its dense represented-sample/map eligibility
-guard; a reopened sparse VTX export remains read-only and copy-unavailable for
-now. Unreferenced trailing zero-length source headers remain indistinguishable
-after load, as before this change; newly represented sparse state does not become
-eligible. This avoids widening arbitrary-source compatibility through a lossy
-copy.
+The normal XM instrument walker now retains source-only provenance for each
+sample-header index: the decoded payload length and whether the declared header
+is exactly 40 bytes of zero. Make Editable Copy allows missing identities only
+when that indexed provenance exactly covers the writer-required span and every
+missing header is canonical. The existing production writer dry-run and Linear-
+frequency-table requirement still apply.
+
+VTX sparse export -> normal reopen -> Make Editable Copy -> re-export now
+preserves interior gaps, trailing mapped empty slots, only-empty mapped S01,
+represented sample metadata/PCM, and the exact keymap without fabrication or
+compaction; focused cases re-export byte-identically. A named, metadata-bearing,
+extended, extra trailing, or otherwise noncanonical zero-length source header
+remains copy-unavailable rather than being silently canonicalized. This supports
+canonical sparse empty sample slots, not zero-length samples generally.
 
 No migration tool is required: the output is standard XM structural state,
 existing dense exports do not change, no native VTX format exists, and no stored
 VTX document requires conversion. Compatibility is covered by byte-stability,
-writer/reopen, resolver, atomic export, capacity, and editable-copy guard tests.
+writer/reopen, resolver, atomic export, capacity, provenance classification,
+negative noncanonical-header, and editable-copy/re-export tests.

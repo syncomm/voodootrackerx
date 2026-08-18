@@ -18,6 +18,16 @@ enum PlaybackSongBuilderError: LocalizedError, Equatable {
 }
 
 enum PlaybackSongBuilder {
+    private struct LoadedXMInstrumentState {
+        let instrumentsByIndex: [Int: PlaybackInstrument]
+        let sampleSlotProvenanceByInstrument: [Int: [XMSourceSampleSlotProvenance]]
+
+        static let empty = LoadedXMInstrumentState(
+            instrumentsByIndex: [:],
+            sampleSlotProvenanceByInstrument: [:]
+        )
+    }
+
     static func build(
         from metadata: ParsedModuleMetadata,
         modulePath: String? = nil,
@@ -64,51 +74,63 @@ enum PlaybackSongBuilder {
             throw PlaybackSongBuilderError.missingPlayableOrders
         }
 
+        let loadedInstrumentState = modulePath.map {
+            loadXMInstrumentState(fromPath: $0, metadata: metadata)
+        } ?? .empty
+
         return PlaybackSong(
             title: metadata.title,
             orders: orders,
             patternsByIndex: patterns,
-            instrumentsByIndex: modulePath.map { loadXMSampleInstruments(fromPath: $0, metadata: metadata) } ?? [:],
+            instrumentsByIndex: loadedInstrumentState.instrumentsByIndex,
             restartOrderIndex: 0,
             endBehavior: endBehavior,
             initialTiming: PlaybackTiming(
                 speed: metadata.defaultTempo > 0 ? metadata.defaultTempo : PlaybackTiming.xmDefault.speed,
                 bpm: metadata.defaultBPM > 0 ? metadata.defaultBPM : PlaybackTiming.xmDefault.bpm
             ),
-            usesLinearFrequencyTable: metadata.usesLinearFrequencyTable
+            usesLinearFrequencyTable: metadata.usesLinearFrequencyTable,
+            xmSampleSlotProvenanceByInstrument: loadedInstrumentState.sampleSlotProvenanceByInstrument
         )
     }
 
-    private static func loadXMSampleInstruments(fromPath path: String, metadata: ParsedModuleMetadata) -> [Int: PlaybackInstrument] {
+    private static func loadXMInstrumentState(
+        fromPath path: String,
+        metadata: ParsedModuleMetadata
+    ) -> LoadedXMInstrumentState {
         guard metadata.type == "XM",
               let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               data.count >= 80,
               data.starts(with: Data("Extended Module: ".utf8)) else {
-            return [:]
+            return .empty
         }
         let headerSize = Int(readLE32(data, offset: 60))
         let totalHeader = 60 + headerSize
         guard headerSize >= 20, totalHeader <= data.count else {
-            return [:]
+            return .empty
         }
 
         var offset = totalHeader
         for _ in 0..<metadata.patterns {
             guard offset + 9 <= data.count else {
-                return [:]
+                return .empty
             }
             let patternHeaderLength = Int(readLE32(data, offset: offset))
             let packedSize = Int(readLE16(data, offset: offset + 7))
             guard patternHeaderLength >= 9,
                   offset + patternHeaderLength + packedSize <= data.count else {
-                return [:]
+                return .empty
             }
             offset += patternHeaderLength + packedSize
         }
 
         var instruments = [Int: PlaybackInstrument]()
+        var provenanceByInstrument = [Int: [XMSourceSampleSlotProvenance]]()
         guard metadata.instruments > 0 else {
-            return instruments
+            return LoadedXMInstrumentState(
+                instrumentsByIndex: instruments,
+                sampleSlotProvenanceByInstrument: provenanceByInstrument
+            )
         }
         for instrumentIndex in 1...metadata.instruments {
             guard offset + 29 <= data.count else {
@@ -127,6 +149,7 @@ enum PlaybackSongBuilder {
                     name: instrumentName,
                     samples: []
                 )
+                provenanceByInstrument[instrumentIndex] = []
                 offset += instrumentHeaderSize
                 continue
             }
@@ -144,7 +167,8 @@ enum PlaybackSongBuilder {
                 instrumentOffset: offset,
                 instrumentHeaderSize: instrumentHeaderSize
             )
-            let sampleHeaderSize = max(40, Int(readLE32(data, offset: offset + 29)))
+            let declaredSampleHeaderSize = Int(readLE32(data, offset: offset + 29))
+            let sampleHeaderSize = max(40, declaredSampleHeaderSize)
             let sampleHeaderOffset = offset + instrumentHeaderSize
             let sampleDataOffset = sampleHeaderOffset + (sampleHeaderSize * sampleCount)
             guard sampleDataOffset <= data.count else {
@@ -157,13 +181,22 @@ enum PlaybackSongBuilder {
                 instrumentHeaderSize: instrumentHeaderSize
             )
             var sampleHeaders = [XMSampleHeader]()
+            var sampleSlotProvenance = [XMSourceSampleSlotProvenance]()
             sampleHeaders.reserveCapacity(sampleCount)
+            sampleSlotProvenance.reserveCapacity(sampleCount)
             for sampleIndex in 0..<sampleCount {
                 let headerOffset = sampleHeaderOffset + (sampleIndex * sampleHeaderSize)
                 guard headerOffset + 40 <= data.count else {
                     break
                 }
-                sampleHeaders.append(readSampleHeader(data, offset: headerOffset))
+                let header = readSampleHeader(data, offset: headerOffset)
+                sampleHeaders.append(header)
+                sampleSlotProvenance.append(XMSourceSampleSlotProvenance(
+                    sampleIndex: sampleIndex,
+                    decodedPayloadLength: header.length,
+                    isCanonicalEmptySlotHeader: declaredSampleHeaderSize == 40 &&
+                        data[headerOffset..<headerOffset + 40].allSatisfy { $0 == 0 }
+                ))
             }
 
             var dataOffset = sampleDataOffset
@@ -203,9 +236,13 @@ enum PlaybackSongBuilder {
                 autoVibrato: autoVibrato,
                 noteSampleMap: noteSampleMap
             )
+            provenanceByInstrument[instrumentIndex] = sampleSlotProvenance
             offset = dataOffset
         }
-        return instruments
+        return LoadedXMInstrumentState(
+            instrumentsByIndex: instruments,
+            sampleSlotProvenanceByInstrument: provenanceByInstrument
+        )
     }
 
     private static func readNoteSampleMap(

@@ -253,11 +253,15 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertFalse(ExportXMCoordinator.canExport(context: .loadedReadOnly(isPlaybackActive: false)))
     }
 
-    func testReopenedSparseVTXExportRemainsUnavailableForEditableCopyWithoutSourceProvenance() throws {
+    func testSparseVTXExportReopensCopiesAndReexportsByteIdenticallyWithExactIdentityAndMap() throws {
         let first = makePlaybackSample(
             sampleIndex: 0,
             name: "Distinct S01",
             pcm: [-0.25, 0.25],
+            volume: 0.5,
+            panning: 37,
+            relativeNote: -2,
+            finetune: 7,
             baseSampleRate: 8_363,
             sourceBitDepthBits: 8,
             sourceIsSignedPCM: true,
@@ -267,6 +271,10 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             sampleIndex: 2,
             name: "Distinct S03",
             pcm: [-0.75, 0.75],
+            volume: 0.75,
+            panning: 201,
+            relativeNote: 3,
+            finetune: -8,
             baseSampleRate: 8_363,
             sourceBitDepthBits: 8,
             sourceIsSignedPCM: true,
@@ -275,51 +283,204 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         var noteSampleMap = Array(repeating: 0, count: 96)
         noteSampleMap[48] = 1
         noteSampleMap[49] = 2
-        let pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
-        let sourceDocument = BlankTrackerDocument(
-            title: "Sparse Source",
-            songLength: 1,
-            currentPosition: 0,
-            restartPosition: 0,
-            currentPatternIndex: 0,
-            tempo: 125,
-            speed: 6,
-            orderTable: [0],
-            selection: .default,
-            instrumentPalette: [
-                1: PlaybackInstrument(
-                    index: 1,
-                    samples: [first, third],
-                    noteSampleMap: noteSampleMap
-                )
-            ],
-            patterns: [pattern]
+        let sourceInstrument = PlaybackInstrument(
+            index: 1,
+            name: "Sparse Instrument",
+            samples: [first, third],
+            autoVibrato: .init(waveformType: 2, sweep: 3, depth: 4, rate: 5),
+            noteSampleMap: noteSampleMap
         )
+        let sourceDocument = sparseSourceDocument(instrument: sourceInstrument)
+        let sourceData = try EditableXMWriter().data(from: sourceDocument)
         let sourceURL = try temporaryDestination(filename: "sparse-source.xm")
-        try EditableXMWriter().data(from: sourceDocument).write(to: sourceURL, options: .atomic)
+        try sourceData.write(to: sourceURL, options: .atomic)
         let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
-        XCTAssertEqual(song.instrumentsByIndex[1]?.samples.map(\.sampleIndex), [0, 2])
-        XCTAssertEqual(song.instrumentsByIndex[1]?.noteSampleMap, noteSampleMap)
+        let loadedInstrument = try XCTUnwrap(song.instrumentsByIndex[1])
+        XCTAssertEqual(loadedInstrument, sourceInstrument)
+        XCTAssertEqual(loadedInstrument.samples.map(\.sampleIndex), [0, 2])
+        XCTAssertEqual(loadedInstrument.noteSampleMap, noteSampleMap)
+        XCTAssertEqual(song.xmSampleSlotProvenanceByInstrument[1], [
+            .init(sampleIndex: 0, decodedPayloadLength: 2, isCanonicalEmptySlotHeader: false),
+            .init(sampleIndex: 1, decodedPayloadLength: 0, isCanonicalEmptySlotHeader: true),
+            .init(sampleIndex: 2, decodedPayloadLength: 2, isCanonicalEmptySlotHeader: false),
+        ])
         let context = LoadedModuleEditableCopyContext.loadedReadOnly(
             metadata: metadata,
             playbackSong: song,
-            selection: .default,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
             currentPatternIndex: 0,
             isPlaybackActive: false
         )
 
-        let representableDocument = try XCTUnwrap(BlankTrackerDocument.makeEditableCopy(
-            from: metadata,
-            playbackSong: song,
-            selection: .default
+        XCTAssertTrue(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context))
+        guard case let .copied(document) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected canonical sparse source to become editable")
+        }
+        let copiedInstrument = try XCTUnwrap(document.instrumentPalette[1])
+        XCTAssertEqual(copiedInstrument, loadedInstrument)
+        XCTAssertEqual(copiedInstrument.samples.map(\.sampleIndex), [0, 2])
+        XCTAssertNil(copiedInstrument.sample(mappedSampleIndex: 1))
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrument: copiedInstrument
         ))
-        XCTAssertNoThrow(try EditableXMWriter().data(from: representableDocument))
-        XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context))
-        XCTAssertEqual(
-            LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context),
-            .unavailable(.unsupportedLoadedModule)
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 50, instrument: copiedInstrument
+        )?.sampleIndex, 2)
+
+        let reexportedData = try EditableXMWriter().data(from: document)
+        XCTAssertEqual(reexportedData, sourceData)
+        let reexportedURL = try temporaryDestination(filename: "sparse-reexported.xm")
+        try reexportedData.write(to: reexportedURL, options: .atomic)
+        let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: reexportedURL.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: reexportedURL.path)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex[1], loadedInstrument)
+        XCTAssertEqual(reopenedMetadata.xmPatterns, metadata.xmPatterns)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
+    }
+
+    func testTrailingAndOnlyEmptyCanonicalSlotsRecoverAsEditableCopies() throws {
+        let first = makePlaybackSample(
+            name: "Only S01",
+            pcm: [-0.5, 0.5],
+            baseSampleRate: 8_363,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
         )
+        var trailingMap = Array(repeating: 0, count: 96)
+        trailingMap[48] = 1
+        let onlyEmptyMap = Array(repeating: 0, count: 96)
+        let scenarios: [(String, PlaybackInstrument, [Int], Int)] = [
+            (
+                "trailing-empty",
+                PlaybackInstrument(index: 1, name: "Trailing Empty", samples: [first], noteSampleMap: trailingMap),
+                [0],
+                2
+            ),
+            (
+                "only-empty",
+                PlaybackInstrument(
+                    index: 1,
+                    name: "Only Empty",
+                    samples: [],
+                    volumeEnvelope: .init(
+                        enabled: true,
+                        points: [.init(tick: 0, value: 64), .init(tick: 8, value: 32)],
+                        sustainPointIndex: 1,
+                        loopStartPointIndex: 0,
+                        loopEndPointIndex: 1,
+                        typeFlags: 0x07,
+                        fadeout: 2_048
+                    ),
+                    panningEnvelope: .init(
+                        enabled: true,
+                        points: [.init(tick: 0, value: 32), .init(tick: 8, value: 48)],
+                        sustainPointIndex: 0,
+                        loopStartPointIndex: 0,
+                        loopEndPointIndex: 1,
+                        typeFlags: 0x05
+                    ),
+                    autoVibrato: .init(waveformType: 2, sweep: 8, depth: 6, rate: 24),
+                    noteSampleMap: onlyEmptyMap
+                ),
+                [],
+                1
+            ),
+        ]
+
+        for (name, sourceInstrument, expectedIndices, sourceHeaderCount) in scenarios {
+            let sourceData = try EditableXMWriter().data(from: sparseSourceDocument(instrument: sourceInstrument))
+            let sourceURL = try temporaryDestination(filename: "\(name)-source.xm")
+            try sourceData.write(to: sourceURL, options: .atomic)
+            let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+            let song = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+            let provenance = try XCTUnwrap(song.xmSampleSlotProvenanceByInstrument[1])
+            XCTAssertEqual(provenance.count, sourceHeaderCount, name)
+            XCTAssertEqual(provenance.last?.decodedPayloadLength, 0, name)
+            XCTAssertEqual(provenance.last?.isCanonicalEmptySlotHeader, true, name)
+            let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+                metadata: metadata,
+                playbackSong: song,
+                selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+                currentPatternIndex: 0,
+                isPlaybackActive: false
+            )
+
+            guard case let .copied(document) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+                XCTFail("expected \(name) source to become editable")
+                continue
+            }
+            let copiedInstrument = try XCTUnwrap(document.instrumentPalette[1])
+            XCTAssertEqual(copiedInstrument, sourceInstrument, name)
+            XCTAssertEqual(copiedInstrument.samples.map(\.sampleIndex), expectedIndices, name)
+            XCTAssertEqual(copiedInstrument.noteSampleMap, sourceInstrument.noteSampleMap, name)
+            XCTAssertEqual(copiedInstrument.volumeEnvelope, sourceInstrument.volumeEnvelope, name)
+            XCTAssertEqual(copiedInstrument.panningEnvelope, sourceInstrument.panningEnvelope, name)
+            XCTAssertEqual(copiedInstrument.autoVibrato, sourceInstrument.autoVibrato, name)
+            XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1), name)
+            XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+                instrumentIndex: 1, note: 49, instrument: copiedInstrument
+            ), name)
+            XCTAssertEqual(try EditableXMWriter().data(from: document), sourceData, name)
+            XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData, name)
+        }
+    }
+
+    func testNoncanonicalZeroLengthSourceHeadersRemainUnavailableForEditableCopy() throws {
+        let first = makePlaybackSample(
+            name: "Only S01",
+            pcm: [-0.5, 0.5],
+            baseSampleRate: 8_363,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+        var noteSampleMap = Array(repeating: 0, count: 96)
+        noteSampleMap[48] = 1
+        let canonicalData = try EditableXMWriter().data(from: sparseSourceDocument(
+            instrument: PlaybackInstrument(index: 1, samples: [first], noteSampleMap: noteSampleMap)
+        ))
+        let instrumentOffset = firstInstrumentOffset(in: canonicalData)
+        let emptyHeaderOffset = firstInstrumentSampleHeaderOffset(in: canonicalData, sampleIndex: 1)
+        let mutations: [(String, Int, UInt8, Bool)] = [
+            ("name", 18, 0x4E, false),
+            ("volume", 12, 1, false),
+            ("panning", 15, 128, false),
+            ("reserved", 17, 1, false),
+            ("unreferenced-trailing-name", 18, 0x4E, true),
+        ]
+
+        for (name, fieldOffset, value, removesEmptyReference) in mutations {
+            var sourceData = canonicalData
+            sourceData[emptyHeaderOffset + fieldOffset] = value
+            if removesEmptyReference {
+                sourceData.replaceSubrange(instrumentOffset + 33..<instrumentOffset + 129, with: repeatElement(0, count: 96))
+            }
+            let sourceURL = try temporaryDestination(filename: "noncanonical-empty-\(name).xm")
+            try sourceData.write(to: sourceURL, options: .atomic)
+            let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+            let song = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+            let provenance = try XCTUnwrap(song.xmSampleSlotProvenanceByInstrument[1])
+            XCTAssertEqual(provenance[1].decodedPayloadLength, 0, name)
+            XCTAssertFalse(provenance[1].isCanonicalEmptySlotHeader, name)
+            let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+                metadata: metadata,
+                playbackSong: song,
+                selection: .default,
+                currentPatternIndex: 0,
+                isPlaybackActive: false
+            )
+
+            XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context), name)
+            XCTAssertEqual(
+                LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context),
+                .unavailable(.unsupportedLoadedModule),
+                name
+            )
+            XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData, name)
+        }
     }
 
     @MainActor
@@ -879,6 +1040,48 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             currentPatternIndex: 0,
             isPlaybackActive: isPlaybackActive
         )
+    }
+
+    private func sparseSourceDocument(instrument: PlaybackInstrument) -> BlankTrackerDocument {
+        BlankTrackerDocument(
+            title: BlankTrackerDocument.defaultTitle,
+            songLength: 1,
+            currentPosition: 0,
+            restartPosition: 0,
+            currentPatternIndex: 0,
+            tempo: 125,
+            speed: 6,
+            orderTable: [0],
+            selection: .default,
+            instrumentPalette: [instrument.index: instrument],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)]
+        )
+    }
+
+    private func firstInstrumentSampleHeaderOffset(in data: Data, sampleIndex: Int) -> Int {
+        let offset = firstInstrumentOffset(in: data)
+        let instrumentHeaderSize = Int(readLE32(data, offset: offset))
+        let sampleHeaderSize = Int(readLE32(data, offset: offset + 29))
+        return offset + instrumentHeaderSize + (sampleIndex * sampleHeaderSize)
+    }
+
+    private func firstInstrumentOffset(in data: Data) -> Int {
+        var offset = 60 + Int(readLE32(data, offset: 60))
+        for _ in 0..<Int(readLE16(data, offset: 70)) {
+            offset += Int(readLE32(data, offset: offset)) + Int(readLE16(data, offset: offset + 7))
+        }
+        return offset
+    }
+
+    private func readLE16(_ data: Data, offset: Int) -> UInt16 {
+        UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+    }
+
+    private func readLE32(_ data: Data, offset: Int) -> UInt32 {
+        UInt32(data[offset]) |
+            (UInt32(data[offset + 1]) << 8) |
+            (UInt32(data[offset + 2]) << 16) |
+            (UInt32(data[offset + 3]) << 24)
     }
 
     private func samplePanningSourceDocument(

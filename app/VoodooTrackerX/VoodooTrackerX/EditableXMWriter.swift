@@ -300,15 +300,31 @@ struct EditableXMWriter {
             }
         }
         let sampleIndices = samplesWithPayload.map(\.sampleIndex)
-        guard sampleIndices == Array(0..<samplesWithPayload.count) else {
+        guard sampleIndices.allSatisfy({
+            (0..<BlankTrackerDocument.maximumSampleCountPerInstrument).contains($0)
+        }) else {
             throw EditableXMWriterError.unsupportedSampleIndexOrder(
                 instrumentIndex: instrumentIndex,
                 sampleIndices: sampleIndices
             )
         }
 
-        guard !samplesWithPayload.isEmpty else {
+        let validatedNoteSampleMap = try validatedNoteSampleMap(
+            paletteInstrument.noteSampleMap,
+            instrumentIndex: instrumentIndex
+        )
+        let highestRequiredSampleIndex = [sampleIndices.max(), validatedNoteSampleMap?.max()]
+            .compactMap { $0 }
+            .max()
+        guard let highestRequiredSampleIndex else {
             return XMInstrumentExport.noSample(name: paletteInstrument.name)
+        }
+        let serializedSampleCount = highestRequiredSampleIndex + 1
+        guard serializedSampleCount <= BlankTrackerDocument.maximumSampleCountPerInstrument else {
+            throw EditableXMWriterError.unsupportedInstrumentSampleCount(
+                instrumentIndex: instrumentIndex,
+                sampleCount: serializedSampleCount
+            )
         }
         guard paletteInstrument.volumeEnvelope.points.count <= 12 else {
             throw EditableXMWriterError.unsupportedVolumeEnvelopePointCount(
@@ -323,19 +339,16 @@ struct EditableXMWriter {
             )
         }
 
-        let exportedSamples = try samplesWithPayload.map { sample in
-            try exportedSample(sample, instrumentIndex: instrumentIndex)
-        }
-        let sampleIndexToOutputIndex = Dictionary(
-            uniqueKeysWithValues: samplesWithPayload.enumerated().map { outputIndex, sample in
-                (sample.sampleIndex, UInt8(outputIndex))
+        let exportedSamplesByIndex = try Dictionary(
+            uniqueKeysWithValues: samplesWithPayload.map { sample in
+                (sample.sampleIndex, try exportedSample(sample, instrumentIndex: instrumentIndex))
             }
         )
-        let noteSampleMap = try exportedNoteSampleMap(
-            paletteInstrument.noteSampleMap,
-            instrumentIndex: instrumentIndex,
-            sampleIndexToOutputIndex: sampleIndexToOutputIndex
-        )
+        let exportedSamples = (0..<serializedSampleCount).map {
+            exportedSamplesByIndex[$0] ?? .canonicalEmptySlot
+        }
+        let noteSampleMap = validatedNoteSampleMap?.map(UInt8.init)
+            ?? Array(repeating: 0, count: 96)
 
         return XMInstrumentExport(
             name: paletteInstrument.name,
@@ -439,13 +452,12 @@ struct EditableXMWriter {
         )
     }
 
-    private func exportedNoteSampleMap(
+    private func validatedNoteSampleMap(
         _ noteSampleMap: [Int]?,
-        instrumentIndex: Int,
-        sampleIndexToOutputIndex: [Int: UInt8]
-    ) throws -> [UInt8] {
+        instrumentIndex: Int
+    ) throws -> [Int]? {
         guard let noteSampleMap else {
-            return Array(repeating: 0, count: 96)
+            return nil
         }
         guard noteSampleMap.count == 96 else {
             throw EditableXMWriterError.unsupportedNoteSampleMap(
@@ -454,16 +466,16 @@ struct EditableXMWriter {
                 sampleIndex: nil
             )
         }
-        return try noteSampleMap.map { mappedSampleIndex in
-            guard let outputIndex = sampleIndexToOutputIndex[mappedSampleIndex] else {
+        for mappedSampleIndex in noteSampleMap {
+            guard (0..<BlankTrackerDocument.maximumSampleCountPerInstrument).contains(mappedSampleIndex) else {
                 throw EditableXMWriterError.unsupportedNoteSampleMap(
                     instrumentIndex: instrumentIndex,
                     entryCount: noteSampleMap.count,
                     sampleIndex: mappedSampleIndex
                 )
             }
-            return outputIndex
         }
+        return noteSampleMap
     }
 
     private func clampedSignedByte(_ value: Int) -> UInt8 {
@@ -510,6 +522,20 @@ private struct XMSampleExport {
     let panning: UInt8
     let relativeNote: UInt8
     let payload: Data
+
+    /// Structural XM representation of an empty canonical slot. Every emitted header byte is zero.
+    static let canonicalEmptySlot = XMSampleExport(
+        name: nil,
+        lengthBytes: 0,
+        loopStartBytes: 0,
+        loopLengthBytes: 0,
+        volume: 0,
+        finetune: 0,
+        type: 0,
+        panning: 0,
+        relativeNote: 0,
+        payload: Data()
+    )
 }
 
 enum XMSampleDeltaEncoder {

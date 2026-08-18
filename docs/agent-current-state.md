@@ -19,7 +19,11 @@ instrument through one labeled `applyEdit`/undo action. The command is limited
 to stopped editable documents with capacity; loaded modules and playback remain
 read-only. Current sample operations append after the highest represented slot
 and do not fill sparse holes. The in-memory palette can retain sparse sample
-indices, but the XM writer still requires dense represented order. Sample Editor SINE now fills eligible
+indices. Export XM now computes an identity span through the highest represented
+or exact-map-referenced Sxx (maximum S16), emits an all-zero 40-byte/no-payload
+header for each missing position, and writes map indices directly. Reopen drops
+those structural headers without compacting later identities or changing unavailable
+routes; existing dense alpha.1 output remains byte-identical. Sample Editor SINE now fills eligible
 S01 with deterministic looped PCM and an all-note map. A UI-independent audio
 import facade now validates container identity before dispatching WAV/WAVE,
 AIFF/AIF, AIFC, or native `fLaC` to bounded decoders. Native FLAC is limited to
@@ -43,6 +47,9 @@ can be converted only through the explicit `File > Make Editable Copy` command,
 which creates an untitled in-memory editable copy without claiming the opened
 source path. The current editable model is Linear-frequency-table only, so
 Amiga-table XMs are refused rather than silently converted.
+Because loaded state discards zero-length sample-header provenance, Make Editable
+Copy also retains its dense represented-sample/map eligibility boundary; reopened
+sparse VTX exports remain read-only/copy-unavailable pending separate provenance work.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 

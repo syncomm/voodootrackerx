@@ -253,6 +253,75 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertFalse(ExportXMCoordinator.canExport(context: .loadedReadOnly(isPlaybackActive: false)))
     }
 
+    func testReopenedSparseVTXExportRemainsUnavailableForEditableCopyWithoutSourceProvenance() throws {
+        let first = makePlaybackSample(
+            sampleIndex: 0,
+            name: "Distinct S01",
+            pcm: [-0.25, 0.25],
+            baseSampleRate: 8_363,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+        let third = makePlaybackSample(
+            sampleIndex: 2,
+            name: "Distinct S03",
+            pcm: [-0.75, 0.75],
+            baseSampleRate: 8_363,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+        var noteSampleMap = Array(repeating: 0, count: 96)
+        noteSampleMap[48] = 1
+        noteSampleMap[49] = 2
+        let pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
+        let sourceDocument = BlankTrackerDocument(
+            title: "Sparse Source",
+            songLength: 1,
+            currentPosition: 0,
+            restartPosition: 0,
+            currentPatternIndex: 0,
+            tempo: 125,
+            speed: 6,
+            orderTable: [0],
+            selection: .default,
+            instrumentPalette: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [first, third],
+                    noteSampleMap: noteSampleMap
+                )
+            ],
+            patterns: [pattern]
+        )
+        let sourceURL = try temporaryDestination(filename: "sparse-source.xm")
+        try EditableXMWriter().data(from: sourceDocument).write(to: sourceURL, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+        XCTAssertEqual(song.instrumentsByIndex[1]?.samples.map(\.sampleIndex), [0, 2])
+        XCTAssertEqual(song.instrumentsByIndex[1]?.noteSampleMap, noteSampleMap)
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: song,
+            selection: .default,
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+
+        let representableDocument = try XCTUnwrap(BlankTrackerDocument.makeEditableCopy(
+            from: metadata,
+            playbackSong: song,
+            selection: .default
+        ))
+        XCTAssertNoThrow(try EditableXMWriter().data(from: representableDocument))
+        XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context))
+        XCTAssertEqual(
+            LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context),
+            .unavailable(.unsupportedLoadedModule)
+        )
+    }
+
     @MainActor
     func testNonCenterSamplePanningSurvivesLoadedCopyExportAndReopenRoundTrip() throws {
         let sourceURL = try temporaryDestination(filename: "sample-panning-source.xm")

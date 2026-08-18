@@ -160,43 +160,42 @@ remain disabled/no-op, Save/Save As remain disabled, and the exported XM file
 does not become an owned save path.
 
 Release hardening rejects invalid channel/row dimensions, non-finite PCM,
-sparse represented sample order, and unmappable keymaps before destination
-replacement. Successful writes remain atomic. Make Editable Copy accepts only
-Linear-frequency-table XM because the editable model cannot preserve Amiga-table
-semantics; named zero-length sample headers remain outside the represented subset.
+out-of-capacity or duplicate sample identities, malformed/out-of-capacity keymaps,
+and existing unsupported payload state before destination replacement. Successful
+writes remain atomic. Make Editable Copy accepts only Linear-frequency-table XM
+inside its retained dense loaded-sample boundary; arbitrary source zero-length
+sample-header provenance remains outside the represented subset.
 
 ### Sample lifecycle Export XM boundary
 
-The post-alpha sample lifecycle contract is non-compacting, but current Export
-XM remains dense. `PlaybackInstrument.samples` can hold represented indices
-`[0, 2]`, retaining an interior empty S02, later S03 identity, an unchanged
-keymap reference to index `1`, and document selection at S02. The writer instead
-requires sorted indices exactly equal to `0..<samples.count` and returns the
-typed `unsupportedSampleIndexOrder(instrumentIndex:sampleIndices:)` error for
-`[0, 2]`. If order is dense but a keymap value is not represented, it returns
-`unsupportedNoteSampleMap(instrumentIndex:entryCount:sampleIndex:)`. Neither
-path compacts samples or rewrites the keymap.
+The post-alpha sample lifecycle contract is non-compacting, and Export XM now
+preserves that identity for the supported `S01...S16` boundary. For each
+instrument the serialized header count is one past the higher of the greatest
+represented `sampleIndex` and greatest value in an exact 96-entry map. If
+neither exists, the existing true zero-sample-instrument encoding remains.
+Canonical map values are emitted directly; no dense-output remap exists.
 
-Validation happens while building XM data, before `Data.write(..., .atomic)`.
-An unrepresentable lifecycle state therefore fails truthfully without replacing
-an existing destination. This safety behavior must remain in force; writer
-validation must not be weakened to make a future Clear action appear
-exportable.
+Every missing position inside the span emits one ordinary 40-byte XM sample
+header containing all zeros and no PCM payload. This deterministic structural
+placeholder claims no sample name, volume, pan, tuning, loop, source depth, or
+provenance and never becomes a `PlaybackSample`. Normal reopen drops the
+zero-length header, retains later represented indices and all map bytes, and
+therefore keeps a missing mapped route unavailable without fallback. Interior
+S02 gaps, trailing mapped empty slots, and a represented instrument whose only
+mapped S01 is empty all round-trip semantically. Dense alpha.1 output is pinned
+byte-identically.
 
-An externally constructed XM provides limited reopen evidence: when an
-interior sample header has zero length, `PlaybackSongBuilder` drops that
-header's sample value but retains later headers' original enumerated indices
-and the exact 96 map bytes. A route to the missing index remains unavailable,
-with no S01/first-playable fallback. The empty header's name/metadata does not
-survive, and Make Editable Copy rejects the resulting sparse palette during
-its production-writer dry run. Thus zero-length headers are evidence for a
-future representation, not current supported VTX export/reopen behavior.
+Validation still finishes before `Data.write(..., .atomic)`. Unsupported
+indices/maps above S16 and all existing typed writer failures preserve an
+existing destination; valid sparse replacement uses the same atomic write.
 
-Before Clear/Duplicate/Move/Swap can claim Export XM support, a focused sparse
-sample-slot XM round-trip foundation must define placeholder-header emission,
-reopen/editable-copy semantics, keymap validation, selection/UI handling, and
-atomic failure coverage. The evidence is precise: alpha.1 validated the
-supported VTX editable XM subset; arbitrary-XM parity is not implied.
+The loaded model does not preserve source zero-length-header metadata or enough
+provenance to identify canonical placeholders. Make Editable Copy therefore
+retains an explicit pre-sparse dense represented-sample/map guard before its
+writer dry-run. Dense supported loaded XMs remain eligible; reopened sparse VTX
+exports intentionally remain loaded/read-only and copy-unavailable for now.
+This is a narrow editable-export boundary, not arbitrary-XM parity, and no
+Clear/Duplicate/Move/Swap mutation or UI is introduced here.
 
 ### Future Native Project Format
 
@@ -331,7 +330,8 @@ Keep future PRs narrow and testable:
 25. Done: `sample: add represented sample-slot lifecycle and Add as New Sample`
 26. Done: `instrument: add editable keymap range foundation behind applyEdit`
 27. Done: `instrument: wire selected-sample note-range assignment UI`
-28. `sample: add editable loop mode and range behind applyEdit`
+28. Done: `sample: add sparse sample-slot XM round-trip foundation`
+29. `sample: add editable loop mode and range behind applyEdit`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

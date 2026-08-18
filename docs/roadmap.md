@@ -51,10 +51,16 @@ export/reopen composition workflow. See
 `docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md` and
 `docs/release-notes/v0.3.0-alpha.1.md`.
 
-After the tag, the recommended next step is
-`architecture: define the next v0.3.x milestone from the post-alpha backlog`.
-Release preparation does not automatically begin the next feature or pull
-sample lifecycle, MIDI, broad UI polish, or AUv3 work forward.
+The post-alpha sparse sample-slot XM foundation now preserves canonical S01...S16
+identity and exact keymap references through Export XM/reopen by projecting missing
+positions to all-zero zero-length headers only at the writer boundary. Dense alpha.1
+bytes remain unchanged. Loaded-module editable copy retains its prior dense safety
+boundary because source zero-length-header provenance is not represented.
+
+The post-alpha milestone selection is complete. After this persistence foundation,
+the recommended next product step is the narrowly scoped interior-empty-slot list
+projection below; it does not yet pull lifecycle mutation, MIDI, broad UI polish,
+or AUv3 work forward.
 
 ## Project Goals
 
@@ -490,15 +496,11 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Next: `sample: add sparse sample-slot XM round-trip foundation`. Post-alpha
-  characterization proves that the editable model can retain an interior empty
-  Sxx with later represented indices, selection, and keymap references intact,
-  while the current writer rejects that sparse order. An existing XM
-  zero-length header is dropped on load without compacting later indices or
-  rewriting the map, but its empty metadata is not represented and Make
-  Editable Copy refuses the writer dry-run. Define and test that narrow
-  writer/reopen/editable-copy contract before adding Clear/Duplicate/Move/Swap
-  mutation or UI. See ADR 012's post-alpha lifecycle boundary.
+- Next: `sample: expose canonical interior empty slots in editor lists`. The
+  sparse writer/reopen contract is complete, but Sample Editor and shared palette
+  lists still show represented samples plus only the special all-empty S01 state.
+  Make interior gaps visible and selectable without adding Clear/Duplicate/Move/
+  Swap mutation or changing runtime routing. See ADR 012's sparse sample-slot boundary.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song

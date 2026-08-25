@@ -857,6 +857,8 @@ struct InstrumentEditorDisplayState: Equatable {
     struct SampleSlot: Equatable {
         let slot: Int
         let name: String
+        let representedSample: PlaybackSample?
+        let isEmptyDestination: Bool
         let length: Int
         let loopType: Int
         let loopStart: Int
@@ -920,18 +922,22 @@ struct InstrumentEditorDisplayState: Equatable {
         var finetuneDisplay: String { Self.signedDisplay(finetune) }
         var bitDepthDisplay: String { sourceBitDepthBits.map { "\($0)-BIT" } ?? "BIT —" }
 
-        init(sample: PlaybackSample, selectedSampleSlot: Int) {
-            slot = min(254, max(0, sample.sampleIndex)) + 1
-            name = Self.normalizedName(sample.name, fallback: "(unnamed sample)")
-            length = sample.sampleLength
-            loopType = sample.loopType
-            loopStart = sample.loopStart
-            loopLength = sample.loopLength
-            volume = sample.volume
-            panning = sample.panning
-            relativeNote = sample.relativeNote
-            finetune = sample.finetune
-            sourceBitDepthBits = sample.sourceBitDepthBits
+        init(row: SampleSlotPresentationRow, selectedSampleSlot: Int) {
+            slot = row.sampleSlot
+            representedSample = row.representedSample
+            isEmptyDestination = row.isEmptyDestination
+            name = row.representedSample.map {
+                Self.normalizedName($0.name, fallback: "(unnamed sample)")
+            } ?? "Empty destination"
+            length = row.representedSample?.sampleLength ?? 0
+            loopType = row.representedSample?.loopType ?? 0
+            loopStart = row.representedSample?.loopStart ?? 0
+            loopLength = row.representedSample?.loopLength ?? 0
+            volume = row.representedSample?.volume ?? 0
+            panning = row.representedSample?.panning ?? PlaybackSample.xmCenterPanning
+            relativeNote = row.representedSample?.relativeNote ?? 0
+            finetune = row.representedSample?.finetune ?? 0
+            sourceBitDepthBits = row.representedSample?.sourceBitDepthBits
             isSelected = slot == selectedSampleSlot
         }
 
@@ -1013,7 +1019,7 @@ struct InstrumentEditorDisplayState: Equatable {
     }
 
     var selectedSample: SampleSlot? {
-        sampleSlots.first(where: \.isSelected)
+        sampleSlots.first { $0.isSelected && !$0.isEmptyDestination }
     }
 
     var hasCanonicalKeymap: Bool {
@@ -1050,6 +1056,9 @@ struct InstrumentEditorDisplayState: Equatable {
             source: .loadedModule,
             palette: playbackSong?.instrumentsByIndex ?? [:],
             selection: selection,
+            presentationRows: playbackSong?.sampleSlotPresentationRows(
+                forInstrument: selection.selectedInstrument
+            ) ?? [],
             allowsInstrumentNameEditing: false,
             allowsKeymapRangeAssignment: false
         )
@@ -1064,6 +1073,9 @@ struct InstrumentEditorDisplayState: Equatable {
             source: .editableDocument,
             palette: document.instrumentPalette,
             selection: document.selection,
+            presentationRows: document.sampleSlotPresentationRows(
+                forInstrument: document.selection.selectedInstrument
+            ),
             allowsInstrumentNameEditing: !isPlaybackActive,
             allowsKeymapRangeAssignment: allowsKeymapRangeAssignment
         )
@@ -1073,6 +1085,7 @@ struct InstrumentEditorDisplayState: Equatable {
         source: Source,
         palette: [Int: PlaybackInstrument],
         selection: TrackerEditorSelection,
+        presentationRows: [SampleSlotPresentationRow],
         allowsInstrumentNameEditing: Bool,
         allowsKeymapRangeAssignment: Bool
     ) -> InstrumentEditorDisplayState {
@@ -1116,14 +1129,13 @@ struct InstrumentEditorDisplayState: Equatable {
             )
         }
 
-        let slots = instrument.samples
-            .map { SampleSlot(sample: $0, selectedSampleSlot: selection.selectedSample) }
-            .sorted { ($0.slot, $0.name) < ($1.slot, $1.name) }
-        let emptySampleDestinationSlot = slots.isEmpty ? selection.selectedSample : nil
-        let selectedSampleSlot = slots.contains(where: \.isSelected) || emptySampleDestinationSlot != nil
-            ? selection.selectedSample
-            : nil
-        let selectedRepresentedSample = instrument.sample(selectedSampleSlot: selection.selectedSample)
+        let slots = presentationRows.map {
+            SampleSlot(row: $0, selectedSampleSlot: selection.selectedSample)
+        }
+        let selectedRow = slots.first(where: \.isSelected)
+        let emptySampleDestinationSlot = selectedRow?.isEmptyDestination == true ? selectedRow?.slot : nil
+        let selectedSampleSlot = selectedRow?.slot
+        let selectedRepresentedSample = selectedRow?.representedSample
         let allowsSelectedSampleEditing = allowsInstrumentNameEditing &&
             selectedRepresentedSample.map { $0.sampleLength > 0 && !$0.pcm.isEmpty } == true
         return InstrumentEditorDisplayState(
@@ -1149,9 +1161,9 @@ struct InstrumentEditorDisplayState: Equatable {
             panningEnvelope: instrument.panningEnvelope,
             autoVibrato: instrument.autoVibrato,
             keymapRanges: makeKeymapRanges(instrument: instrument, selectedSampleSlot: selection.selectedSample),
-            emptyMessage: slots.isEmpty
+            emptyMessage: selectedRow?.isEmptyDestination == true
                 ? "\(String(format: "S%02X", selection.selectedSample)) is an empty destination; no sample is represented."
-                : ""
+                : (slots.isEmpty ? "This instrument has no eligible sample slots." : "")
         )
     }
 
@@ -1859,25 +1871,11 @@ final class InstrumentEditorView: FlippedEditorView {
         addLabel("\(displayState.sampleCount) SAMPLES", to: panel, frame: NSRect(x: 100, y: 9, width: 60, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.30), size: 7.5, alignment: .right)
         let frame = NSRect(x: 10, y: 30, width: 150, height: 115)
         let rowHeight: CGFloat = 20
-        let rowCount = displayState.sampleSlots.count + (displayState.emptySampleDestinationSlot == nil ? 0 : 1)
+        let rowCount = displayState.sampleSlots.count
         let contentHeight = max(frame.height, CGFloat(max(1, rowCount)) * rowHeight)
         let rowsView = listDocumentView(frame: frame, contentHeight: contentHeight)
 
-        if let slot = displayState.emptySampleDestinationSlot {
-            let slotDisplay = String(format: "S%02X", slot)
-            let row = listRow(
-                in: rowsView,
-                frame: NSRect(x: 0, y: 0, width: frame.width, height: rowHeight),
-                slot: slot,
-                isSelected: true,
-                identifier: InstrumentEditorViewIdentifier.sampleRowPrefix + slotDisplay
-            )
-            row.isEnabled = false
-            row.setAccessibilityLabel("\(slotDisplay) Empty destination")
-            sampleRowControls[slot] = row
-            addLabel(slotDisplay, to: row, frame: NSRect(x: 8, y: 4, width: 30, height: 12), color: codeColor(selected: true), size: 9, weight: .semibold)
-            addLabel("Empty destination", to: row, frame: NSRect(x: 42, y: 4, width: 100, height: 12), color: rowTextColor(selected: true), size: 9)
-        } else if displayState.sampleSlots.isEmpty {
+        if displayState.sampleSlots.isEmpty {
             addEmptyListMessage(displayState.emptyMessage, to: rowsView, width: frame.width, height: frame.height)
         } else {
             for (index, sample) in displayState.sampleSlots.enumerated() {
@@ -1890,7 +1888,9 @@ final class InstrumentEditorView: FlippedEditorView {
                 )
                 row.target = self
                 row.action = #selector(selectSampleRow(_:))
-                row.setAccessibilityLabel("\(sample.slotDisplay) \(sample.name)")
+                row.setAccessibilityLabel(sample.isEmptyDestination
+                    ? "\(sample.slotDisplay), empty sample destination"
+                    : "\(sample.slotDisplay), \(sample.name)")
                 sampleRowControls[sample.slot] = row
                 addLabel(sample.slotDisplay, to: row, frame: NSRect(x: 8, y: 4, width: 30, height: 12), color: codeColor(selected: sample.isSelected), size: 9, weight: .semibold)
                 addLabel(sample.name, to: row, frame: NSRect(x: 42, y: 4, width: 100, height: 12), color: rowTextColor(selected: sample.isSelected), size: 9)
@@ -1899,9 +1899,7 @@ final class InstrumentEditorView: FlippedEditorView {
         sampleListScrollView = addScrollView(
             to: panel, frame: frame, documentView: rowsView,
             rowCount: rowCount, rowHeight: rowHeight,
-            selectedRowIndex: displayState.emptySampleDestinationSlot == nil
-                ? displayState.sampleSlots.firstIndex(where: \.isSelected)
-                : 0
+            selectedRowIndex: displayState.sampleSlots.firstIndex(where: \.isSelected)
         )
     }
 

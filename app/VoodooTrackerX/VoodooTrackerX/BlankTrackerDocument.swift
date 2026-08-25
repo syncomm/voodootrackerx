@@ -825,7 +825,7 @@ enum SampleKeymapRangeEditFailure: Error, Equatable {
 
 struct BlankTrackerDocument: Equatable {
     static let maximumInstrumentCount = 255
-    static let maximumSampleCountPerInstrument = 16
+    static let maximumSampleCountPerInstrument = SampleSlotPresentationProjection.maximumSampleCount
     static let defaultTitle = "Untitled"
     static let defaultSongLength = 1
     static let defaultCurrentPosition = 0
@@ -1059,6 +1059,14 @@ struct BlankTrackerDocument: Equatable {
         instrument(forInstrument: instrumentIndex)?.availableSampleSlots ?? []
     }
 
+    func sampleSlotPresentationRows(forInstrument instrumentIndex: Int) -> [SampleSlotPresentationRow] {
+        guard let instrument = instrument(forInstrument: instrumentIndex) else { return [] }
+        return SampleSlotPresentationProjection.editableRows(
+            instrument: instrument,
+            selectedSampleSlot: instrumentIndex == selection.selectedInstrument ? selection.selectedSample : nil
+        )
+    }
+
     var canAddEmptyInstrument: Bool {
         nextInstrumentSlot != nil
     }
@@ -1222,15 +1230,20 @@ struct BlankTrackerDocument: Equatable {
     }
 
     mutating func selectInstrument(_ instrumentIndex: Int) {
-        guard let instrument = instrument(forInstrument: instrumentIndex) else { return }
+        guard instrument(forInstrument: instrumentIndex) != nil else { return }
         selection = selection.withSelectedInstrument(
             instrumentIndex,
-            availableSampleSlots: instrument.availableSampleSlots
+            availableSampleSlots: sampleSlotPresentationRows(forInstrument: instrumentIndex).map(\.sampleSlot)
         )
     }
 
     mutating func selectSample(_ sampleIndex: Int) {
-        selection = selection.withSelectedSample(sampleIndex)
+        let eligibleSlots = sampleSlotPresentationRows(
+            forInstrument: selection.selectedInstrument
+        ).map(\.sampleSlot)
+        selection = selection
+            .withSelectedSample(sampleIndex)
+            .clampedToAvailableSampleSlots(eligibleSlots)
     }
 
     /// Assigns a represented zero-based sample to an inclusive zero-based note range.
@@ -1874,12 +1887,11 @@ struct BlankTrackerDocument: Equatable {
     }
 
     private var selectedSampleDisplay: ControlPanelSlotDisplay {
-        ControlPanelSlotDisplay.sample(
-            slot: selection.selectedSample,
-            name: instrument(forInstrument: selection.selectedInstrument)?
-                .sample(selectedSampleSlot: selection.selectedSample)?
-                .name
-        )
+        guard let row = sampleSlotPresentationRows(forInstrument: selection.selectedInstrument)
+            .first(where: { $0.sampleSlot == selection.selectedSample }) else {
+            return ControlPanelSlotDisplay.sample(slot: selection.selectedSample)
+        }
+        return ControlPanelSlotDisplay.sample(row: row)
     }
 
     private static func hasUsableInstrumentSamplePalette(_ palette: [Int: PlaybackInstrument]) -> Bool {
@@ -1961,17 +1973,24 @@ struct BlankTrackerDocument: Equatable {
         instrumentPalette: [Int: PlaybackInstrument]
     ) -> TrackerEditorSelection {
         if let instrument = instrumentPalette[selection.selectedInstrument] {
-            return selection.clampedToAvailableSampleSlots(instrument.availableSampleSlots)
+            let rows = SampleSlotPresentationProjection.editableRows(
+                instrument: instrument,
+                selectedSampleSlot: selection.selectedSample
+            )
+            return selection.clampedToAvailableSampleSlots(rows.map(\.sampleSlot))
         }
         guard let firstInstrument = instrumentPalette.values
-            .filter({ !$0.availableSampleSlots.isEmpty })
             .sorted(by: { $0.index < $1.index })
             .first else {
             return selection
         }
+        let rows = SampleSlotPresentationProjection.editableRows(
+            instrument: firstInstrument,
+            selectedSampleSlot: nil
+        )
         return TrackerEditorSelection(
             selectedInstrument: firstInstrument.index,
-            selectedSample: firstInstrument.availableSampleSlots[0]
+            selectedSample: rows.first?.sampleSlot ?? TrackerEditorSelection.defaultSample
         )
     }
 

@@ -162,6 +162,7 @@ struct SampleEditorDisplayState: Equatable {
     struct SampleSlot: Equatable {
         let slot: Int
         let name: String
+        let isEmptyDestination: Bool
         let isSelected: Bool
         var display: String { String(format: "S%02X", slot) }
     }
@@ -189,7 +190,11 @@ struct SampleEditorDisplayState: Equatable {
     var instrumentDisplay: String { instrumentSlot.map { String(format: "I%02X", $0) } ?? "—" }
     var sampleDisplay: String { selectedSampleSlot.map { String(format: "S%02X", $0) } ?? "—" }
     var sampleName: String {
-        guard let selectedSample else { return "No represented sample" }
+        guard let selectedSample else {
+            return selectedSampleRow?.isEmptyDestination == true
+                ? "Empty sample destination"
+                : "No represented sample"
+        }
         return Self.name(selectedSample.name, fallback: "(unnamed sample)")
     }
     var frameLength: Int? { selectedSample?.sampleLength }
@@ -209,11 +214,16 @@ struct SampleEditorDisplayState: Equatable {
     var finetuneDisplay: String { finetune.map(Self.signed) ?? "—" }
     var waveformPCM: [Float] { selectedSample?.pcm ?? [] }
     var loop: SampleLoopDisplayState { selectedSample.map(SampleLoopDisplayState.init(sample:)) ?? .inactive }
+    private var selectedSampleRow: SampleSlot? { sampleSlots.first(where: \.isSelected) }
 
     static func loadedModule(playbackSong: PlaybackSong?, selection: TrackerEditorSelection,
                              isPreviewAvailable: Bool = true) -> Self {
         make(source: .loadedModule, palette: playbackSong?.instrumentsByIndex ?? [:],
-             selection: selection, isSineGenerationEnabled: false, isWAVLoadEnabled: false,
+             selection: selection,
+             presentationRows: playbackSong?.sampleSlotPresentationRows(
+                forInstrument: selection.selectedInstrument
+             ) ?? [],
+             isSineGenerationEnabled: false, isWAVLoadEnabled: false,
              isImportingWAV: false, isPreviewAvailable: isPreviewAvailable)
     }
 
@@ -224,13 +234,18 @@ struct SampleEditorDisplayState: Equatable {
         isPreviewAvailable: Bool = true
     ) -> Self {
         make(source: .editableDocument, palette: document.instrumentPalette, selection: document.selection,
+             presentationRows: document.sampleSlotPresentationRows(
+                forInstrument: document.selection.selectedInstrument
+             ),
              isSineGenerationEnabled: !isPlaybackActive && !isImportingWAV && document.canGenerateSineInSelectedEmptySample,
              isWAVLoadEnabled: !isPlaybackActive && !isImportingWAV && document.selectedSampleImportDestination != nil,
              isImportingWAV: isImportingWAV, isPreviewAvailable: isPreviewAvailable)
     }
 
     private static func make(source: Source, palette: [Int: PlaybackInstrument],
-                             selection: TrackerEditorSelection, isSineGenerationEnabled: Bool,
+                             selection: TrackerEditorSelection,
+                             presentationRows: [SampleSlotPresentationRow],
+                             isSineGenerationEnabled: Bool,
                              isWAVLoadEnabled: Bool, isImportingWAV: Bool, isPreviewAvailable: Bool) -> Self {
         let instrumentOptions = palette
             .filter { (1...255).contains($0.key) }
@@ -254,24 +269,33 @@ struct SampleEditorDisplayState: Equatable {
                 isAuditionEnabled: false
             )
         }
-        let selected = instrument.sample(selectedSampleSlot: selection.selectedSample)
-        let slots = instrument.samples.map {
+        let selected = presentationRows
+            .first(where: { $0.sampleSlot == selection.selectedSample })?
+            .representedSample
+        let slots = presentationRows.map { row in
             SampleSlot(
-                slot: min(255, max(1, $0.sampleIndex + 1)),
-                name: name($0.name, fallback: "(unnamed sample)"),
-                isSelected: $0.sampleIndex + 1 == selection.selectedSample
+                slot: row.sampleSlot,
+                name: row.representedSample.map { name($0.name, fallback: "(unnamed sample)") }
+                    ?? "Empty destination",
+                isEmptyDestination: row.isEmptyDestination,
+                isSelected: row.sampleSlot == selection.selectedSample
             )
-        }.sorted { $0.slot < $1.slot }
+        }
+        let selectedSlot = slots.first(where: \.isSelected)
         return SampleEditorDisplayState(
             source: source,
             instrumentSlot: selection.selectedInstrument,
             instrumentName: name(instrument.name, fallback: "(unnamed instrument)"),
             instrumentOptions: instrumentOptions,
-            selectedSampleSlot: selected.map { $0.sampleIndex + 1 },
+            selectedSampleSlot: selectedSlot?.slot,
             sampleSlots: slots,
             selectedSample: selected,
             emptyMessage: selected == nil
-                ? (slots.isEmpty ? "This instrument has no represented samples." : "The selected sample is not represented.")
+                ? (selectedSlot?.isEmptyDestination == true
+                    ? "\(selectedSlot?.display ?? "Sample") is an empty sample destination."
+                    : (slots.isEmpty
+                        ? "This instrument has no represented samples."
+                        : "The selected sample is not represented."))
                 : "",
             isSineGenerationEnabled: isSineGenerationEnabled,
             isWAVLoadEnabled: isWAVLoadEnabled,
@@ -738,7 +762,9 @@ final class SampleEditorView: FlippedEditorView {
             row.identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.sampleRowPrefix + "\(slot.slot)")
             row.target = self
             row.action = #selector(selectSample(_:))
-            row.setAccessibilityLabel("\(slot.display) \(slot.name)")
+            row.setAccessibilityLabel(slot.isEmptyDestination
+                ? "\(slot.display), empty sample destination"
+                : "\(slot.display), \(slot.name)")
             sampleRows[slot.slot] = row
             rows.addSubview(row)
             label(slot.display, row, NSRect(x: 8, y: 5, width: 30, height: 11), color: slot.isSelected ? .white.withAlphaComponent(0.65) : VTXEditorControlTheme.panelLabelText, size: 8.5)
@@ -860,6 +886,7 @@ final class SampleEditorView: FlippedEditorView {
         sineButton.isEnabled = enabled
         sineButton.target = enabled ? self : nil
         sineButton.action = enabled ? #selector(generateSine(_:)) : nil
+        sineButton.alphaValue = enabled ? 1 : 0.38
         sineButton.setAccessibilityEnabled(enabled)
     }
 
@@ -899,6 +926,7 @@ final class SampleEditorView: FlippedEditorView {
         wavLoadButton.isEnabled = enabled
         wavLoadButton.target = enabled ? self : nil
         wavLoadButton.action = enabled ? #selector(loadWAV(_:)) : nil
+        wavLoadButton.alphaValue = enabled ? 1 : 0.38
         wavLoadButton.setAccessibilityEnabled(enabled)
     }
 

@@ -56,6 +56,17 @@ headers, incomplete provenance, Amiga-table XM, and other existing unsupported
 state remain copy-unavailable. VTX sparse export -> reopen -> editable copy ->
 re-export is byte-identical in the focused interior, trailing-mapped, and
 only-empty cases; no empty `PlaybackSample` is fabricated.
+The shared UI-independent `SampleSlotPresentationProjection` now exposes represented
+versus empty-destination rows to all three selection surfaces. Editable instruments
+show a contiguous S01-through-highest span covering represented identities, exact
+96-note map references, and valid current selection, capped at S16; zero-sample
+instruments show empty S01. Capacity alone never advertises a future append row;
+occupied LOAD -> Add as New remains the path that creates the next represented Sxx.
+Loaded sources show represented
+rows plus only zero-payload canonical gaps proven by exact source provenance and add
+no append row. Map-only, incomplete, and noncanonical source gaps remain conservative.
+Selecting an eligible empty row is UI/session focus with no revision, undo, keymap,
+pattern, or represented-data mutation.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 
@@ -108,10 +119,11 @@ editable copies; all use labeled whole-document `applyEdit` undo/redo. Sample pa
 editable sample metadata field and preserves the exact XM `0...255` byte
 through snapshots and Export XM. Loaded modules, playing documents, missing or
 empty sample slots, and all unimplemented mutation controls remain read-only/inert.
-Represented instrument/sample rows share the main control-panel selection in loaded or editable
+Instrument/sample rows, including eligible canonical empty destinations, share the main control-panel selection in loaded or editable
 documents, including during playback. Row selection is non-mutating, creates no undo, cancels stale
 preview before switching context, and drives metadata; sample selection drives only direct Sample
-Editor audition, while instrument-note audition ignores it. Transport gates mutation only.
+Editor audition when a represented sample exists, while instrument-note audition ignores it. Empty rows clear
+sample metadata, disable sample mutators and `MAP RANGE…`, and never redirect the keymap. Transport gates mutation only.
 The floating Instrument Editor closes through its red close button or Command-W without
 closing the main app window, and `Window > Instrument Editor` recreates one clean
 controller/router afterward. Its computer-key audition router inspects only keyDown/keyUp events;
@@ -140,11 +152,14 @@ visual hierarchy and geometry. It shares the canonical instrument/sample
 selection with the main control panel and Instrument Editor. Its compact
 instrument popup changes that shared UI state without document mutation or undo,
 reuses the canonical sample-normalization policy, and stays selectable for
-loaded/editable documents during playback. The selected sample row, header,
-exact metadata, bounded read-only min/max waveform, and display-only
-no/forward/ping-pong loop region now derive from one represented sample.
+loaded/editable documents during playback. The selected sample row and Sxx
+identity derive from the shared slot projection; exact metadata, bounded read-only
+min/max waveform, and display-only no/forward/ping-pong loop region derive only
+from a represented sample.
 Unnamed represented samples show `(unnamed sample)`; absent samples clear every
-sample surface. FORMAT reports represented bit depth and mono without treating
+sample surface and are labeled as empty destinations. Empty rows remain selectable
+during playback, but direct AUDITION is unavailable and SINE/LOAD do not gain
+arbitrary interior-empty mutation scope. FORMAT reports represented bit depth and mono without treating
 playback-policy `baseSampleRate` as source metadata.
 SINE and audio LOAD are the current Sample Editor mutations. LOAD is available
 only for a stopped editable empty S01 or represented selected sample and is

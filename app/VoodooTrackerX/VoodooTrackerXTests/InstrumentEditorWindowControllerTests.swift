@@ -37,7 +37,9 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(blankDocument.instrumentSlots.map(\.slotDisplay), ["I01"])
         XCTAssertEqual(blankDocument.instrumentSlots.map(\.sampleCount), [0])
         XCTAssertEqual(blankDocument.instrumentSlots.map(\.isSelected), [true])
-        XCTAssertTrue(blankDocument.sampleSlots.isEmpty)
+        XCTAssertEqual(blankDocument.sampleSlots.map(\.slotDisplay), ["S01"])
+        XCTAssertEqual(blankDocument.sampleSlots.map(\.isEmptyDestination), [true])
+        XCTAssertEqual(blankDocument.sampleSlots.map(\.isSelected), [true])
         XCTAssertEqual(blankDocument.emptySampleDestinationSlot, 1)
         XCTAssertEqual(blankDocument.selectedSampleSlot, 1)
         XCTAssertNil(blankDocument.selectedSample)
@@ -49,18 +51,96 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
     }
 
     func testBlankInstrumentViewRendersSelectedDestinationWithoutSampleMetadataOrAudition() throws {
-        let controller = InstrumentEditorWindowController(displayState: .editableDocument(.makeDefault()))
+        var selectedSlot: Int?
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(.makeDefault()),
+            sampleSelectionHandler: { selectedSlot = $0; return true }
+        )
         let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
         let destination = try view.sampleRow(slot: 1)
 
-        XCTAssertFalse(destination.isEnabled)
-        XCTAssertEqual(destination.accessibilityLabel(), "S01 Empty destination")
+        XCTAssertTrue(destination.isEnabled)
+        XCTAssertEqual(destination.accessibilityLabel(), "S01, empty sample destination")
+        XCTAssertTrue(destination.accessibilityPerformPress())
+        XCTAssertEqual(selectedSlot, 1)
         XCTAssertTrue(view.displayState.isInstrumentNameEditable)
         XCTAssertNil(view.displayState.selectedSample)
         XCTAssertFalse(view.displayState.isSampleVolumeEditable)
         XCTAssertFalse(view.displayState.isSampleRelativeNoteEditable)
         XCTAssertFalse(view.displayState.isSampleFinetuneEditable)
         XCTAssertFalse(view.displayState.isSamplePanningEditable)
+    }
+
+    func testSparseEditableEmptySlotUsesSharedRowsAndLeavesMetadataMappingAndMutatorsUnavailable() throws {
+        let first = makeInstrumentEditorSample(instrument: 1, sample: 0, name: "Pulse S01")
+        let third = makeInstrumentEditorSample(instrument: 1, sample: 2, name: "Impulse S03")
+        let c4 = PlaybackPitchCalculator.c4NoteValue
+        var map = Array(repeating: 1, count: TrackerNoteKeyMap.maximumNoteValue)
+        map[c4 - 1] = 0
+        map[c4 + 12 - 1] = 1
+        map[c4 + 24 - 1] = 2
+        let document = makeEditableDocument(
+            palette: [
+                1: PlaybackInstrument(index: 1, samples: [first, third], noteSampleMap: map),
+            ],
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
+        )
+        let state = InstrumentEditorDisplayState.editableDocument(document)
+
+        XCTAssertEqual(state.sampleSlots.map(\.slotDisplay), ["S01", "S02", "S03"])
+        XCTAssertEqual(state.sampleSlots.map(\.isEmptyDestination), [false, true, false])
+        XCTAssertEqual(state.sampleSlots.filter(\.isSelected).map(\.slot), [2])
+        XCTAssertEqual(state.selectedSampleSlot, 2)
+        XCTAssertNil(state.selectedSample)
+        XCTAssertFalse(state.isSampleVolumeEditable)
+        XCTAssertFalse(state.isSampleRelativeNoteEditable)
+        XCTAssertFalse(state.isSampleFinetuneEditable)
+        XCTAssertFalse(state.isSamplePanningEditable)
+        XCTAssertFalse(state.isKeymapRangeAssignmentEnabled)
+        XCTAssertEqual(state.keymapRanges.map(\.sampleSlot), [nil, 1, nil, 3, nil])
+        let playingState = InstrumentEditorDisplayState.editableDocument(document, isPlaybackActive: true)
+        XCTAssertEqual(playingState.selectedSampleSlot, 2)
+        XCTAssertEqual(playingState.sampleSlots.map(\.slot), [1, 2, 3])
+        XCTAssertFalse(playingState.isInstrumentNameEditable)
+        XCTAssertFalse(playingState.isKeymapRangeAssignmentEnabled)
+
+        var selectedSlot: Int?
+        let controller = InstrumentEditorWindowController(
+            displayState: state,
+            sampleSelectionHandler: { selectedSlot = $0; return true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let emptyRow = try view.sampleRow(slot: 2)
+        XCTAssertEqual(emptyRow.accessibilityLabel(), "S02, empty sample destination")
+        XCTAssertTrue(emptyRow.accessibilityPerformPress())
+        XCTAssertEqual(selectedSlot, 2)
+    }
+
+    func testLoadedCanonicalSparseGapIsSelectableWithoutAppendRowOrMutationEligibility() {
+        let first = makeInstrumentEditorSample(instrument: 1, sample: 0, name: "Pulse S01")
+        let third = makeInstrumentEditorSample(instrument: 1, sample: 2, name: "Impulse S03")
+        let song = makePlaybackSong(
+            instruments: [1: PlaybackInstrument(index: 1, samples: [first, third])],
+            provenance: [
+                1: [
+                    XMSourceSampleSlotProvenance(sampleIndex: 0, decodedPayloadLength: 4, isCanonicalEmptySlotHeader: false),
+                    XMSourceSampleSlotProvenance(sampleIndex: 1, decodedPayloadLength: 0, isCanonicalEmptySlotHeader: true),
+                    XMSourceSampleSlotProvenance(sampleIndex: 2, decodedPayloadLength: 4, isCanonicalEmptySlotHeader: false),
+                ],
+            ]
+        )
+
+        let state = InstrumentEditorDisplayState.loadedModule(
+            playbackSong: song,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
+        )
+
+        XCTAssertEqual(state.sampleSlots.map(\.slot), [1, 2, 3])
+        XCTAssertEqual(state.sampleSlots.map(\.isEmptyDestination), [false, true, false])
+        XCTAssertEqual(state.selectedSampleSlot, 2)
+        XCTAssertNil(state.selectedSample)
+        XCTAssertFalse(state.isSampleVolumeEditable)
+        XCTAssertFalse(state.isKeymapRangeAssignmentEnabled)
     }
 
     func testLoadedPaletteShowsSelectedInstrumentNameAndSampleCount() {
@@ -2806,14 +2886,18 @@ private func makeInstrumentEditorSample(
     )
 }
 
-private func makePlaybackSong(instruments: [Int: PlaybackInstrument]) -> PlaybackSong {
+private func makePlaybackSong(
+    instruments: [Int: PlaybackInstrument],
+    provenance: [Int: [XMSourceSampleSlotProvenance]] = [:]
+) -> PlaybackSong {
     PlaybackSong(
         title: "Synthetic",
         orders: [],
         patternsByIndex: [:],
         instrumentsByIndex: instruments,
         restartOrderIndex: 0,
-        endBehavior: .stopAtEnd
+        endBehavior: .stopAtEnd,
+        xmSampleSlotProvenanceByInstrument: provenance
     )
 }
 

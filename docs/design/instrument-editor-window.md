@@ -25,11 +25,14 @@ immediately above the piano projects the exact same `InstrumentKeyboardVisibleRa
 96-note document map remains authoritative. Range navigation refreshes both surfaces as session UI
 state with no document/undo mutation. `MAP RANGE…` maps the selected represented nonempty sample
 through an explicit inclusive C-0...B-7 sheet and one undo action. The strip has no pointer interaction;
-graphical range selection, drag-to-paint, and automatic assignment remain deferred. Represented
-instrument/sample rows share canonical control-panel selection in loaded/editable and stopped/playing
-states. Selection
+graphical range selection, drag-to-paint, and automatic assignment remain deferred. Instrument/sample rows,
+including eligible canonical empty Sxx destinations, share canonical control-panel selection in loaded/editable
+and stopped/playing states. Selection
 is non-mutating, creates no undo, cancels stale preview before context changes, and drives metadata;
-selected sample is editing focus only, while audition uses instrument plus note and the keymap.
+selected sample is editing focus only, while audition uses instrument plus note and the keymap. An empty selected
+row owns no `PlaybackSample`, clears represented metadata/default displays, and keeps VOLUME, PAN, FINETUNE,
+REL NOTE, and `MAP RANGE…` unavailable. Notes mapped to that empty identity remain unavailable with no fallback;
+notes mapped to represented Sxx continue to resolve independently of the selected row.
 Transport gates mutation only. The editor closes normally through its red close button
 or Command-W and reopens as one clean presenter-owned window. Broader sample/XI,
 envelope/keymap, waveform, and
@@ -62,6 +65,14 @@ Undo/redo refresh this window and the main control panel. Sample-header panning 
 focused preview/runtime/export trigger; instrument autovibrato remains runtime-inert. Panning-envelope metadata is preserved but not yet
 applied to playback; its VOL/PAN selector changes only local display mode, and every envelope edit
 control remains disabled/inert alongside XI and loaded-module NAME.
+
+The sample list consumes the shared UI-independent slot projection. Editable lists are contiguous from S01 through
+the highest represented, exact-map-referenced, or valid selected identity, with a hard S16 cap; zero-sample
+instruments show empty S01. Remaining capacity does not advertise a future append row; occupied LOAD -> Add as New
+creates the next represented identity before the row appears. Loaded lists show represented identities plus only canonical zero-payload
+gaps proven by source provenance, and never a synthetic append row. Empty rows are selectable editing focus during
+stopped or playing state, are labeled as empty destinations for accessibility, and create no document revision or
+undo entry.
 
 Keymap assignment uses zero-based map indices `0...95` (XM notes `1...96`,
 C-0...B-7) and zero-based sample indices displayed as S01...S16. It requires

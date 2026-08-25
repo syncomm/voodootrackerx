@@ -838,6 +838,130 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertNil(instrument.sample(selectedSampleSlot: 0))
     }
 
+    func testEditableSampleSlotPresentationUsesCanonicalBoundedIdentitySpan() throws {
+        let first = PlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, name: "First", pcm: [1],
+            volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363
+        )
+        let second = PlaybackSample(
+            instrumentIndex: 1, sampleIndex: 1, name: "Second", pcm: [0.5],
+            volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363
+        )
+        let third = PlaybackSample(
+            instrumentIndex: 1, sampleIndex: 2, name: "Third", pcm: [-0.5],
+            volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363
+        )
+
+        let emptyRows = SampleSlotPresentationProjection.editableRows(
+            instrument: PlaybackInstrument(index: 1, samples: []),
+            selectedSampleSlot: 1
+        )
+        XCTAssertEqual(emptyRows.map(\.sampleSlot), [1])
+        XCTAssertTrue(try XCTUnwrap(emptyRows.first).isEmptyDestination)
+
+        let singleRows = SampleSlotPresentationProjection.editableRows(
+            instrument: PlaybackInstrument(index: 1, samples: [first]),
+            selectedSampleSlot: 1
+        )
+        XCTAssertEqual(singleRows.map(\.sampleSlot), [1])
+        XCTAssertEqual(singleRows.map(\.isEmptyDestination), [false])
+
+        let denseRows = SampleSlotPresentationProjection.editableRows(
+            instrument: PlaybackInstrument(index: 1, samples: [first, second]),
+            selectedSampleSlot: 1
+        )
+        XCTAssertEqual(denseRows.map(\.sampleSlot), [1, 2])
+        XCTAssertEqual(denseRows.map(\.isEmptyDestination), [false, false])
+
+        let threeDenseRows = SampleSlotPresentationProjection.editableRows(
+            instrument: PlaybackInstrument(index: 1, samples: [first, second, third]),
+            selectedSampleSlot: 3
+        )
+        XCTAssertEqual(threeDenseRows.map(\.sampleSlot), [1, 2, 3])
+        XCTAssertEqual(threeDenseRows.map(\.isEmptyDestination), [false, false, false])
+
+        let sparseRows = SampleSlotPresentationProjection.editableRows(
+            instrument: PlaybackInstrument(index: 1, samples: [first, third]),
+            selectedSampleSlot: 2
+        )
+        XCTAssertEqual(sparseRows.map(\.sampleSlot), [1, 2, 3])
+        XCTAssertEqual(sparseRows.map(\.representedSample?.name), ["First", nil, "Third"])
+        XCTAssertEqual(sparseRows.map(\.isEmptyDestination), [false, true, false])
+
+        let keymapTrailingRows = SampleSlotPresentationProjection.editableRows(
+            instrument: PlaybackInstrument(
+                index: 1,
+                samples: [first],
+                noteSampleMap: Array(repeating: 1, count: TrackerNoteKeyMap.maximumNoteValue)
+            ),
+            selectedSampleSlot: 1
+        )
+        XCTAssertEqual(keymapTrailingRows.map(\.sampleSlot), [1, 2])
+        XCTAssertTrue(try XCTUnwrap(keymapTrailingRows.last).isEmptyDestination)
+
+        let selectedTrailingRows = SampleSlotPresentationProjection.editableRows(
+            instrument: PlaybackInstrument(index: 1, samples: [first]),
+            selectedSampleSlot: 4
+        )
+        XCTAssertEqual(selectedTrailingRows.map(\.sampleSlot), [1, 2, 3, 4])
+
+        let capacityRows = SampleSlotPresentationProjection.editableRows(
+            instrument: PlaybackInstrument(index: 1, samples: [first, second] + (2..<16).map {
+                PlaybackSample(
+                    instrumentIndex: 1, sampleIndex: $0, pcm: [Float($0) / 16],
+                    volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363
+                )
+            }),
+            selectedSampleSlot: 16
+        )
+        XCTAssertEqual(capacityRows.map(\.sampleSlot), Array(1...16))
+        XCTAssertNil(capacityRows.first { $0.sampleSlot == 17 })
+    }
+
+    func testLoadedSampleSlotPresentationRequiresCanonicalEmptySourceProvenance() {
+        let first = PlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, name: "First", pcm: [1],
+            volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363
+        )
+        let third = PlaybackSample(
+            instrumentIndex: 1, sampleIndex: 2, name: "Third", pcm: [-0.5],
+            volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363
+        )
+        let instrument = PlaybackInstrument(
+            index: 1,
+            samples: [first, third],
+            noteSampleMap: Array(repeating: 1, count: TrackerNoteKeyMap.maximumNoteValue)
+        )
+        let canonicalProvenance = [
+            XMSourceSampleSlotProvenance(sampleIndex: 0, decodedPayloadLength: 1, isCanonicalEmptySlotHeader: false),
+            XMSourceSampleSlotProvenance(sampleIndex: 1, decodedPayloadLength: 0, isCanonicalEmptySlotHeader: true),
+            XMSourceSampleSlotProvenance(sampleIndex: 2, decodedPayloadLength: 1, isCanonicalEmptySlotHeader: false),
+        ]
+
+        let canonicalRows = SampleSlotPresentationProjection.loadedRows(
+            instrument: instrument,
+            sourceProvenance: canonicalProvenance
+        )
+        XCTAssertEqual(canonicalRows.map(\.sampleSlot), [1, 2, 3])
+        XCTAssertEqual(canonicalRows.map(\.isEmptyDestination), [false, true, false])
+        XCTAssertNil(canonicalRows.first { $0.sampleSlot == 4 })
+
+        let noncanonicalRows = SampleSlotPresentationProjection.loadedRows(
+            instrument: instrument,
+            sourceProvenance: canonicalProvenance.map {
+                $0.sampleIndex == 1
+                    ? XMSourceSampleSlotProvenance(
+                        sampleIndex: 1,
+                        decodedPayloadLength: 0,
+                        isCanonicalEmptySlotHeader: false
+                    )
+                    : $0
+            }
+        )
+        XCTAssertEqual(noncanonicalRows.map(\.sampleSlot), [1, 3])
+        XCTAssertFalse(noncanonicalRows.contains { $0.isEmptyDestination })
+    }
+
     func testPlaybackTimingUsesXMDefaultTickDuration() {
         let timing = PlaybackTiming.xmDefault
 

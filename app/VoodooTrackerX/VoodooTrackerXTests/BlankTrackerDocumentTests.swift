@@ -213,6 +213,10 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertNil(document.instrumentPalette[1]?.sample(selectedSampleSlot: 2))
         XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap, mapToEmptyS02)
         XCTAssertNotEqual(first.pcm, third.pcm)
+        XCTAssertEqual(document.controlPanelMetadata.selectedSampleDisplay, "S02 Empty des...")
+        XCTAssertEqual(document.controlPanelMetadata.selectedSampleTooltip, "S02 Empty destination")
+        XCTAssertEqual(InstrumentEditorDisplayState.editableDocument(document).selectedSampleSlot, 2)
+        XCTAssertEqual(SampleEditorDisplayState.editableDocument(document).selectedSampleSlot, 2)
         XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
             instrumentIndex: 1,
             note: UInt8(PlaybackPitchCalculator.c4NoteValue),
@@ -227,6 +231,100 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(
             document.noteAuditionAvailability(for: request),
             .unavailable(.instrumentKeymapUnavailable)
+        )
+    }
+
+    func testEditableSampleSlotSelectionPreservesEligibleEmptyIdentityAndFallsBackOutsideProjection() {
+        let first = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, name: "Distinct S01", pcm: [0.125]
+        )
+        let third = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 2, name: "Distinct S03", pcm: [-0.75]
+        )
+        var document = makeBlankDocument(
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [first, third])]
+        )
+        let paletteBeforeSelection = document.instrumentPalette
+        let patternsBeforeSelection = document.patterns
+
+        XCTAssertEqual(document.sampleSlotPresentationRows(forInstrument: 1).map(\.sampleSlot), [1, 2, 3])
+        document.selectSample(2)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        XCTAssertNil(document.instrumentPalette[1]?.sample(selectedSampleSlot: 2))
+        XCTAssertEqual(document.instrumentPalette, paletteBeforeSelection)
+        XCTAssertEqual(document.patterns, patternsBeforeSelection)
+
+        document.selectSample(4)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1))
+        XCTAssertEqual(document.instrumentPalette, paletteBeforeSelection)
+        XCTAssertEqual(document.patterns, patternsBeforeSelection)
+    }
+
+    func testInstrumentSwitchNormalizesOnceThroughSharedSampleSlotProjection() {
+        let first = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, name: "I01 S01")
+        let secondFirst = makePlaybackSample(instrumentIndex: 2, sampleIndex: 0, name: "I02 S01")
+        let secondThird = makePlaybackSample(instrumentIndex: 2, sampleIndex: 2, name: "I02 S03")
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 4),
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, samples: [first]),
+                2: PlaybackInstrument(index: 2, samples: [secondFirst, secondThird]),
+                3: PlaybackInstrument(index: 3, samples: []),
+            ]
+        )
+        let paletteBeforeSelection = document.instrumentPalette
+
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 4))
+        XCTAssertEqual(document.sampleSlotPresentationRows(forInstrument: 1).map(\.sampleSlot), [1, 2, 3, 4])
+        XCTAssertTrue(document.sampleSlotPresentationRows(forInstrument: 1)[3].isEmptyDestination)
+
+        document.selectInstrument(2)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
+        XCTAssertEqual(document.sampleSlotPresentationRows(forInstrument: 2).map(\.sampleSlot), [1, 2, 3])
+
+        document.selectInstrument(3)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 3, selectedSample: 1))
+        XCTAssertEqual(document.sampleSlotPresentationRows(forInstrument: 3).map(\.sampleSlot), [1])
+        XCTAssertEqual(document.instrumentPalette, paletteBeforeSelection)
+    }
+
+    func testSelectedEmptySampleDoesNotRedirectInstrumentKeymapOrDirectSampleAudition() {
+        let first = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, name: "Pulse S01", pcm: [0.25, 0.5]
+        )
+        let third = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 2, name: "Impulse S03", pcm: [-0.75]
+        )
+        let c4 = PlaybackPitchCalculator.c4NoteValue
+        var map = Array(repeating: 1, count: TrackerNoteKeyMap.maximumNoteValue)
+        map[c4 - 1] = 0
+        map[c4 + 12 - 1] = 1
+        map[c4 + 24 - 1] = 2
+        let instrument = PlaybackInstrument(
+            index: 1,
+            samples: [first, third],
+            noteSampleMap: map
+        )
+        let selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
+        let document = makeBlankDocument(selection: selection, instrumentPalette: [1: instrument])
+
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: UInt8(c4), instrumentsByIndex: document.instrumentPalette
+        )?.sample.sampleIndex, 0)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: UInt8(c4 + 12), instrumentsByIndex: document.instrumentPalette
+        ))
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: UInt8(c4 + 24), instrumentsByIndex: document.instrumentPalette
+        )?.sample.sampleIndex, 2)
+
+        let directRequest = SampleEditorAuditionRequestFactory.request(
+            selection: selection,
+            sourceContext: .blankDocument
+        )
+        XCTAssertEqual(
+            document.noteAuditionAvailability(for: directRequest),
+            .unavailable(.selectedSampleUnavailable)
         )
     }
 
@@ -503,7 +601,9 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
         XCTAssertTrue(document.availableSampleSlots(forInstrument: 2).isEmpty)
         XCTAssertEqual(state.instrumentName, "Sampleless")
-        XCTAssertTrue(state.sampleSlots.isEmpty)
+        XCTAssertEqual(state.sampleSlots.map(\.slot), [1])
+        XCTAssertEqual(state.sampleSlots.map(\.isEmptyDestination), [true])
+        XCTAssertEqual(state.selectedSampleSlot, 1)
         XCTAssertNil(state.selectedSample)
         XCTAssertFalse(state.isSampleVolumeEditable || state.isSampleRelativeNoteEditable || state.isSampleFinetuneEditable || state.isSamplePanningEditable)
     }
@@ -3164,7 +3264,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
         ))
 
-        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 4, selectedSample: 2))
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 4, selectedSample: 1))
     }
 
     func testLoadedModuleEditableCopyPreservesPublicFixtureSamplePayloadForAuditionAvailability() throws {
@@ -3949,8 +4049,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(metadata.channelCount, "8")
         XCTAssertEqual(metadata.selectedInstrumentDisplay, "I01")
         XCTAssertEqual(metadata.selectedInstrumentTooltip, "I01")
-        XCTAssertEqual(metadata.selectedSampleDisplay, "S01")
-        XCTAssertEqual(metadata.selectedSampleTooltip, "S01")
+        XCTAssertEqual(metadata.selectedSampleDisplay, "S01 Empty des...")
+        XCTAssertEqual(metadata.selectedSampleTooltip, "S01 Empty destination")
         XCTAssertEqual(metadata.tempo, "125")
         XCTAssertEqual(metadata.speed, "06")
         XCTAssertEqual(metadata.songPositionValue, 0)
@@ -3977,7 +4077,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(content.patternRowCount, "64")
         XCTAssertEqual(content.channelCount, "8")
         XCTAssertEqual(content.selectedInstrumentDisplay, "I01")
-        XCTAssertEqual(content.selectedSampleDisplay, "S01")
+        XCTAssertEqual(content.selectedSampleDisplay, "S01 Empty des...")
         XCTAssertEqual(content.tempo, "125")
         XCTAssertEqual(content.speed, "06")
         XCTAssertEqual(content.selectedOctave, 4)
@@ -4042,7 +4142,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(content.patternRowCount, "64")
         XCTAssertEqual(content.channelCount, "8")
         XCTAssertEqual(content.selectedInstrumentDisplay, "I01")
-        XCTAssertEqual(content.selectedSampleDisplay, "S01")
+        XCTAssertEqual(content.selectedSampleDisplay, "S01 Empty des...")
         XCTAssertEqual(content.tempo, "125")
         XCTAssertEqual(content.speed, "06")
         XCTAssertEqual(content.selectedOctave, 4)
@@ -4056,7 +4156,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertEqual(loadedLikeSelection.sampleDisplayTitle, "S03")
         XCTAssertEqual(reset.selection.selectedSample, TrackerEditorSelection.defaultSample)
-        XCTAssertEqual(reset.controlPanelMetadata.selectedSampleDisplay, "S01")
+        XCTAssertEqual(reset.controlPanelMetadata.selectedSampleDisplay, "S01 Empty des...")
         XCTAssertEqual(reset.noteAuditionAvailability, .unavailable(.selectedSampleUnavailable))
     }
 
@@ -4546,7 +4646,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.metadata.defaultTempo, 6)
         XCTAssertEqual(document.metadata.restartPosition, 0)
         XCTAssertEqual(document.controlPanelMetadata.selectedInstrumentDisplay, "I01")
-        XCTAssertEqual(document.controlPanelMetadata.selectedSampleDisplay, "S01")
+        XCTAssertEqual(document.controlPanelMetadata.selectedSampleDisplay, "S01 Empty des...")
     }
 
     private func makeBlankDocument(

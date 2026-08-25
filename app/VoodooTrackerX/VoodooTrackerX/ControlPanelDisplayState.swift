@@ -41,6 +41,19 @@ struct ControlPanelSlotDisplay: Equatable {
         ControlPanelSlotDisplay(code: String(format: "S%02X", clampedSlot(slot)), name: name)
     }
 
+    static func sample(row: SampleSlotPresentationRow) -> ControlPanelSlotDisplay {
+        switch row.state {
+        case let .represented(representedSample):
+            let trimmedName = representedSample.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return sample(
+                slot: row.sampleSlot,
+                name: trimmedName.isEmpty ? "(unnamed sample)" : trimmedName
+            )
+        case .emptyDestination:
+            return sample(slot: row.sampleSlot, name: "Empty destination")
+        }
+    }
+
     var displayTitle: String {
         guard let name = normalizedName else {
             return code

@@ -60,10 +60,16 @@ That provenance permits only lossless canonical sparse state through Make Editab
 Copy and a byte-identical re-export; arbitrary named or metadata-bearing zero-length
 headers remain outside the supported editable subset.
 
-The post-alpha milestone selection is complete. After this persistence foundation,
-the recommended next product step is the narrowly scoped interior-empty-slot list
-projection below; it does not yet pull lifecycle mutation, MIDI, broad UI polish,
-or AUv3 work forward.
+The post-alpha canonical interior-empty-slot presentation foundation is complete.
+One shared UI-independent projection now distinguishes represented samples from
+empty destinations across the main control panel, Instrument Editor, and Sample
+Editor. Editable spans are contiguous and capped at S16; loaded gaps require
+canonical source provenance and do not gain append rows. Editable capacity does
+not advertise a future append row; the occupied LOAD -> Add as New workflow
+creates the next represented identity before it appears. Empty selection is
+non-mutating, and SINE/LOAD, keymap routing, runtime, writer, and Save behavior are
+unchanged. The next PR is repository hygiene; Clear Sample remains the following
+sample-lifecycle behavior.
 
 ## Project Goals
 
@@ -497,13 +503,11 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 - tracker viewport changes
 - retired AVAudio backend reintroduction
 
-Recommended next product PR:
+Recommended next PR:
 
-- Next: `sample: expose canonical interior empty slots in editor lists`. The
-  sparse writer/reopen/editable-copy contract is complete, but Sample Editor and shared palette
-  lists still show represented samples plus only the special all-empty S01 state.
-  Make interior gaps visible and selectable without adding Clear/Duplicate/Move/
-  Swap mutation or changing runtime routing. See ADR 012's sparse sample-slot boundary.
+- Next: `repo: retire legacy VoodooTracker submodule reference`. The shared
+  interior-empty-slot presentation prerequisite is complete. Clear Sample stays
+  queued as the next sample-lifecycle change after this repository cleanup.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -613,8 +617,9 @@ Recently completed product foundation:
   instrument's exact note map; Sample Editor preview resolves its selected `Sxx`
   directly. Either route returns preview-unavailable for an invalid target rather
   than falling back to `S01`. Instrument changes
-  preserve the selected sample slot when possible and otherwise reset to the
-  first available sample slot, or `S01` when no sample slots are exposed.
+  preserve the selected sample slot when it is an eligible shared projected row,
+  including a canonical empty destination, and otherwise normalize once to the
+  first eligible row or `S01` for a zero-sample editable instrument.
   Loaded modules remain read-only, payload-less blank documents remain preview-unavailable,
   and runtime song playback, Play/Stop transport, backend selection, C mixer
   DSP, parser architecture, tracker viewport behavior, save/export behavior,

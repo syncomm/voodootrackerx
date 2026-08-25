@@ -39,10 +39,16 @@ The display shows exact available instrument/sample identity, frame length, bit
 depth, volume, panning, finetune, relative note, and loop mode/range. It uses a
 bounded min/max waveform projection and safe display-only no/forward/ping-pong
 loop markers/region. The selected row, header identity, metadata, waveform, and
-loop display are built from the same represented sample. An empty sample name
-shows `(unnamed sample)` rather than absence; no represented sample clears every
-sample surface. Empty documents and unrepresented slots remain honestly empty.
-File New therefore selects represented I01 while showing `No represented sample`,
+loop display are built from the same represented sample. An unnamed represented
+sample shows `(unnamed sample)`; an eligible empty destination instead has its
+own Sxx row and clears every sample surface without creating a `PlaybackSample`.
+Editable rows form a bounded contiguous S01...S16 span through represented,
+exact-map-referenced, and valid selected identities. Capacity alone does not
+advertise a future append row; occupied LOAD -> Add as New creates the next
+represented identity before it appears. Loaded rows
+expose represented identities plus only canonical zero-payload gaps proven by
+source provenance, without an append row.
+File New therefore selects represented I01 while showing `Empty sample destination`,
 an empty waveform/loop/metadata surface, and the canonical empty S01 destination
 owned by the document rather than a fabricated sample row.
 The mockup's values are illustrative: FORMAT reports represented bit depth and
@@ -67,7 +73,9 @@ preview once, refreshes all editors, and does not auto-audition. Other
 states/generators stay disabled; preview/runtime architecture is unchanged.
 AUDITION is non-mutating for loaded/read-only and editable samples; it sends the
 selected slot directly at C-4 through the persistent stream—not the keymap—and
-reuses sample planning. Exact lifecycle release drives its glyph/LED. Note
+reuses sample planning. An empty selected row has no direct preview request, so
+AUDITION remains unavailable. SINE and LOAD retain their existing mutation scope:
+neither may target an arbitrary interior or trailing empty row. Exact lifecycle release drives its glyph/LED. Note
 selection and natural-completion notification remain future work; no polling is
 used.
 
@@ -130,17 +138,18 @@ row selection remains a non-editing UI gesture. Clearing the selected Sxx must
 carry the same selection into the new whole-document snapshot so the editor
 shows that exact empty destination; clearing another slot must not change
 selection. Undo and redo then restore the exact prior/new selection with the
-same whole-snapshot policy already used by Add as New. The current
-available-slot normalizer may choose the first represented sample (or S01 when
-none exists) during instrument/copy transitions; a same-instrument lifecycle
-action must not call that normalizer merely because its target became empty.
+same whole-snapshot policy already used by Add as New. The shared normalizer
+preserves any eligible projected row, including an empty destination, and otherwise
+chooses the first eligible row or S01 for a zero-sample editable instrument. A
+same-instrument lifecycle action must not discard its retained empty target.
 
-Today the lists expose represented samples and the special empty S01 of a
-zero-sample instrument. They do not yet render an interior empty row beside
-later represented rows. The sparse XM round-trip foundation now preserves such
-identity through Export XM/reopen, but interior-empty presentation remains a
-prerequisite, not permission to redirect selection or add Clear UI. See ADR
-012's sparse sample-slot boundary.
+The shared projection now renders eligible interior empty rows beside represented
+samples and preserves exact selection across the main control panel, Instrument
+Editor, and Sample Editor. Selection is session focus only: it changes no revision,
+undo history, keymap, pattern, or represented data. This completes the presentation
+prerequisite but is not permission to redirect audition, broaden import/generation,
+or add Clear UI. Clear Sample remains the next lifecycle behavior after repository
+cleanup. See ADR 012's sparse sample-slot boundary.
 
 ---
 

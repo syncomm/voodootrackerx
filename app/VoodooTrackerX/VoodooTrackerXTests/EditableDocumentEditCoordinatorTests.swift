@@ -127,8 +127,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
 
     func testGenerateSineRejectsUnavailableContextsWithoutMutationOrHistory() {
         let base = BlankTrackerDocument.makeDefault()
-        var wrongDestination = base
-        wrongDestination.selectSample(2)
+        let wrongDestination = documentWithSelectedInteriorEmptySample()
         var occupied = base
         XCTAssertTrue(occupied.generateSineInSelectedEmptySample())
         let contexts: [EditableDocumentEditContext] = [
@@ -172,7 +171,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(sampleView.displayState.sampleName, "Kick")
         XCTAssertTrue(emptyHarness.coordinator.undo())
         XCTAssertEqual(emptyHarness.editableDocument, empty)
-        XCTAssertEqual(sampleView.displayState.sampleName, "No represented sample")
+        XCTAssertEqual(sampleView.displayState.sampleName, "Empty sample destination")
         XCTAssertTrue(emptyHarness.coordinator.redo())
         XCTAssertEqual(emptyHarness.editableDocument, imported)
         XCTAssertEqual(instrumentView.displayState.selectedSample?.name, "Kick")
@@ -212,6 +211,9 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         let sampleController = SampleEditorWindowController(displayState: .editableDocument(before))
         let instrumentView = try XCTUnwrap(instrumentController.window?.contentView as? InstrumentEditorView)
         let sampleView = try XCTUnwrap(sampleController.window?.contentView as? SampleEditorView)
+        XCTAssertEqual(before.sampleSlotPresentationRows(forInstrument: 1).map(\.sampleSlot), [1])
+        XCTAssertEqual(instrumentView.displayState.sampleSlots.map(\.slot), [1])
+        XCTAssertEqual(sampleView.displayState.sampleSlots.map(\.slot), [1])
         let harness = EditHarness(
             context: .editable(document: before, isPlaybackActive: false),
             onApply: {
@@ -227,8 +229,11 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(added.instrumentPalette[1]?.noteSampleMap, preservedMap)
         XCTAssertEqual(added.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
         XCTAssertEqual(added.controlPanelMetadata.selectedSampleDisplay, "S02 Second")
+        XCTAssertEqual(added.sampleSlotPresentationRows(forInstrument: 1).map(\.sampleSlot), [1, 2])
         XCTAssertEqual(instrumentView.displayState.selectedSample?.name, "Second")
+        XCTAssertEqual(instrumentView.displayState.sampleSlots.map(\.slot), [1, 2])
         XCTAssertEqual(sampleView.displayState.sampleName, "Second")
+        XCTAssertEqual(sampleView.displayState.sampleSlots.map(\.slot), [1, 2])
         let sampleRequest = SampleEditorAuditionRequestFactory.request(selection: added.selection, sourceContext: .blankDocument)
         let instrumentRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
             noteValue: UInt8(PlaybackPitchCalculator.c4NoteValue),
@@ -278,8 +283,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
 
     func testAudioImportRejectsLoadedPlayingInvalidAndStaleDestinationsWithoutHistory() throws {
         let base = BlankTrackerDocument.makeDefault()
-        var invalid = base
-        invalid.selectSample(2)
+        let invalid = documentWithSelectedInteriorEmptySample()
         let candidate = try normalizedImportCandidate()
         let destination = try XCTUnwrap(base.selectedSampleImportDestination)
         let contexts: [EditableDocumentEditContext] = [
@@ -343,8 +347,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
 
     func testSampleMetadataMutationRequiresStoppedEditableRepresentedSelection() {
         let represented = documentWithInstrumentName("Represented", panning: 37)
-        var wrongSelection = represented
-        wrongSelection.selectSample(2)
+        let wrongSelection = documentWithSelectedInteriorEmptySample()
         let blockedContexts: [EditableDocumentEditContext] = [
             .none,
             .loadedReadOnly,
@@ -1030,6 +1033,15 @@ private func documentWithInstrumentName(
         instrumentPalette: [1: instrument],
         patterns: base.patterns
     )
+}
+
+private func documentWithSelectedInteriorEmptySample() -> BlankTrackerDocument {
+    var document = documentWithInstrumentName("Sparse", samples: [
+        makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, name: "S01"),
+        makePlaybackSample(instrumentIndex: 1, sampleIndex: 2, name: "S03"),
+    ])
+    document.selectSample(2)
+    return document
 }
 
 private func samplePCMBaseAddress(in document: BlankTrackerDocument) -> UInt? {

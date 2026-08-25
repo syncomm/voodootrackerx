@@ -321,7 +321,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(copiedInstrument, loadedInstrument)
         XCTAssertEqual(copiedInstrument.samples.map(\.sampleIndex), [0, 2])
         XCTAssertNil(copiedInstrument.sample(mappedSampleIndex: 1))
-        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1))
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
         XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
             instrumentIndex: 1, note: 49, instrument: copiedInstrument
         ))
@@ -419,7 +419,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             XCTAssertEqual(copiedInstrument.volumeEnvelope, sourceInstrument.volumeEnvelope, name)
             XCTAssertEqual(copiedInstrument.panningEnvelope, sourceInstrument.panningEnvelope, name)
             XCTAssertEqual(copiedInstrument.autoVibrato, sourceInstrument.autoVibrato, name)
-            XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1), name)
+            XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2), name)
             XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
                 instrumentIndex: 1, note: 49, instrument: copiedInstrument
             ), name)

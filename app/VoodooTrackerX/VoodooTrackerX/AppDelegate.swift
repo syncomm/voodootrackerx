@@ -1642,7 +1642,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @discardableResult
     private func selectSampleSlot(_ selectedSample: Int) -> Bool {
         if var document = blankDocument, loadedMetadata == nil,
-           document.availableSampleSlots(forInstrument: document.selection.selectedInstrument).contains(selectedSample) {
+           document.sampleSlotPresentationRows(forInstrument: document.selection.selectedInstrument)
+           .contains(where: { $0.sampleSlot == selectedSample }) {
             let previousSelection = document.selection
             document.selectSample(selectedSample)
             guard document.selection != previousSelection else { return false }
@@ -1654,8 +1655,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         guard loadedMetadata?.type == "XM",
               playbackEngine.song?
-                  .instrument(forInstrument: loadedModuleSelection.selectedInstrument)?
-                  .availableSampleSlots.contains(selectedSample) == true else { return false }
+              .sampleSlotPresentationRows(forInstrument: loadedModuleSelection.selectedInstrument)
+              .contains(where: { $0.sampleSlot == selectedSample }) == true else { return false }
         let proposedSelection = loadedModuleSelection.withSelectedSample(selectedSample)
         guard proposedSelection != loadedModuleSelection else { return false }
         cancelPreviewForSelectionChange()
@@ -2787,8 +2788,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 reloadInstrumentControls(for: metadata, selection: loadedModuleSelection)
             }
             let selectedInstrument = playbackEngine.song?.instrument(forInstrument: loadedModuleSelection.selectedInstrument)
-            let selectedSample = selectedInstrument?.sample(selectedSampleSlot: loadedModuleSelection.selectedSample)
-            controlPanelView?.apply(ControlPanelDisplayState.loadedModuleContent(
+            let selectedSampleRow = playbackEngine.song?
+                .sampleSlotPresentationRows(forInstrument: loadedModuleSelection.selectedInstrument)
+                .first(where: { $0.sampleSlot == loadedModuleSelection.selectedSample })
+            let selectedSampleDisplay = selectedSampleRow.map(ControlPanelSlotDisplay.sample(row:))
+            var content = ControlPanelDisplayState.loadedModuleContent(
                 metadata: metadata,
                 selection: loadedModuleSelection,
                 selectedSongPositionIndex: selectedSongPositionIndex,
@@ -2801,8 +2805,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     durationSeconds: playbackEngine.runtimeAdapterPlanDurationSeconds
                 ),
                 selectedInstrumentName: selectedInstrument?.name,
-                selectedSampleName: selectedSample?.name
-            ))
+                selectedSampleName: selectedSampleDisplay?.name
+            )
+            if selectedSampleRow == nil {
+                content.selectedSampleDisplay = "No Sample"
+                content.selectedSampleTooltip = "No represented or canonical empty sample slot"
+            }
+            controlPanelView?.apply(content)
         } else {
             if shouldReloadInstrumentControls {
                 reloadInstrumentControls(for: nil, selection: .default)
@@ -2830,6 +2839,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             selection: selection,
             instrumentProvider: { [weak self] slot in
                 self?.playbackEngine.song?.instrument(forInstrument: slot)
+            },
+            sampleRowsProvider: { [weak self] slot in
+                self?.playbackEngine.song?.sampleSlotPresentationRows(forInstrument: slot) ?? []
             }
         )
     }
@@ -2840,6 +2852,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             selection: document.selection,
             instrumentProvider: { slot in
                 document.instrument(forInstrument: slot)
+            },
+            sampleRowsProvider: { slot in
+                document.sampleSlotPresentationRows(forInstrument: slot)
             }
         )
     }
@@ -2847,7 +2862,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func reloadInstrumentControls(
         instrumentSlots: [Int],
         selection: TrackerEditorSelection,
-        instrumentProvider: (Int) -> PlaybackInstrument?
+        instrumentProvider: (Int) -> PlaybackInstrument?,
+        sampleRowsProvider: (Int) -> [SampleSlotPresentationRow]
     ) {
         guard let controlPanelView else {
             return
@@ -2875,7 +2891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             controlPanelView.instrumentSelector.selectItem(at: 0)
         }
-        reloadSampleSelector(selection: selection, instrumentProvider: instrumentProvider)
+        reloadSampleSelector(selection: selection, sampleRowsProvider: sampleRowsProvider)
     }
 
     private func currentEditorSelection() -> TrackerEditorSelection {
@@ -2887,31 +2903,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func reloadSampleSelector(
         selection: TrackerEditorSelection,
-        instrumentProvider: (Int) -> PlaybackInstrument?
+        sampleRowsProvider: (Int) -> [SampleSlotPresentationRow]
     ) {
         guard let controlPanelView else {
             return
         }
 
         controlPanelView.sampleSelector.removeAllItems()
-        let instrument = instrumentProvider(selection.selectedInstrument)
-        let sampleSlots = instrument?.availableSampleSlots ?? []
-        let displayedSampleSlots = sampleSlots.isEmpty ? [selection.selectedSample] : sampleSlots
+        let rows = sampleRowsProvider(selection.selectedInstrument)
+        guard !rows.isEmpty else {
+            controlPanelView.sampleSelector.addItem(withTitle: "No Sample")
+            controlPanelView.sampleSelector.lastItem?.toolTip = "No represented or canonical empty sample slot"
+            return
+        }
 
-        for slot in displayedSampleSlots {
-            let display = ControlPanelSlotDisplay.sample(
-                slot: slot,
-                name: instrument?.sample(selectedSampleSlot: slot)?.name
-            )
+        for row in rows {
+            let display = ControlPanelSlotDisplay.sample(row: row)
             controlPanelView.sampleSelector.addItem(withTitle: display.displayTitle)
-            controlPanelView.sampleSelector.lastItem?.representedObject = slot
+            controlPanelView.sampleSelector.lastItem?.representedObject = row.sampleSlot
             controlPanelView.sampleSelector.lastItem?.toolTip = display.tooltip
         }
-        let selectedDisplay = ControlPanelSlotDisplay.sample(
-            slot: selection.selectedSample,
-            name: instrument?.sample(selectedSampleSlot: selection.selectedSample)?.name
-        )
-        controlPanelView.sampleSelector.selectItem(withTitle: selectedDisplay.displayTitle)
+        if let selectedIndex = rows.firstIndex(where: { $0.sampleSlot == selection.selectedSample }) {
+            controlPanelView.sampleSelector.selectItem(at: selectedIndex)
+        }
     }
 
     private func loadedModuleCanMakeEditableCopy() -> Bool {
@@ -2931,8 +2945,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     ) -> TrackerEditorSelection {
         let playbackSong = song ?? playbackEngine.song
         let sampleSlots = playbackSong?
-            .instrument(forInstrument: selection.selectedInstrument)?
-            .availableSampleSlots ?? []
+            .sampleSlotPresentationRows(forInstrument: selection.selectedInstrument)
+            .map(\.sampleSlot) ?? []
         return selection.clampedToAvailableSampleSlots(sampleSlots)
     }
 

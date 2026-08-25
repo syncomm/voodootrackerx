@@ -12,6 +12,8 @@ and selects represented S02+ without changing keymap references. Instrument Edit
 selected-sample keymap range mutation through one manual `applyEdit` sheet; graphical selection,
 drag-to-paint/automatic mapping, and destructive lifecycle remain future work. The post-alpha sparse sample-slot XM
 round-trip and loaded-source provenance foundations are now implemented; they add no lifecycle mutation or UI.
+The shared sample-slot presentation/selection foundation is also implemented: editable and supported loaded
+sources can expose a canonical empty Sxx identity without fabricating a `PlaybackSample`.
 
 ## Context
 
@@ -88,12 +90,22 @@ The editable model and Export XM now preserve the specific interior-gap state ne
 
 Selection is stored in the `BlankTrackerDocument` value even though ordinary row selection is UI state and creates
 no edit. Whole-document `applyEdit` snapshots therefore include selection whenever an action does change it.
-`TrackerEditorSelection.clampedToAvailableSampleSlots` currently preserves a represented selection, otherwise
-chooses the first represented slot, or S01 when none exists; instrument transitions and editable-copy construction
-use that normalization. A future same-instrument Clear must not invoke that fallback: clearing selected Sxx keeps
-Sxx selected as an empty destination, clearing another slot leaves selection unchanged, and undo/redo restores the
-exact before/after document selection. Current sample lists expose represented slots, plus the special zero-sample
-S01 destination, so interior-empty presentation remains part of the foundation before lifecycle UI.
+`SampleSlotPresentationProjection` is the UI-independent distinction between a represented sample and an empty
+destination; the empty case carries only a bounded zero-based identity and never a `PlaybackSample`. For editable
+instruments it exposes the contiguous S01-through-highest span required by represented indices, a canonical
+96-entry keymap, and a valid selected S01...S16 identity, capped at S16. A zero-sample instrument therefore exposes
+only empty S01. Dense instruments expose represented rows only; capacity does not create a future append row.
+The existing occupied LOAD -> Add as New workflow creates the next represented identity before it appears.
+Shared normalization preserves any requested row in that projection, including an interior empty identity, and
+otherwise uses the existing first-eligible/S01 fallback once during instrument or document transitions. Selecting
+a row changes no revision, keymap, pattern, represented sample data, or undo history.
+
+Loaded/read-only projection is deliberately more conservative: it exposes represented identities and missing
+identities only when source provenance proves zero decoded payload plus the exact canonical all-zero 40-byte
+header. Exact keymap references become visible when that canonical source identity is proven; a map value alone,
+incomplete provenance, or a noncanonical zero-length header does not synthesize an empty row. Loaded lists add no
+append destination. A future same-instrument Clear must retain selected Sxx, leave unrelated selection unchanged,
+and restore exact selection through undo/redo, but this presentation foundation adds no Clear mutation.
 
 `EditableXMWriter` sorts and validates represented identities in `0...15`, validates an explicit map as exactly 96
 entries in the same range, and serializes through the highest represented or referenced identity. Missing positions
@@ -117,8 +129,8 @@ does not create a `PlaybackSample`, enter editable document state, or retain a s
 required span in index order and every missing entry has zero payload plus the canonical classification. Existing
 Linear-table and writer dry-run requirements still apply. Interior S02, trailing mapped S02, and only-empty mapped
 S01 VTX exports can therefore reopen, become untitled editable copies, and re-export byte-identically without
-compaction, remapping, or fallback. Current selection normalization still chooses the first represented slot, or S01
-when none exists; interior empty-slot list presentation remains separate. A named, metadata-bearing, extended, or
+compaction, remapping, or fallback. Shared selection may now retain a provenance-backed canonical empty row;
+absent or unsupported rows still use the canonical fallback. A named, metadata-bearing, extended, or
 otherwise noncanonical zero-length header remains copy-unavailable. This is not general zero-length-sample support or
 an expansion to arbitrary XM editing.
 
@@ -393,8 +405,9 @@ This is a sequence of focused PRs, not one large implementation PR:
 The graphical range-selection slice is complete. Select later lifecycle, envelope,
 loop, drag-to-paint, and automatic-mapping work as separate focused PRs.
 
-The sparse writer/reopen/editable-copy dependency is complete without Clear/Duplicate/Move/Swap mutation or UI.
-Interior empty-slot presentation remains the next prerequisite before exposing destructive lifecycle controls.
+The sparse writer/reopen/editable-copy dependency and interior empty-slot presentation are complete without
+Clear/Duplicate/Move/Swap mutation or UI. After the repository-cleanup follow-up, Clear Sample remains the next
+sample-lifecycle behavior and requires a separate scoped mutation PR.
 
 ## Test And Fixture Plan
 

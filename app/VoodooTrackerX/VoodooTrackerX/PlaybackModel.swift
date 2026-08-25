@@ -425,6 +425,86 @@ struct PlaybackInstrument: Equatable {
     }
 }
 
+/// One canonical sample-slot identity presented to editor UI without inventing sample data.
+struct SampleSlotPresentationRow: Equatable {
+    enum State: Equatable {
+        case represented(PlaybackSample)
+        case emptyDestination
+    }
+
+    let sampleIndex: Int
+    let state: State
+
+    var sampleSlot: Int { sampleIndex + 1 }
+    var representedSample: PlaybackSample? {
+        guard case let .represented(sample) = state else { return nil }
+        return sample
+    }
+    var isEmptyDestination: Bool {
+        guard case .emptyDestination = state else { return false }
+        return true
+    }
+}
+
+/// Shared UI-independent projection for editable and loaded sample-slot lists.
+enum SampleSlotPresentationProjection {
+    static let maximumSampleCount = 16
+    private static let canonicalNoteCount = 96
+    private static let validSampleIndices = 0..<maximumSampleCount
+
+    static func editableRows(
+        instrument: PlaybackInstrument,
+        selectedSampleSlot: Int?
+    ) -> [SampleSlotPresentationRow] {
+        let represented = representedSamples(in: instrument)
+        var requiredIndices = Set(represented.keys)
+        requiredIndices.insert(0)
+
+        if let map = instrument.noteSampleMap, map.count == canonicalNoteCount {
+            requiredIndices.formUnion(map.filter(validSampleIndices.contains))
+        }
+        if let selectedSampleSlot,
+           (1...maximumSampleCount).contains(selectedSampleSlot) {
+            requiredIndices.insert(selectedSampleSlot - 1)
+        }
+        let highestRequiredIndex = requiredIndices.max() ?? 0
+        return (0...highestRequiredIndex).map { row(sampleIndex: $0, represented: represented) }
+    }
+
+    static func loadedRows(
+        instrument: PlaybackInstrument,
+        sourceProvenance: [XMSourceSampleSlotProvenance]?
+    ) -> [SampleSlotPresentationRow] {
+        let represented = representedSamples(in: instrument)
+        var eligibleIndices = Set(represented.keys)
+        for provenance in sourceProvenance ?? []
+            where validSampleIndices.contains(provenance.sampleIndex) &&
+                provenance.decodedPayloadLength == 0 &&
+                provenance.isCanonicalEmptySlotHeader {
+            eligibleIndices.insert(provenance.sampleIndex)
+        }
+        return eligibleIndices.sorted().map { row(sampleIndex: $0, represented: represented) }
+    }
+
+    private static func representedSamples(in instrument: PlaybackInstrument) -> [Int: PlaybackSample] {
+        instrument.samples.reduce(into: [:]) { result, sample in
+            guard validSampleIndices.contains(sample.sampleIndex), result[sample.sampleIndex] == nil else { return }
+            result[sample.sampleIndex] = sample
+        }
+    }
+
+    private static func row(
+        sampleIndex: Int,
+        represented: [Int: PlaybackSample]
+    ) -> SampleSlotPresentationRow {
+        SampleSlotPresentationRow(
+            sampleIndex: sampleIndex,
+            state: represented[sampleIndex].map(SampleSlotPresentationRow.State.represented)
+                ?? .emptyDestination
+        )
+    }
+}
+
 struct ResolvedPlaybackSample: Equatable {
     let instrumentIndex: Int
     let sampleIndex: Int
@@ -629,6 +709,14 @@ struct PlaybackSong: Equatable {
             return nil
         }
         return instrumentsByIndex[instrumentIndex]
+    }
+
+    func sampleSlotPresentationRows(forInstrument instrumentIndex: Int) -> [SampleSlotPresentationRow] {
+        guard let instrument = instrument(forInstrument: instrumentIndex) else { return [] }
+        return SampleSlotPresentationProjection.loadedRows(
+            instrument: instrument,
+            sourceProvenance: xmSampleSlotProvenanceByInstrument[instrumentIndex]
+        )
     }
 
     func position(orderIndex: Int, rowIndex: Int) -> PlaybackPosition? {

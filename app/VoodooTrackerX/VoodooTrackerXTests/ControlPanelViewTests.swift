@@ -164,6 +164,23 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertEqual(sample.tooltip, "S01 Kick")
     }
 
+    func testProjectedSampleSlotDisplayDistinguishesUnnamedSampleFromEmptyDestination() {
+        let unnamed = ControlPanelSlotDisplay.sample(row: SampleSlotPresentationRow(
+            sampleIndex: 0,
+            state: .represented(makePlaybackSample(name: "   "))
+        ))
+        let empty = ControlPanelSlotDisplay.sample(row: SampleSlotPresentationRow(
+            sampleIndex: 1,
+            state: .emptyDestination
+        ))
+
+        XCTAssertEqual(unnamed.displayTitle, "S01 (unnamed ...")
+        XCTAssertEqual(unnamed.tooltip, "S01 (unnamed sample)")
+        XCTAssertEqual(empty.displayTitle, "S02 Empty des...")
+        XCTAssertEqual(empty.tooltip, "S02 Empty destination")
+        XCTAssertNotEqual(unnamed.displayTitle, empty.displayTitle)
+    }
+
     func testApplyMapsInstrumentAndSampleNameTooltips() {
         let view = ControlPanelView(frame: .zero)
         let instrument = ControlPanelSlotDisplay.instrument(slot: 1, name: "BASIC SAMPLE")
@@ -212,6 +229,7 @@ final class ControlPanelViewTests: XCTestCase {
 
     func testApplyPreservesInstrumentAndSamplePopupMenusWhenSelectingExistingItems() {
         let view = ControlPanelView(frame: .zero)
+        let actionRecorder = ControlPanelPopupActionRecorder()
         view.instrumentSelector.removeAllItems()
         view.instrumentSelector.addItem(withTitle: "I01 Piano")
         view.instrumentSelector.lastItem?.representedObject = 1
@@ -222,6 +240,8 @@ final class ControlPanelViewTests: XCTestCase {
         view.sampleSelector.lastItem?.representedObject = 1
         view.sampleSelector.addItem(withTitle: "S03 Snare")
         view.sampleSelector.lastItem?.representedObject = 3
+        view.sampleSelector.target = actionRecorder
+        view.sampleSelector.action = #selector(ControlPanelPopupActionRecorder.recordAction(_:))
         var content = ControlPanelContent()
         content.selectedInstrumentDisplay = "I02 Lead"
         content.selectedInstrumentTooltip = "I02 Lead"
@@ -237,6 +257,7 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertEqual(view.sampleSelector.numberOfItems, 2)
         XCTAssertEqual(view.sampleSelector.titleOfSelectedItem, "S03 Snare")
         XCTAssertEqual(view.sampleSelector.selectedItem?.representedObject as? Int, 3)
+        XCTAssertEqual(actionRecorder.actionCount, 0)
         XCTAssertTrue(view.instrumentSelector.isEnabled)
         XCTAssertTrue(view.sampleSelector.isEnabled)
     }
@@ -322,6 +343,15 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertEqual(actualColor.greenComponent, expectedColor.greenComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actualColor.blueComponent, expectedColor.blueComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actualColor.alphaComponent, expectedColor.alphaComponent, accuracy: 0.001, file: file, line: line)
+    }
+}
+
+@MainActor
+private final class ControlPanelPopupActionRecorder: NSObject {
+    private(set) var actionCount = 0
+
+    @objc func recordAction(_ sender: NSPopUpButton) {
+        actionCount += 1
     }
 }
 

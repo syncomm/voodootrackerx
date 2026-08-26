@@ -5,8 +5,8 @@ Practical contribution guide for human contributors and autonomous agents.
 ## Before You Start
 
 - Read `AGENTS.md` (project rules and PR requirements)
+- Read `docs/agent-current-state.md` and `docs/dev-session-bootstrap.md`
 - Read `docs/roadmap.md` (current milestone sequence)
-- Read `docs/legacy-map.md` (legacy behavior mapping and preservation goals)
 - Keep changes small and verifiable (target <= 500 lines changed per PR)
 
 ## Local Build & Test Commands
@@ -94,7 +94,6 @@ How to update:
 Update docs as part of the same PR when relevant:
 - `README.md`: user-facing usage, build/test, CLI commands
 - `docs/roadmap.md`: milestone scope/order/verification expectations changed
-- `docs/legacy-map.md`: legacy behavior understanding improved or new code areas mapped
 - `docs/decisions/` (ADR-style notes): any major architectural change (UI toolkit, audio engine, file format strategy, persistence/compatibility approach)
 
 ## PR Checklist Template (AGENTS.md-aligned)
@@ -130,6 +129,7 @@ Requesting review from primary maintainer: @syncomm
 
 ## Notes for Agents
 
-- Start each task by reading `AGENTS.md`, `docs/roadmap.md`, and `docs/legacy-map.md`.
+- Start each task by reading `AGENTS.md`, `docs/agent-current-state.md`, and
+  `docs/dev-session-bootstrap.md`; load `docs/roadmap.md` when milestone context is relevant.
 - Do not merge your own PRs.
 - If a change is architectural, add a short decision note under `docs/decisions/`.

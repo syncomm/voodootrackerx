@@ -12,7 +12,7 @@ This document defines the rules and expectations for any automated agent (Codex 
 3. **Never change file formats silently.** Any change to the on-disk file format or module compatibility must be accompanied by:
    - Explicit design note in `/docs/format-changes.md`
    - Compatibility tests and migration tools
-4. **Respect the legacy.** The app should remain compatible with classic MOD/XM files (first pass: read-only compatibility). Do not remove legacy support without a documented plan.
+4. **Protect supported module compatibility.** The app should remain compatible with supported classic MOD/XM files, with read-only compatibility as the baseline. Do not remove supported format compatibility without a documented plan.
 5. **No secrets.** Never commit credentials, tokens, or private keys.
 
 ---
@@ -94,7 +94,6 @@ Suggested labels:
 
 ### Documentation rules
 - Update `docs/roadmap.md` when milestone scope, sequencing, or verification expectations change.
-- Update `docs/legacy-map.md` when understanding of legacy behavior improves or new legacy code areas are mapped.
 - For major architectural choices, add a short decision note under `docs/decisions/` (ADR-style, lightweight).
 - Any architectural change PR must include or update a decision note in `docs/decisions/`.
 
@@ -124,7 +123,7 @@ When operating autonomously, an agent MUST:
    - Manual validation steps
 6. NEVER merge its own PRs.
 7. Read `docs/agent-current-state.md` first for current backend state and context-loading guidance.
-8. Read `docs/roadmap.md` and `docs/legacy-map.md` at the start of work (when present) to maintain continuity.
+8. Read `docs/roadmap.md` at the start of work (when present) to maintain continuity.
 9. Begin all development sessions by loading `docs/dev-session-bootstrap.md`.
 
 ---

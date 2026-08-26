@@ -244,9 +244,6 @@ docs/
 app/
     VoodooTrackerX/
 
-legacy/
-    voodootracker-classic/
-
 ---
 
 # Development Roadmap

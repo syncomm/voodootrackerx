@@ -68,8 +68,8 @@ canonical source provenance and do not gain append rows. Editable capacity does
 not advertise a future append row; the occupied LOAD -> Add as New workflow
 creates the next represented identity before it appears. Empty selection is
 non-mutating, and SINE/LOAD, keymap routing, runtime, writer, and Save behavior are
-unchanged. The next PR is repository hygiene; Clear Sample remains the following
-sample-lifecycle behavior.
+unchanged. With repository hygiene complete, the next PR is
+`sample: clear represented sample in place`.
 
 ## Project Goals
 
@@ -505,9 +505,8 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next PR:
 
-- Next: `repo: retire legacy VoodooTracker submodule reference`. The shared
-  interior-empty-slot presentation prerequisite is complete. Clear Sample stays
-  queued as the next sample-lifecycle change after this repository cleanup.
+- Next: `sample: clear represented sample in place`. The shared interior-empty-slot
+  presentation prerequisite and repository cleanup are complete.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song

@@ -45,7 +45,8 @@ ownership for the exact visible 36-note audition range through the shared
 `InstrumentKeyboardVisibleRange` and piano geometry. The document retains its
 canonical 96-note C-0...B-7 map, and explicit selected-sample assignment remains
 the manual `MAP RANGE…` workflow. Graphical range selection, drag-to-paint,
-automatic mapping, and destructive lifecycle remain deferred.
+automatic mapping, and destructive lifecycle beyond represented-sample Clear
+remain deferred.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -72,6 +73,21 @@ rows plus only zero-payload canonical gaps proven by exact source provenance and
 no append row. Map-only, incomplete, and noncanonical source gaps remain conservative.
 Selecting an eligible empty row is UI/session focus with no revision, undo, keymap,
 pattern, or represented-data mutation.
+Sample Editor CLEAR is the first destructive represented-sample lifecycle action.
+It is enabled only for the exact represented selection in a stopped editable
+document with no conflicting operation/sheet. Confirmation names Sxx, explains
+PCM/metadata removal and Undo, counts exact map references when nonzero, and
+revalidates document identity/revision, selection, target value, and transport.
+One `Clear Sample` `applyEdit` removes only that sample, preserves later identities,
+the byte-exact 96-note map, patterns, and selected Sxx as an empty destination;
+Cancel/stale/empty/read-only/playing paths create no history. Undo/Redo is exact.
+Mapped cleared routes are unavailable with no fallback, while ownership display
+can still report their committed Sxx map value. All three shared surfaces refresh,
+and Sample Editor releases a direct preview of the removed sample without changing
+the persistent preview graph or auto-auditioning. Existing sparse XM persistence
+retains interior/mapped empty identities through reopen/editable copy. A highest
+unreferenced cleared Sxx remains visible only as current-session selection and is
+not serialized solely to preserve that UI focus.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 
@@ -166,7 +182,7 @@ sample surface and are labeled as empty destinations. Empty rows remain selectab
 during playback, but direct AUDITION is unavailable and SINE/LOAD do not gain
 arbitrary interior-empty mutation scope. FORMAT reports represented bit depth and mono without treating
 playback-policy `baseSampleRate` as source metadata.
-SINE and audio LOAD are the current Sample Editor mutations. LOAD is available
+SINE, audio LOAD, and represented-sample CLEAR are the current Sample Editor mutations. LOAD is available
 only for a stopped editable empty S01 or represented selected sample and is
 disabled during an active import. Its single-file panel accepts WAV/WAVE,
 AIFF/AIF, AIFC, and native FLAC; container identity is authoritative and
@@ -181,7 +197,9 @@ empty import establishes the all-S01 map, while replacement preserves the
 exact slot, keymap, and unrelated instrument data. Commit cancels stale preview
 once, refreshes every editor, and does not auto-audition; the next trigger uses
 imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
-state, and no source path is retained. Destructive sample lifecycle remains deferred.
+state, and no source path is retained. CLEAR uses the stopped-editable exact-target
+confirmation and one-edit contract summarized above; broader destructive sample
+lifecycle remains deferred.
 Separately, stopped editable documents can map a nonempty represented sample in
 the selected instrument through the Instrument Editor's `MAP RANGE…` sheet over
 the canonical C-0...B-7 domain. The read-only ownership strip projects only the
@@ -229,7 +247,7 @@ selector exposes their graph, point count, enabled, sustain, and loop state;
 they remain runtime-inert and create no document or undo mutation. These
 metadata slices add no loop, PCM, envelope, waveform, vibrato, or XI mutation.
 Save/Save As,
-loaded-module direct editing, broader Instrument Editor editing, Sample Editor mutation beyond SINE/audio LOAD, PCM16 product export,
+loaded-module direct editing, broader Instrument Editor editing, Sample Editor mutation beyond SINE/audio LOAD/CLEAR, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 

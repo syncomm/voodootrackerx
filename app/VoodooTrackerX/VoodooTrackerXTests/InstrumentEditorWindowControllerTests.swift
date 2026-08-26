@@ -97,7 +97,14 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(state.isSampleFinetuneEditable)
         XCTAssertFalse(state.isSamplePanningEditable)
         XCTAssertFalse(state.isKeymapRangeAssignmentEnabled)
-        XCTAssertEqual(state.keymapRanges.map(\.sampleSlot), [nil, 1, nil, 3, nil])
+        XCTAssertEqual(state.keymapRanges.map(\.sampleSlot), [2, 1, 2, 3, 2])
+        XCTAssertEqual(state.keymapRanges.map(\.sampleDisplay), ["S02", "S01", "S02", "S03", "S02"])
+        XCTAssertEqual(
+            state.keymapRanges.map(\.sampleName),
+            ["Unavailable mapping", "Pulse S01", "Unavailable mapping", "Impulse S03", "Unavailable mapping"]
+        )
+        XCTAssertEqual(state.keymapRanges.map(\.isSelected), [true, false, true, false, true])
+        XCTAssertEqual(state.keymapRanges.map(\.colorIndex), [1, 0, 1, 2, 1])
         let playingState = InstrumentEditorDisplayState.editableDocument(document, isPlaybackActive: true)
         XCTAssertEqual(playingState.selectedSampleSlot, 2)
         XCTAssertEqual(playingState.sampleSlots.map(\.slot), [1, 2, 3])

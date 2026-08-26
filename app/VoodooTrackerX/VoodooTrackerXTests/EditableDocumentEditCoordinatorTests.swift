@@ -281,6 +281,103 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         }
     }
 
+    func testClearSampleIsOneEditWithExactSelectionSharedRefreshAndUndoRedo() throws {
+        let before = documentWithThreeDistinctSamplesSelectedS02()
+        let beforeInstrument = try XCTUnwrap(before.instrumentPalette[1])
+        let first = beforeInstrument.samples[0]
+        let second = beforeInstrument.samples[1]
+        let third = beforeInstrument.samples[2]
+        let keymap = try XCTUnwrap(beforeInstrument.noteSampleMap)
+        let instrumentController = InstrumentEditorWindowController(displayState: .editableDocument(before))
+        let sampleController = SampleEditorWindowController(displayState: .editableDocument(before))
+        let instrumentView = try XCTUnwrap(instrumentController.window?.contentView as? InstrumentEditorView)
+        let sampleView = try XCTUnwrap(sampleController.window?.contentView as? SampleEditorView)
+        let harness = EditHarness(
+            context: .editable(document: before, isPlaybackActive: false),
+            onApply: {
+                instrumentController.apply(displayState: .editableDocument($0))
+                sampleController.apply(displayState: .editableDocument($0))
+            }
+        )
+
+        XCTAssertTrue(harness.coordinator.canClearSelectedSample)
+        XCTAssertTrue(harness.coordinator.clearSample(instrumentAt: 0, sampleAt: 1))
+
+        let cleared = try XCTUnwrap(harness.editableDocument)
+        let clearedInstrument = try XCTUnwrap(cleared.instrumentPalette[1])
+        XCTAssertEqual(clearedInstrument.samples, [first, third])
+        XCTAssertFalse(clearedInstrument.samples.contains(second))
+        XCTAssertEqual(clearedInstrument.samples.map(\.sampleIndex), [0, 2])
+        XCTAssertEqual(clearedInstrument.noteSampleMap, keymap)
+        XCTAssertEqual(clearedInstrument.name, beforeInstrument.name)
+        XCTAssertEqual(cleared.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        XCTAssertEqual(cleared.controlPanelMetadata.selectedSampleDisplay, "S02 Empty des...")
+        XCTAssertEqual(instrumentView.displayState.selectedSampleSlot, 2)
+        XCTAssertNil(instrumentView.displayState.selectedSample)
+        XCTAssertEqual(instrumentView.displayState.sampleSlots.map(\.slot), [1, 2, 3])
+        XCTAssertTrue(instrumentView.displayState.sampleSlots[1].isEmptyDestination)
+        XCTAssertFalse(instrumentView.displayState.isSampleVolumeEditable)
+        XCTAssertFalse(instrumentView.displayState.isKeymapRangeAssignmentEnabled)
+        XCTAssertEqual(sampleView.displayState.selectedSampleSlot, 2)
+        XCTAssertEqual(sampleView.displayState.sampleName, "Empty sample destination")
+        XCTAssertEqual(sampleView.displayState.sampleSlots.map(\.slot), [1, 2, 3])
+        XCTAssertFalse(sampleView.displayState.isAuditionEnabled)
+        XCTAssertFalse(sampleView.displayState.isWAVLoadEnabled)
+        XCTAssertFalse(sampleView.displayState.isSineGenerationEnabled)
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 1, instrument: clearedInstrument
+        )?.sampleIndex, 0)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 33, instrument: clearedInstrument
+        ))
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 65, instrument: clearedInstrument
+        )?.sampleIndex, 2)
+        XCTAssertEqual(harness.appliedDocuments, [cleared])
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Clear Sample")
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.representedSample, second)
+        XCTAssertEqual(sampleView.displayState.selectedSample, second)
+        XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Clear Sample")
+
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, cleared)
+        XCTAssertEqual(instrumentView.displayState.selectedSampleSlot, 2)
+        XCTAssertNil(instrumentView.displayState.selectedSample)
+        XCTAssertEqual(sampleView.displayState.selectedSampleSlot, 2)
+        XCTAssertNil(sampleView.displayState.selectedSample)
+        XCTAssertEqual(harness.appliedDocuments, [cleared, before, cleared])
+    }
+
+    func testClearSampleRejectsReadOnlyPlayingWrongSelectionAndEmptyTargetWithoutHistory() throws {
+        let represented = documentWithThreeDistinctSamplesSelectedS02()
+        var wrongSelection = represented
+        wrongSelection.selectSample(1)
+        var emptyTarget = represented
+        XCTAssertTrue(emptyTarget.clearSample(instrumentAt: 0, sampleAt: 1))
+        let cases: [(EditableDocumentEditContext, Int, Int, Bool)] = [
+            (.none, 0, 1, false),
+            (.loadedReadOnly, 0, 1, false),
+            (.editable(document: represented, isPlaybackActive: true), 0, 1, false),
+            (.editable(document: wrongSelection, isPlaybackActive: false), 0, 1, true),
+            (.editable(document: represented, isPlaybackActive: false), 0, 0, true),
+            (.editable(document: emptyTarget, isPlaybackActive: false), 0, 1, false),
+        ]
+
+        for (context, instrumentIndex, sampleIndex, canClearSelectedSample) in cases {
+            let harness = EditHarness(context: context)
+            XCTAssertEqual(harness.coordinator.canClearSelectedSample, canClearSelectedSample)
+            XCTAssertFalse(harness.coordinator.clearSample(
+                instrumentAt: instrumentIndex,
+                sampleAt: sampleIndex
+            ))
+            XCTAssertTrue(harness.appliedDocuments.isEmpty)
+            XCTAssertFalse(harness.undoManager.canUndo)
+        }
+    }
+
     func testAudioImportRejectsLoadedPlayingInvalidAndStaleDestinationsWithoutHistory() throws {
         let base = BlankTrackerDocument.makeDefault()
         let invalid = documentWithSelectedInteriorEmptySample()
@@ -1000,7 +1097,8 @@ private func documentWithInstrumentName(
     finetune: Int = 0,
     panningEnvelope: PlaybackPanningEnvelope = .disabled,
     autoVibrato: PlaybackInstrumentAutoVibrato = .disabled,
-    samples: [PlaybackSample]? = nil
+    samples: [PlaybackSample]? = nil,
+    noteSampleMap: [Int]? = nil
 ) -> BlankTrackerDocument {
     let base = BlankTrackerDocument.makeDefault()
     let sample = PlaybackSample(
@@ -1018,7 +1116,8 @@ private func documentWithInstrumentName(
         name: name,
         samples: samples ?? [sample],
         panningEnvelope: panningEnvelope,
-        autoVibrato: autoVibrato
+        autoVibrato: autoVibrato,
+        noteSampleMap: noteSampleMap
     )
     return BlankTrackerDocument(
         title: base.title,
@@ -1040,6 +1139,26 @@ private func documentWithSelectedInteriorEmptySample() -> BlankTrackerDocument {
         makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, name: "S01"),
         makePlaybackSample(instrumentIndex: 1, sampleIndex: 2, name: "S03"),
     ])
+    document.selectSample(2)
+    return document
+}
+
+private func documentWithThreeDistinctSamplesSelectedS02() -> BlankTrackerDocument {
+    let first = makePlaybackSample(
+        instrumentIndex: 1, sampleIndex: 0, name: "Pulse S01", pcm: [-0.25, 0.25]
+    )
+    let second = makePlaybackSample(
+        instrumentIndex: 1, sampleIndex: 1, name: "Layer S02", pcm: [-0.5, 0, 0.5]
+    )
+    let third = makePlaybackSample(
+        instrumentIndex: 1, sampleIndex: 2, name: "Impulse S03", pcm: [0.875]
+    )
+    var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+    for noteIndex in 32...63 { map[noteIndex] = 1 }
+    for noteIndex in 64...95 { map[noteIndex] = 2 }
+    var document = documentWithInstrumentName(
+        "Layered", samples: [first, second, third], noteSampleMap: map
+    )
     document.selectSample(2)
     return document
 }

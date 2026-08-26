@@ -10,8 +10,9 @@ Accepted as the product and architecture contract for the from-scratch compositi
 first-sample generation/import, and occupied LOAD with Replace/Add as New/Cancel are now implemented. Add appends
 and selects represented S02+ without changing keymap references. Instrument Editor now exposes inclusive
 selected-sample keymap range mutation through one manual `applyEdit` sheet; graphical selection,
-drag-to-paint/automatic mapping, and destructive lifecycle remain future work. The post-alpha sparse sample-slot XM
-round-trip and loaded-source provenance foundations are now implemented; they add no lifecycle mutation or UI.
+drag-to-paint/automatic mapping, and broader destructive lifecycle remain future work. Clear represented sample in
+place is now the first implemented destructive sample lifecycle action. The post-alpha sparse sample-slot XM
+round-trip and loaded-source provenance foundations support that action without changing the file format.
 The shared sample-slot presentation/selection foundation is also implemented: editable and supported loaded
 sources can expose a canonical empty Sxx identity without fabricating a `PlaybackSample`.
 
@@ -22,7 +23,8 @@ create playable material, compose and arrange a song, and produce both XM and re
 
 The current app provides blank pattern/order composition, isolated note audition when represented PCM exists,
 editable metadata, Export XM, and WAV/M4A export. Creation/import/generation and range mutation are implemented;
-destructive lifecycle and graphical/automatic assignment are not.
+represented-sample Clear is implemented, while broader destructive lifecycle and graphical/automatic assignment
+are not.
 
 There is one important current-versus-target difference. `File > New` creates an untitled editable song with eight
 channels, one 64-row pattern at order 0, and I01/S01 selected, but `BlankTrackerDocument.makeDefault()` uses an empty
@@ -72,7 +74,7 @@ zero-length sample headers only while exporting the supported subset.
 
 ### Sparse Sample-Slot XM Round-Trip Boundary
 
-The editable model and Export XM now preserve the specific interior-gap state needed by a future non-compacting clear:
+The editable model and Export XM preserve the interior-gap state produced by non-compacting Clear:
 
 - `PlaybackInstrument.samples` contains only represented `PlaybackSample` values. A sample's stable identity is its
   zero-based `sampleIndex`; `availableSampleSlots` projects those identities as one-based S01...S16.
@@ -104,8 +106,9 @@ Loaded/read-only projection is deliberately more conservative: it exposes repres
 identities only when source provenance proves zero decoded payload plus the exact canonical all-zero 40-byte
 header. Exact keymap references become visible when that canonical source identity is proven; a map value alone,
 incomplete provenance, or a noncanonical zero-length header does not synthesize an empty row. Loaded lists add no
-append destination. A future same-instrument Clear must retain selected Sxx, leave unrelated selection unchanged,
-and restore exact selection through undo/redo, but this presentation foundation adds no Clear mutation.
+append destination. Clear is editable-only and therefore never mutates loaded/read-only projection. In the editable
+document it retains the exact selected Sxx as an empty destination and restores that same selection through
+undo/redo.
 
 `EditableXMWriter` sorts and validates represented identities in `0...15`, validates an explicit map as exactly 96
 entries in the same range, and serializes through the highest represented or referenced identity. Missing positions
@@ -135,16 +138,19 @@ otherwise noncanonical zero-length header remains copy-unavailable. This is not 
 an expansion to arbitrary XM editing.
 
 Implementation evidence is in `PlaybackModel.swift` (`PlaybackInstrument` and
-`PlaybackInstrumentSampleResolver`), `BlankTrackerDocument.swift` (`makeDefault`, `nextAppendSampleIndex`, and
-selection normalization), `EditableXMWriter.swift` (`exportedInstrument` / `validatedNoteSampleMap`),
+`PlaybackInstrumentSampleResolver`), `BlankTrackerDocument.swift` (`makeDefault`, `nextAppendSampleIndex`,
+`clearSample`, and selection normalization), `EditableXMWriter.swift` (`exportedInstrument` /
+`validatedNoteSampleMap`),
 `PlaybackSongBuilder.swift` (`loadXMInstrumentState`), and `LoadedModuleEditableCopyCoordinator.swift`.
 Characterization and round-trip coverage is pinned by
 `testAppendSampleNeverFillsGapsAndRejectsInvalidOrMaximumSampleWithoutMutation`,
 `testInteriorEmptySampleIdentityRetainsSelectionAndKeymapReferenceWithoutFallback`,
 `testSparseInteriorGapWritesCanonicalPlaceholderAndReopensExactIdentityAndMap`,
 `testOnlyEmptyMappedSlotPreservesInstrumentMetadataMapAndUnavailableRoute`,
-`testSparseVTXExportReopensCopiesAndReexportsByteIdenticallyWithExactIdentityAndMap`,
-`testTrailingAndOnlyEmptyCanonicalSlotsRecoverAsEditableCopies`, and
+`testClearedInteriorSampleReopensCopiesAndReexportsByteIdenticallyWithExactIdentityAndMap`,
+`testClearingOnlyMappedSamplePreservesInstrumentMetadataAndMapThroughReopenAndCopy`,
+`testClearingHighestUnreferencedSelectedSampleKeepsSessionDestinationButDoesNotExtendSerializedSpan`,
+`testTrailingReferencedEmptyCanonicalSlotStillRecoversAsEditableCopy`, and
 `testNoncanonicalZeroLengthSourceHeadersRemainUnavailableForEditableCopy`. Existing
 `testAddAudioSampleIsOneApplyEditActionWithExactSelectionUndoRedo` proves the whole-snapshot selection behavior for
 the shipped append action.
@@ -308,8 +314,20 @@ Clear Sample Sxx
 -> leave references to Sxx honestly unavailable
 ```
 
-This block is the desired lifecycle semantic, not a statement that Clear or its XM representation exists today.
-The post-alpha boundary above must land before Clear UI or mutation.
+This is the implemented represented-sample Clear contract. Sample Editor CLEAR is enabled only for the represented
+current selection in a stopped editable document with no conflicting lifecycle sheet or operation. Confirmation
+names the exact Sxx, states that PCM/metadata will be removed and Undo can restore it, and counts exact 96-note-map
+references when any exist. Confirmation revalidates document identity/revision, selection, target value, and stopped
+transport; stale, cancelled, empty, playing, or read-only requests create no edit. One `Clear Sample` `applyEdit`
+removes only that `PlaybackSample`, preserves every remaining `sampleIndex` and all 96 map bytes, retains selected
+Sxx as `.emptyDestination`, and provides exact whole-snapshot Undo/Redo. A successful refresh invalidates direct
+Sample Editor preview of the removed sample without changing the persistent preview graph or song transport.
+
+XM persistence remains document-semantic rather than selection-semantic. A cleared interior identity survives when
+a later represented sample or map reference requires its span; a mapped cleared route remains unavailable with no
+fallback. If the highest cleared identity is neither mapped nor followed by a represented sample, the current
+editable session can still show its selected empty Sxx, but Export XM does not serialize a header solely for that UI
+selection and reopen may therefore expose only the lower represented span.
 
 Reordering is semantic, not row-only. I08 to I02 remaps every pattern instrument reference; S05 to S02 remaps all 96
 keymap entries. Move/swap preserves PCM/metadata, normalizes selection, and undoes to exact prior numbering and
@@ -392,30 +410,30 @@ This is a sequence of focused PRs, not one large implementation PR:
 6. Add FLAC through the same importer output.
 7. Harden the all-96-note S01 default and neutral visualization.
 8. Add instrument add/duplicate/clear-in-place/rename.
-9. Add sample add/duplicate/clear-in-place/rename/replace.
-10. Polish read-only keymap visualization: neutral S01, visible S02+ mapping,
+9. Done: add represented-sample clear in place through Sample Editor CLEAR.
+10. Add remaining sample duplicate/rename/replace and explicit empty-slot population.
+11. Polish read-only keymap visualization: neutral S01, visible S02+ mapping,
     and a separate active-note layer.
-11. Done: add editable keymap range assignment through `applyEdit`.
-12. Done: wire explicit selected-sample inclusive range assignment UI and
+12. Done: add editable keymap range assignment through `applyEdit`.
+13. Done: wire explicit selected-sample inclusive range assignment UI and
     non-mutating full-map graphical selection; paint/automatic mapping remain separate.
-13. Add reference-preserving instrument and sample move/swap.
-14. Run the complete automated and manual from-scratch acceptance slice.
-15. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
+14. Add reference-preserving instrument and sample move/swap.
+15. Run the complete automated and manual from-scratch acceptance slice.
+16. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
 
 The graphical range-selection slice is complete. Select later lifecycle, envelope,
 loop, drag-to-paint, and automatic-mapping work as separate focused PRs.
 
-The sparse writer/reopen/editable-copy dependency and interior empty-slot presentation are complete without
-Clear/Duplicate/Move/Swap mutation or UI. After the repository-cleanup follow-up, Clear Sample remains the next
-sample-lifecycle behavior and requires a separate scoped mutation PR.
+The sparse writer/reopen/editable-copy dependency, interior empty-slot presentation, and represented-sample Clear
+are complete. Duplicate, explicit empty-slot population, and Move/Swap remain separate scoped lifecycle work.
 
 ## Test And Fixture Plan
 
 Future project-owned tests cover an empty instrument/S01 destination; generated
 sine and waveform family; mono WAV; stereo mix/left/right; AIFF and FLAC;
 common-rate tuning; filename naming/truncation; first-sample all-note mapping;
-instrument/sample duplicate and clear-in-place; a keymap reference to a cleared
-sample; instrument move plus pattern-reference remap; sample move plus keymap
+instrument/sample duplicate and instrument clear-in-place; represented-sample Clear already covers a keymap
+reference to a cleared sample; instrument move plus pattern-reference remap; sample move plus keymap
 remap; Export XM/reopen from a complete new composition; and WAV/M4A export of
 that composition. Tests use synthetic data and the public fixture pack only.
 
@@ -434,8 +452,7 @@ Do not resolve these without focused implementation evidence:
 - whether optional 8-bit import conversion belongs in v0.3 or later;
 - multi-file import UX;
 - whether a drop on a specific occupied sample row means Replace or Add New;
-- warning UX for clearing referenced instruments or keymap-referenced samples;
-- fixed-capacity versus dynamic-looking instrument/sample slot presentation;
+- warning UX for clearing referenced instruments;
 - the S02+ keymap visual language;
 - whether generated noise is fixed per creation or exposes a seed; and
 - whether official packs stay original/CC0-only or later admit reviewed CC BY.

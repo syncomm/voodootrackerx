@@ -68,8 +68,17 @@ canonical source provenance and do not gain append rows. Editable capacity does
 not advertise a future append row; the occupied LOAD -> Add as New workflow
 creates the next represented identity before it appears. Empty selection is
 non-mutating, and SINE/LOAD, keymap routing, runtime, writer, and Save behavior are
-unchanged. With repository hygiene complete, the next PR is
-`sample: clear represented sample in place`.
+unchanged.
+
+The first destructive sample lifecycle slice now clears the selected represented
+Sxx in place from Sample Editor. It is stopped/editable-only, requires exact
+confirmation with mapped-note count when applicable, revalidates stale state,
+and commits one `Clear Sample` edit with exact Undo/Redo. It preserves selection,
+later sample identities, all 96 map bytes, and honest unavailable routing; direct
+Sample Editor preview is released through the existing refresh path. Interior or
+mapped gaps use the existing sparse Export XM/reopen/editable-copy boundary. A
+highest unreferenced selected empty Sxx remains session focus only and is not
+serialized solely because it is selected.
 
 ## Project Goals
 
@@ -505,8 +514,9 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next PR:
 
-- Next: `sample: clear represented sample in place`. The shared interior-empty-slot
-  presentation prerequisite and repository cleanup are complete.
+- Next: `sample: populate a selected canonical empty sample destination`. Keep it
+  separate from Clear, preserve stable Sxx identity/map references, and do not
+  broaden into Duplicate or Move/Swap.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -747,7 +757,7 @@ The prepared `v0.3.0-alpha.1` From-Scratch Composition Alpha packages the
 current File New-to-export instrument/sample workflow without claiming that the
 remaining VTX 1.0 composition scope is complete. It keeps manual `MAP RANGE…`
 as the keymap workflow and leaves graphical mapping plus broader destructive
-sample lifecycle work for later pre-v1.0 milestones.
+sample lifecycle work beyond represented-sample Clear for later pre-v1.0 milestones.
 
 Current implemented foundation:
 
@@ -801,6 +811,11 @@ Current implemented foundation:
   the main thread, rejects stale results, owns mono 16-bit PCM in the document,
   and registers one `Import Audio Sample` or `Replace Audio Sample` undo action
   while preserving slot/keymap references
+- Sample Editor CLEAR confirms and removes only the exact represented selected
+  sample in stopped editable state, preserves Sxx selection, later identities,
+  keymap bytes, and unavailable routes, invalidates direct preview, and creates
+  one exact `Clear Sample` Undo/Redo snapshot. Sparse Export XM/reopen/Make
+  Editable Copy preserves semantic gaps without serializing UI selection alone
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
@@ -829,7 +844,8 @@ Next composition targets after backend foundation freeze:
   PCM/waveform mutation slices
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- broader sample delete/clear/reorder/duplication lifecycle; XI remains separate
+- explicit empty-slot population plus sample reorder/duplication and instrument
+  clear lifecycle; XI remains separate
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics

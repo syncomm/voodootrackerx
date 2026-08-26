@@ -25,8 +25,8 @@ XM, and product-audio export paths preserve or consume the result. Instrument
 Editor exposes it through an explicit selected-represented-sample inclusive
 C-0...B-7 sheet; selection and assignments outside the range remain unchanged. A
 document-level applyEdit/whole-snapshot undo funnel owns replacement. Save, Save As,
-loaded-module direct editing, broader instrument/sample mutation, Sample Editor
-mutation beyond SINE/import, runtime playback changes, parser architecture changes,
+loaded-module direct editing, broader instrument/sample mutation beyond represented-sample
+Clear, Sample Editor mutation beyond SINE/import/Clear, runtime playback changes, parser architecture changes,
 and tracker viewport changes remain unimplemented by this note. The fixed Sample
 Editor shell remains outside this design; SINE uses the same snapshot boundary.
 
@@ -96,6 +96,11 @@ selects the next represented Sxx. Both preserve keymap references and unrelated
 instrument data, and Sample Editor can directly audition the selected slot while
 pattern/Instrument Editor audition remains keymap-driven. Undo returns to the
 exact empty or prior represented state.
+Represented-sample CLEAR uses that same ownership boundary: one stopped-editable
+`Clear Sample` snapshot removes only the selected sample value, retains its Sxx
+selection, every later sample identity, and the exact 96-note map, and introduces
+no path or placeholder sample ownership. Exact Undo/Redo restores/removes the
+document-owned PCM and metadata. Loaded modules remain read-only.
 The creation/import/export contract,
 including the proposed `v0.3.0-alpha.1` gate, is defined by
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
@@ -167,10 +172,10 @@ whose represented state and any canonical sparse empty identities are losslessly
 covered by the loaded source provenance; arbitrary source zero-length sample
 headers remain outside the represented subset.
 
-### Sample lifecycle Export XM boundary
+### Represented-sample Clear and Export XM boundary
 
-The post-alpha sample lifecycle contract is non-compacting, and Export XM now
-preserves that identity for the supported `S01...S16` boundary. For each
+Represented-sample Clear is non-compacting, and Export XM preserves that
+document-semantic identity for the supported `S01...S16` boundary. For each
 instrument the serialized header count is one past the higher of the greatest
 represented `sampleIndex` and greatest value in an exact 96-entry map. If
 neither exists, the existing true zero-sample-instrument encoding remains.
@@ -185,6 +190,14 @@ therefore keeps a missing mapped route unavailable without fallback. Interior
 S02 gaps, trailing mapped empty slots, and a represented instrument whose only
 mapped S01 is empty all round-trip semantically. Dense alpha.1 output is pinned
 byte-identically.
+
+Selection is deliberately absent from that span calculation. When clearing the
+highest represented Sxx leaves it unreferenced and with no later represented
+sample, the editable session retains the selected empty row, but Export XM may
+serialize only the lower semantic span and reopen may omit that trailing row.
+By contrast, a later represented sample or preserved map reference requires the
+empty identity and its canonical structural header through reopen and Make
+Editable Copy. The writer must not persist a UI-only selection.
 
 Validation still finishes before `Data.write(..., .atomic)`. Unsupported
 indices/maps above S16 and all existing typed writer failures preserve an
@@ -205,7 +218,8 @@ recover as sparse untitled editable copies and re-export byte-identically. A
 named sample, nonzero volume/pan/tuning/loop/reserved field, extended header, or
 any other nonzero header byte remains copy-unavailable rather than being silently
 canonicalized. This is a narrow lossless compatibility boundary, not arbitrary-XM
-parity, and no Clear/Duplicate/Move/Swap mutation or UI is introduced here.
+parity. Clear relies on this existing boundary; Duplicate/Move/Swap persistence
+or UI remains outside this slice.
 
 ### Future Native Project Format
 
@@ -246,10 +260,11 @@ First-writer limitations:
 - no guarantee of round-trip parity with arbitrary loaded XM modules
 - no full Instrument Editor state beyond fields currently represented by the
   editable document and playback/palette models
-- Sample Editor mutation is limited to stopped-editable SINE plus format-neutral
-  audio import, in-place replacement, and append-only Add as New
+- Sample Editor mutation is limited to stopped-editable SINE, format-neutral
+  audio import/in-place replacement/append-only Add as New, and confirmed
+  represented-sample Clear
 - no panning-envelope playback/editing, vibrato playback/editing, broader loop,
-  PCM/waveform, destructive lifecycle, XI import, or arbitrary non-XM-derived
+  PCM/waveform, broader destructive lifecycle, XI import, or arbitrary non-XM-derived
   payload support in the current writer; graphical and automatic keymap mapping remain deferred
 - no private corpus dependency
 - no generated XM/WAV artifacts committed outside explicit reviewed fixture PRs
@@ -342,7 +357,9 @@ Keep future PRs narrow and testable:
 27. Done: `instrument: wire selected-sample note-range assignment UI`
 28. Done: `sample: add sparse sample-slot XM round-trip foundation`
 29. Done: `xm: preserve sparse empty-slot editable-copy provenance`
-30. `sample: expose canonical interior empty slots in editor lists`
+30. Done: `sample: expose canonical interior empty slots in editor lists`
+31. Done: `sample: clear represented sample in place`
+32. `sample: populate a selected canonical empty sample destination`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

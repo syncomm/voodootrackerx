@@ -52,6 +52,13 @@ final class EditableDocumentEditCoordinator {
     var canImportAudioSample: Bool {
         contextProvider().documentAvailableForMutation?.selectedSampleImportDestination != nil
     }
+    var canClearSelectedSample: Bool {
+        guard let document = contextProvider().documentAvailableForMutation else { return false }
+        return document.representedSampleForClear(
+            instrumentAt: document.selection.selectedInstrument - 1,
+            sampleAt: document.selection.selectedSample - 1
+        ) != nil
+    }
 
     @discardableResult
     func applyEdit(label: String, updatedDocument: BlankTrackerDocument) -> Bool {
@@ -112,6 +119,22 @@ final class EditableDocumentEditCoordinator {
                   sample: candidate.playbackSample(instrumentIndex: instrumentIndex, sampleIndex: sampleIndex)
               ) == sampleIndex else { return false }
         return applyEdit(label: "Add Audio Sample", updatedDocument: document)
+    }
+
+    /// Clears one exact selected stable sample identity as a single undoable edit.
+    @discardableResult
+    func clearSample(
+        instrumentAt zeroBasedInstrumentIndex: Int,
+        sampleAt zeroBasedSampleIndex: Int
+    ) -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.clearSample(
+                  instrumentAt: zeroBasedInstrumentIndex,
+                  sampleAt: zeroBasedSampleIndex
+              ) else {
+            return false
+        }
+        return applyEdit(label: "Clear Sample", updatedDocument: document)
     }
 
     @discardableResult

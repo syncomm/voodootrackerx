@@ -64,6 +64,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self.sampleEditorWindowPresenter.refresh(displayState: self.currentSampleEditorDisplayState())
         }
     )
+    private lazy var sampleEditorClearCoordinator = SampleEditorClearCoordinator(
+        contextProvider: { [weak self] in
+            self?.currentSampleEditorClearContext() ?? .unavailable
+        },
+        commitHandler: { [weak self] instrumentIndex, sampleIndex in
+            self?.editableDocumentEditCoordinator.clearSample(
+                instrumentAt: instrumentIndex,
+                sampleAt: sampleIndex
+            ) ?? false
+        },
+        stateChangeHandler: { [weak self] in
+            guard let self else { return }
+            self.sampleEditorWindowPresenter.refresh(displayState: self.currentSampleEditorDisplayState())
+        }
+    )
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
     private var selectedPatternSelectionIndex = 0
@@ -415,11 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         alert.messageText = title
         alert.informativeText = message
-        if let mainWindow {
-            alert.beginSheetModal(for: mainWindow)
-        } else {
-            alert.runModal()
-        }
+        presentTopLevelDocumentAlert(alert)
     }
 
     private func handleWAVExportStartResult(_ result: WAVExportStartResult) {
@@ -437,6 +448,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             progressSheet.show()
         }
+        refreshEditorsForCurrentDocumentState()
 
         DispatchQueue.global(qos: .userInitiated).async { [plan, destination, cancellationToken] in
             let completion = WAVExportCoordinator.export(
@@ -457,6 +469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func finishWAVExport(_ result: WAVExportCompletionResult) {
         audioExportProgressSheet?.close()
         audioExportProgressSheet = nil
+        refreshEditorsAfterDocumentSheetDismissal()
         WAVExportPerformanceSummaryLogger.writeIfEnabled(result)
 
         if case .cancelled = result {
@@ -471,11 +484,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         alert.messageText = result.userFacingTitle
         alert.informativeText = result.userFacingMessage
-        if let mainWindow {
-            alert.beginSheetModal(for: mainWindow)
-        } else {
-            alert.runModal()
-        }
+        presentTopLevelDocumentAlert(alert)
     }
 
     private func handleM4AExportStartResult(_ result: M4AExportStartResult) {
@@ -493,6 +502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             progressSheet.show()
         }
+        refreshEditorsForCurrentDocumentState()
 
         DispatchQueue.global(qos: .userInitiated).async { [plan, destination, cancellationToken] in
             let completion = M4AExportCoordinator.export(
@@ -513,6 +523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func finishM4AExport(_ result: M4AExportCompletionResult) {
         audioExportProgressSheet?.close()
         audioExportProgressSheet = nil
+        refreshEditorsAfterDocumentSheetDismissal()
         if case .cancelled = result {
             return
         }
@@ -521,11 +532,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.alertStyle = if case .failed = result { .warning } else { .informational }
         alert.messageText = result.userFacingTitle
         alert.informativeText = result.userFacingMessage
-        if let mainWindow {
-            alert.beginSheetModal(for: mainWindow)
-        } else {
-            alert.runModal()
-        }
+        presentTopLevelDocumentAlert(alert)
     }
 
     private func currentLoadedModuleEditableCopyContext() -> LoadedModuleEditableCopyContext {
@@ -587,11 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.alertStyle = .informational
         alert.messageText = title
         alert.informativeText = message
-        LoadedModuleEditableCopyAlertPresenter.present(
-            alert,
-            keyWindow: NSApp.keyWindow,
-            mainWindow: mainWindow
-        )
+        presentTopLevelDocumentAlert(alert)
     }
 
     @objc
@@ -730,7 +733,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             documentIdentity: loadedMetadata == nil ? editableDocumentIdentity : nil,
             documentRevision: editableDocumentRevision,
             editContext: currentEditableDocumentEditContext(),
-            hasConflictingModalSheet: mainWindow?.attachedSheet != nil || NSApp.modalWindow != nil
+            hasConflictingModalSheet: hasConflictingDocumentPresentation
         )
     }
 
@@ -742,11 +745,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let sheet = InstrumentKeymapRangeAssignmentSheet(request: request)
         let completion: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self else { return }
-            defer {
-                InstrumentKeymapRangeAssignmentSheetLifecycle.refreshAfterDismissal { [weak self] in
-                    self?.refreshInstrumentEditor()
-                }
-            }
             guard response == .alertFirstButtonReturn else {
                 self.instrumentKeymapRangeAssignmentCoordinator.cancel(operationToken: request.operationToken)
                 return
@@ -799,7 +797,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             instrumentSelectionHandler: { [weak self] in self?.selectInstrumentSlot($0) ?? false },
             sampleSelectionHandler: { [weak self] in self?.selectSampleSlot($0) ?? false },
             sineGenerationHandler: { [weak self] in self?.generateSineFromSampleEditor() ?? false },
-            wavLoadHandler: { [weak self] in self?.sampleEditorWAVImportCoordinator.begin() ?? false },
+            wavLoadHandler: { [weak self] in self?.beginSampleEditorWAVImport() ?? false },
+            clearHandler: { [weak self] in self?.beginSampleEditorClear() ?? false },
             auditionHandlers: .init(
                 start: { [weak self] in self?.startSampleEditorAudition() },
                 stop: { [weak self] in self?.stopSampleEditorAudition($0) ?? false }
@@ -813,6 +812,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 blankDocument,
                 isPlaybackActive: playbackEngine.state.isPlaying,
                 isImportingWAV: sampleEditorWAVImportCoordinator.isImporting,
+                hasConflictingLifecycleOperation: sampleEditorClearCoordinator.isActive ||
+                    hasConflictingDocumentPresentation,
                 isPreviewAvailable: noteAuditionPreviewer.isPreviewAvailable
             )
         }
@@ -833,6 +834,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             document: loadedMetadata == nil ? blankDocument : nil,
             isPlaybackActive: playbackEngine.state.isPlaying
         )
+    }
+
+    private func beginSampleEditorWAVImport() -> Bool {
+        guard !sampleEditorClearCoordinator.isActive,
+              !hasConflictingDocumentPresentation else { return false }
+        return sampleEditorWAVImportCoordinator.begin()
+    }
+
+    private func currentSampleEditorClearContext() -> SampleEditorClearContext {
+        SampleEditorClearContext(
+            documentIdentity: loadedMetadata == nil ? editableDocumentIdentity : nil,
+            documentRevision: editableDocumentRevision,
+            editContext: currentEditableDocumentEditContext(),
+            hasConflictingLifecycleOperation: sampleEditorWAVImportCoordinator.isImporting,
+            hasConflictingModalPresentation: hasConflictingDocumentPresentation
+        )
+    }
+
+    private func beginSampleEditorClear() -> Bool {
+        guard let request = sampleEditorClearCoordinator.begin() else { return false }
+        let alert = SampleEditorClearAlert.make(request: request)
+        presentSampleEditorWAVAlert(alert) { [weak self] response in
+            guard let self else { return }
+            if SampleEditorClearAlert.isConfirmed(response) {
+                _ = self.sampleEditorClearCoordinator.confirm(
+                    operationToken: request.operationToken
+                )
+            } else {
+                self.sampleEditorClearCoordinator.cancel(
+                    operationToken: request.operationToken
+                )
+            }
+        }
+        return true
     }
 
     private func chooseSampleEditorWAVFile(
@@ -922,6 +957,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
     }
 
+    private func presentTopLevelDocumentAlert(_ alert: NSAlert) {
+        presentDocumentSheet(
+            begin: { hostWindow, restoreAuxiliaryWindow in
+                alert.beginSheetModal(for: hostWindow) { _ in restoreAuxiliaryWindow() }
+            },
+            fallback: { alert.runModal() }
+        )
+    }
+
     private func presentDocumentSheet(
         begin: (_ hostWindow: NSWindow, _ restoreAuxiliaryWindow: @escaping @MainActor () -> Void) -> Void,
         fallback: () -> Void
@@ -930,7 +974,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             keyWindow: NSApp.keyWindow,
             mainWindow: mainWindow
         )
-        guard let hostWindow = presentation.hostWindow else { fallback(); return }
+        guard let hostWindow = presentation.hostWindow else {
+            fallback()
+            refreshEditorsAfterDocumentSheetDismissal()
+            return
+        }
         let auxiliaryWindow = presentation.auxiliaryWindowToRestore
         let auxiliaryWasFloating = (auxiliaryWindow as? NSPanel)?.isFloatingPanel
         if let auxiliaryWindow {
@@ -947,9 +995,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     auxiliaryWindow.makeKeyAndOrderFront(nil)
                 }
             }
-            self?.refreshInstrumentEditor()
+            self?.refreshEditorsAfterDocumentSheetDismissal()
         }
+        refreshEditorsForCurrentDocumentState()
+    }
+
+    private func refreshEditorsAfterDocumentSheetDismissal() {
+        // AppKit can still report a just-dismissed sheet inside its completion
+        // callback, so recompute both editors' eligibility on the next turn.
+        InstrumentKeymapRangeAssignmentSheetLifecycle.refreshAfterDismissal { [weak self] in
+            self?.refreshEditorsForCurrentDocumentState()
+        }
+    }
+
+    private func refreshEditorsForCurrentDocumentState() {
         refreshInstrumentEditor()
+        sampleEditorWindowPresenter.refresh(displayState: currentSampleEditorDisplayState())
+    }
+
+    private var hasConflictingDocumentPresentation: Bool {
+        audioExportProgressSheet != nil || mainWindow?.attachedSheet != nil || NSApp.modalWindow != nil
     }
 
     private func refreshInstrumentEditor() {
@@ -957,7 +1022,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func generateSineFromSampleEditor() -> Bool {
-        guard editableDocumentEditCoordinator.canGenerateSineSample else { return false }
+        guard !sampleEditorWAVImportCoordinator.isImporting,
+              !sampleEditorClearCoordinator.isActive,
+              !hasConflictingDocumentPresentation,
+              editableDocumentEditCoordinator.canGenerateSineSample else { return false }
         cancelNoteAuditionForDocumentTransition()
         return editableDocumentEditCoordinator.generateSineSample()
     }
@@ -1531,11 +1599,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             alert.alertStyle = .warning
             alert.messageText = "Unable to Open Module"
             alert.informativeText = error.localizedDescription
-            if let mainWindow {
-                alert.beginSheetModal(for: mainWindow)
-            } else {
-                alert.runModal()
-            }
+            presentTopLevelDocumentAlert(alert)
         }
     }
 

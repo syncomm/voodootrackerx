@@ -150,8 +150,95 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(invalid).isWAVLoadEnabled)
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(empty, isPlaybackActive: true).isWAVLoadEnabled)
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(empty, isImportingWAV: true).isWAVLoadEnabled)
+        let conflicting = SampleEditorDisplayState.editableDocument(
+            empty, hasConflictingLifecycleOperation: true
+        )
+        XCTAssertFalse(conflicting.isWAVLoadEnabled)
+        XCTAssertFalse(conflicting.isSineGenerationEnabled)
         XCTAssertFalse(SampleEditorDisplayState.loadedModule(playbackSong: nil, selection: .default).isWAVLoadEnabled)
         XCTAssertFalse(SampleEditorDisplayState.empty.isWAVLoadEnabled)
+    }
+
+    func testClearEligibilityRequiresStoppedEditableRepresentedSelectionWithoutConflict() {
+        let empty = BlankTrackerDocument.makeDefault()
+        let sparseEmpty = makeSampleEditorDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrument: PlaybackInstrument(index: 1, samples: [
+                makePlaybackSample(sampleIndex: 0, name: "Pulse S01"),
+                makePlaybackSample(sampleIndex: 2, name: "Impulse S03"),
+            ])
+        )
+        var represented = empty
+        XCTAssertTrue(represented.generateSineInSelectedEmptySample())
+        let loadedSong = makeSampleEditorSong(instruments: represented.instrumentPalette)
+
+        XCTAssertTrue(SampleEditorDisplayState.editableDocument(represented).isClearEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(empty).isClearEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(sparseEmpty).isClearEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(
+            represented, isPlaybackActive: true
+        ).isClearEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.editableDocument(
+            represented, isImportingWAV: true
+        ).isClearEnabled)
+        let conflicting = SampleEditorDisplayState.editableDocument(
+            represented, hasConflictingLifecycleOperation: true
+        )
+        XCTAssertFalse(conflicting.isClearEnabled)
+        XCTAssertFalse(conflicting.isWAVLoadEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.loadedModule(
+            playbackSong: loadedSong, selection: represented.selection
+        ).isClearEnabled)
+        XCTAssertFalse(SampleEditorDisplayState.empty.isClearEnabled)
+    }
+
+    func testClearButtonRejectsStaleClearAndLoadActionsAndRecoversAfterSheetDismissal() async throws {
+        var represented = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(represented.generateSineInSelectedEmptySample())
+        var invocationCount = 0
+        var loadInvocationCount = 0
+        let controller = SampleEditorWindowController(
+            displayState: .editableDocument(represented),
+            wavLoadHandler: { loadInvocationCount += 1; return true },
+            clearHandler: { invocationCount += 1; return true }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        let staleButton = try XCTUnwrap(view.clearButton)
+        let staleAction = try XCTUnwrap(staleButton.action)
+        let staleTarget = try XCTUnwrap(staleButton.target)
+        let staleLoadButton = try XCTUnwrap(view.wavLoadButton)
+        let staleLoadAction = try XCTUnwrap(staleLoadButton.action)
+        let staleLoadTarget = try XCTUnwrap(staleLoadButton.target)
+
+        XCTAssertEqual(staleButton.identifier?.rawValue, SampleEditorViewIdentifier.clearButton)
+        XCTAssertTrue(staleButton.isEnabled)
+        XCTAssertTrue(staleButton.sendAction(staleAction, to: staleTarget))
+        XCTAssertEqual(invocationCount, 1)
+
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(
+            represented, hasConflictingLifecycleOperation: true
+        )))
+        let disabledButton = try XCTUnwrap(view.clearButton)
+        XCTAssertFalse(disabledButton.isEnabled)
+        XCTAssertNil(disabledButton.action)
+        XCTAssertNil(disabledButton.target)
+        XCTAssertEqual(disabledButton.alphaValue, 0.38, accuracy: 0.001)
+        XCTAssertFalse(try XCTUnwrap(view.wavLoadButton).isEnabled)
+        XCTAssertTrue(staleButton.sendAction(staleAction, to: staleTarget))
+        XCTAssertTrue(staleLoadButton.sendAction(staleLoadAction, to: staleLoadTarget))
+        XCTAssertEqual(invocationCount, 1)
+        XCTAssertEqual(loadInvocationCount, 0)
+
+        let refreshed = expectation(description: "sample actions refreshed after sheet dismissal")
+        InstrumentKeymapRangeAssignmentSheetLifecycle.refreshAfterDismissal {
+            _ = controller.apply(displayState: .editableDocument(represented))
+            refreshed.fulfill()
+        }
+        await fulfillment(of: [refreshed], timeout: 1)
+        XCTAssertTrue(try XCTUnwrap(view.clearButton).isEnabled)
+        XCTAssertNotNil(view.clearButton?.target)
+        XCTAssertNotNil(view.clearButton?.action)
+        XCTAssertTrue(try XCTUnwrap(view.wavLoadButton).isEnabled)
     }
 
     func testWAVLoadButtonInvokesOnlyWhenEligibleAndDisablesDuringImport() throws {
@@ -672,6 +759,51 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(stopped, [firstToken, secondToken])
     }
 
+    func testClearRefreshInvalidatesDirectAuditionAndKeepsExactEmptySelectedDestination() throws {
+        let token = EditorNoteAuditionPreviewToken(
+            generation: 1, keyIdentity: .sampleEditorAudition,
+            noteValue: SampleEditorAuditionRequestFactory.noteValue,
+            selectedOctave: SampleEditorAuditionRequestFactory.octave
+        )
+        var stopped: [EditorNoteAuditionPreviewToken] = []
+        var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        for noteIndex in 32...63 { map[noteIndex] = 1 }
+        for noteIndex in 64...95 { map[noteIndex] = 2 }
+        var document = makeSampleEditorDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrument: PlaybackInstrument(index: 1, samples: [
+                makePlaybackSample(sampleIndex: 0, name: "Pulse S01", pcm: [-0.25, 0.25]),
+                makePlaybackSample(sampleIndex: 1, name: "Layer S02", pcm: [-0.5, 0.5]),
+                makePlaybackSample(sampleIndex: 2, name: "Impulse S03", pcm: [0.75]),
+            ], noteSampleMap: map)
+        )
+        let controller = SampleEditorWindowController(
+            displayState: .editableDocument(document),
+            clearHandler: { true },
+            auditionHandlers: .init(start: { token }, stop: { stopped.append($0); return true })
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? SampleEditorView)
+        let auditionButton = try XCTUnwrap(view.auditionButton)
+        auditionButton.sendAction(auditionButton.action, to: auditionButton.target)
+        XCTAssertEqual(view.activeAuditionToken, token)
+
+        XCTAssertTrue(document.clearSample(instrumentAt: 0, sampleAt: 1))
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(document)))
+
+        XCTAssertEqual(stopped, [token])
+        XCTAssertNil(view.activeAuditionToken)
+        XCTAssertEqual(view.displayState.selectedSampleSlot, 2)
+        XCTAssertNil(view.displayState.selectedSample)
+        XCTAssertEqual(view.displayState.sampleSlots.map(\.slot), [1, 2, 3])
+        XCTAssertTrue(view.displayState.sampleSlots[1].isEmptyDestination)
+        XCTAssertFalse(view.displayState.isAuditionEnabled)
+        XCTAssertFalse(view.displayState.isClearEnabled)
+        XCTAssertFalse(view.displayState.isWAVLoadEnabled)
+        XCTAssertFalse(view.displayState.isSineGenerationEnabled)
+        XCTAssertFalse(try XCTUnwrap(view.auditionButton).isEnabled)
+        XCTAssertFalse(try XCTUnwrap(view.clearButton).isEnabled)
+    }
+
     func testSelectedSampleRowScrollsIntoViewWithoutChangingInstrument() throws {
         let samples = (0..<12).map { index in
             makePlaybackSample(
@@ -854,6 +986,119 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         let atMaximum = SampleEditorOccupiedImportAlert.make(canAddAsNew: false)
         XCTAssertFalse(atMaximum.buttons[1].isEnabled)
         XCTAssertTrue(atMaximum.informativeText.contains("\(BlankTrackerDocument.maximumSampleCountPerInstrument)"))
+    }
+
+    func testClearAlertNamesExactSampleAndWarnsOnlyForMappedReferences() {
+        let request = SampleEditorClearRequest(
+            operationToken: UUID(), instrumentIndex: 0, sampleIndex: 1,
+            sampleDisplay: "S02", mappedNoteCount: 12
+        )
+        let warning = SampleEditorClearAlert.make(request: request)
+
+        XCTAssertEqual(warning.messageText, "Clear Sample S02?")
+        XCTAssertEqual(warning.buttons.map(\.title), ["Clear Sample", "Cancel"])
+        XCTAssertEqual(
+            warning.informativeText,
+            """
+            The sample PCM and metadata will be removed. Undo can restore it.
+
+            12 mapped notes currently reference S02. Those mappings will be preserved and will become unavailable until explicitly remapped or the slot is populated again.
+            """
+        )
+        XCTAssertTrue(SampleEditorClearAlert.isConfirmed(.alertFirstButtonReturn))
+        XCTAssertFalse(SampleEditorClearAlert.isConfirmed(.alertSecondButtonReturn))
+
+        let unreferenced = SampleEditorClearAlert.make(request: .init(
+            operationToken: UUID(), instrumentIndex: 0, sampleIndex: 1,
+            sampleDisplay: "S02", mappedNoteCount: 0
+        ))
+        XCTAssertFalse(unreferenced.informativeText.contains("mapped note"))
+        XCTAssertFalse(unreferenced.informativeText.contains("unavailable"))
+    }
+
+    func testClearCoordinatorCancelAndStaleConfirmationCreateNoCommit() throws {
+        let identity = UUID()
+        let represented = clearCoordinatorDocument()
+        let base = makeClearContext(represented, identity: identity)
+        var selectedElsewhere = represented
+        selectedElsewhere.selectSample(1)
+        var changedTarget = represented
+        XCTAssertTrue(changedTarget.setSampleVolume(
+            instrumentAt: 0, sampleAt: 1,
+            volume: try XCTUnwrap(represented.instrumentPalette[1]?.samples[1].xmVolume) - 1
+        ))
+        var removedTarget = represented
+        XCTAssertTrue(removedTarget.clearSample(instrumentAt: 0, sampleAt: 1))
+        let staleContexts = [
+            makeClearContext(represented, identity: UUID()),
+            makeClearContext(represented, identity: identity, revision: 5),
+            makeClearContext(selectedElsewhere, identity: identity),
+            makeClearContext(changedTarget, identity: identity),
+            makeClearContext(removedTarget, identity: identity),
+            makeClearContext(represented, identity: identity, isPlaybackActive: true),
+            SampleEditorClearContext(
+                documentIdentity: nil, documentRevision: 4, editContext: .loadedReadOnly
+            ),
+            makeClearContext(represented, identity: identity, hasLifecycleConflict: true),
+        ]
+
+        var context = base
+        var commits: [(Int, Int)] = []
+        var stateChanges = 0
+        let coordinator = SampleEditorClearCoordinator(
+            contextProvider: { context },
+            commitHandler: { commits.append(($0, $1)); return true },
+            stateChangeHandler: { stateChanges += 1 }
+        )
+        context = makeClearContext(represented, identity: identity, hasModalConflict: true)
+        XCTAssertFalse(coordinator.canBegin)
+        XCTAssertNil(coordinator.begin())
+        context = base
+        let cancelled = try XCTUnwrap(coordinator.begin())
+        XCTAssertEqual(cancelled.sampleDisplay, "S02")
+        XCTAssertEqual(cancelled.mappedNoteCount, 32)
+        XCTAssertTrue(coordinator.isActive)
+        XCTAssertFalse(coordinator.canBegin)
+        XCTAssertNil(coordinator.begin())
+        XCTAssertTrue(coordinator.cancel(operationToken: cancelled.operationToken))
+        XCTAssertFalse(coordinator.isActive)
+        XCTAssertTrue(commits.isEmpty)
+
+        for staleContext in staleContexts {
+            context = base
+            let request = try XCTUnwrap(coordinator.begin())
+            context = staleContext
+            XCTAssertFalse(coordinator.confirm(operationToken: request.operationToken))
+            XCTAssertFalse(coordinator.isActive)
+        }
+        XCTAssertTrue(commits.isEmpty)
+        XCTAssertEqual(stateChanges, 2 + staleContexts.count * 2)
+
+        context = makeClearContext(represented, identity: identity, hasLifecycleConflict: true)
+        XCTAssertFalse(coordinator.canBegin)
+        XCTAssertNil(coordinator.begin())
+    }
+
+    func testClearCoordinatorConfirmsExactCapturedTargetOnce() throws {
+        let document = clearCoordinatorDocument()
+        let identity = UUID()
+        var context = makeClearContext(document, identity: identity, revision: 7)
+        var commits: [(Int, Int)] = []
+        let coordinator = SampleEditorClearCoordinator(
+            contextProvider: { context },
+            commitHandler: { commits.append(($0, $1)); return true }
+        )
+
+        let request = try XCTUnwrap(coordinator.begin())
+        XCTAssertEqual(request.instrumentIndex, 0)
+        XCTAssertEqual(request.sampleIndex, 1)
+        context = makeClearContext(
+            document, identity: identity, revision: 7, hasModalConflict: true
+        )
+        XCTAssertTrue(coordinator.confirm(operationToken: request.operationToken))
+        XCTAssertFalse(coordinator.confirm(operationToken: request.operationToken))
+        XCTAssertEqual(commits.map { [$0.0, $0.1] }, [[0, 1]])
+        XCTAssertFalse(coordinator.isActive)
     }
 
     func testWAVImportFileCancelAndDuplicateActionSuppressionCreateNoMutation() {
@@ -1372,6 +1617,37 @@ private func makeSampleEditorDocument(
         selection: selection,
         instrumentPalette: [instrument.index: instrument],
         patterns: base.patterns
+    )
+}
+
+private func clearCoordinatorDocument() -> BlankTrackerDocument {
+    var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+    for noteIndex in 32...63 { map[noteIndex] = 1 }
+    for noteIndex in 64...95 { map[noteIndex] = 2 }
+    return makeSampleEditorDocument(
+        selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+        instrument: PlaybackInstrument(index: 1, name: "Layered", samples: [
+            makePlaybackSample(sampleIndex: 0, name: "Pulse S01", pcm: [-0.25, 0.25]),
+            makePlaybackSample(sampleIndex: 1, name: "Layer S02", pcm: [-0.5, 0, 0.5]),
+            makePlaybackSample(sampleIndex: 2, name: "Impulse S03", pcm: [0.875]),
+        ], noteSampleMap: map)
+    )
+}
+
+private func makeClearContext(
+    _ document: BlankTrackerDocument,
+    identity: UUID,
+    revision: UInt64 = 4,
+    isPlaybackActive: Bool = false,
+    hasLifecycleConflict: Bool = false,
+    hasModalConflict: Bool = false
+) -> SampleEditorClearContext {
+    SampleEditorClearContext(
+        documentIdentity: identity,
+        documentRevision: revision,
+        editContext: .editable(document: document, isPlaybackActive: isPlaybackActive),
+        hasConflictingLifecycleOperation: hasLifecycleConflict,
+        hasConflictingModalPresentation: hasModalConflict
     )
 }
 

@@ -1207,6 +1207,67 @@ struct BlankTrackerDocument: Equatable {
         return sampleIndex
     }
 
+    func representedSampleForClear(
+        instrumentAt zeroBasedInstrumentIndex: Int,
+        sampleAt zeroBasedSampleIndex: Int
+    ) -> PlaybackSample? {
+        guard (0..<Self.maximumInstrumentCount).contains(zeroBasedInstrumentIndex),
+              (0..<Self.maximumSampleCountPerInstrument).contains(zeroBasedSampleIndex),
+              selection.selectedInstrument == zeroBasedInstrumentIndex + 1,
+              selection.selectedSample == zeroBasedSampleIndex + 1,
+              let instrument = instrumentPalette[zeroBasedInstrumentIndex + 1],
+              instrument.index == zeroBasedInstrumentIndex + 1 else {
+            return nil
+        }
+        let matches = instrument.samples.filter { $0.sampleIndex == zeroBasedSampleIndex }
+        guard matches.count == 1, let sample = matches.first,
+              sample.instrumentIndex == instrument.index else { return nil }
+        return sample
+    }
+
+    /// Removes only the selected represented sample identity while preserving its slot references.
+    @discardableResult
+    mutating func clearSample(
+        instrumentAt zeroBasedInstrumentIndex: Int,
+        sampleAt zeroBasedSampleIndex: Int
+    ) -> Bool {
+        guard representedSampleForClear(
+            instrumentAt: zeroBasedInstrumentIndex,
+            sampleAt: zeroBasedSampleIndex
+        ) != nil,
+        let instrument = instrumentPalette[zeroBasedInstrumentIndex + 1],
+        let matchingOffset = instrument.samples.firstIndex(where: {
+            $0.sampleIndex == zeroBasedSampleIndex
+        }) else { return false }
+
+        var samples = instrument.samples
+        samples.remove(at: matchingOffset)
+        var palette = instrumentPalette
+        palette[zeroBasedInstrumentIndex + 1] = PlaybackInstrument(
+            index: instrument.index,
+            name: instrument.name,
+            samples: samples,
+            volumeEnvelope: instrument.volumeEnvelope,
+            panningEnvelope: instrument.panningEnvelope,
+            autoVibrato: instrument.autoVibrato,
+            noteSampleMap: instrument.noteSampleMap
+        )
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: currentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: currentPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
+            selection: selection,
+            instrumentPalette: palette,
+            patterns: patterns
+        )
+        return true
+    }
+
     /// Appends a represented unnamed instrument and selects its empty S01 destination.
     @discardableResult
     mutating func addEmptyInstrument() -> Int? {

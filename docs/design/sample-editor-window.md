@@ -7,8 +7,9 @@
 **Status:** The fixed mockup-aligned shell, canonical selection, sample display,
 waveform/loop overview, stopped-editable empty-S01 SINE, and
 WAV/AIFF/AIFC/native-FLAC LOAD into empty or represented destinations are
-implemented. Other sample mutation remains deferred. Header AUDITION directly
-previews the selected sample at C-4.
+implemented. CLEAR now removes the selected represented sample in place through
+one confirmed undoable edit. Other sample mutation remains deferred. Header
+AUDITION directly previews the selected sample at C-4.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
 proportions, `assets/mockups/sample-editor-v1.html` takes precedence over this
@@ -22,7 +23,7 @@ See `docs/design/editor-window-design-overview.md`,
 
 ---
 
-## 0. Current foundation, SINE, and audio LOAD
+## 0. Current foundation, SINE, audio LOAD, and represented-sample CLEAR
 
 `Window > Sample Editor` opens one active fixed utility window/controller at a
 time, reusing it while open. It preserves normal close, Command-W, activation,
@@ -79,6 +80,30 @@ neither may target an arbitrary interior or trailing empty row. Exact lifecycle 
 selection and natural-completion notification remain future work; no polling is
 used.
 
+CLEAR is enabled only when the exact selected Sxx is represented in a stopped
+editable document and no import, lifecycle operation, or conflicting sheet is
+active. It is disabled and inert for loaded/read-only, playing, missing,
+sampleless-instrument, empty-destination, invalid, and stale contexts. The
+confirmation names the exact slot (`Clear Sample S02?`), explains that its PCM
+and metadata are removed and Undo restores them, and—only when applicable—shows
+the exact count of notes whose map entries reference that Sxx. It states that
+those entries are preserved and become unavailable until remapped or the slot is
+populated again. Confirmation revalidates document identity/revision, exact
+instrument/sample selection, target value, and stopped transport before one
+`Clear Sample` edit; Cancel or any mismatch creates no edit or undo history.
+
+Clear removes only the selected `PlaybackSample`; later `sampleIndex` values and
+the exact 96-note map do not compact or change. Selection stays on the same Sxx,
+now rendered as `Empty sample destination`, across this window, the Instrument Editor,
+and the main control panel. The waveform, metadata, loop display, direct
+AUDITION, and CLEAR become unavailable; LOAD/SINE keep their existing S02+
+empty-destination gating. A successful refresh releases any direct preview of
+the removed sample through the existing preview lifecycle, does not rebuild the
+persistent output graph, and never auto-auditions. Instrument-note ownership may
+still show Sxx where the preserved map references it, but resolution is honestly
+unavailable with no fallback. Undo/Redo restores/removes the exact represented
+sample and retains the same selection and map.
+
 ### From-scratch creation/import contract
 
 The Sample Editor owns sample identity, selection within the current
@@ -118,20 +143,20 @@ WAV cue/`smpl`/broadcast fields, AIFF/AIFC MARK/INST/COMT/NAME/AUTH/ANNO,
 and FLAC tags, pictures, cues, seek tables, application/padding blocks, ReplayGain,
 embedded names, and loops remains deferred. The Sample Editor panel still lists
 every currently supported lossless import format. Add as New Sample and S02+
-are current; delete, clear, reorder, duplication, standalone New Sample, keymap
-editing, and global import/drop creation remain deferred.
+are current; refilling arbitrary empty slots, reorder, duplication, standalone
+New Sample, keymap editing, and global import/drop creation remain deferred.
 Square/pulse, triangle, saw, and noise remain future generators.
 First-sample import/generation maps all 96 notes and becomes immediately
 auditionable in one `applyEdit` action. See
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
 
-### Post-alpha lifecycle selection contract
+### Clear lifecycle selection and persistence contract
 
-Clear/Duplicate/Move/Swap remain unimplemented. Future Clear Sample is
-non-compacting: removing represented Sxx leaves that zero-based identity absent,
-keeps every later represented sample index and all 96 keymap values unchanged,
-and makes any route to Sxx unavailable rather than falling back to S01 or the
-first playable sample.
+Clear is non-compacting: removing represented Sxx leaves that zero-based
+identity absent, keeps every later represented sample index and all 96 keymap
+values unchanged, and makes any route to Sxx unavailable rather than falling
+back to S01 or the first playable sample. Duplicate/Move/Swap and filling an
+arbitrary interior empty destination remain unimplemented.
 
 Editable selection is stored in the `BlankTrackerDocument` value, while normal
 row selection remains a non-editing UI gesture. Clearing the selected Sxx must
@@ -147,9 +172,13 @@ The shared projection now renders eligible interior empty rows beside represente
 samples and preserves exact selection across the main control panel, Instrument
 Editor, and Sample Editor. Selection is session focus only: it changes no revision,
 undo history, keymap, pattern, or represented data. This completes the presentation
-prerequisite but is not permission to redirect audition, broaden import/generation,
-or add Clear UI. Clear Sample remains the next lifecycle behavior after repository
-cleanup. See ADR 012's sparse sample-slot boundary.
+foundation used by CLEAR, but does not redirect audition or broaden
+import/generation. A highest cleared Sxx that is neither map-referenced nor
+followed by a represented sample remains visible in the current session because
+it is selected UI focus; Export XM does not serialize selection alone, so reopen
+may drop that trailing empty row. Interior gaps required by a later represented
+sample and mapped empty identities remain structural XM state and survive
+Export/reopen/Make Editable Copy. See ADR 012's sparse sample-slot boundary.
 
 ---
 
@@ -207,7 +236,8 @@ remain visible but inert until their separately scoped milestones.
 - **SAMPLE PARAMS:** VOLUME (signature) + FINETUNE knobs; center-detent PAN slider; relative note.
 - **GENERATE:** sine / square / triangle / saw / noise (each replaces the sample; confirm-on-replace).
 - **FILE:** sample LOAD (WAV/AIFF/AIFC/FLAC) / EXPORT / CLEAR / REPLACE — prominent, since sample editing is
-  file/media-oriented. (Instrument XI files are menu-canonical; see the instrument window spec.)
+  file/media-oriented. LOAD and represented-sample CLEAR are current; the other
+  actions remain future. (Instrument XI files are menu-canonical; see the instrument window spec.)
 - **EDIT bank (full width):** Trim, Crop · Cut, Copy, Paste · Normalize, Reverse, Fade In, Fade Out ·
   Undo.
 
@@ -299,7 +329,8 @@ Prerequisite done: document applyEdit/undo funnel with capped whole-value snapsh
 
 For the current foundation, verify the single-window lifecycle, canonical
 selection, exact metadata/empty states, bounded deterministic waveform
-projection, safe loop geometry, and non-mutation. Compare the app side by side
+projection, safe loop geometry, CLEAR gating/confirmation/stale rejection,
+one-edit Undo/Redo, preview release, and sparse route/persistence behavior. Compare the app side by side
 with `assets/mockups/sample-editor-v1.html`; keep screenshots under `/tmp`.
 
 Future editing PRs must additionally prove that selection and loop flags map to

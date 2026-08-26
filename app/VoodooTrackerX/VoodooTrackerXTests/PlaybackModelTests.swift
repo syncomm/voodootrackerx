@@ -84,6 +84,13 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
             instrumentIndex: 1, note: 49, instrumentsByIndex: [1: missingTarget]
         ))
+        XCTAssertEqual(missingTarget.firstPlayableSample, playable)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1,
+            note: 49,
+            instrumentsByIndex: [1: missingTarget],
+            missingKeymapPolicy: .firstPlayableSample
+        ), "an explicit map to missing S02 must not audition S01 as a fallback")
         XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
             instrumentIndex: 1, note: 49, instrumentsByIndex: [1: emptyTarget]
         ))

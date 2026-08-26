@@ -188,6 +188,94 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(oneSample, beforeInvalid)
     }
 
+    func testClearSelectedRepresentedSampleRemovesOnlyExactIdentityWithoutCompactingOrRemapping() throws {
+        let first = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, name: "Pulse S01", pcm: [-0.25, 0.25],
+            volume: 0.5, panning: 37, relativeNote: -2, finetune: 7,
+            baseSampleRate: 8_363, loopStart: 0, loopLength: 2, loopType: 1,
+            sourceBitDepthBits: 8, sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+        let second = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 1, name: "Layer S02", pcm: [-0.5, 0, 0.5],
+            volume: 0.75, panning: 128, relativeNote: 3, finetune: -8,
+            baseSampleRate: 8_363, sourceBitDepthBits: 16,
+            sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+        let third = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 2, name: "Impulse S03", pcm: [0.875],
+            volume: 1, panning: 211, relativeNote: 9, finetune: 31,
+            baseSampleRate: 8_363, sourceBitDepthBits: 16,
+            sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+        var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        for noteIndex in 32...63 { map[noteIndex] = 1 }
+        for noteIndex in 64...95 { map[noteIndex] = 2 }
+        let volumeEnvelope = PlaybackVolumeEnvelope(
+            enabled: true, points: [.init(tick: 0, value: 64), .init(tick: 8, value: 24)],
+            sustainPointIndex: 0, loopStartPointIndex: 0, loopEndPointIndex: 1,
+            typeFlags: 0x07, fadeout: 321
+        )
+        let panningEnvelope = PlaybackPanningEnvelope(
+            enabled: true, points: [.init(tick: 0, value: 12), .init(tick: 8, value: 52)],
+            sustainPointIndex: 1, loopStartPointIndex: 0, loopEndPointIndex: 1,
+            typeFlags: 0x07
+        )
+        let autoVibrato = PlaybackInstrumentAutoVibrato(waveformType: 2, sweep: 3, depth: 4, rate: 5)
+        let unrelated = PlaybackInstrument(
+            index: 2,
+            name: "Unrelated",
+            samples: [makePlaybackSample(instrumentIndex: 2, sampleIndex: 0, name: "Other")],
+            noteSampleMap: Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        )
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 2)
+        pattern.rows[0][0] = XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0F, effectParam: 0x06)
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            patterns: [pattern],
+            instrumentPalette: [
+                1: PlaybackInstrument(
+                    index: 1, name: "Layered", samples: [third, first, second],
+                    volumeEnvelope: volumeEnvelope, panningEnvelope: panningEnvelope,
+                    autoVibrato: autoVibrato, noteSampleMap: map
+                ),
+                2: unrelated,
+            ]
+        )
+        let before = document
+
+        XCTAssertTrue(document.clearSample(instrumentAt: 0, sampleAt: 1))
+
+        let cleared = try XCTUnwrap(document.instrumentPalette[1])
+        XCTAssertEqual(cleared.samples, [third, first])
+        XCTAssertEqual(cleared.samples.map(\.sampleIndex), [2, 0])
+        XCTAssertEqual(cleared.name, "Layered")
+        XCTAssertEqual(cleared.volumeEnvelope, volumeEnvelope)
+        XCTAssertEqual(cleared.panningEnvelope, panningEnvelope)
+        XCTAssertEqual(cleared.autoVibrato, autoVibrato)
+        XCTAssertEqual(cleared.noteSampleMap, map)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        XCTAssertEqual(document.sampleSlotPresentationRows(forInstrument: 1).map(\.sampleSlot), [1, 2, 3])
+        XCTAssertTrue(document.sampleSlotPresentationRows(forInstrument: 1)[1].isEmptyDestination)
+        XCTAssertEqual(document.instrumentPalette[2], unrelated)
+        XCTAssertEqual(document.patterns, before.patterns)
+        XCTAssertEqual(document.orderTable, before.orderTable)
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 1, instrument: cleared
+        )?.sampleIndex, 0)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 33, instrument: cleared
+        ))
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 65, instrument: cleared
+        )?.sampleIndex, 2)
+
+        let after = document
+        XCTAssertFalse(document.clearSample(instrumentAt: 0, sampleAt: 1))
+        XCTAssertEqual(document, after)
+        XCTAssertFalse(document.clearSample(instrumentAt: 0, sampleAt: 0))
+        XCTAssertEqual(document, after)
+    }
+
     func testInteriorEmptySampleIdentityRetainsSelectionAndKeymapReferenceWithoutFallback() throws {
         let first = makePlaybackSample(
             instrumentIndex: 1, sampleIndex: 0, name: "Distinct S01", pcm: [0.125, 0.25]

@@ -1181,7 +1181,8 @@ struct InstrumentEditorDisplayState: Equatable {
 
         func appendRange(endingAt endIndex: Int) {
             let sample = instrument.samples.first { $0.sampleIndex == mappedSampleIndex }
-            let slot = sample.map { min(254, max(0, $0.sampleIndex)) + 1 }
+            let slot = (0..<SampleSlotPresentationProjection.maximumSampleCount)
+                .contains(mappedSampleIndex) ? mappedSampleIndex + 1 : nil
             ranges.append(KeymapRange(
                 startNote: rangeStart + 1,
                 endNote: endIndex + 1,

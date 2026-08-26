@@ -4,6 +4,173 @@ typealias SampleEditorInstrumentSelectionHandler = (_ oneBasedInstrumentSlot: In
 typealias SampleEditorSampleSelectionHandler = (_ oneBasedSampleSlot: Int) -> Bool
 typealias SampleEditorSineGenerationHandler = () -> Bool
 typealias SampleEditorWAVLoadHandler = () -> Bool
+typealias SampleEditorClearHandler = () -> Bool
+
+struct SampleEditorClearContext: Equatable {
+    static let unavailable = Self(
+        documentIdentity: nil,
+        documentRevision: 0,
+        editContext: .none
+    )
+
+    let documentIdentity: UUID?
+    let documentRevision: UInt64
+    let editContext: EditableDocumentEditContext
+    let hasConflictingLifecycleOperation: Bool
+    let hasConflictingModalPresentation: Bool
+
+    init(
+        documentIdentity: UUID?,
+        documentRevision: UInt64,
+        editContext: EditableDocumentEditContext,
+        hasConflictingLifecycleOperation: Bool = false,
+        hasConflictingModalPresentation: Bool = false
+    ) {
+        self.documentIdentity = documentIdentity
+        self.documentRevision = documentRevision
+        self.editContext = editContext
+        self.hasConflictingLifecycleOperation = hasConflictingLifecycleOperation
+        self.hasConflictingModalPresentation = hasConflictingModalPresentation
+    }
+}
+
+struct SampleEditorClearRequest: Equatable {
+    let operationToken: UUID
+    let instrumentIndex: Int
+    let sampleIndex: Int
+    let sampleDisplay: String
+    let mappedNoteCount: Int
+}
+
+private struct SampleEditorClearCapture {
+    let documentIdentity: UUID
+    let documentRevision: UInt64
+    let instrumentIndex: Int
+    let sampleIndex: Int
+    let sample: PlaybackSample
+    let mappedNoteCount: Int
+
+    init?(context: SampleEditorClearContext) {
+        guard !context.hasConflictingLifecycleOperation,
+              !context.hasConflictingModalPresentation,
+              let documentIdentity = context.documentIdentity,
+              case let .editable(document, false) = context.editContext else { return nil }
+        let instrumentIndex = document.selection.selectedInstrument - 1
+        let sampleIndex = document.selection.selectedSample - 1
+        guard let sample = document.representedSampleForClear(
+            instrumentAt: instrumentIndex, sampleAt: sampleIndex
+        ), let instrument = document.instrument(forInstrument: instrumentIndex + 1) else { return nil }
+
+        self.documentIdentity = documentIdentity
+        self.documentRevision = context.documentRevision
+        self.instrumentIndex = instrumentIndex
+        self.sampleIndex = sampleIndex
+        self.sample = sample
+        mappedNoteCount = instrument.noteSampleMap?
+            .prefix(TrackerNoteKeyMap.maximumNoteValue)
+            .filter { $0 == sampleIndex }
+            .count ?? 0
+    }
+
+    func isCurrent(in context: SampleEditorClearContext) -> Bool {
+        // The Clear confirmation sheet is expected to be attached here. Only a
+        // competing lifecycle operation invalidates an already captured request.
+        guard !context.hasConflictingLifecycleOperation,
+              context.documentIdentity == documentIdentity,
+              context.documentRevision == documentRevision,
+              case let .editable(document, false) = context.editContext,
+              document.selection.selectedInstrument == instrumentIndex + 1,
+              document.selection.selectedSample == sampleIndex + 1 else {
+            return false
+        }
+        return document.representedSampleForClear(
+            instrumentAt: instrumentIndex, sampleAt: sampleIndex
+        ) == sample
+    }
+}
+
+@MainActor
+final class SampleEditorClearCoordinator {
+    private let contextProvider: () -> SampleEditorClearContext
+    private let commitHandler: (Int, Int) -> Bool
+    private let stateChangeHandler: () -> Void
+    private var activeOperation: (token: UUID, capture: SampleEditorClearCapture)?
+
+    init(
+        contextProvider: @escaping () -> SampleEditorClearContext,
+        commitHandler: @escaping (Int, Int) -> Bool,
+        stateChangeHandler: @escaping () -> Void = {}
+    ) {
+        self.contextProvider = contextProvider
+        self.commitHandler = commitHandler
+        self.stateChangeHandler = stateChangeHandler
+    }
+
+    var isActive: Bool { activeOperation != nil }
+    var canBegin: Bool {
+        activeOperation == nil && SampleEditorClearCapture(context: contextProvider()) != nil
+    }
+
+    func begin() -> SampleEditorClearRequest? {
+        guard activeOperation == nil,
+              let capture = SampleEditorClearCapture(context: contextProvider()) else { return nil }
+        let token = UUID()
+        activeOperation = (token, capture)
+        stateChangeHandler()
+        return SampleEditorClearRequest(
+            operationToken: token,
+            instrumentIndex: capture.instrumentIndex,
+            sampleIndex: capture.sampleIndex,
+            sampleDisplay: String(format: "S%02X", capture.sampleIndex + 1),
+            mappedNoteCount: capture.mappedNoteCount
+        )
+    }
+
+    @discardableResult
+    func cancel(operationToken: UUID) -> Bool {
+        guard activeOperation?.token == operationToken else { return false }
+        finish()
+        return true
+    }
+
+    @discardableResult
+    func confirm(operationToken: UUID) -> Bool {
+        guard let activeOperation, activeOperation.token == operationToken else { return false }
+        defer { finish() }
+        guard activeOperation.capture.isCurrent(in: contextProvider()) else { return false }
+        return commitHandler(activeOperation.capture.instrumentIndex, activeOperation.capture.sampleIndex)
+    }
+
+    private func finish() {
+        activeOperation = nil
+        stateChangeHandler()
+    }
+}
+
+@MainActor
+enum SampleEditorClearAlert {
+    static func make(request: SampleEditorClearRequest) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Clear Sample \(request.sampleDisplay)?"
+        var detail = "The sample PCM and metadata will be removed. Undo can restore it."
+        if request.mappedNoteCount > 0 {
+            let noteLabel = request.mappedNoteCount == 1 ? "mapped note" : "mapped notes"
+            detail += "\n\n\(request.mappedNoteCount) \(noteLabel) currently reference \(request.sampleDisplay). "
+            detail += "Those mappings will be preserved and will become unavailable until explicitly remapped or the slot is populated again."
+        }
+        alert.informativeText = detail
+        alert.addButton(withTitle: "Clear Sample")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].setAccessibilityLabel("Clear \(request.sampleDisplay)")
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        return alert
+    }
+
+    static func isConfirmed(_ response: NSApplication.ModalResponse) -> Bool {
+        response == .alertFirstButtonReturn
+    }
+}
 
 struct SampleEditorAuditionHandlers {
     let start: () -> EditorNoteAuditionPreviewToken?
@@ -171,7 +338,8 @@ struct SampleEditorDisplayState: Equatable {
         source: .none, instrumentSlot: nil, instrumentName: "No instrument available",
         instrumentOptions: [], selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
         emptyMessage: "No document sample palette is available.", isSineGenerationEnabled: false,
-        isWAVLoadEnabled: false, isImportingWAV: false, isAuditionEnabled: false
+        isWAVLoadEnabled: false, isClearEnabled: false,
+        isImportingWAV: false, isAuditionEnabled: false
     )
 
     let source: Source
@@ -184,6 +352,7 @@ struct SampleEditorDisplayState: Equatable {
     let emptyMessage: String
     let isSineGenerationEnabled: Bool
     let isWAVLoadEnabled: Bool
+    let isClearEnabled: Bool
     let isImportingWAV: Bool
     let isAuditionEnabled: Bool
     var isReadOnly: Bool { source != .editableDocument }
@@ -224,6 +393,7 @@ struct SampleEditorDisplayState: Equatable {
                 forInstrument: selection.selectedInstrument
              ) ?? [],
              isSineGenerationEnabled: false, isWAVLoadEnabled: false,
+             isClearEnabled: false,
              isImportingWAV: false, isPreviewAvailable: isPreviewAvailable)
     }
 
@@ -231,14 +401,23 @@ struct SampleEditorDisplayState: Equatable {
         _ document: BlankTrackerDocument,
         isPlaybackActive: Bool = false,
         isImportingWAV: Bool = false,
+        hasConflictingLifecycleOperation: Bool = false,
         isPreviewAvailable: Bool = true
     ) -> Self {
-        make(source: .editableDocument, palette: document.instrumentPalette, selection: document.selection,
+        let hasClearTarget = document.representedSampleForClear(
+            instrumentAt: document.selection.selectedInstrument - 1,
+            sampleAt: document.selection.selectedSample - 1
+        ) != nil
+        return make(source: .editableDocument, palette: document.instrumentPalette, selection: document.selection,
              presentationRows: document.sampleSlotPresentationRows(
                 forInstrument: document.selection.selectedInstrument
              ),
-             isSineGenerationEnabled: !isPlaybackActive && !isImportingWAV && document.canGenerateSineInSelectedEmptySample,
-             isWAVLoadEnabled: !isPlaybackActive && !isImportingWAV && document.selectedSampleImportDestination != nil,
+             isSineGenerationEnabled: !isPlaybackActive && !isImportingWAV &&
+                !hasConflictingLifecycleOperation && document.canGenerateSineInSelectedEmptySample,
+             isWAVLoadEnabled: !isPlaybackActive && !isImportingWAV &&
+                !hasConflictingLifecycleOperation && document.selectedSampleImportDestination != nil,
+             isClearEnabled: !isPlaybackActive && !isImportingWAV &&
+                !hasConflictingLifecycleOperation && hasClearTarget,
              isImportingWAV: isImportingWAV, isPreviewAvailable: isPreviewAvailable)
     }
 
@@ -246,7 +425,8 @@ struct SampleEditorDisplayState: Equatable {
                              selection: TrackerEditorSelection,
                              presentationRows: [SampleSlotPresentationRow],
                              isSineGenerationEnabled: Bool,
-                             isWAVLoadEnabled: Bool, isImportingWAV: Bool, isPreviewAvailable: Bool) -> Self {
+                             isWAVLoadEnabled: Bool, isClearEnabled: Bool,
+                             isImportingWAV: Bool, isPreviewAvailable: Bool) -> Self {
         let instrumentOptions = palette
             .filter { (1...255).contains($0.key) }
             .map { slot, instrument in
@@ -265,7 +445,8 @@ struct SampleEditorDisplayState: Equatable {
                 emptyMessage: palette.isEmpty
                     ? "No represented instruments are available."
                     : "\(String(format: "I%02X", selection.selectedInstrument)) is not represented.",
-                isSineGenerationEnabled: false, isWAVLoadEnabled: false, isImportingWAV: isImportingWAV,
+                isSineGenerationEnabled: false, isWAVLoadEnabled: false, isClearEnabled: false,
+                isImportingWAV: isImportingWAV,
                 isAuditionEnabled: false
             )
         }
@@ -299,6 +480,7 @@ struct SampleEditorDisplayState: Equatable {
                 : "",
             isSineGenerationEnabled: isSineGenerationEnabled,
             isWAVLoadEnabled: isWAVLoadEnabled,
+            isClearEnabled: isClearEnabled,
             isImportingWAV: isImportingWAV,
             isAuditionEnabled: isPreviewAvailable && !isImportingWAV && selected.map(isAuditionPlayable) == true
         )
@@ -332,6 +514,7 @@ enum SampleEditorViewIdentifier {
     static let generatePanel = "sampleEditor.generatePanel"
     static let filePanel = "sampleEditor.filePanel"
     static let wavLoadButton = "sampleEditor.wavLoadButton"
+    static let clearButton = "sampleEditor.clearButton"
     static let auditionButton = "sampleEditor.auditionButton"
     static let editPanel = "sampleEditor.editPanel"
     static let sampleRowPrefix = "sampleEditor.sampleRow."
@@ -442,6 +625,7 @@ final class SampleEditorWindowPresenter {
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
         sineGenerationHandler: SampleEditorSineGenerationHandler? = nil,
         wavLoadHandler: SampleEditorWAVLoadHandler? = nil,
+        clearHandler: SampleEditorClearHandler? = nil,
         auditionHandlers: SampleEditorAuditionHandlers? = nil
     ) -> SampleEditorWindowController {
         if let windowController {
@@ -449,6 +633,7 @@ final class SampleEditorWindowPresenter {
             windowController.sampleSelectionHandler = sampleSelectionHandler
             windowController.sineGenerationHandler = sineGenerationHandler
             windowController.wavLoadHandler = wavLoadHandler
+            windowController.clearHandler = clearHandler
             windowController.auditionHandlers = auditionHandlers
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
@@ -460,6 +645,7 @@ final class SampleEditorWindowPresenter {
             sampleSelectionHandler: sampleSelectionHandler,
             sineGenerationHandler: sineGenerationHandler,
             wavLoadHandler: wavLoadHandler,
+            clearHandler: clearHandler,
             auditionHandlers: auditionHandlers
         )
         controller.closeHandler = { [weak self, weak controller] in
@@ -494,6 +680,9 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
     var wavLoadHandler: SampleEditorWAVLoadHandler? {
         didSet { (window?.contentView as? SampleEditorView)?.wavLoadHandler = wavLoadHandler }
     }
+    var clearHandler: SampleEditorClearHandler? {
+        didSet { (window?.contentView as? SampleEditorView)?.clearHandler = clearHandler }
+    }
     var auditionHandlers: SampleEditorAuditionHandlers? {
         didSet { (window?.contentView as? SampleEditorView)?.auditionHandlers = auditionHandlers }
     }
@@ -504,12 +693,14 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
         sineGenerationHandler: SampleEditorSineGenerationHandler? = nil,
         wavLoadHandler: SampleEditorWAVLoadHandler? = nil,
+        clearHandler: SampleEditorClearHandler? = nil,
         auditionHandlers: SampleEditorAuditionHandlers? = nil
     ) {
         self.instrumentSelectionHandler = instrumentSelectionHandler
         self.sampleSelectionHandler = sampleSelectionHandler
         self.sineGenerationHandler = sineGenerationHandler
         self.wavLoadHandler = wavLoadHandler
+        self.clearHandler = clearHandler
         self.auditionHandlers = auditionHandlers
         let view = SampleEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
@@ -518,6 +709,7 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
             sampleSelectionHandler: sampleSelectionHandler,
             sineGenerationHandler: sineGenerationHandler,
             wavLoadHandler: wavLoadHandler,
+            clearHandler: clearHandler,
             auditionHandlers: auditionHandlers
         )
         let panel = NSPanel(
@@ -574,6 +766,7 @@ final class SampleEditorWindowController: NSWindowController, NSWindowDelegate {
         sampleSelectionHandler = nil
         sineGenerationHandler = nil
         wavLoadHandler = nil
+        clearHandler = nil
         auditionHandlers = nil
         closeHandler?()
     }
@@ -588,6 +781,7 @@ final class SampleEditorView: FlippedEditorView {
     private(set) weak var instrumentSelector: NSPopUpButton?
     private(set) weak var sineButton: NSButton?
     private(set) weak var wavLoadButton: NSButton?
+    private(set) weak var clearButton: NSButton?
     private(set) weak var auditionButton: VTXEditorButton?
     private(set) weak var auditionIndicator: VTXEditorIndicatorLEDView?
     private(set) weak var wavImportProgressIndicator: NSProgressIndicator?
@@ -603,6 +797,9 @@ final class SampleEditorView: FlippedEditorView {
     var wavLoadHandler: SampleEditorWAVLoadHandler? {
         didSet { configureWAVLoadButtonHandler() }
     }
+    var clearHandler: SampleEditorClearHandler? {
+        didSet { configureClearButtonHandler() }
+    }
     var auditionHandlers: SampleEditorAuditionHandlers? {
         didSet { configureAuditionButtonHandler() }
     }
@@ -614,6 +811,7 @@ final class SampleEditorView: FlippedEditorView {
         sampleSelectionHandler: SampleEditorSampleSelectionHandler? = nil,
         sineGenerationHandler: SampleEditorSineGenerationHandler? = nil,
         wavLoadHandler: SampleEditorWAVLoadHandler? = nil,
+        clearHandler: SampleEditorClearHandler? = nil,
         auditionHandlers: SampleEditorAuditionHandlers? = nil
     ) {
         self.displayState = displayState
@@ -621,6 +819,7 @@ final class SampleEditorView: FlippedEditorView {
         self.sampleSelectionHandler = sampleSelectionHandler
         self.sineGenerationHandler = sineGenerationHandler
         self.wavLoadHandler = wavLoadHandler
+        self.clearHandler = clearHandler
         self.auditionHandlers = auditionHandlers
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.contentView)
@@ -915,9 +1114,16 @@ final class SampleEditorView: FlippedEditorView {
         addControl(load, to: parent, frame: NSRect(x: 10, y: 31, width: 87, height: 45))
         wavLoadButton = load
         configureWAVLoadButtonHandler()
-        for (index, title) in ["⤓\nLOAD", "⤒\nEXPORT", "⌫\nCLEAR", "⟲\nREPLACE"].enumerated().dropFirst() {
-            futureButton(title, id: "file\(index)", parent, NSRect(x: 10 + CGFloat(index) * 93, y: 31, width: 87, height: 45), role: index >= 2 ? .danger : .normal)
-        }
+        futureButton("⤒\nEXPORT", id: "file1", parent, NSRect(x: 103, y: 31, width: 87, height: 45))
+        let clear = VTXEditorControlFactory.makeButton(title: "⌫\nCLEAR", role: .danger, fixedWidth: 87)
+        clear.identifier = NSUserInterfaceItemIdentifier(SampleEditorViewIdentifier.clearButton)
+        addControl(clear, to: parent, frame: NSRect(x: 196, y: 31, width: 87, height: 45))
+        clearButton = clear
+        configureClearButtonHandler()
+        futureButton(
+            "⟲\nREPLACE", id: "file3", parent,
+            NSRect(x: 289, y: 31, width: 87, height: 45), role: .danger
+        )
     }
 
     private func configureWAVLoadButtonHandler() {
@@ -933,6 +1139,22 @@ final class SampleEditorView: FlippedEditorView {
     @objc private func loadWAV(_ sender: NSButton) {
         guard displayState.isWAVLoadEnabled else { return }
         _ = wavLoadHandler?()
+    }
+
+    private func configureClearButtonHandler() {
+        guard let clearButton else { return }
+        let enabled = displayState.isClearEnabled && clearHandler != nil
+        clearButton.isEnabled = enabled
+        clearButton.target = enabled ? self : nil
+        clearButton.action = enabled ? #selector(clearSelectedSample(_:)) : nil
+        clearButton.alphaValue = enabled ? 1 : 0.38
+        clearButton.setAccessibilityEnabled(enabled)
+        clearButton.setAccessibilityLabel("Clear selected sample")
+    }
+
+    @objc private func clearSelectedSample(_ sender: NSButton) {
+        guard displayState.isClearEnabled else { return }
+        _ = clearHandler?()
     }
 
     private func buildEdit(_ parent: NSView) {

@@ -287,7 +287,6 @@ render timing.
 - `tests/` - unit tests, fixtures, and golden snapshots.
 - `docs/` - roadmap, design notes, ADRs, testing guidance, and workflow docs.
 - `assets/` - public visual assets and placeholders.
-- `legacy/` - imported legacy VoodooTracker reference code for behavior study only.
 
 ## License
 

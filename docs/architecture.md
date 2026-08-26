@@ -220,10 +220,6 @@ synthetic data
 Phase 2:
 active playback path integration
 
-Legacy reference:
-
-legacy/voodootracker-classic/app/scope-group.c
-
 ---
 
 # Editing System

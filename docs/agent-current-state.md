@@ -4,6 +4,11 @@ Read this first when starting backend, audio, parser, effect, or tooling work.
 It is the short current-state snapshot; load longer docs only when the task
 needs them.
 
+The historical VoodooTracker source is no longer vendored as a submodule.
+Current implementation decisions come from VTX ADRs, designs, tests, and public
+fixtures. External tracker implementations are optional comparison material,
+not repository dependencies or canonical implementation authorities.
+
 ## Product Scope Pointer
 
 VTX 1.0 is scoped as a self-contained XM-style sample/instrument tracker that

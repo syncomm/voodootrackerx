@@ -29,7 +29,9 @@ only neutral File New/New Instrument state (zero samples, nil map, selected S01)
 initializes an all-S01 map. LOAD on an empty destination skips Replace/Add/Cancel,
 while represented LOAD keeps that choice. Add still appends after the highest
 represented slot and does not fill sparse holes. The in-memory palette can retain sparse sample
-indices. Export XM now computes an identity span through the highest represented
+indices. `Edit > Duplicate Sample` now copies the exact selected represented sample
+to the next tail identity, selects it through one undoable edit, and leaves sparse
+holes and the 96-note keymap unchanged. Export XM now computes an identity span through the highest represented
 or exact-map-referenced Sxx (maximum S16), emits an all-zero 40-byte/no-payload
 header for each missing position, and writes map indices directly. Reopen drops
 those structural headers without compacting later identities or changing unavailable

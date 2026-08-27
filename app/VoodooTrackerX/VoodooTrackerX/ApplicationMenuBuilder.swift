@@ -16,6 +16,7 @@ enum ApplicationMenuBuilder {
         static let undoDocumentEdit = NSSelectorFromString("undoDocumentEdit:")
         static let redoDocumentEdit = NSSelectorFromString("redoDocumentEdit:")
         static let newInstrument = NSSelectorFromString("newInstrument:")
+        static let duplicateSample = NSSelectorFromString("duplicateSample:")
         static let clearCurrentPattern = NSSelectorFromString("clearCurrentPattern:")
         static let clearSongData = NSSelectorFromString("clearSongData:")
         static let showSongOrderEditor = NSSelectorFromString("showSongOrderEditor:")
@@ -122,6 +123,14 @@ enum ApplicationMenuBuilder {
         )
         newInstrument.isEnabled = false
         menu.addItem(newInstrument)
+        let duplicateSample = menuItem(
+            title: "Duplicate Sample",
+            action: Actions.duplicateSample,
+            keyEquivalent: "",
+            target: target
+        )
+        duplicateSample.isEnabled = false
+        menu.addItem(duplicateSample)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(disabledItem(title: "Cut", keyEquivalent: "x"))
         menu.addItem(disabledItem(title: "Copy", keyEquivalent: "c"))

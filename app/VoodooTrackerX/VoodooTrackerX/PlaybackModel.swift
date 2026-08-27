@@ -88,6 +88,28 @@ struct PlaybackSample: Equatable {
         self.sourceIsDeltaEncoded = sourceIsDeltaEncoded
     }
 
+    /// Returns an exact value copy under a new stable sample identity.
+    func reidentified(sampleIndex: Int) -> PlaybackSample {
+        PlaybackSample(
+            instrumentIndex: instrumentIndex,
+            sampleIndex: sampleIndex,
+            name: name,
+            pcm: pcm,
+            volume: volume,
+            panning: panning,
+            relativeNote: relativeNote,
+            finetune: finetune,
+            baseSampleRate: baseSampleRate,
+            sampleLength: sampleLength,
+            loopStart: loopStart,
+            loopLength: loopLength,
+            loopType: loopType,
+            sourceBitDepthBits: sourceBitDepthBits,
+            sourceIsSignedPCM: sourceIsSignedPCM,
+            sourceIsDeltaEncoded: sourceIsDeltaEncoded
+        )
+    }
+
     /// Exact XM sample-header volume represented by the normalized playback value.
     var xmVolume: UInt8 {
         let finiteVolume = volume.isFinite ? volume : 0

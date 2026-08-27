@@ -362,6 +362,7 @@ Keep future PRs narrow and testable:
 30. Done: `sample: expose canonical interior empty slots in editor lists`
 31. Done: `sample: clear represented sample in place`
 32. Done: `sample: populate a selected canonical empty sample destination`
+33. Done: `sample: duplicate a represented sample at the next tail identity`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

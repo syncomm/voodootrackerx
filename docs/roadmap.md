@@ -88,6 +88,9 @@ neutral zero-sample/nil-map S01 state initializes an all-S01 map. Empty LOAD ski
 the occupied Replace/Add/Cancel choice; represented LOAD remains unchanged, and
 Add continues to append after the highest represented identity rather than fill gaps.
 
+Represented-sample duplication is now complete through `Edit > Duplicate Sample`.
+It copies only to the next tail Sxx and preserves sparse holes and all 96 map entries.
+
 ## Project Goals
 
 - Preserve classic MOD/XM compatibility and tracker workflow.
@@ -522,8 +525,8 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next PR:
 
-- Next: `sample: duplicate a represented sample`. Keep it separate from Rename,
-  Replace, and Move/Swap, and preserve canonical Sxx identity and exact map bytes.
+- Next: `sample: rename a represented sample`. Keep it separate from Replace and
+  Move/Swap, preserving stable Sxx identity and exact map bytes.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song

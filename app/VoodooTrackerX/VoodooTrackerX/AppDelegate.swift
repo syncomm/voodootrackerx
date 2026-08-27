@@ -211,6 +211,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return editableDocumentEditCoordinator.canRedo
         case ApplicationMenuBuilder.Actions.newInstrument:
             return editableDocumentEditCoordinator.canCreateInstrument
+        case ApplicationMenuBuilder.Actions.duplicateSample:
+            return SampleEditorDuplicateCommandAvailability.canPerform(
+                displayState: currentSampleEditorDisplayState(),
+                isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
+            )
         case ApplicationMenuBuilder.Actions.play:
             return displayedMetadata != nil && !playbackEngine.state.isPlaying
         case ApplicationMenuBuilder.Actions.playCurrentPattern:
@@ -340,6 +345,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func newInstrument(_ sender: Any?) {
         guard editableDocumentEditCoordinator.createInstrument() else { return }
         showInstrumentEditor(nil)
+    }
+
+    @objc
+    private func duplicateSample(_ sender: Any?) {
+        let displayState = currentSampleEditorDisplayState()
+        guard SampleEditorDuplicateCommandAvailability.canPerform(
+            displayState: displayState,
+            isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
+        ), let document = blankDocument else { return }
+        _ = editableDocumentEditCoordinator.duplicateSample(
+            instrumentAt: document.selection.selectedInstrument - 1,
+            sampleAt: document.selection.selectedSample - 1
+        )
     }
 
     @objc

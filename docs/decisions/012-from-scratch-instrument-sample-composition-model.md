@@ -15,7 +15,8 @@ place is now the first implemented destructive sample lifecycle action. The post
 round-trip and loaded-source provenance foundations support that action without changing the file format.
 The shared sample-slot presentation/selection foundation is also implemented: editable and supported loaded
 sources can expose a canonical empty Sxx identity without fabricating a `PlaybackSample`. Sample Editor LOAD and
-SINE can now populate the exact selected canonical empty identity in a stopped editable document.
+SINE can now populate the exact selected canonical empty identity in a stopped editable document. Duplicate now
+deep-copies a represented sample to the next tail identity without mapping it or filling a sparse hole.
 
 ## Context
 
@@ -422,7 +423,7 @@ This is a sequence of focused PRs, not one large implementation PR:
 8. Add instrument add/duplicate/clear-in-place/rename.
 9. Done: add represented-sample clear in place through Sample Editor CLEAR.
 10. Done: populate an explicitly selected canonical empty sample destination in place.
-11. Add remaining sample duplicate/rename/replace lifecycle.
+11. Done: duplicate a represented sample; add remaining sample rename/replace lifecycle separately.
 12. Polish read-only keymap visualization: neutral S01, visible S02+ mapping,
     and a separate active-note layer.
 13. Done: add editable keymap range assignment through `applyEdit`.
@@ -435,8 +436,8 @@ This is a sequence of focused PRs, not one large implementation PR:
 The graphical range-selection slice is complete. Select later lifecycle, envelope,
 loop, drag-to-paint, and automatic-mapping work as separate focused PRs.
 
-The sparse writer/reopen/editable-copy dependency, interior empty-slot presentation, represented-sample Clear, and
-explicit selected-empty population are complete. Duplicate and Move/Swap remain separate scoped lifecycle work.
+The sparse writer/reopen/editable-copy dependency, interior empty-slot presentation, represented-sample Clear,
+selected-empty population, and tail-only Duplicate are complete. Move/Swap remains separate scoped lifecycle work.
 
 ## Test And Fixture Plan
 

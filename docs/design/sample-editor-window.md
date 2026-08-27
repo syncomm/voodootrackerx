@@ -9,7 +9,8 @@ waveform/loop overview, stopped-editable selected-empty SINE, and
 WAV/AIFF/AIFC/native-FLAC LOAD into empty or represented destinations are
 implemented. CLEAR now removes the selected represented sample in place through
 one confirmed undoable edit. LOAD and SINE now populate an explicitly selected canonical empty
-S01...S16 destination in place. Other sample mutation remains deferred. Header
+S01...S16 destination in place. `Edit > Duplicate Sample` copies a represented
+selection to the next tail Sxx without changing the fixed window. Other sample mutation remains deferred. Header
 AUDITION directly previews the selected sample at C-4.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
@@ -149,7 +150,7 @@ WAV cue/`smpl`/broadcast fields, AIFF/AIFC MARK/INST/COMT/NAME/AUTH/ANNO,
 and FLAC tags, pictures, cues, seek tables, application/padding blocks, ReplayGain,
 embedded names, and loops remains deferred. The Sample Editor panel still lists
 every currently supported lossless import format. Add as New Sample and explicit selected-empty population are
-current; reorder, duplication, standalone New Sample, graphical/automatic keymap editing, and global import/drop
+current; tail-only duplication is available from Edit, while reorder, standalone New Sample, graphical/automatic keymap editing, and global import/drop
 creation remain deferred.
 Square/pulse, triangle, saw, and noise remain future generators.
 Neutral first-S01 import/generation maps all 96 notes and becomes immediately auditionable in one `applyEdit`
@@ -161,7 +162,8 @@ action. See
 Clear is non-compacting: removing represented Sxx leaves that zero-based
 identity absent, keeps every later represented sample index and all 96 keymap
 values unchanged, and makes any route to Sxx unavailable rather than falling
-back to S01 or the first playable sample. Duplicate/Move/Swap remain unimplemented.
+back to S01 or the first playable sample. Duplicate appends after the highest represented identity without
+filling gaps or changing the keymap; Move/Swap remain unimplemented.
 
 Editable selection is stored in the `BlankTrackerDocument` value, while normal
 row selection remains a non-editing UI gesture. Clearing the selected Sxx must

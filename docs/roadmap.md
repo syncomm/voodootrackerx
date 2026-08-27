@@ -91,6 +91,14 @@ Add continues to append after the highest represented identity rather than fill 
 Represented-sample duplication is now complete through `Edit > Duplicate Sample`.
 It copies only to the next tail Sxx and preserves sparse holes and all 96 map entries.
 
+The pre-Move/Swap sample-slot architecture checkpoint is complete. The pure
+`SampleSlotPermutation` defines one bounded, bijective old-to-new mapping over
+S01...S16 for removal/insertion Move and pairwise Swap. Synthetic tests apply that
+same mapping to represented sample indices, exact 96-entry keymaps, and represented
+or empty selection, preserving every note's content identity or unavailable state.
+Dense and sparse transformed XM states survive reopen and Make Editable Copy.
+Move Up/Down/To, Swap, document mutation, undo wiring, and UI remain future actions.
+
 ## Project Goals
 
 - Preserve classic MOD/XM compatibility and tracker workflow.
@@ -525,8 +533,9 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next PR:
 
-- Next: `sample: rename a represented sample`. Keep it separate from Replace and
-  Move/Swap, preserving stable Sxx identity and exact map bytes.
+- Next: add a model-only transactional sample Move/Swap operation through one
+  `applyEdit`, still without UI. Validate the complete sample/map/selection state
+  before mutation and preserve exact Undo/Redo.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -832,6 +841,9 @@ Current implemented foundation:
   keymap bytes, and unavailable routes, invalidates direct preview, and creates
   one exact `Clear Sample` Undo/Redo snapshot. Sparse Export XM/reopen/Make
   Editable Copy preserves semantic gaps without serializing UI selection alone
+- pure sample-slot Move/Swap permutation algebra across fixed S01...S16 identities,
+  including empty identities, exact keymap/selection transforms, audible-semantics
+  preservation, and dense/sparse persistence characterization without mutation or UI
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
@@ -860,7 +872,8 @@ Next composition targets after backend foundation freeze:
   PCM/waveform mutation slices
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- sample reorder/duplication and instrument clear lifecycle; XI remains separate
+- model-only transactional sample Move/Swap, remaining sample lifecycle, and
+  instrument clear lifecycle; XI remains separate
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics

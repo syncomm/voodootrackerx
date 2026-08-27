@@ -36,6 +36,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.addEmptyInstrument(), 2)
         document.selectInstrument(1)
         let before = document
+        XCTAssertEqual(before.instrumentPalette[1]?.samples, [])
+        XCTAssertNil(before.instrumentPalette[1]?.noteSampleMap)
         XCTAssertTrue(document.canGenerateSineInSelectedEmptySample)
         XCTAssertTrue(document.generateSineInSelectedEmptySample())
         let instrument = try XCTUnwrap(document.instrumentPalette[1])
@@ -59,6 +61,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.addEmptyInstrument(), 2)
         document.selectInstrument(1)
         let before = document
+        XCTAssertEqual(before.instrumentPalette[1]?.samples, [])
+        XCTAssertNil(before.instrumentPalette[1]?.noteSampleMap)
         let candidate = try normalizedImportCandidate(name: "Imported.wav", pcm: [-0.5, 0, 0.5])
         let destination = try XCTUnwrap(document.selectedSampleImportDestination)
 
@@ -789,6 +793,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.instrumentPalette.keys.sorted(), [1])
         XCTAssertNil(document.instrumentPalette[1]?.name)
         XCTAssertEqual(document.instrumentPalette[1]?.samples, [])
+        XCTAssertNil(document.instrumentPalette[1]?.noteSampleMap)
         XCTAssertEqual(document.metadata.instruments, 1)
         XCTAssertEqual(document.noteAuditionAvailability, .unavailable(.selectedSampleUnavailable))
         XCTAssertTrue(document.controlPanelMetadata.areInstrumentPlaceholdersEnabled)

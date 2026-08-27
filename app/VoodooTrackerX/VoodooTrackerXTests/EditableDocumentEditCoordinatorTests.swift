@@ -65,6 +65,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(created.instrumentPalette.keys.sorted(), [1, 2])
         XCTAssertNil(created.instrumentPalette[2]?.name)
         XCTAssertEqual(created.instrumentPalette[2]?.samples, [])
+        XCTAssertNil(created.instrumentPalette[2]?.noteSampleMap)
         XCTAssertEqual(created.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
         XCTAssertEqual(created.patterns, before.patterns)
         XCTAssertEqual(harness.appliedDocuments, [created])

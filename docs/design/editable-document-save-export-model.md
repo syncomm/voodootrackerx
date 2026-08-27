@@ -103,6 +103,12 @@ no path or placeholder sample ownership. Exact Undo/Redo restores/removes the
 document-owned PCM and metadata. Loaded modules remain read-only.
 Populating that retained empty selection creates one snapshot, restores existing mapped-note availability without
 remapping, and retains exact Sxx selection through Undo/Redo.
+
+Canonical editable XM-style keymap presence distinguishes routing absence from explicit identity. A zero-sample
+instrument may have a nil map only as the neutral empty state, or an exact 96-entry map whose absent targets remain
+unavailable. An instrument with one or more represented samples requires an exact 96-entry map bounded to S01...S16
+for reference-sensitive sample lifecycle work. Existing LOAD/SINE, Add, Replace, Duplicate, Clear/repopulate, and
+supported Make Editable Copy paths establish or preserve those states; they do not erase an explicit map.
 The creation/import/export contract,
 including the proposed `v0.3.0-alpha.1` gate, is defined by
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
@@ -173,6 +179,13 @@ writes remain atomic. Make Editable Copy accepts only Linear-frequency-table XM
 whose represented state and any canonical sparse empty identities are losslessly
 covered by the loaded source provenance; arbitrary source zero-length sample
 headers remain outside the represented subset.
+
+One synthetic boundary is intentionally characterized rather than redefined here. If represented samples are supplied
+with a nil map, `EditableXMWriter` currently accepts the value and writes 96 zero note-map bytes (all notes route to
+S01). Normal reopen therefore materializes an explicit all-S01 map instead of preserving nil, so that input does not
+round-trip as the same canonical editable value. No supported File New/sample mutation or public-fixture loaded-XM ->
+Make Editable Copy workflow produces it. Runtime nil-map fallback, writer behavior, and loaded/read-only semantics are
+unchanged; a future reference-sensitive sample reorder must reject the state before mutation.
 
 ### Represented-sample Clear and Export XM boundary
 

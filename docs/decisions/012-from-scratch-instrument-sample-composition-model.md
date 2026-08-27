@@ -17,7 +17,8 @@ The shared sample-slot presentation/selection foundation is also implemented: ed
 sources can expose a canonical empty Sxx identity without fabricating a `PlaybackSample`. Sample Editor LOAD and
 SINE can now populate the exact selected canonical empty identity in a stopped editable document. Duplicate now
 deep-copies a represented sample to the next tail identity without mapping it or filling a sparse hole. The pure
-reference-preserving sample-slot permutation contract is pinned; document mutation and Move/Swap UI remain future work.
+reference-preserving sample-slot permutation contract and its canonical editable keymap-presence precondition are
+pinned; document mutation and Move/Swap UI remain future work.
 
 ## Context
 
@@ -335,6 +336,29 @@ The same selected Sxx can then be populated in place by LOAD or deterministic SI
 preserves every map byte and later identity, and makes existing routes to Sxx available again without remapping.
 Undo returns to the exact sparse empty state; Redo restores the represented sample.
 
+### Canonical Editable Keymap Presence
+
+Editable XM-style sample lifecycle state has this canonical matrix, where an exact map contains 96 values bounded to
+zero-based `0...15`, corresponding to S01...S16:
+
+```text
+samples.isEmpty && map == nil       -> valid neutral empty instrument
+samples.isEmpty && map is exact 96  -> valid explicit routing; absent targets are unavailable
+samples.nonEmpty && map is exact 96 -> valid canonical represented-sample instrument
+samples.nonEmpty && map == nil      -> noncanonical for reference-sensitive sample lifecycle
+```
+
+File New and New Instrument create the first state with selected empty S01. First LOAD or SINE into that neutral S01
+materializes an all-zero exact map. A preexisting exact map is identity-bearing state: first population, Add, Replace,
+Duplicate, Clear, and repopulation preserve it exactly, including when Clear removes the only represented sample.
+Supported loaded-XM -> Make Editable Copy paths likewise provide an exact bounded map for every instrument with a
+represented sample.
+
+The final matrix row is not declared invalid for every shared `PlaybackInstrument` runtime or read-only use. Current
+global resolution deliberately falls back to the first playable sample when the map is absent. Reindexing and sorting
+represented samples while preserving that absence can therefore change audible content. A future reference-sensitive
+Move, Swap, or other identity reorder must reject that row before mutation and create no history.
+
 XM persistence remains document-semantic rather than selection-semantic. A cleared interior identity survives when
 a later represented sample or map reference requires its span; a mapped cleared route remains unavailable with no
 fallback. If the highest cleared identity is neither mapped nor followed by a represented sample, the current
@@ -356,9 +380,10 @@ permutation. Pattern cells store instrument identity, not sample-slot identity, 
 `SampleSlotPermutation` is the current UI-independent proof only: it mutates no document, selection, keymap,
 writer, parser, or runtime state. Synthetic dense/sparse ownership tests preserve every note's represented-content
 identity or unavailable result, and transformed dense/sparse documents survive Export XM -> reopen -> Make Editable
-Copy through the existing writer/parser foundation. A future Move/Swap document transaction must validate exact
-96-entry maps and all bounded identities before one `applyEdit`; one successful action creates one undo entry,
-while no-op or failure creates none. Undo/Redo restores the exact old/new indices, map, and selection.
+Copy through the existing writer/parser foundation. A future Move/Swap document transaction must require an exact
+96-entry bounded map whenever represented samples exist and validate all bounded identities before one `applyEdit`;
+one successful action creates one undo entry, while no-op or failure creates none. Undo/Redo restores the exact old/new
+indices, map, and selection.
 
 ## Product Surface And Content Policy
 
@@ -445,7 +470,8 @@ This is a sequence of focused PRs, not one large implementation PR:
 13. Done: add editable keymap range assignment through `applyEdit`.
 14. Done: wire explicit selected-sample inclusive range assignment UI and
     non-mutating full-map graphical selection; paint/automatic mapping remain separate.
-15. Sample-slot permutation checkpoint done; add reference-preserving instrument/sample transactions separately.
+15. Sample-slot permutation and canonical keymap-presence prerequisites done; add reference-preserving
+    instrument/sample transactions separately.
 16. Run the complete automated and manual from-scratch acceptance slice.
 17. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
 

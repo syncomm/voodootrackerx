@@ -86,13 +86,13 @@ sample path is optional provenance, not source/output ownership, and playback,
 undo/redo, Export XM, offline audio export, portability, and future AUv3 state
 must not depend on that file remaining present.
 
-An empty S01 destination is not a represented sample and carries no PCM or
+An empty Sxx destination is not a represented sample and carries no PCM or
 fabricated sample metadata. File New now owns one such I01/S01 destination, and
 New Instrument appends another through one stopped-editable `applyEdit` action.
-SINE fills only that selected destination with document-owned 16-bit mono looped
-PCM and an all-zero 96-note map; audio LOAD fills it with canonical no-loop PCM
-and the same neutral map. Replacing preserves its exact slot; Add appends and
-selects the next represented Sxx. Both preserve keymap references and unrelated
+SINE and audio LOAD fill any exact selected canonical empty S01...S16 destination with document-owned PCM.
+Only neutral sampleless/nil-map S01 initializes the all-zero 96-note map; an existing exact map and every S02+
+population remain byte-exact. Replacing preserves its exact slot; Add appends and
+selects the next represented Sxx rather than filling a gap. All paths preserve keymap references and unrelated
 instrument data, and Sample Editor can directly audition the selected slot while
 pattern/Instrument Editor audition remains keymap-driven. Undo returns to the
 exact empty or prior represented state.
@@ -101,6 +101,8 @@ Represented-sample CLEAR uses that same ownership boundary: one stopped-editable
 selection, every later sample identity, and the exact 96-note map, and introduces
 no path or placeholder sample ownership. Exact Undo/Redo restores/removes the
 document-owned PCM and metadata. Loaded modules remain read-only.
+Populating that retained empty selection creates one snapshot, restores existing mapped-note availability without
+remapping, and retains exact Sxx selection through Undo/Redo.
 The creation/import/export contract,
 including the proposed `v0.3.0-alpha.1` gate, is defined by
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
@@ -260,8 +262,8 @@ First-writer limitations:
 - no guarantee of round-trip parity with arbitrary loaded XM modules
 - no full Instrument Editor state beyond fields currently represented by the
   editable document and playback/palette models
-- Sample Editor mutation is limited to stopped-editable SINE, format-neutral
-  audio import/in-place replacement/append-only Add as New, and confirmed
+- Sample Editor mutation is limited to stopped-editable selected-empty SINE, format-neutral
+  audio import/selected-empty population/in-place replacement/append-only Add as New, and confirmed
   represented-sample Clear
 - no panning-envelope playback/editing, vibrato playback/editing, broader loop,
   PCM/waveform, broader destructive lifecycle, XI import, or arbitrary non-XM-derived
@@ -359,7 +361,7 @@ Keep future PRs narrow and testable:
 29. Done: `xm: preserve sparse empty-slot editable-copy provenance`
 30. Done: `sample: expose canonical interior empty slots in editor lists`
 31. Done: `sample: clear represented sample in place`
-32. `sample: populate a selected canonical empty sample destination`
+32. Done: `sample: populate a selected canonical empty sample destination`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

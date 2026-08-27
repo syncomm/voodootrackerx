@@ -1067,7 +1067,7 @@ final class SampleEditorView: FlippedEditorView {
     }
 
     private func buildGenerate(_ parent: NSView) {
-        label("— EMPTY S01 GENERATION", parent, NSRect(x: 80, y: 10, width: 210, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8)
+        label("— SELECTED EMPTY GENERATION", parent, NSRect(x: 80, y: 10, width: 210, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8)
         let entries = ["∿\nSINE", "⊓\nSQUARE", "⊿\nTRI", "◺\nSAW", "▦\nNOISE"]
         let sine = VTXEditorControlFactory.makeButton(title: entries[0], role: .normal, fixedWidth: 68)
         sine.identifier = futureID("generate0")

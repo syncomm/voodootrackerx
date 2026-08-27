@@ -999,6 +999,41 @@ final class EditableXMWriterTests: XCTestCase {
         ))
     }
 
+    func testKeymapRequiredTrailingEmptyDestinationPopulatesAndReopensInPlace() throws {
+        let first = makeXMSourceSample(name: "Only S01", pcm: [-0.5, 0.5])
+        var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        map[48] = 1
+        var document = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, samples: [first], noteSampleMap: map)
+            ]
+        )
+        document.selectSample(2)
+        let destination = try XCTUnwrap(document.selectedSampleImportDestination)
+
+        XCTAssertEqual(destination, .emptyDestination(instrumentIndex: 1, sampleIndex: 1))
+        XCTAssertTrue(document.importAudioSample(
+            try normalizedImportCandidate(name: "Trailing.wav", pcm: [-0.625, 0.625]),
+            destination: destination
+        ))
+        let populated = try XCTUnwrap(document.instrumentPalette[1])
+        XCTAssertEqual(populated.samples.map(\.sampleIndex), [0, 1])
+        XCTAssertEqual(populated.noteSampleMap, map)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+
+        let url = try temporaryExportURL(filename: "populated-trailing-reference.xm")
+        try EditableXMWriter().data(from: document).write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        let reopened = try XCTUnwrap(song.instrument(forInstrument: 1))
+        XCTAssertEqual(reopened, populated)
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: song.instrumentsByIndex
+        )?.sampleIndex, 1)
+    }
+
     func testOnlyEmptyMappedSlotPreservesInstrumentMetadataMapAndUnavailableRoute() throws {
         let volumeEnvelope = PlaybackVolumeEnvelope(
             enabled: true,

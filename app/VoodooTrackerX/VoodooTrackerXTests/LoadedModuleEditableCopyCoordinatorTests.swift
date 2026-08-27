@@ -367,6 +367,69 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
     }
 
+    func testClearPopulateInteriorReopensAndCopiesExactIdentityMapAndSampleState() throws {
+        let first = makePlaybackSample(
+            sampleIndex: 0, name: "Distinct S01", pcm: [-0.25, 0.25], panning: 37,
+            baseSampleRate: 8_363, sourceBitDepthBits: 16,
+            sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+        let second = makePlaybackSample(
+            sampleIndex: 1, name: "Old S02", pcm: [-0.5, 0, 0.5], panning: 111,
+            baseSampleRate: 8_363, sourceBitDepthBits: 16,
+            sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+        let third = makePlaybackSample(
+            sampleIndex: 2, name: "Distinct S03", pcm: [-0.75, 0.75], panning: 201,
+            baseSampleRate: 8_363, sourceBitDepthBits: 16,
+            sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+        var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        map[48] = 1
+        map[49] = 2
+        var document = sparseSourceDocument(
+            instrument: PlaybackInstrument(
+                index: 1, name: "Recovered Instrument", samples: [first, second, third],
+                noteSampleMap: map
+            ),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
+        )
+
+        XCTAssertTrue(document.clearSample(instrumentAt: 0, sampleAt: 1))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: document.instrumentPalette
+        ))
+        XCTAssertTrue(document.importAudioSample(
+            try normalizedImportCandidate(name: "Recovered.wav", pcm: [-0.625, 0, 0.625]),
+            destination: try XCTUnwrap(document.selectedSampleImportDestination)
+        ))
+        let populatedInstrument = try XCTUnwrap(document.instrumentPalette[1])
+        XCTAssertEqual(populatedInstrument.samples.map(\.sampleIndex), [0, 1, 2])
+        XCTAssertEqual(populatedInstrument.noteSampleMap, map)
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: document.instrumentPalette
+        )?.sampleIndex, 1)
+
+        let data = try EditableXMWriter().data(from: document)
+        let url = try temporaryDestination(filename: "clear-populate-interior.xm")
+        try data.write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        XCTAssertEqual(song.instrumentsByIndex[1], populatedInstrument)
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: song,
+            selection: document.selection,
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+        guard case let .copied(copy) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected populated dense source to become editable")
+        }
+        XCTAssertEqual(copy.instrumentPalette[1], populatedInstrument)
+        XCTAssertEqual(copy.selection, document.selection)
+        XCTAssertEqual(try EditableXMWriter().data(from: copy), data)
+    }
+
     func testClearingOnlyMappedSamplePreservesInstrumentMetadataAndMapThroughReopenAndCopy() throws {
         let onlySample = makePlaybackSample(
             name: "Only S01",

@@ -62,7 +62,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let candidate = try normalizedImportCandidate(name: "Imported.wav", pcm: [-0.5, 0, 0.5])
         let destination = try XCTUnwrap(document.selectedSampleImportDestination)
 
-        XCTAssertEqual(destination, .emptyS01(instrumentIndex: 1))
+        XCTAssertEqual(destination, .emptyDestination(instrumentIndex: 1, sampleIndex: 0))
         XCTAssertTrue(document.importAudioSample(candidate, destination: destination))
 
         let instrument = try XCTUnwrap(document.instrumentPalette[1])
@@ -120,7 +120,10 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(updated.volumeEnvelope, instrument.volumeEnvelope)
         XCTAssertEqual(document.selection, before.selection)
         XCTAssertEqual(document.patterns, before.patterns)
-        XCTAssertFalse(document.importAudioSample(candidate, destination: .emptyS01(instrumentIndex: 1)))
+        XCTAssertFalse(document.importAudioSample(
+            candidate,
+            destination: .emptyDestination(instrumentIndex: 1, sampleIndex: 0)
+        ))
     }
 
     func testAppendingSamplesUsesNextCanonicalIndexAndPreservesInstrumentStateAndKeymap() throws {
@@ -320,6 +323,110 @@ final class BlankTrackerDocumentTests: XCTestCase {
             document.noteAuditionAvailability(for: request),
             .unavailable(.instrumentKeymapUnavailable)
         )
+    }
+
+    func testAudioImportPopulatesSelectedInteriorEmptyIdentityWithoutRenumberingOrRemapping() throws {
+        let first = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, name: "Distinct S01", pcm: [0.125, 0.25]
+        )
+        let third = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 2, name: "Distinct S03", pcm: [-0.75, 0.5, -0.25]
+        )
+        var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        map[48] = 1
+        map[49] = 2
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, samples: [first, third], noteSampleMap: map)
+            ]
+        )
+        let before = document
+        let candidate = try normalizedImportCandidate(name: "Recovered.wav", pcm: [-0.5, 0, 0.5])
+        let destination = try XCTUnwrap(document.selectedSampleImportDestination)
+
+        XCTAssertEqual(destination, .emptyDestination(instrumentIndex: 1, sampleIndex: 1))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: document.instrumentPalette
+        ))
+        XCTAssertTrue(document.importAudioSample(candidate, destination: destination))
+
+        let populated = try XCTUnwrap(document.instrumentPalette[1])
+        XCTAssertEqual(populated.samples.map(\.sampleIndex), [0, 1, 2])
+        XCTAssertEqual(populated.samples[0], first)
+        XCTAssertEqual(populated.samples[1], candidate.playbackSample(instrumentIndex: 1, sampleIndex: 1))
+        XCTAssertEqual(populated.samples[2], third)
+        XCTAssertEqual(populated.noteSampleMap, map)
+        XCTAssertEqual(document.selection, before.selection)
+        XCTAssertEqual(document.patterns, before.patterns)
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: document.instrumentPalette
+        )?.sampleIndex, 1)
+    }
+
+    func testSinePopulatesMappedTrailingEmptyIdentityWithoutReplacingExplicitFirstSampleMap() throws {
+        var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        map[48] = 1
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, samples: [], noteSampleMap: map)
+            ]
+        )
+
+        XCTAssertEqual(
+            document.selectedSampleImportDestination,
+            .emptyDestination(instrumentIndex: 1, sampleIndex: 1)
+        )
+        XCTAssertTrue(document.canGenerateSineInSelectedEmptySample)
+        XCTAssertTrue(document.generateSineInSelectedEmptySample())
+
+        let instrument = try XCTUnwrap(document.instrumentPalette[1])
+        let sample = try XCTUnwrap(instrument.samples.first)
+        XCTAssertEqual(sample.sampleIndex, 1)
+        XCTAssertEqual(sample.pcm, try XCTUnwrap(DeterministicSampleGenerator.sine(instrumentIndex: 1)).pcm)
+        XCTAssertEqual(pcmSHA256(sample), "ac9e9e7dbfbf285d7ca2d98cabf2ed57e5c3ac9e53f1ec01ba4813c02d4a7b91")
+        XCTAssertEqual(instrument.noteSampleMap, map)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: document.instrumentPalette
+        )?.sampleIndex, 1)
+    }
+
+    func testSelectedCanonicalEmptyPopulationEligibilityCoversProjectedDestinationsOnly() throws {
+        let first = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, name: "S01")
+        let third = makePlaybackSample(instrumentIndex: 1, sampleIndex: 2, name: "S03")
+        let defaultDocument = BlankTrackerDocument.makeDefault()
+        let interior = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [first, third])]
+        )
+        let mappedTrailing = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrumentPalette: [1: PlaybackInstrument(
+                index: 1, samples: [first],
+                noteSampleMap: Array(repeating: 1, count: TrackerNoteKeyMap.maximumNoteValue)
+            )]
+        )
+        let selectedTrailing = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [first])]
+        )
+        let invalidSelection = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 17),
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [first])]
+        )
+        let malformedMap = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [first], noteSampleMap: [1])]
+        )
+
+        XCTAssertEqual(defaultDocument.selectedEmptySamplePopulationDestination?.sampleIndex, 0)
+        XCTAssertEqual(interior.selectedEmptySamplePopulationDestination?.sampleIndex, 1)
+        XCTAssertEqual(mappedTrailing.selectedEmptySamplePopulationDestination?.sampleIndex, 1)
+        XCTAssertEqual(selectedTrailing.selectedEmptySamplePopulationDestination?.sampleIndex, 1)
+        XCTAssertNil(invalidSelection.selectedEmptySamplePopulationDestination)
+        XCTAssertNil(malformedMap.selectedEmptySamplePopulationDestination)
     }
 
     func testEditableSampleSlotSelectionPreservesEligibleEmptyIdentityAndFallsBackOutsideProjection() {

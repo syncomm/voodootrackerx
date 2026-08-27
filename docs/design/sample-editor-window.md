@@ -5,10 +5,11 @@
 **Visual source of truth:** `assets/mockups/sample-editor-v1.html`.
 **Reference:** FastTracker II sample editor, reinterpreted in VTX's tactile language.
 **Status:** The fixed mockup-aligned shell, canonical selection, sample display,
-waveform/loop overview, stopped-editable empty-S01 SINE, and
+waveform/loop overview, stopped-editable selected-empty SINE, and
 WAV/AIFF/AIFC/native-FLAC LOAD into empty or represented destinations are
 implemented. CLEAR now removes the selected represented sample in place through
-one confirmed undoable edit. Other sample mutation remains deferred. Header
+one confirmed undoable edit. LOAD and SINE now populate an explicitly selected canonical empty
+S01...S16 destination in place. Other sample mutation remains deferred. Header
 AUDITION directly previews the selected sample at C-4.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
@@ -56,10 +57,10 @@ The mockup's values are illustrative: FORMAT reports represented bit depth and
 mono without treating playback-policy `baseSampleRate` as source-rate metadata
 or fabricating 44.1 kHz.
 
-Loaded modules remain read-only. SINE is enabled only for stopped editable empty
-S01. It cancels preview, validates owned PCM off the render callback, commits one
+Loaded modules remain read-only. SINE is enabled only for a stopped editable selected canonical
+empty S01...S16 destination. It cancels preview, validates owned PCM off the render callback, commits one
 `Generate Sine Sample` edit, and refreshes all editors without auto-audition.
-LOAD is enabled only for a stopped editable empty S01 or represented selected
+LOAD is enabled only for a stopped editable canonical empty or represented selected
 sample and is disabled during an active import. Its single-file panel accepts
 WAV/WAVE, AIFF/AIF, AIFC, and native FLAC and never accepts directories. A
 format-neutral facade validates the actual container identity, rejects
@@ -68,15 +69,17 @@ existing decoder. LOAD offers occupied Replace/Add as New/Cancel, then stereo
 Mix to Mono/Left/Right after
 inspection, and decodes/normalizes off the main thread while showing an
 indeterminate state. The main thread revalidates document identity/revision,
-selection, sample count/capacity, destination occupancy, stopped transport, and
+exact instrument/Sxx selection, sample count/capacity, destination occupancy, stopped transport, and
 operation token before one labeled edit. Commit cancels stale
-preview once, refreshes all editors, and does not auto-audition. Other
-states/generators stay disabled; preview/runtime architecture is unchanged.
+preview once, refreshes all editors, and does not auto-audition. An empty destination skips the
+Replace/Add as New/Cancel choice; a represented destination keeps it, and Add remains append-after-highest.
+Other states/generators stay disabled; preview/runtime architecture is unchanged.
 AUDITION is non-mutating for loaded/read-only and editable samples; it sends the
 selected slot directly at C-4 through the persistent stream—not the keymap—and
 reuses sample planning. An empty selected row has no direct preview request, so
-AUDITION remains unavailable. SINE and LOAD retain their existing mutation scope:
-neither may target an arbitrary interior or trailing empty row. Exact lifecycle release drives its glyph/LED. Note
+AUDITION remains unavailable. SINE and LOAD accept only the exact selected empty row admitted by the shared editable
+projection; loaded, noncanonical, out-of-span, malformed, stale, playing, or conflicting state remains ineligible.
+Exact lifecycle release drives its glyph/LED. Note
 selection and natural-completion notification remain future work; no polling is
 used.
 
@@ -109,8 +112,8 @@ sample and retains the same selection and map.
 The Sample Editor owns sample identity, selection within the current
 instrument, import/generation, waveform and loop metadata, parameters, and
 later PCM operations. Its instrument popup selects context but never creates
-an instrument. The current audio workflow fills only empty S01 on a zero-sample
-instrument or offers Replace Current Sample/Add as New Sample/Cancel for the
+an instrument. The current audio workflow fills the exact selected canonical empty Sxx or offers Replace Current
+Sample/Add as New Sample/Cancel for the
 represented selected sample. Add appends and selects the next canonical Sxx but
 never redirects a stale result or changes the keymap. Sample Editor AUDITION
 plays that selected slot directly; Instrument Editor audition and pattern
@@ -120,7 +123,9 @@ SINE repeats a precomputed 32-value integer table at amplitude 12,000 exactly
 512 times for 16,384 frames, with neutral tuning and a full forward loop. PCM SHA-256:
 `ac9e9e7dbfbf285d7ca2d98cabf2ed57e5c3ac9e53f1ec01ba4813c02d4a7b91`.
 At C-4's 8,363 Hz base rate the tone is 261.34375 Hz, within 0.5 Hz (about 1.87
-cents low) of 261.625565 Hz; C-5 is 522.6875 Hz. The all-zero map stays neutral.
+cents low) of 261.625565 Hz; C-5 is 522.6875 Hz. The all-zero map stays neutral. It is initialized
+only for neutral File New/New Instrument S01 with no represented sample and no explicit map. Populating S02+ or a
+sampleless instrument with an existing exact map preserves all 96 bytes.
 
 The UI-independent import facade identifies RIFF/WAVE, FORM/AIFF, FORM/AIFC, and native `fLaC`
 from their headers and dispatches to the existing bounded decoders. WAV supports
@@ -138,16 +143,17 @@ mono treats channel 0 as both. Results are clamped, quantized to canonical
 8,363 Hz C-4 reference, and default to no loop. The cap is 16,777,216 frames
 (64 MiB of mono Float32). LOAD installs the complete candidate as
 document-owned PCM through one undoable edit; the source path is not retained
-and Export XM/reopen uses the existing sample writer. Format metadata including
+and Export XM/reopen uses the existing sample writer. Clear then populate restores mapped-note availability without
+remapping, and Undo/Redo returns the exact empty/populated snapshot. Format metadata including
 WAV cue/`smpl`/broadcast fields, AIFF/AIFC MARK/INST/COMT/NAME/AUTH/ANNO,
 and FLAC tags, pictures, cues, seek tables, application/padding blocks, ReplayGain,
 embedded names, and loops remains deferred. The Sample Editor panel still lists
-every currently supported lossless import format. Add as New Sample and S02+
-are current; refilling arbitrary empty slots, reorder, duplication, standalone
-New Sample, keymap editing, and global import/drop creation remain deferred.
+every currently supported lossless import format. Add as New Sample and explicit selected-empty population are
+current; reorder, duplication, standalone New Sample, graphical/automatic keymap editing, and global import/drop
+creation remain deferred.
 Square/pulse, triangle, saw, and noise remain future generators.
-First-sample import/generation maps all 96 notes and becomes immediately
-auditionable in one `applyEdit` action. See
+Neutral first-S01 import/generation maps all 96 notes and becomes immediately auditionable in one `applyEdit`
+action. See
 [ADR 012](../decisions/012-from-scratch-instrument-sample-composition-model.md).
 
 ### Clear lifecycle selection and persistence contract
@@ -155,8 +161,7 @@ auditionable in one `applyEdit` action. See
 Clear is non-compacting: removing represented Sxx leaves that zero-based
 identity absent, keeps every later represented sample index and all 96 keymap
 values unchanged, and makes any route to Sxx unavailable rather than falling
-back to S01 or the first playable sample. Duplicate/Move/Swap and filling an
-arbitrary interior empty destination remain unimplemented.
+back to S01 or the first playable sample. Duplicate/Move/Swap remain unimplemented.
 
 Editable selection is stored in the `BlankTrackerDocument` value, while normal
 row selection remains a non-editing UI gesture. Clearing the selected Sxx must
@@ -171,9 +176,8 @@ same-instrument lifecycle action must not discard its retained empty target.
 The shared projection now renders eligible interior empty rows beside represented
 samples and preserves exact selection across the main control panel, Instrument
 Editor, and Sample Editor. Selection is session focus only: it changes no revision,
-undo history, keymap, pattern, or represented data. This completes the presentation
-foundation used by CLEAR, but does not redirect audition or broaden
-import/generation. A highest cleared Sxx that is neither map-referenced nor
+undo history, keymap, pattern, or represented data. This projection is also the sole empty-destination eligibility
+source for LOAD/SINE. A highest cleared Sxx that is neither map-referenced nor
 followed by a represented sample remains visible in the current session because
 it is selected UI focus; Export XM does not serialize selection alone, so reopen
 may drop that trailing empty row. Interior gaps required by a later represented

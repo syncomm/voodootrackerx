@@ -80,6 +80,14 @@ mapped gaps use the existing sparse Export XM/reopen/editable-copy boundary. A
 highest unreferenced selected empty Sxx remains session focus only and is not
 serialized solely because it is selected.
 
+Selected canonical empty-destination population is now complete. In stopped
+editable documents, Sample Editor LOAD and SINE fill the exact selected empty
+S01...S16 identity through one shared mutation and one undoable edit, preserving
+later identities, patterns, selection, and every meaningful map byte. Only the
+neutral zero-sample/nil-map S01 state initializes an all-S01 map. Empty LOAD skips
+the occupied Replace/Add/Cancel choice; represented LOAD remains unchanged, and
+Add continues to append after the highest represented identity rather than fill gaps.
+
 ## Project Goals
 
 - Preserve classic MOD/XM compatibility and tracker workflow.
@@ -514,9 +522,8 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next PR:
 
-- Next: `sample: populate a selected canonical empty sample destination`. Keep it
-  separate from Clear, preserve stable Sxx identity/map references, and do not
-  broaden into Duplicate or Move/Swap.
+- Next: `sample: duplicate a represented sample`. Keep it separate from Rename,
+  Replace, and Move/Swap, and preserve canonical Sxx identity and exact map bytes.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -801,8 +808,10 @@ Current implemented foundation:
 - File New owns unnamed zero-sample I01/S01; Edit > New Instrument appends and
   selects another empty S01 through one applyEdit action, and Export XM/reopen
   preserves zero-sample instrument count, order, and names without sample data
-- Sample Editor LOAD imports WAV/WAVE, AIFF/AIF, AIFC, or native FLAC into
-  stopped editable empty S01 or confirms exact in-place replacement. Native
+- Sample Editor LOAD imports WAV/WAVE, AIFF/AIF, AIFC, or native FLAC into the
+  exact stopped editable selected canonical empty S01...S16 or confirms exact
+  in-place replacement of a represented selection. Empty population skips the
+  occupied Replace/Add/Cancel choice; Add remains append-after-highest. Native
   FLAC accepts mono/stereo 16-bit and 24-bit sources only; 8-bit and untested
   depths, Ogg-FLAC, malformed/unsafe inputs, and decoder disagreement are
   rejected, while FLAC metadata and loops are ignored. LOAD validates container
@@ -811,6 +820,10 @@ Current implemented foundation:
   the main thread, rejects stale results, owns mono 16-bit PCM in the document,
   and registers one `Import Audio Sample` or `Replace Audio Sample` undo action
   while preserving slot/keymap references
+- Sample Editor SINE and LOAD share exact selected-empty population. They retain
+  later samples, selection, patterns, and explicit 96-note maps; only neutral
+  zero-sample/nil-map S01 state initializes all notes to S01. One applyEdit and
+  exact Undo/Redo cover Clear -> populate recovery and direct population
 - Sample Editor CLEAR confirms and removes only the exact represented selected
   sample in stopped editable state, preserves Sxx selection, later identities,
   keymap bytes, and unavailable routes, invalidates direct preview, and creates
@@ -844,8 +857,7 @@ Next composition targets after backend foundation freeze:
   PCM/waveform mutation slices
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- explicit empty-slot population plus sample reorder/duplication and instrument
-  clear lifecycle; XI remains separate
+- sample reorder/duplication and instrument clear lifecycle; XI remains separate
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics

@@ -110,11 +110,13 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
     }
 
     func testGenerateSineIsOneApplyEditActionWithExactUndoRedo() throws {
-        let before = BlankTrackerDocument.makeDefault()
+        let before = documentWithSelectedInteriorEmptySample()
         let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
         XCTAssertTrue(harness.coordinator.canGenerateSineSample)
         XCTAssertTrue(harness.coordinator.generateSineSample())
         let generated = try XCTUnwrap(harness.editableDocument)
+        XCTAssertEqual(generated.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 1, 2])
+        XCTAssertEqual(generated.selection, before.selection)
         XCTAssertEqual(harness.appliedDocuments, [generated])
         XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Generate Sine Sample")
 
@@ -127,7 +129,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
 
     func testGenerateSineRejectsUnavailableContextsWithoutMutationOrHistory() {
         let base = BlankTrackerDocument.makeDefault()
-        let wrongDestination = documentWithSelectedInteriorEmptySample()
+        let wrongDestination = documentWithInvalidSelectedSampleDestination()
         var occupied = base
         XCTAssertTrue(occupied.generateSineInSelectedEmptySample())
         let contexts: [EditableDocumentEditContext] = [
@@ -322,8 +324,8 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(sampleView.displayState.sampleName, "Empty sample destination")
         XCTAssertEqual(sampleView.displayState.sampleSlots.map(\.slot), [1, 2, 3])
         XCTAssertFalse(sampleView.displayState.isAuditionEnabled)
-        XCTAssertFalse(sampleView.displayState.isWAVLoadEnabled)
-        XCTAssertFalse(sampleView.displayState.isSineGenerationEnabled)
+        XCTAssertTrue(sampleView.displayState.isWAVLoadEnabled)
+        XCTAssertTrue(sampleView.displayState.isSineGenerationEnabled)
         XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
             instrumentIndex: 1, note: 1, instrument: clearedInstrument
         )?.sampleIndex, 0)
@@ -349,6 +351,64 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(sampleView.displayState.selectedSampleSlot, 2)
         XCTAssertNil(sampleView.displayState.selectedSample)
         XCTAssertEqual(harness.appliedDocuments, [cleared, before, cleared])
+    }
+
+    func testPopulateClearedS02IsOneEditWithExactSharedRefreshRoutingAndUndoRedo() throws {
+        var cleared = documentWithThreeDistinctSamplesSelectedS02()
+        XCTAssertTrue(cleared.clearSample(instrumentAt: 0, sampleAt: 1))
+        let clearedInstrument = try XCTUnwrap(cleared.instrumentPalette[1])
+        let preservedMap = try XCTUnwrap(clearedInstrument.noteSampleMap)
+        let candidate = try normalizedImportCandidate(name: "Recovered.wav", pcm: [-0.625, 0, 0.625])
+        let instrumentController = InstrumentEditorWindowController(displayState: .editableDocument(cleared))
+        let sampleController = SampleEditorWindowController(displayState: .editableDocument(cleared))
+        let instrumentView = try XCTUnwrap(instrumentController.window?.contentView as? InstrumentEditorView)
+        let sampleView = try XCTUnwrap(sampleController.window?.contentView as? SampleEditorView)
+        let harness = EditHarness(
+            context: .editable(document: cleared, isPlaybackActive: false),
+            onApply: {
+                instrumentController.apply(displayState: .editableDocument($0))
+                sampleController.apply(displayState: .editableDocument($0))
+            }
+        )
+        let destination = try XCTUnwrap(cleared.selectedSampleImportDestination)
+
+        XCTAssertEqual(destination, .emptyDestination(instrumentIndex: 1, sampleIndex: 1))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 33, instrument: clearedInstrument
+        ))
+        XCTAssertTrue(harness.coordinator.canImportAudioSample)
+        XCTAssertTrue(harness.coordinator.canGenerateSineSample)
+        XCTAssertTrue(harness.coordinator.importAudioSample(candidate, destination: destination))
+
+        let populated = try XCTUnwrap(harness.editableDocument)
+        let populatedInstrument = try XCTUnwrap(populated.instrumentPalette[1])
+        XCTAssertEqual(populatedInstrument.samples.map(\.sampleIndex), [0, 1, 2])
+        XCTAssertEqual(populatedInstrument.noteSampleMap, preservedMap)
+        XCTAssertEqual(populated.selection, cleared.selection)
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 33, instrument: populatedInstrument
+        )?.sampleIndex, 1)
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.name, "Recovered")
+        XCTAssertTrue(instrumentView.displayState.isKeymapRangeAssignmentEnabled)
+        XCTAssertEqual(sampleView.displayState.sampleName, "Recovered")
+        XCTAssertTrue(sampleView.displayState.isAuditionEnabled)
+        XCTAssertTrue(sampleView.displayState.isClearEnabled)
+        XCTAssertFalse(sampleView.displayState.isSineGenerationEnabled)
+        XCTAssertEqual(harness.appliedDocuments, [populated])
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Import Audio Sample")
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, cleared)
+        XCTAssertNil(instrumentView.displayState.selectedSample)
+        XCTAssertEqual(sampleView.displayState.sampleName, "Empty sample destination")
+        XCTAssertFalse(sampleView.displayState.isAuditionEnabled)
+        XCTAssertTrue(sampleView.displayState.isWAVLoadEnabled)
+        XCTAssertTrue(sampleView.displayState.isSineGenerationEnabled)
+
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, populated)
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.representedSample?.sampleIndex, 1)
+        XCTAssertEqual(sampleView.displayState.selectedSample?.sampleIndex, 1)
     }
 
     func testClearSampleRejectsReadOnlyPlayingWrongSelectionAndEmptyTargetWithoutHistory() throws {
@@ -380,7 +440,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
 
     func testAudioImportRejectsLoadedPlayingInvalidAndStaleDestinationsWithoutHistory() throws {
         let base = BlankTrackerDocument.makeDefault()
-        let invalid = documentWithSelectedInteriorEmptySample()
+        let invalid = documentWithInvalidSelectedSampleDestination()
         let candidate = try normalizedImportCandidate()
         let destination = try XCTUnwrap(base.selectedSampleImportDestination)
         let contexts: [EditableDocumentEditContext] = [
@@ -1141,6 +1201,23 @@ private func documentWithSelectedInteriorEmptySample() -> BlankTrackerDocument {
     ])
     document.selectSample(2)
     return document
+}
+
+private func documentWithInvalidSelectedSampleDestination() -> BlankTrackerDocument {
+    let base = BlankTrackerDocument.makeDefault()
+    return BlankTrackerDocument(
+        title: base.title,
+        songLength: base.songLength,
+        currentPosition: base.currentPosition,
+        restartPosition: base.restartPosition,
+        currentPatternIndex: base.currentPatternIndex,
+        tempo: base.tempo,
+        speed: base.speed,
+        orderTable: base.orderTable,
+        selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 17),
+        instrumentPalette: base.instrumentPalette,
+        patterns: base.patterns
+    )
 }
 
 private func documentWithThreeDistinctSamplesSelectedS02() -> BlankTrackerDocument {

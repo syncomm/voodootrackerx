@@ -736,8 +736,9 @@ enum DeterministicSampleGenerator {
     private static let frameCount = 16_384
     private static let xmBaseSampleRate = PlaybackSample.xmNeutralSampleRate
 
-    static func sine(instrumentIndex: Int) -> PlaybackSample? {
-        guard instrumentIndex > 0 else { return nil }
+    static func sine(instrumentIndex: Int, sampleIndex: Int = 0) -> PlaybackSample? {
+        guard instrumentIndex > 0,
+              (0..<SampleSlotPresentationProjection.maximumSampleCount).contains(sampleIndex) else { return nil }
         var pcm = [Float]()
         pcm.reserveCapacity(frameCount)
         for frame in 0..<frameCount {
@@ -748,7 +749,7 @@ enum DeterministicSampleGenerator {
         }
         let sample = PlaybackSample(
             instrumentIndex: instrumentIndex,
-            sampleIndex: 0,
+            sampleIndex: sampleIndex,
             name: "Sine",
             pcm: pcm,
             volume: 1,
@@ -775,19 +776,18 @@ enum DeterministicSampleGenerator {
 }
 
 enum SampleImportDestination: Equatable, Sendable {
-    case emptyS01(instrumentIndex: Int)
+    case emptyDestination(instrumentIndex: Int, sampleIndex: Int)
     case represented(instrumentIndex: Int, sampleIndex: Int)
 
     var instrumentIndex: Int {
         switch self {
-        case let .emptyS01(instrumentIndex), let .represented(instrumentIndex, _): instrumentIndex
+        case let .emptyDestination(instrumentIndex, _), let .represented(instrumentIndex, _): instrumentIndex
         }
     }
 
     var sampleIndex: Int {
         switch self {
-        case .emptyS01: 0
-        case let .represented(_, sampleIndex): sampleIndex
+        case let .emptyDestination(_, sampleIndex), let .represented(_, sampleIndex): sampleIndex
         }
     }
 
@@ -795,6 +795,12 @@ enum SampleImportDestination: Equatable, Sendable {
         if case .represented = self { return true }
         return false
     }
+}
+
+/// Exact selected canonical empty identity eligible for in-place population.
+struct SamplePopulationDestination: Equatable, Sendable {
+    let instrumentIndex: Int
+    let sampleIndex: Int
 }
 
 /// Exact result of assigning one represented sample to zero-based XM keymap entries.
@@ -1071,19 +1077,41 @@ struct BlankTrackerDocument: Equatable {
         nextInstrumentSlot != nil
     }
 
+    var selectedEmptySamplePopulationDestination: SamplePopulationDestination? {
+        let instrumentIndex = selection.selectedInstrument
+        let sampleIndex = selection.selectedSample - 1
+        guard (0..<Self.maximumSampleCountPerInstrument).contains(sampleIndex),
+              let instrument = instrumentPalette[instrumentIndex],
+              instrument.index == instrumentIndex,
+              instrument.samples.count < Self.maximumSampleCountPerInstrument else { return nil }
+        let representedIndices = instrument.samples.map(\.sampleIndex)
+        guard representedIndices.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }),
+              Set(representedIndices).count == representedIndices.count,
+              instrument.samples.allSatisfy({ $0.instrumentIndex == instrumentIndex }),
+              instrument.noteSampleMap.map({
+                  $0.count == TrackerNoteKeyMap.maximumNoteValue &&
+                      $0.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) })
+              }) ?? true,
+              sampleSlotPresentationRows(forInstrument: instrumentIndex)
+                  .first(where: { $0.sampleIndex == sampleIndex })?.isEmptyDestination == true else { return nil }
+        return SamplePopulationDestination(instrumentIndex: instrumentIndex, sampleIndex: sampleIndex)
+    }
+
     var canGenerateSineInSelectedEmptySample: Bool {
-        selection.selectedSample == 1 &&
-            instrument(forInstrument: selection.selectedInstrument)?.samples.isEmpty == true
+        selectedEmptySamplePopulationDestination != nil
     }
 
     var selectedSampleImportDestination: SampleImportDestination? {
         guard let instrument = instrument(forInstrument: selection.selectedInstrument) else { return nil }
-        if instrument.samples.isEmpty, selection.selectedSample == 1 {
-            return .emptyS01(instrumentIndex: instrument.index)
+        if let sample = instrument.sample(selectedSampleSlot: selection.selectedSample),
+           (0..<Self.maximumSampleCountPerInstrument).contains(sample.sampleIndex) {
+            return .represented(instrumentIndex: instrument.index, sampleIndex: sample.sampleIndex)
         }
-        guard let sample = instrument.sample(selectedSampleSlot: selection.selectedSample),
-              (0..<Self.maximumSampleCountPerInstrument).contains(sample.sampleIndex) else { return nil }
-        return .represented(instrumentIndex: instrument.index, sampleIndex: sample.sampleIndex)
+        guard let destination = selectedEmptySamplePopulationDestination else { return nil }
+        return .emptyDestination(
+            instrumentIndex: destination.instrumentIndex,
+            sampleIndex: destination.sampleIndex
+        )
     }
 
     func nextAppendSampleIndex(forInstrument instrumentIndex: Int) -> Int? {
@@ -1102,28 +1130,17 @@ struct BlankTrackerDocument: Equatable {
         nextAppendSampleIndex(forInstrument: instrumentIndex) != nil
     }
 
-    /// Fills the selected empty S01 with one validated sample while preserving all unrelated document state.
+    /// Fills the selected canonical empty identity with deterministic PCM.
     @discardableResult
     mutating func generateSineInSelectedEmptySample() -> Bool {
-        guard canGenerateSineInSelectedEmptySample,
-              let instrument = instrument(forInstrument: selection.selectedInstrument),
-              let sample = DeterministicSampleGenerator.sine(instrumentIndex: instrument.index) else {
+        guard let destination = selectedEmptySamplePopulationDestination,
+              let sample = DeterministicSampleGenerator.sine(
+                  instrumentIndex: destination.instrumentIndex,
+                  sampleIndex: destination.sampleIndex
+              ) else {
             return false
         }
-        var palette = instrumentPalette
-        palette[instrument.index] = PlaybackInstrument(
-            index: instrument.index, name: instrument.name, samples: [sample],
-            volumeEnvelope: instrument.volumeEnvelope, panningEnvelope: instrument.panningEnvelope,
-            autoVibrato: instrument.autoVibrato,
-            noteSampleMap: Array(repeating: 0, count: 96)
-        )
-        self = BlankTrackerDocument(
-            title: title, songLength: songLength, currentPosition: currentPosition, restartPosition: restartPosition,
-            currentPatternIndex: currentPatternIndex, tempo: tempo, speed: speed, orderTable: orderTable,
-            selection: TrackerEditorSelection(selectedInstrument: instrument.index, selectedSample: 1),
-            instrumentPalette: palette, patterns: patterns
-        )
-        return true
+        return populateSelectedEmptySample(sample, destination: destination)
     }
 
     /// Installs one fully normalized audio candidate at the captured destination without redirecting stale work.
@@ -1140,19 +1157,51 @@ struct BlankTrackerDocument: Equatable {
             instrumentIndex: instrument.index,
             sampleIndex: destination.sampleIndex
         )
-        let samples: [PlaybackSample]
-        let noteSampleMap: [Int]?
         switch destination {
-        case .emptyS01:
-            guard instrument.samples.isEmpty else { return false }
-            samples = [imported]
-            noteSampleMap = Array(repeating: 0, count: 96)
+        case let .emptyDestination(instrumentIndex, sampleIndex):
+            return populateSelectedEmptySample(
+                imported,
+                destination: SamplePopulationDestination(
+                    instrumentIndex: instrumentIndex,
+                    sampleIndex: sampleIndex
+                )
+            )
         case let .represented(_, sampleIndex):
             guard instrument.samples.contains(where: { $0.sampleIndex == sampleIndex }) else { return false }
-            samples = instrument.samples.map { $0.sampleIndex == sampleIndex ? imported : $0 }
-            noteSampleMap = instrument.noteSampleMap
+            var palette = instrumentPalette
+            palette[instrument.index] = PlaybackInstrument(
+                index: instrument.index,
+                name: instrument.name,
+                samples: instrument.samples.map { $0.sampleIndex == sampleIndex ? imported : $0 },
+                volumeEnvelope: instrument.volumeEnvelope,
+                panningEnvelope: instrument.panningEnvelope,
+                autoVibrato: instrument.autoVibrato,
+                noteSampleMap: instrument.noteSampleMap
+            )
+            self = replacingInstrumentPalette(palette, selection: selection)
+            return true
         }
+    }
 
+    /// Installs one represented sample at the exact selected empty Sxx without compacting identities.
+    @discardableResult
+    private mutating func populateSelectedEmptySample(
+        _ sample: PlaybackSample,
+        destination: SamplePopulationDestination
+    ) -> Bool {
+        guard selectedEmptySamplePopulationDestination == destination,
+              let instrument = instrumentPalette[destination.instrumentIndex],
+              sample.instrumentIndex == destination.instrumentIndex,
+              sample.sampleIndex == destination.sampleIndex,
+              Self.isCompleteRepresentedSample(sample) else { return false }
+
+        var samples = instrument.samples
+        let insertionIndex = samples.firstIndex { $0.sampleIndex > destination.sampleIndex } ?? samples.endIndex
+        samples.insert(sample, at: insertionIndex)
+        // A nil map identifies only File New/New Instrument's neutral empty S01;
+        // any explicit 96-note map remains byte-for-byte unchanged.
+        let initializesNeutralFirstSampleMap = instrument.samples.isEmpty &&
+            instrument.noteSampleMap == nil && destination.sampleIndex == 0
         var palette = instrumentPalette
         palette[instrument.index] = PlaybackInstrument(
             index: instrument.index,
@@ -1161,18 +1210,31 @@ struct BlankTrackerDocument: Equatable {
             volumeEnvelope: instrument.volumeEnvelope,
             panningEnvelope: instrument.panningEnvelope,
             autoVibrato: instrument.autoVibrato,
-            noteSampleMap: noteSampleMap
+            noteSampleMap: initializesNeutralFirstSampleMap
+                ? Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+                : instrument.noteSampleMap
         )
-        self = BlankTrackerDocument(
-            title: title, songLength: songLength, currentPosition: currentPosition, restartPosition: restartPosition,
-            currentPatternIndex: currentPatternIndex, tempo: tempo, speed: speed, orderTable: orderTable,
-            selection: TrackerEditorSelection(
-                selectedInstrument: instrument.index,
-                selectedSample: destination.sampleIndex + 1
-            ),
-            instrumentPalette: palette, patterns: patterns
-        )
+        self = replacingInstrumentPalette(palette, selection: selection)
         return true
+    }
+
+    private func replacingInstrumentPalette(
+        _ palette: [Int: PlaybackInstrument],
+        selection: TrackerEditorSelection
+    ) -> BlankTrackerDocument {
+        BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: currentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: currentPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
+            selection: selection,
+            instrumentPalette: palette,
+            patterns: patterns
+        )
     }
 
     /// Appends one complete represented sample without compacting indices or changing the keymap.

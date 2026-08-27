@@ -14,7 +14,8 @@ drag-to-paint/automatic mapping, and broader destructive lifecycle remain future
 place is now the first implemented destructive sample lifecycle action. The post-alpha sparse sample-slot XM
 round-trip and loaded-source provenance foundations support that action without changing the file format.
 The shared sample-slot presentation/selection foundation is also implemented: editable and supported loaded
-sources can expose a canonical empty Sxx identity without fabricating a `PlaybackSample`.
+sources can expose a canonical empty Sxx identity without fabricating a `PlaybackSample`. Sample Editor LOAD and
+SINE can now populate the exact selected canonical empty identity in a stopped editable document.
 
 ## Context
 
@@ -86,9 +87,11 @@ The editable model and Export XM preserve the interior-gap state produced by non
 - An instrument with represented indices `[0, 2]` therefore expresses S01 + empty S02 + S03 without renumbering
   S03. A 96-entry keymap may still contain `1`, and `BlankTrackerDocument.selection` may still be S02. No parallel
   empty-sample object is required for that interior case.
-- The shipped import destination API recognizes only represented replacement targets or the special S01 of an
-  entirely sampleless instrument. It cannot repopulate an absent interior Sxx today; that operation remains future
-  lifecycle work.
+- The shared population policy recognizes the exact selected `.emptyDestination` in the editable projection,
+  bounded to S01...S16 with valid represented identities, capacity, and keymap structure. It installs one
+  `PlaybackSample` at that zero-based identity without filling another gap, compacting later samples, or changing
+  selection. Represented LOAD still offers Replace/Add as New/Cancel, and Add still appends after the highest
+  represented identity.
 
 Selection is stored in the `BlankTrackerDocument` value even though ordinary row selection is UI state and creates
 no edit. Whole-document `applyEdit` snapshots therefore include selection whenever an action does change it.
@@ -203,8 +206,11 @@ The resulting document change is one `applyEdit` action. A drop onto a specific 
 
 ### First-Sample Keymap
 
-The first represented sample maps across all 96 XM notes. Sample 1 is the implicit/default assignment, and all-S01
-has a neutral keyboard appearance. Adding S02 or later never changes mappings; later samples need explicit assignment.
+Populating neutral File New/New Instrument S01 (`samples == []`, `noteSampleMap == nil`) initializes the all-S01
+96-note map. An existing explicit map is meaningful state and remains byte-exact even when the populated destination
+is the instrument's first represented sample. S02+ is never auto-mapped. Sample 1 remains the implicit/default
+assignment, and all-S01 has a neutral keyboard appearance. Adding S02 or later never changes mappings; later samples
+need explicit assignment.
 
 Mapping and transient audition highlight are separate layers. Keymap mutation uses `applyEdit`/undo; read-only
 visualization landed first, followed by an explicit selected-represented-sample
@@ -323,6 +329,10 @@ removes only that `PlaybackSample`, preserves every remaining `sampleIndex` and 
 Sxx as `.emptyDestination`, and provides exact whole-snapshot Undo/Redo. A successful refresh invalidates direct
 Sample Editor preview of the removed sample without changing the persistent preview graph or song transport.
 
+The same selected Sxx can then be populated in place by LOAD or deterministic SINE. That creates one undoable edit,
+preserves every map byte and later identity, and makes existing routes to Sxx available again without remapping.
+Undo returns to the exact sparse empty state; Redo restores the represented sample.
+
 XM persistence remains document-semantic rather than selection-semantic. A cleared interior identity survives when
 a later represented sample or map reference requires its span; a mapped cleared route remains unavailable with no
 fallback. If the highest cleared identity is neither mapped nor followed by a represented sample, the current
@@ -411,21 +421,22 @@ This is a sequence of focused PRs, not one large implementation PR:
 7. Harden the all-96-note S01 default and neutral visualization.
 8. Add instrument add/duplicate/clear-in-place/rename.
 9. Done: add represented-sample clear in place through Sample Editor CLEAR.
-10. Add remaining sample duplicate/rename/replace and explicit empty-slot population.
-11. Polish read-only keymap visualization: neutral S01, visible S02+ mapping,
+10. Done: populate an explicitly selected canonical empty sample destination in place.
+11. Add remaining sample duplicate/rename/replace lifecycle.
+12. Polish read-only keymap visualization: neutral S01, visible S02+ mapping,
     and a separate active-note layer.
-12. Done: add editable keymap range assignment through `applyEdit`.
-13. Done: wire explicit selected-sample inclusive range assignment UI and
+13. Done: add editable keymap range assignment through `applyEdit`.
+14. Done: wire explicit selected-sample inclusive range assignment UI and
     non-mutating full-map graphical selection; paint/automatic mapping remain separate.
-14. Add reference-preserving instrument and sample move/swap.
-15. Run the complete automated and manual from-scratch acceptance slice.
-16. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
+15. Add reference-preserving instrument and sample move/swap.
+16. Run the complete automated and manual from-scratch acceptance slice.
+17. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
 
 The graphical range-selection slice is complete. Select later lifecycle, envelope,
 loop, drag-to-paint, and automatic-mapping work as separate focused PRs.
 
-The sparse writer/reopen/editable-copy dependency, interior empty-slot presentation, and represented-sample Clear
-are complete. Duplicate, explicit empty-slot population, and Move/Swap remain separate scoped lifecycle work.
+The sparse writer/reopen/editable-copy dependency, interior empty-slot presentation, represented-sample Clear, and
+explicit selected-empty population are complete. Duplicate and Move/Swap remain separate scoped lifecycle work.
 
 ## Test And Fixture Plan
 

@@ -37,7 +37,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(blank.finetuneDisplay, "—")
     }
 
-    func testSparseEditableEmptySlotClearsSampleSurfacesAndPreservesCurrentMutationScope() throws {
+    func testSparseEditableEmptySlotClearsSampleSurfacesAndEnablesDirectPopulationWhileStopped() throws {
         let first = makePlaybackSample(sampleIndex: 0, name: "Pulse S01", pcm: [0.25, 0.5])
         let third = makePlaybackSample(sampleIndex: 2, name: "Impulse S03", pcm: [-0.75])
         let document = makeSampleEditorDocument(
@@ -58,8 +58,8 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(state.waveformPCM.isEmpty)
         XCTAssertEqual(state.loop, .inactive)
         XCTAssertFalse(state.isAuditionEnabled)
-        XCTAssertFalse(state.isSineGenerationEnabled)
-        XCTAssertFalse(state.isWAVLoadEnabled)
+        XCTAssertTrue(state.isSineGenerationEnabled)
+        XCTAssertTrue(state.isWAVLoadEnabled)
         let playingState = SampleEditorDisplayState.editableDocument(document, isPlaybackActive: true)
         XCTAssertEqual(playingState.selectedSampleSlot, 2)
         XCTAssertEqual(playingState.sampleSlots.map(\.slot), [1, 2, 3])
@@ -115,7 +115,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(state.isWAVLoadEnabled)
     }
 
-    func testSineEligibilityRequiresStoppedEditableEmptyS01() {
+    func testSineEligibilityRequiresStoppedEditableCanonicalEmptyDestination() {
         let empty = BlankTrackerDocument.makeDefault()
         let wrongDestination = makeSampleEditorDocument(
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
@@ -128,18 +128,24 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(occupied.generateSineInSelectedEmptySample())
 
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(empty, isPlaybackActive: true).isSineGenerationEnabled)
-        XCTAssertFalse(SampleEditorDisplayState.editableDocument(wrongDestination).isSineGenerationEnabled)
+        XCTAssertTrue(SampleEditorDisplayState.editableDocument(wrongDestination).isSineGenerationEnabled)
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(occupied).isSineGenerationEnabled)
         XCTAssertFalse(SampleEditorDisplayState.loadedModule(playbackSong: nil, selection: .default).isSineGenerationEnabled)
     }
 
     func testWAVLoadEligibilityCoversEmptyRepresentedEditableLoadedPlayingAndImportingStates() {
         let empty = BlankTrackerDocument.makeDefault()
-        let invalid = makeSampleEditorDocument(
+        let interior = makeSampleEditorDocument(
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
             instrument: PlaybackInstrument(index: 1, samples: [
                 makePlaybackSample(sampleIndex: 0, name: "Pulse S01"),
                 makePlaybackSample(sampleIndex: 2, name: "Impulse S03"),
+            ])
+        )
+        let invalid = makeSampleEditorDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 17),
+            instrument: PlaybackInstrument(index: 1, samples: [
+                makePlaybackSample(sampleIndex: 0, name: "Pulse S01"),
             ])
         )
         var represented = empty
@@ -147,6 +153,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
 
         XCTAssertTrue(SampleEditorDisplayState.editableDocument(empty).isWAVLoadEnabled)
         XCTAssertTrue(SampleEditorDisplayState.editableDocument(represented).isWAVLoadEnabled)
+        XCTAssertTrue(SampleEditorDisplayState.editableDocument(interior).isWAVLoadEnabled)
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(invalid).isWAVLoadEnabled)
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(empty, isPlaybackActive: true).isWAVLoadEnabled)
         XCTAssertFalse(SampleEditorDisplayState.editableDocument(empty, isImportingWAV: true).isWAVLoadEnabled)
@@ -262,7 +269,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(invocationCount, 1)
     }
 
-    func testSparseEmptyActionButtonsAreVisiblyDisabledAndStaleActionsCannotBeginWorkflow() throws {
+    func testSparseEmptyActionButtonsInvokeDirectPopulationHandlers() throws {
         var sineInvocationCount = 0
         var wavLoadInvocationCount = 0
         let controller = SampleEditorWindowController(
@@ -287,21 +294,21 @@ final class SampleEditorWindowControllerTests: XCTestCase {
 
         XCTAssertTrue(controller.apply(displayState: .editableDocument(sparseDocument)))
         XCTAssertEqual(view.displayState.sampleSlots.map(\.slot), [1, 2, 3])
-        let disabledSineButton = try XCTUnwrap(view.sineButton)
-        let disabledLoadButton = try XCTUnwrap(view.wavLoadButton)
-        XCTAssertFalse(disabledSineButton.isEnabled)
-        XCTAssertNil(disabledSineButton.action)
-        XCTAssertNil(disabledSineButton.target)
-        XCTAssertEqual(disabledSineButton.alphaValue, 0.38, accuracy: 0.001)
-        XCTAssertFalse(disabledLoadButton.isEnabled)
-        XCTAssertNil(disabledLoadButton.action)
-        XCTAssertNil(disabledLoadButton.target)
-        XCTAssertEqual(disabledLoadButton.alphaValue, 0.38, accuracy: 0.001)
+        let enabledSineButton = try XCTUnwrap(view.sineButton)
+        let enabledLoadButton = try XCTUnwrap(view.wavLoadButton)
+        XCTAssertTrue(enabledSineButton.isEnabled)
+        XCTAssertNotNil(enabledSineButton.action)
+        XCTAssertNotNil(enabledSineButton.target)
+        XCTAssertEqual(enabledSineButton.alphaValue, 1, accuracy: 0.001)
+        XCTAssertTrue(enabledLoadButton.isEnabled)
+        XCTAssertNotNil(enabledLoadButton.action)
+        XCTAssertNotNil(enabledLoadButton.target)
+        XCTAssertEqual(enabledLoadButton.alphaValue, 1, accuracy: 0.001)
 
         XCTAssertTrue(staleSineButton.sendAction(staleSineAction, to: staleSineTarget))
         XCTAssertTrue(staleLoadButton.sendAction(staleLoadAction, to: staleLoadTarget))
-        XCTAssertEqual(sineInvocationCount, 0)
-        XCTAssertEqual(wavLoadInvocationCount, 0)
+        XCTAssertEqual(sineInvocationCount, 1)
+        XCTAssertEqual(wavLoadInvocationCount, 1)
     }
 
     func testSineButtonGeneratesAndRefreshesUndoRedoStates() throws {
@@ -798,10 +805,12 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(view.displayState.sampleSlots[1].isEmptyDestination)
         XCTAssertFalse(view.displayState.isAuditionEnabled)
         XCTAssertFalse(view.displayState.isClearEnabled)
-        XCTAssertFalse(view.displayState.isWAVLoadEnabled)
-        XCTAssertFalse(view.displayState.isSineGenerationEnabled)
+        XCTAssertTrue(view.displayState.isWAVLoadEnabled)
+        XCTAssertTrue(view.displayState.isSineGenerationEnabled)
         XCTAssertFalse(try XCTUnwrap(view.auditionButton).isEnabled)
         XCTAssertFalse(try XCTUnwrap(view.clearButton).isEnabled)
+        XCTAssertFalse(try XCTUnwrap(view.wavLoadButton).isEnabled)
+        XCTAssertFalse(try XCTUnwrap(view.sineButton).isEnabled)
     }
 
     func testSelectedSampleRowScrollsIntoViewWithoutChangingInstrument() throws {
@@ -1217,6 +1226,57 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(cancelCommits, 0)
     }
 
+    func testInteriorEmptyImportSkipsOccupiedChoiceAndCommitsExactCapturedDestination() async throws {
+        let document = makeSampleEditorDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrument: PlaybackInstrument(index: 1, samples: [
+                makePlaybackSample(sampleIndex: 0, name: "S01"),
+                makePlaybackSample(sampleIndex: 2, name: "S03"),
+            ])
+        )
+        let candidate = try normalizedImportCandidate(name: "Recovered.wav")
+        let committed = expectation(description: "interior empty destination committed")
+        let coordinator = SampleEditorWAVImportCoordinator(
+            contextProvider: {
+                SampleEditorWAVImportContext(
+                    documentIdentity: UUID(uuidString: "75D4BECA-18B8-4459-A0B5-B6DEEF289552"),
+                    documentRevision: 3,
+                    document: document,
+                    isPlaybackActive: false
+                )
+            },
+            worker: SampleEditorWAVImportWorker(
+                inspect: { _ in .success(.init(
+                    format: .wav, sourceSampleRate: 8_363, sourceChannelCount: 1,
+                    sourceBitDepthBits: 16, frameCount: 2
+                )) },
+                normalize: { _, mode in
+                    XCTAssertEqual(mode, .mixToMono)
+                    return .success(candidate)
+                }
+            ),
+            fileChooser: { _, completion in completion(temporaryGeneratedWAVURL) },
+            occupiedSampleChoice: { _, _ in
+                XCTFail("An explicitly selected empty destination must not ask for Replace/Add")
+            },
+            stereoChannelChooser: { _ in XCTFail("Mono must skip channel choice") },
+            commitHandler: { imported, action in
+                XCTAssertEqual(imported, candidate)
+                XCTAssertEqual(
+                    action,
+                    .fillOrReplace(.emptyDestination(instrumentIndex: 1, sampleIndex: 1))
+                )
+                committed.fulfill()
+                return true
+            },
+            errorHandler: { XCTFail($0) }
+        )
+
+        XCTAssertTrue(coordinator.begin())
+        await fulfillment(of: [committed], timeout: 1)
+        XCTAssertFalse(coordinator.isImporting)
+    }
+
     func testOccupiedWAVImportRequiresExactReplacementConfirmationBeforeInspection() async throws {
         var document = BlankTrackerDocument.makeDefault()
         XCTAssertTrue(document.generateSineInSelectedEmptySample())
@@ -1390,6 +1450,25 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(occupied.appendSample(instrumentIndex: 1, sample: second), 1)
         XCTAssertFalse(occupiedCapture.isCurrent(in: .init(
             documentIdentity: identity, documentRevision: 8, document: occupied, isPlaybackActive: false
+        )))
+
+        var sparse = makeSampleEditorDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrument: PlaybackInstrument(index: 1, samples: [
+                makePlaybackSample(sampleIndex: 0, name: "S01"),
+                makePlaybackSample(sampleIndex: 2, name: "S03"),
+            ])
+        )
+        let sparseContext = SampleEditorWAVImportContext(
+            documentIdentity: identity, documentRevision: 9, document: sparse, isPlaybackActive: false
+        )
+        let sparseCapture = try XCTUnwrap(SampleEditorWAVImportCapture(context: sparseContext))
+        XCTAssertTrue(sparse.importAudioSample(
+            try normalizedImportCandidate(),
+            destination: try XCTUnwrap(sparse.selectedSampleImportDestination)
+        ))
+        XCTAssertFalse(sparseCapture.isCurrent(in: .init(
+            documentIdentity: identity, documentRevision: 9, document: sparse, isPlaybackActive: false
         )))
     }
 

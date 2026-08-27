@@ -22,20 +22,25 @@ present: File New owns one unnamed zero-sample I01 with an honest selected S01
 destination, and `Edit > New Instrument` appends/selects another zero-sample
 instrument through one labeled `applyEdit`/undo action. The command is limited
 to stopped editable documents with capacity; loaded modules and playback remain
-read-only. Current sample operations append after the highest represented slot
-and do not fill sparse holes. The in-memory palette can retain sparse sample
+read-only. Sample Editor LOAD and SINE now populate the exact selected canonical
+empty S01...S16 destination in stopped editable documents. They preserve stable
+Sxx identity, later samples, exact explicit 96-note maps, patterns, and selection;
+only neutral File New/New Instrument state (zero samples, nil map, selected S01)
+initializes an all-S01 map. LOAD on an empty destination skips Replace/Add/Cancel,
+while represented LOAD keeps that choice. Add still appends after the highest
+represented slot and does not fill sparse holes. The in-memory palette can retain sparse sample
 indices. Export XM now computes an identity span through the highest represented
 or exact-map-referenced Sxx (maximum S16), emits an all-zero 40-byte/no-payload
 header for each missing position, and writes map indices directly. Reopen drops
 those structural headers without compacting later identities or changing unavailable
-routes; existing dense alpha.1 output remains byte-identical. Sample Editor SINE now fills eligible
-S01 with deterministic looped PCM and an all-note map. A UI-independent audio
+routes; existing dense alpha.1 output remains byte-identical. Sample Editor SINE uses the existing
+deterministic looped PCM recipe at the selected eligible destination. A UI-independent audio
 import facade now validates container identity before dispatching WAV/WAVE,
 AIFF/AIF, AIFC, or native `fLaC` to bounded decoders. Native FLAC is limited to
 16/24-bit mono/stereo and uses raw STREAMINFO preflight plus chunked Apple
 `ExtAudioFile` decode; 8-bit and all untested depths are rejected before decode.
 Every format returns the same value-owned XM-representable 16-bit mono candidate.
-Sample Editor LOAD uses that facade off the main thread: it fills empty S01 or offers
+Sample Editor LOAD uses that facade off the main thread: it fills the selected canonical empty Sxx or offers
 Replace/Add as New/Cancel for the exact represented selection, reuses stereo
 Mix/Left/Right, and commits one import, replace, or append edit with stale-result
 protection. Add appends/selects the next represented Sxx without changing the
@@ -87,7 +92,12 @@ and Sample Editor releases a direct preview of the removed sample without changi
 the persistent preview graph or auto-auditioning. Existing sparse XM persistence
 retains interior/mapped empty identities through reopen/editable copy. A highest
 unreferenced cleared Sxx remains visible only as current-session selection and is
-not serialized solely to preserve that UI focus.
+not serialized solely to preserve that UI focus. The same exact selection can
+now be repopulated by LOAD or SINE through one shared model mutation and one
+labeled `applyEdit`. Stale destination identity, revision, selection, occupancy,
+playback, capacity, or operation-token changes reject the commit. Clear ->
+populate -> Undo/Redo preserves the canonical gap, map bytes, later samples, and
+unavailable/available routing transition exactly.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 
@@ -179,11 +189,11 @@ min/max waveform, and display-only no/forward/ping-pong loop region derive only
 from a represented sample.
 Unnamed represented samples show `(unnamed sample)`; absent samples clear every
 sample surface and are labeled as empty destinations. Empty rows remain selectable
-during playback, but direct AUDITION is unavailable and SINE/LOAD do not gain
-arbitrary interior-empty mutation scope. FORMAT reports represented bit depth and mono without treating
+during playback, but direct AUDITION is unavailable; SINE/LOAD become eligible only
+for the exact selected canonical empty row in a stopped editable document. FORMAT reports represented bit depth and mono without treating
 playback-policy `baseSampleRate` as source metadata.
 SINE, audio LOAD, and represented-sample CLEAR are the current Sample Editor mutations. LOAD is available
-only for a stopped editable empty S01 or represented selected sample and is
+only for a stopped editable selected canonical empty Sxx or represented selected sample and is
 disabled during an active import. Its single-file panel accepts WAV/WAVE,
 AIFF/AIF, AIFC, and native FLAC; container identity is authoritative and
 recognized extension/container mismatches are rejected. Native FLAC accepts
@@ -191,10 +201,12 @@ only mono/stereo 16-bit and 24-bit sources. It rejects 8-bit and untested
 depths, Ogg-FLAC, invalid STREAMINFO, unsafe dimensions, and decoder/preflight
 disagreement; metadata and loops are ignored. Mono skips channel choice, while
 stereo offers Mix/Left/Right. Decode/normalization runs in the background with
-exact document identity/revision/selection/occupancy revalidation. One `Import
-Audio Sample` or `Replace Audio Sample` edit owns canonical mono 16-bit PCM;
-empty import establishes the all-S01 map, while replacement preserves the
-exact slot, keymap, and unrelated instrument data. Commit cancels stale preview
+exact document identity/revision/selection/occupancy revalidation. Empty LOAD
+installs directly without an occupied-target choice; represented LOAD still offers
+Replace/Add as New/Cancel, and Add appends after the highest represented identity.
+One `Import Audio Sample` or `Replace Audio Sample` edit owns canonical mono 16-bit PCM;
+only neutral zero-sample/nil-map S01 import establishes the all-S01 map, while
+other population and replacement preserve the exact map, slot, and unrelated instrument data. Commit cancels stale preview
 once, refreshes every editor, and does not auto-audition; the next trigger uses
 imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
 state, and no source path is retained. CLEAR uses the stopped-editable exact-target
@@ -247,7 +259,7 @@ selector exposes their graph, point count, enabled, sustain, and loop state;
 they remain runtime-inert and create no document or undo mutation. These
 metadata slices add no loop, PCM, envelope, waveform, vibrato, or XI mutation.
 Save/Save As,
-loaded-module direct editing, broader Instrument Editor editing, Sample Editor mutation beyond SINE/audio LOAD/CLEAR, PCM16 product export,
+loaded-module direct editing, broader Instrument Editor editing, Sample Editor mutation beyond selected-empty SINE/audio LOAD and represented CLEAR, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 

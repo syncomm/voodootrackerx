@@ -180,7 +180,12 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [0, 1],
             patternRowCounts: [0: 4, 1: 6],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, name: "Tiny Inst", samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(
+                index: 1,
+                name: "Tiny Inst",
+                samples: [sample],
+                noteSampleMap: Array(repeating: 0, count: 96)
+            )]
         )
         let context = LoadedModuleEditableCopyContext.loadedReadOnly(
             metadata: metadata,
@@ -213,6 +218,41 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(copiedSample.panning, 37)
         XCTAssertEqual(copiedSample.relativeNote, -1)
         XCTAssertEqual(copiedSample.finetune, 2)
+        XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap, Array(repeating: 0, count: 96))
+    }
+
+    func testPublicXMEditableCopiesWithRepresentedSamplesAlwaysHaveExactBoundedKeymaps() throws {
+        let fixtures = [
+            "generated/basic-instrument-sample.xm",
+            "generated/multi-pattern-loop-boundary.xm",
+            "generated/instrument-sustained-defaults.xm",
+            "generated/instrument-metadata-matrix.xm",
+            "generated/instrument-envelopes-keymap.xm",
+        ]
+
+        for fixture in fixtures {
+            let sourceURL = try referenceXMFixtureURL(fixture)
+            let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+            let song = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+            let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+                metadata: metadata,
+                playbackSong: song,
+                selection: .default,
+                currentPatternIndex: 0,
+                isPlaybackActive: false
+            )
+            guard case let .copied(document) = LoadedModuleEditableCopyCoordinator()
+                .makeEditableCopy(context: context) else {
+                return XCTFail("expected public fixture to become editable: \(fixture)")
+            }
+            let representedInstruments = document.instrumentPalette.values.filter { !$0.samples.isEmpty }
+            XCTAssertFalse(representedInstruments.isEmpty, fixture)
+            for instrument in representedInstruments {
+                let map = try XCTUnwrap(instrument.noteSampleMap, fixture)
+                XCTAssertEqual(map.count, 96, fixture)
+                XCTAssertTrue(map.allSatisfy { (0..<16).contains($0) }, fixture)
+            }
+        }
     }
 
     @MainActor

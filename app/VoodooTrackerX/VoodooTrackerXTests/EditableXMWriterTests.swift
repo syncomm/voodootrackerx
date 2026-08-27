@@ -697,6 +697,48 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(song.instrumentsByIndex[2]?.name, "Second Empty")
         XCTAssertEqual(song.instrumentsByIndex[1]?.samples, [])
         XCTAssertEqual(song.instrumentsByIndex[2]?.samples, [])
+        XCTAssertNil(song.instrumentsByIndex[1]?.noteSampleMap)
+        XCTAssertNil(song.instrumentsByIndex[2]?.noteSampleMap)
+    }
+
+    func testRepresentedSamplesWithoutMapExportAsAllS01AndReopenWithExplicitMap() throws {
+        let first = makeXMSourceSample(sampleIndex: 0, name: "Content A", pcm: [-0.25, 0.25])
+        let second = makeXMSourceSample(sampleIndex: 1, name: "Content B", pcm: [-0.75, 0.75])
+        let sourceInstrument = PlaybackInstrument(index: 1, samples: [first, second], noteSampleMap: nil)
+        let document = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [1: sourceInstrument]
+        )
+
+        XCTAssertNil(sourceInstrument.noteSampleMap)
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1,
+            note: 49,
+            instrument: sourceInstrument,
+            missingKeymapPolicy: .firstPlayableSample
+        )?.sample, first)
+
+        let data = try EditableXMWriter().data(from: document)
+        let instrumentOffset = data.patternHeader(at: 336).nextOffset
+        XCTAssertEqual(
+            Array(data[instrumentOffset + 33..<instrumentOffset + 129]),
+            Array(repeating: UInt8(0), count: 96)
+        )
+        let url = try temporaryExportURL(filename: "represented-nil-map.xm")
+        try data.write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        let reopened = try XCTUnwrap(song.instrument(forInstrument: 1))
+
+        XCTAssertEqual(reopened.samples, [first, second])
+        XCTAssertEqual(reopened.noteSampleMap, Array(repeating: 0, count: 96))
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1,
+            note: 49,
+            instrument: reopened
+        )?.sample, first)
+        XCTAssertNotEqual(reopened, sourceInstrument, "writer acceptance is not value-preserving for state D")
     }
 
     func testSimpleNoteAndInstrumentReloadThroughParser() throws {

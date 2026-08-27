@@ -1475,6 +1475,32 @@ final class SampleSlotPermutationTests: XCTestCase {
         }
     }
 
+    func testNilMapPermutationChangesFirstPlayableFallbackAfterCanonicalReordering() throws {
+        let contentA = makePlaybackSample(sampleIndex: 0, name: "Content A", pcm: [-0.25, 0.25])
+        let contentB = makePlaybackSample(sampleIndex: 1, name: "Content B", pcm: [-0.75, 0.75])
+        let before = PlaybackInstrument(index: 1, samples: [contentA, contentB], noteSampleMap: nil)
+        let permutation = try SampleSlotPermutation.swap(0, 1)
+        let transformedSamples = try before.samples.map {
+            $0.reidentified(sampleIndex: try permutation.apply(to: $0.sampleIndex))
+        }.sorted { $0.sampleIndex < $1.sampleIndex }
+        let after = PlaybackInstrument(index: 1, samples: transformedSamples, noteSampleMap: nil)
+
+        func fallbackSample(in instrument: PlaybackInstrument) -> PlaybackSample? {
+            PlaybackInstrumentSampleResolver.resolveSample(
+                instrumentIndex: 1,
+                note: 49,
+                instrument: instrument,
+                missingKeymapPolicy: .firstPlayableSample
+            )?.sample
+        }
+
+        XCTAssertNil(before.noteSampleMap)
+        XCTAssertNil(after.noteSampleMap)
+        XCTAssertEqual(fallbackSample(in: before), contentA)
+        XCTAssertEqual(fallbackSample(in: after), contentB.reidentified(sampleIndex: 0))
+        XCTAssertNotEqual(fallbackSample(in: after)?.name, fallbackSample(in: before)?.name)
+    }
+
     private func transformedIndices(using permutation: SampleSlotPermutation) throws -> [Int] {
         try (0..<16).map(permutation.apply(to:))
     }

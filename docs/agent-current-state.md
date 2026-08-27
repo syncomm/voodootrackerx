@@ -37,8 +37,16 @@ exact map values, and represented or empty selection must share the same old-to-
 mapping so each note retains its content identity or unavailable state. Empty identities
 participate; pattern cells remain instrument references and do not participate. Dense
 and sparse transformed synthetic states survive Export XM, reopen, and Make Editable
-Copy. No Move/Swap document mutation, `applyEdit`, UI, writer/parser, or runtime change
-exists yet. Export XM now computes an identity span through the highest represented
+Copy. Canonical editable keymap presence is now explicit: zero samples permit either
+neutral nil-map state or an exact bounded 96-entry map, but represented samples require
+that exact map for reference-sensitive lifecycle work. Supported creation, mutation,
+and public-fixture editable-copy paths satisfy this matrix. A synthetic represented-
+sample/nil-map value remains accepted by the writer, which emits an all-S01 map that
+reopens explicitly; the global resolver's first-playable fallback also means a sorted
+permutation can change audible content. Future Move/Swap must reject that noncanonical
+state with no mutation/history. No Move/Swap document mutation, `applyEdit`, UI,
+writer/parser, or runtime change exists yet. Export XM now computes an identity span
+through the highest represented
 or exact-map-referenced Sxx (maximum S16), emits an all-zero 40-byte/no-payload
 header for each missing position, and writes map indices directly. Reopen drops
 those structural headers without compacting later identities or changing unavailable

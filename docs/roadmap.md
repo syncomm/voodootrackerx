@@ -99,6 +99,16 @@ or empty selection, preserving every note's content identity or unavailable stat
 Dense and sparse transformed XM states survive reopen and Make Editable Copy.
 Move Up/Down/To, Swap, document mutation, undo wiring, and UI remain future actions.
 
+The canonical editable keymap-presence prerequisite is also pinned. A zero-sample
+instrument may have no map as the neutral File New/New Instrument state, or may
+retain an exact bounded 96-entry map as explicit unavailable routing. Once samples
+are represented, supported editable workflows and public-fixture Make Editable Copy
+produce or preserve an exact bounded map. Represented samples with a nil map remain
+a shared-model/runtime fallback state, not a canonical editable lifecycle state:
+the writer currently accepts that synthetic value and reopens it with an explicit
+all-S01 map, while first-playable fallback makes slot reordering semantically
+ambiguous. The future transaction must reject it before mutation or history.
+
 ## Project Goals
 
 - Preserve classic MOD/XM compatibility and tracker workflow.

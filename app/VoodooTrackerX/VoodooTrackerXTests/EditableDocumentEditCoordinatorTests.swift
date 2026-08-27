@@ -283,6 +283,96 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         }
     }
 
+    func testDuplicateSampleIsOneEditWithExactSelectionSharedRefreshRoutingAndUndoRedo() throws {
+        var before = documentWithThreeDistinctSamplesSelectedS02()
+        before.selectSample(1)
+        let token = EditorNoteAuditionPreviewToken(
+            generation: 1,
+            keyIdentity: .sampleEditorAudition,
+            noteValue: SampleEditorAuditionRequestFactory.noteValue,
+            selectedOctave: SampleEditorAuditionRequestFactory.octave
+        )
+        var stoppedTokens: [EditorNoteAuditionPreviewToken] = []
+        let instrumentController = InstrumentEditorWindowController(displayState: .editableDocument(before))
+        let sampleController = SampleEditorWindowController(
+            displayState: .editableDocument(before),
+            auditionHandlers: .init(start: { token }, stop: { stoppedTokens.append($0); return true })
+        )
+        sampleController.synchronizeActivePreviewToken(token)
+        let instrumentView = try XCTUnwrap(instrumentController.window?.contentView as? InstrumentEditorView)
+        let sampleView = try XCTUnwrap(sampleController.window?.contentView as? SampleEditorView)
+        let harness = EditHarness(
+            context: .editable(document: before, isPlaybackActive: false),
+            onApply: {
+                instrumentController.apply(displayState: .editableDocument($0))
+                sampleController.apply(displayState: .editableDocument($0))
+            }
+        )
+
+        XCTAssertTrue(harness.coordinator.canDuplicateSelectedSample)
+        XCTAssertTrue(harness.coordinator.duplicateSample(instrumentAt: 0, sampleAt: 0))
+
+        let duplicated = try XCTUnwrap(harness.editableDocument)
+        let duplicatedInstrument = try XCTUnwrap(duplicated.instrumentPalette[1])
+        let copiedSample = try XCTUnwrap(duplicatedInstrument.sample(mappedSampleIndex: 3))
+        XCTAssertEqual(duplicated.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 4))
+        XCTAssertEqual(duplicated.controlPanelMetadata.selectedSampleDisplay, "S04 Pulse S01")
+        XCTAssertEqual(instrumentView.displayState.selectedSampleSlot, 4)
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.representedSample, copiedSample)
+        XCTAssertTrue(instrumentView.displayState.isKeymapRangeAssignmentEnabled)
+        XCTAssertEqual(sampleView.displayState.selectedSampleSlot, 4)
+        XCTAssertEqual(sampleView.displayState.selectedSample, copiedSample)
+        XCTAssertTrue(sampleView.displayState.isAuditionEnabled && sampleView.displayState.isClearEnabled &&
+            sampleView.displayState.isWAVLoadEnabled)
+        XCTAssertEqual(stoppedTokens, [token])
+        XCTAssertNil(sampleView.activeAuditionToken)
+
+        let instrumentRequest = try XCTUnwrap(InstrumentEditorAuditionRequestFactory.request(
+            noteValue: 1, selection: duplicated.selection, sourceContext: .blankDocument
+        ))
+        guard case let .potentiallyAvailable(instrumentDescriptor) = duplicated.noteAuditionAvailability(
+            for: instrumentRequest
+        ) else {
+            return XCTFail("Instrument audition should continue to follow the unchanged keymap")
+        }
+        XCTAssertEqual(instrumentDescriptor.sampleIndex, 0)
+
+        XCTAssertEqual(harness.appliedDocuments, [duplicated])
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Duplicate Sample")
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual([instrumentView.displayState.selectedSampleSlot, sampleView.displayState.selectedSampleSlot], [1, 1])
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, duplicated)
+        XCTAssertEqual(harness.appliedDocuments, [duplicated, before, duplicated])
+    }
+
+    func testDuplicateSampleRejectsReadOnlyPlayingEmptyStaleAndTailCapacityWithoutHistory() {
+        var represented = documentWithThreeDistinctSamplesSelectedS02()
+        represented.selectSample(1)
+        let selectedEmpty = documentWithSelectedInteriorEmptySample()
+        let source = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, name: "Source")
+        let atS16 = documentWithInstrumentName(
+            "At S16",
+            samples: [source, makePlaybackSample(instrumentIndex: 1, sampleIndex: 15, name: "S16")],
+            noteSampleMap: Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        )
+        let cases: [(EditableDocumentEditContext, Int)] = [
+            (.loadedReadOnly, 0),
+            (.editable(document: represented, isPlaybackActive: true), 0),
+            (.editable(document: selectedEmpty, isPlaybackActive: false), 1),
+            (.editable(document: atS16, isPlaybackActive: false), 0),
+            (.editable(document: represented, isPlaybackActive: false), 1),
+        ]
+
+        for (context, sampleIndex) in cases {
+            let harness = EditHarness(context: context)
+            XCTAssertFalse(harness.coordinator.duplicateSample(instrumentAt: 0, sampleAt: sampleIndex))
+            XCTAssertTrue(harness.appliedDocuments.isEmpty)
+            XCTAssertFalse(harness.undoManager.canUndo)
+        }
+    }
+
     func testClearSampleIsOneEditWithExactSelectionSharedRefreshAndUndoRedo() throws {
         let before = documentWithThreeDistinctSamplesSelectedS02()
         let beforeInstrument = try XCTUnwrap(before.instrumentPalette[1])

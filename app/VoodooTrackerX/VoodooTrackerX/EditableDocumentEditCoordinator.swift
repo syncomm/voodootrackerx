@@ -59,6 +59,9 @@ final class EditableDocumentEditCoordinator {
             sampleAt: document.selection.selectedSample - 1
         ) != nil
     }
+    var canDuplicateSelectedSample: Bool {
+        contextProvider().documentAvailableForMutation?.canDuplicateSelectedSample == true
+    }
 
     @discardableResult
     func applyEdit(label: String, updatedDocument: BlankTrackerDocument) -> Bool {
@@ -135,6 +138,22 @@ final class EditableDocumentEditCoordinator {
             return false
         }
         return applyEdit(label: "Clear Sample", updatedDocument: document)
+    }
+
+    /// Duplicates one exact selected sample as a single undoable tail append.
+    @discardableResult
+    func duplicateSample(
+        instrumentAt zeroBasedInstrumentIndex: Int,
+        sampleAt zeroBasedSampleIndex: Int
+    ) -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.duplicateSample(
+                  instrumentAt: zeroBasedInstrumentIndex,
+                  sampleAt: zeroBasedSampleIndex
+              ) != nil else {
+            return false
+        }
+        return applyEdit(label: "Duplicate Sample", updatedDocument: document)
     }
 
     @discardableResult

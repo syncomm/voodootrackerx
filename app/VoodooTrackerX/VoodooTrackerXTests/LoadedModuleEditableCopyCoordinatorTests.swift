@@ -430,6 +430,62 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(try EditableXMWriter().data(from: copy), data)
     }
 
+    func testDenseDuplicateExportsReopensCopiesAndReexportsDeterministically() throws {
+        let first = persistableSample(sampleIndex: 0, name: "Exact Dense Source", pcm: [-0.5, 0, 0.5])
+        let second = persistableSample(sampleIndex: 1, name: "Distinct Dense S02", pcm: [-0.75, 0.75])
+        var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        map[48] = 1
+        var document = sparseSourceDocument(
+            instrument: PlaybackInstrument(
+                index: 1, name: "Dense Duplicate", samples: [first, second], noteSampleMap: map
+            )
+        )
+
+        XCTAssertEqual(document.duplicateSample(instrumentAt: 0, sampleAt: 0), 2)
+        let duplicatedInstrument = try XCTUnwrap(document.instrumentPalette[1])
+        XCTAssertEqual(duplicatedInstrument.samples.map(\.sampleIndex), [0, 1, 2])
+        XCTAssertEqual(duplicatedInstrument.sample(mappedSampleIndex: 2)?.reidentified(sampleIndex: 0), first)
+        XCTAssertEqual(duplicatedInstrument.noteSampleMap, map)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 3))
+        _ = try assertDuplicatePersistence(
+            document, instrument: duplicatedInstrument, filename: "dense-duplicate-source.xm"
+        )
+    }
+
+    func testSparseDuplicatePreservesInteriorGapThroughExportReopenCopyAndDeterministicReexport() throws {
+        let first = persistableSample(sampleIndex: 0, name: "Exact Sparse Source", pcm: [-0.5, 0, 0.5])
+        let third = persistableSample(sampleIndex: 2, name: "Stable Sparse S03", pcm: [-0.75, 0.75])
+        var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        map[48] = 1
+        map[49] = 2
+        var document = sparseSourceDocument(
+            instrument: PlaybackInstrument(
+                index: 1, name: "Sparse Duplicate", samples: [first, third], noteSampleMap: map
+            )
+        )
+
+        XCTAssertEqual(document.duplicateSample(instrumentAt: 0, sampleAt: 0), 3)
+        let duplicatedInstrument = try XCTUnwrap(document.instrumentPalette[1])
+        XCTAssertEqual(duplicatedInstrument.samples.map(\.sampleIndex), [0, 2, 3])
+        XCTAssertNil(duplicatedInstrument.sample(mappedSampleIndex: 1))
+        XCTAssertEqual(duplicatedInstrument.sample(mappedSampleIndex: 2), third)
+        XCTAssertEqual(duplicatedInstrument.sample(mappedSampleIndex: 3)?.name, first.name)
+        XCTAssertEqual(duplicatedInstrument.noteSampleMap, map)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 4))
+
+        let song = try assertDuplicatePersistence(
+            document, instrument: duplicatedInstrument, filename: "sparse-duplicate-source.xm"
+        )
+        XCTAssertEqual(song.xmSampleSlotProvenanceByInstrument[1]?.map(\.sampleIndex), [0, 1, 2, 3])
+        XCTAssertTrue(song.xmSampleSlotProvenanceByInstrument[1]?[1].isCanonicalEmptySlotHeader == true)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: song.instrumentsByIndex
+        ))
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 50, instrumentsByIndex: song.instrumentsByIndex
+        )?.sampleIndex, 2)
+    }
+
     func testClearingOnlyMappedSamplePreservesInstrumentMetadataAndMapThroughReopenAndCopy() throws {
         let onlySample = makePlaybackSample(
             name: "Only S01",
@@ -1238,6 +1294,38 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             instrumentPalette: [instrument.index: instrument],
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)]
         )
+    }
+
+    private func persistableSample(sampleIndex: Int, name: String, pcm: [Float]) -> PlaybackSample {
+        makePlaybackSample(
+            sampleIndex: sampleIndex, name: name, pcm: pcm, baseSampleRate: 8_363,
+            sourceBitDepthBits: 8, sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+    }
+
+    private func assertDuplicatePersistence(
+        _ document: BlankTrackerDocument,
+        instrument: PlaybackInstrument,
+        filename: String
+    ) throws -> PlaybackSong {
+        let data = try EditableXMWriter().data(from: document)
+        let url = try temporaryDestination(filename: filename)
+        try data.write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        XCTAssertEqual(song.instrumentsByIndex[1], instrument)
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata, playbackSong: song, selection: document.selection,
+            currentPatternIndex: 0, isPlaybackActive: false
+        )
+        guard case let .copied(copy) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            XCTFail("duplicate export was unexpectedly unavailable for editable copy")
+            return song
+        }
+        XCTAssertEqual(copy.instrumentPalette[1], instrument)
+        XCTAssertEqual(copy.selection, document.selection)
+        XCTAssertEqual(try EditableXMWriter().data(from: copy), data)
+        return song
     }
 
     private func firstInstrumentSampleHeaderOffset(in data: Data, sampleIndex: Int) -> Int {

@@ -199,6 +199,51 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(SampleEditorDisplayState.empty.isClearEnabled)
     }
 
+    func testDuplicateMenuEligibilityRequiresSampleEditorContextAndStoppedEditableTailCapacity() {
+        let empty = BlankTrackerDocument.makeDefault()
+        var represented = empty
+        XCTAssertTrue(represented.generateSineInSelectedEmptySample())
+        let map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        let sparseEmpty = makeSampleEditorDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrument: PlaybackInstrument(index: 1, samples: [
+                makePlaybackSample(sampleIndex: 0, name: "Pulse S01"),
+                makePlaybackSample(sampleIndex: 2, name: "Impulse S03"),
+            ], noteSampleMap: map)
+        )
+        let atS16 = makeSampleEditorDocument(
+            selection: .default,
+            instrument: PlaybackInstrument(index: 1, samples: [
+                makePlaybackSample(sampleIndex: 0, name: "Pulse S01"),
+                makePlaybackSample(sampleIndex: 15, name: "Tail S16"),
+            ], noteSampleMap: map)
+        )
+        let eligible = SampleEditorDisplayState.editableDocument(represented)
+
+        XCTAssertTrue(SampleEditorDuplicateCommandAvailability.canPerform(
+            displayState: eligible,
+            isSampleEditorActionContext: true
+        ))
+        XCTAssertFalse(SampleEditorDuplicateCommandAvailability.canPerform(
+            displayState: eligible,
+            isSampleEditorActionContext: false
+        ))
+        let unavailable: [SampleEditorDisplayState] = [
+            .editableDocument(empty),
+            .editableDocument(sparseEmpty),
+            .editableDocument(atS16),
+            .editableDocument(represented, isPlaybackActive: true),
+            .editableDocument(represented, isImportingWAV: true),
+            .editableDocument(represented, hasConflictingLifecycleOperation: true),
+            .loadedModule(
+                playbackSong: makeSampleEditorSong(instruments: represented.instrumentPalette),
+                selection: represented.selection
+            ),
+            .empty,
+        ]
+        for displayState in unavailable { XCTAssertFalse(displayState.isDuplicateEnabled) }
+    }
+
     func testClearButtonRejectsStaleClearAndLoadActionsAndRecoversAfterSheetDismissal() async throws {
         var represented = BlankTrackerDocument.makeDefault()
         XCTAssertTrue(represented.generateSineInSelectedEmptySample())

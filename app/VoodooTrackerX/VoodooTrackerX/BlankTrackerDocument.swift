@@ -1130,6 +1130,14 @@ struct BlankTrackerDocument: Equatable {
         nextAppendSampleIndex(forInstrument: instrumentIndex) != nil
     }
 
+    var canDuplicateSelectedSample: Bool {
+        guard selection.selectedInstrument > 0, selection.selectedSample > 0 else { return false }
+        return sampleDuplicationTarget(
+            instrumentAt: selection.selectedInstrument - 1,
+            sampleAt: selection.selectedSample - 1
+        ) != nil
+    }
+
     /// Fills the selected canonical empty identity with deterministic PCM.
     @discardableResult
     mutating func generateSineInSelectedEmptySample() -> Bool {
@@ -1267,6 +1275,66 @@ struct BlankTrackerDocument: Equatable {
             instrumentPalette: palette, patterns: patterns
         )
         return sampleIndex
+    }
+
+    /// Deep-copies one exact selected represented sample to the next tail identity.
+    @discardableResult
+    mutating func duplicateSample(
+        instrumentAt zeroBasedInstrumentIndex: Int,
+        sampleAt zeroBasedSampleIndex: Int
+    ) -> Int? {
+        guard let target = sampleDuplicationTarget(
+            instrumentAt: zeroBasedInstrumentIndex,
+            sampleAt: zeroBasedSampleIndex
+        ) else { return nil }
+
+        let duplicate = target.source.reidentified(sampleIndex: target.newSampleIndex)
+        var palette = instrumentPalette
+        palette[target.instrument.index] = PlaybackInstrument(
+            index: target.instrument.index,
+            name: target.instrument.name,
+            samples: target.instrument.samples + [duplicate],
+            volumeEnvelope: target.instrument.volumeEnvelope,
+            panningEnvelope: target.instrument.panningEnvelope,
+            autoVibrato: target.instrument.autoVibrato,
+            noteSampleMap: target.instrument.noteSampleMap
+        )
+        self = replacingInstrumentPalette(
+            palette,
+            selection: TrackerEditorSelection(
+                selectedInstrument: target.instrument.index,
+                selectedSample: target.newSampleIndex + 1
+            )
+        )
+        return target.newSampleIndex
+    }
+
+    private func sampleDuplicationTarget(
+        instrumentAt zeroBasedInstrumentIndex: Int,
+        sampleAt zeroBasedSampleIndex: Int
+    ) -> (instrument: PlaybackInstrument, source: PlaybackSample, newSampleIndex: Int)? {
+        guard (0..<Self.maximumInstrumentCount).contains(zeroBasedInstrumentIndex),
+              (0..<Self.maximumSampleCountPerInstrument).contains(zeroBasedSampleIndex),
+              selection.selectedInstrument == zeroBasedInstrumentIndex + 1,
+              selection.selectedSample == zeroBasedSampleIndex + 1,
+              let instrument = instrumentPalette[zeroBasedInstrumentIndex + 1],
+              instrument.index == zeroBasedInstrumentIndex + 1,
+              !instrument.samples.isEmpty,
+              instrument.samples.count < Self.maximumSampleCountPerInstrument else { return nil }
+
+        let sampleIndices = instrument.samples.map(\.sampleIndex)
+        guard sampleIndices.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }),
+              Set(sampleIndices).count == sampleIndices.count,
+              instrument.samples.allSatisfy({ $0.instrumentIndex == instrument.index }),
+              let noteSampleMap = instrument.noteSampleMap,
+              noteSampleMap.count == TrackerNoteKeyMap.maximumNoteValue,
+              noteSampleMap.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }),
+              let highestSampleIndex = sampleIndices.max(),
+              highestSampleIndex < Self.maximumSampleCountPerInstrument - 1 else { return nil }
+
+        let matches = instrument.samples.filter { $0.sampleIndex == zeroBasedSampleIndex }
+        guard matches.count == 1, let source = matches.first else { return nil }
+        return (instrument, source, highestSampleIndex + 1)
     }
 
     func representedSampleForClear(

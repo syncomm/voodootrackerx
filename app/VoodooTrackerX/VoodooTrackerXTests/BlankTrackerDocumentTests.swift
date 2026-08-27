@@ -191,6 +191,88 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(oneSample, beforeInvalid)
     }
 
+    func testDuplicateSelectedRepresentedSampleDeepCopiesToTailWithoutFillingSparseHoleOrChangingMap() throws {
+        let source = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, name: "Exact Source", pcm: [-0.75, -0.25, 0.25, 0.75],
+            volume: 0.625, panning: 37, relativeNote: -7, finetune: 63,
+            baseSampleRate: 11_025, loopStart: 1, loopLength: 3, loopType: 2,
+            sourceBitDepthBits: 16, sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+        let third = makePlaybackSample(instrumentIndex: 1, sampleIndex: 2, name: "Stable S03")
+        var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        map[48] = 1
+        map[49] = 2
+        let instrument = PlaybackInstrument(
+            index: 1, name: "Sparse", samples: [source, third], noteSampleMap: map
+        )
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            instrumentPalette: [1: instrument]
+        )
+        let before = document
+
+        XCTAssertTrue(document.canDuplicateSelectedSample)
+        XCTAssertEqual(document.duplicateSample(instrumentAt: 0, sampleAt: 0), 3)
+
+        let duplicatedInstrument = try XCTUnwrap(document.instrumentPalette[1])
+        let duplicate = try XCTUnwrap(duplicatedInstrument.sample(mappedSampleIndex: 3))
+        XCTAssertEqual(duplicate.reidentified(sampleIndex: 0), source)
+        XCTAssertEqual(duplicate.name, "Exact Source")
+        XCTAssertEqual(duplicatedInstrument.samples.map(\.sampleIndex), [0, 2, 3])
+        XCTAssertEqual(duplicatedInstrument.sample(mappedSampleIndex: 0), source)
+        XCTAssertEqual(duplicatedInstrument.sample(mappedSampleIndex: 2), third)
+        XCTAssertEqual(duplicatedInstrument.noteSampleMap, map)
+        XCTAssertEqual(document.patterns, before.patterns)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 4))
+        XCTAssertEqual(document.sampleSlotPresentationRows(forInstrument: 1).map(\.sampleSlot), [1, 2, 3, 4])
+        XCTAssertEqual(
+            document.sampleSlotPresentationRows(forInstrument: 1).map(\.isEmptyDestination),
+            [false, true, false, false]
+        )
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: document.instrumentPalette
+        ))
+        guard case let .potentiallyAvailable(descriptor) = document.noteAuditionAvailability else {
+            return XCTFail("The selected duplicate should be directly auditionable")
+        }
+        XCTAssertEqual(descriptor.sampleIndex, 3)
+        XCTAssertEqual(descriptor.previewPCM, source.pcm)
+
+        var appendRegression = document
+        let appended = try normalizedImportCandidate().playbackSample(instrumentIndex: 1, sampleIndex: 4)
+        XCTAssertEqual(appendRegression.appendSample(instrumentIndex: 1, sample: appended), 4)
+
+        var populationRegression = document
+        populationRegression.selectSample(2)
+        let destination = try XCTUnwrap(populationRegression.selectedSampleImportDestination)
+        XCTAssertTrue(populationRegression.importAudioSample(try normalizedImportCandidate(), destination: destination))
+        XCTAssertEqual(populationRegression.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 1, 2, 3])
+    }
+
+    func testDuplicateSelectedSampleRejectsEmptyStaleCapacityAndMalformedIdentityWithoutMutation() {
+        let source = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, name: "Source")
+        let third = makePlaybackSample(instrumentIndex: 1, sampleIndex: 2, name: "Third")
+        let map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+
+        let selectedEmpty = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [source, third], noteSampleMap: map)]
+        )
+        let atS16 = makeBlankDocument(instrumentPalette: [1: PlaybackInstrument(
+            index: 1, samples: [source, makePlaybackSample(instrumentIndex: 1, sampleIndex: 15)], noteSampleMap: map
+        )])
+        let malformed = makeBlankDocument(instrumentPalette: [1: PlaybackInstrument(
+            index: 1, samples: [source, makePlaybackSample(instrumentIndex: 1, sampleIndex: 0)], noteSampleMap: map
+        )])
+
+        for (candidate, sampleIndex) in [(selectedEmpty, 1), (atS16, 0), (malformed, 0)] {
+            var document = candidate
+            XCTAssertFalse(document.canDuplicateSelectedSample)
+            XCTAssertNil(document.duplicateSample(instrumentAt: 0, sampleAt: sampleIndex))
+            XCTAssertEqual(document, candidate)
+        }
+    }
+
     func testClearSelectedRepresentedSampleRemovesOnlyExactIdentityWithoutCompactingOrRemapping() throws {
         let first = makePlaybackSample(
             instrumentIndex: 1, sampleIndex: 0, name: "Pulse S01", pcm: [-0.25, 0.25],

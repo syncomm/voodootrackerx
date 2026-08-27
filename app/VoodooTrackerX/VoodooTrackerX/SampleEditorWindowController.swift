@@ -338,7 +338,7 @@ struct SampleEditorDisplayState: Equatable {
         source: .none, instrumentSlot: nil, instrumentName: "No instrument available",
         instrumentOptions: [], selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
         emptyMessage: "No document sample palette is available.", isSineGenerationEnabled: false,
-        isWAVLoadEnabled: false, isClearEnabled: false,
+        isWAVLoadEnabled: false, isClearEnabled: false, isDuplicateEnabled: false,
         isImportingWAV: false, isAuditionEnabled: false
     )
 
@@ -353,6 +353,7 @@ struct SampleEditorDisplayState: Equatable {
     let isSineGenerationEnabled: Bool
     let isWAVLoadEnabled: Bool
     let isClearEnabled: Bool
+    let isDuplicateEnabled: Bool
     let isImportingWAV: Bool
     let isAuditionEnabled: Bool
     var isReadOnly: Bool { source != .editableDocument }
@@ -393,7 +394,7 @@ struct SampleEditorDisplayState: Equatable {
                 forInstrument: selection.selectedInstrument
              ) ?? [],
              isSineGenerationEnabled: false, isWAVLoadEnabled: false,
-             isClearEnabled: false,
+             isClearEnabled: false, isDuplicateEnabled: false,
              isImportingWAV: false, isPreviewAvailable: isPreviewAvailable)
     }
 
@@ -418,6 +419,8 @@ struct SampleEditorDisplayState: Equatable {
                 !hasConflictingLifecycleOperation && document.selectedSampleImportDestination != nil,
              isClearEnabled: !isPlaybackActive && !isImportingWAV &&
                 !hasConflictingLifecycleOperation && hasClearTarget,
+             isDuplicateEnabled: !isPlaybackActive && !isImportingWAV &&
+                !hasConflictingLifecycleOperation && document.canDuplicateSelectedSample,
              isImportingWAV: isImportingWAV, isPreviewAvailable: isPreviewAvailable)
     }
 
@@ -426,6 +429,7 @@ struct SampleEditorDisplayState: Equatable {
                              presentationRows: [SampleSlotPresentationRow],
                              isSineGenerationEnabled: Bool,
                              isWAVLoadEnabled: Bool, isClearEnabled: Bool,
+                             isDuplicateEnabled: Bool,
                              isImportingWAV: Bool, isPreviewAvailable: Bool) -> Self {
         let instrumentOptions = palette
             .filter { (1...255).contains($0.key) }
@@ -446,6 +450,7 @@ struct SampleEditorDisplayState: Equatable {
                     ? "No represented instruments are available."
                     : "\(String(format: "I%02X", selection.selectedInstrument)) is not represented.",
                 isSineGenerationEnabled: false, isWAVLoadEnabled: false, isClearEnabled: false,
+                isDuplicateEnabled: false,
                 isImportingWAV: isImportingWAV,
                 isAuditionEnabled: false
             )
@@ -481,6 +486,7 @@ struct SampleEditorDisplayState: Equatable {
             isSineGenerationEnabled: isSineGenerationEnabled,
             isWAVLoadEnabled: isWAVLoadEnabled,
             isClearEnabled: isClearEnabled,
+            isDuplicateEnabled: isDuplicateEnabled,
             isImportingWAV: isImportingWAV,
             isAuditionEnabled: isPreviewAvailable && !isImportingWAV && selected.map(isAuditionPlayable) == true
         )
@@ -499,6 +505,15 @@ struct SampleEditorDisplayState: Equatable {
         return trimmed.isEmpty ? fallback : trimmed
     }
     private static func signed(_ value: Int) -> String { value > 0 ? "+\(value)" : "\(value)" }
+}
+
+enum SampleEditorDuplicateCommandAvailability {
+    static func canPerform(
+        displayState: SampleEditorDisplayState,
+        isSampleEditorActionContext: Bool
+    ) -> Bool {
+        isSampleEditorActionContext && displayState.isDuplicateEnabled
+    }
 }
 
 enum SampleEditorViewIdentifier {
@@ -617,6 +632,9 @@ final class SampleWaveformView: NSView {
 @MainActor
 final class SampleEditorWindowPresenter {
     private(set) var windowController: SampleEditorWindowController?
+    var isActionContextActive: Bool {
+        windowController?.window?.isVisible == true && windowController?.window?.isKeyWindow == true
+    }
 
     @discardableResult
     func show(

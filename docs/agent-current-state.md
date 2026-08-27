@@ -31,7 +31,14 @@ while represented LOAD keeps that choice. Add still appends after the highest
 represented slot and does not fill sparse holes. The in-memory palette can retain sparse sample
 indices. `Edit > Duplicate Sample` now copies the exact selected represented sample
 to the next tail identity, selects it through one undoable edit, and leaves sparse
-holes and the 96-note keymap unchanged. Export XM now computes an identity span through the highest represented
+holes and the 96-note keymap unchanged. A UI-independent `SampleSlotPermutation`
+now pins total Move/Swap algebra over S01...S16: represented sample indices, all 96
+exact map values, and represented or empty selection must share the same old-to-new
+mapping so each note retains its content identity or unavailable state. Empty identities
+participate; pattern cells remain instrument references and do not participate. Dense
+and sparse transformed synthetic states survive Export XM, reopen, and Make Editable
+Copy. No Move/Swap document mutation, `applyEdit`, UI, writer/parser, or runtime change
+exists yet. Export XM now computes an identity span through the highest represented
 or exact-map-referenced Sxx (maximum S16), emits an all-zero 40-byte/no-payload
 header for each missing position, and writes map indices directly. Reopen drops
 those structural headers without compacting later identities or changing unavailable

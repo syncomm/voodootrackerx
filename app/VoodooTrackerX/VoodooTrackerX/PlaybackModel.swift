@@ -447,6 +447,75 @@ struct PlaybackInstrument: Equatable {
     }
 }
 
+/// A total old-slot-to-new-slot permutation over canonical sample identities S01...S16.
+struct SampleSlotPermutation: Equatable, Sendable {
+    static let slotCount = 16
+
+    enum ValidationError: Error, Equatable {
+        case indexOutOfBounds(Int)
+    }
+
+    static let identity = SampleSlotPermutation(destinationBySource: Array(0..<slotCount))
+
+    private let destinationBySource: [Int]
+
+    /// Moves one slot identity by removal/insertion, shifting every identity in the interval.
+    static func move(from sourceIndex: Int, to destinationIndex: Int) throws -> SampleSlotPermutation {
+        try validate(sourceIndex)
+        try validate(destinationIndex)
+        guard sourceIndex != destinationIndex else { return identity }
+
+        var sourceByDestination = Array(0..<slotCount)
+        let movedIdentity = sourceByDestination.remove(at: sourceIndex)
+        sourceByDestination.insert(movedIdentity, at: destinationIndex)
+        var destinationBySource = Array(repeating: 0, count: slotCount)
+        for (destination, source) in sourceByDestination.enumerated() {
+            destinationBySource[source] = destination
+        }
+        return SampleSlotPermutation(destinationBySource: destinationBySource)
+    }
+
+    /// Exchanges two slot identities while leaving every other identity unchanged.
+    static func swap(_ firstIndex: Int, _ secondIndex: Int) throws -> SampleSlotPermutation {
+        try validate(firstIndex)
+        try validate(secondIndex)
+        guard firstIndex != secondIndex else { return identity }
+
+        var destinationBySource = Array(0..<slotCount)
+        destinationBySource.swapAt(firstIndex, secondIndex)
+        return SampleSlotPermutation(destinationBySource: destinationBySource)
+    }
+
+    /// Returns the new zero-based identity for a validated old zero-based identity.
+    func apply(to sourceIndex: Int) throws -> Int {
+        try Self.validate(sourceIndex)
+        return destinationBySource[sourceIndex]
+    }
+
+    /// Reverses this exact slot transformation.
+    var inverse: SampleSlotPermutation {
+        var sourceByDestination = Array(repeating: 0, count: Self.slotCount)
+        for (source, destination) in destinationBySource.enumerated() {
+            sourceByDestination[destination] = source
+        }
+        return SampleSlotPermutation(destinationBySource: sourceByDestination)
+    }
+
+    var isIdentity: Bool {
+        destinationBySource == Array(0..<Self.slotCount)
+    }
+
+    private init(destinationBySource: [Int]) {
+        self.destinationBySource = destinationBySource
+    }
+
+    private static func validate(_ index: Int) throws {
+        guard (0..<slotCount).contains(index) else {
+            throw ValidationError.indexOutOfBounds(index)
+        }
+    }
+}
+
 /// One canonical sample-slot identity presented to editor UI without inventing sample data.
 struct SampleSlotPresentationRow: Equatable {
     enum State: Equatable {
@@ -470,7 +539,7 @@ struct SampleSlotPresentationRow: Equatable {
 
 /// Shared UI-independent projection for editable and loaded sample-slot lists.
 enum SampleSlotPresentationProjection {
-    static let maximumSampleCount = 16
+    static let maximumSampleCount = SampleSlotPermutation.slotCount
     private static let canonicalNoteCount = 96
     private static let validSampleIndices = 0..<maximumSampleCount
 

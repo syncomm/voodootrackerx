@@ -1320,3 +1320,193 @@ final class PlaybackModelTests: XCTestCase {
         return url
     }
 }
+
+final class SampleSlotPermutationTests: XCTestCase {
+    func testIdentityMoveSameAndSwapSamePreserveEverySlot() throws {
+        let identity = SampleSlotPermutation.identity
+        let moveSame = try SampleSlotPermutation.move(from: 7, to: 7)
+        let swapSame = try SampleSlotPermutation.swap(7, 7)
+
+        for permutation in [identity, moveSame, swapSame] {
+            XCTAssertTrue(permutation.isIdentity)
+            XCTAssertEqual(try transformedIndices(using: permutation), Array(0..<16))
+        }
+    }
+
+    func testMoveLowerAndHigherUseRemovalInsertionSemantics() throws {
+        let lower = try SampleSlotPermutation.move(from: 4, to: 1)
+        XCTAssertEqual(
+            try transformedIndices(using: lower),
+            [0, 2, 3, 4, 1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        )
+
+        let higher = try SampleSlotPermutation.move(from: 1, to: 4)
+        XCTAssertEqual(
+            try transformedIndices(using: higher),
+            [0, 4, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        )
+
+        let toS16 = try SampleSlotPermutation.move(from: 0, to: 15)
+        XCTAssertEqual(try toS16.apply(to: 0), 15)
+        XCTAssertEqual(try toS16.apply(to: 15), 14)
+    }
+
+    func testSwapExchangesOnlyRequestedSlots() throws {
+        let permutation = try SampleSlotPermutation.swap(1, 4)
+        XCTAssertEqual(try transformedIndices(using: permutation), [0, 4, 2, 3, 1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+    }
+
+    func testFactoriesAndApplicationRejectIndicesOutsideCanonicalSlots() throws {
+        for invalidIndex in [-1, 16] {
+            let operations: [() throws -> Void] = [
+                { _ = try SampleSlotPermutation.move(from: invalidIndex, to: 0) },
+                { _ = try SampleSlotPermutation.move(from: 0, to: invalidIndex) },
+                { _ = try SampleSlotPermutation.swap(invalidIndex, 0) },
+                { _ = try SampleSlotPermutation.swap(0, invalidIndex) },
+                { _ = try SampleSlotPermutation.identity.apply(to: invalidIndex) },
+            ]
+            for operation in operations {
+                assertInvalidIndex(invalidIndex, operation: operation)
+            }
+        }
+    }
+
+    func testEverySupportedPermutationIsBijectiveAndHasAnExactInverse() throws {
+        let permutations = [
+            SampleSlotPermutation.identity,
+            try .move(from: 4, to: 1),
+            try .move(from: 1, to: 4),
+            try .move(from: 0, to: 15),
+            try .swap(1, 4),
+            try .swap(0, 15),
+        ]
+
+        for permutation in permutations {
+            let transformed = try transformedIndices(using: permutation)
+            XCTAssertEqual(Set(transformed), Set(0..<16))
+            for oldIndex in 0..<16 {
+                let newIndex = try permutation.apply(to: oldIndex)
+                XCTAssertEqual(try permutation.inverse.apply(to: newIndex), oldIndex)
+                XCTAssertEqual(try permutation.apply(to: permutation.inverse.apply(to: oldIndex)), oldIndex)
+            }
+        }
+    }
+
+    func testSamplesRetainExactContentWhileSparseIndicesFollowPermutation() throws {
+        let samples = [
+            makePlaybackSample(
+                sampleIndex: 0, name: "Content A", pcm: [-0.25, 0.25], volume: 0.25,
+                panning: 17, relativeNote: -3, finetune: 5, baseSampleRate: 8_363
+            ),
+            makePlaybackSample(
+                sampleIndex: 2, name: "Content B", pcm: [-0.5, 0, 0.5], volume: 0.5,
+                panning: 128, relativeNote: 7, finetune: -11, baseSampleRate: 12_000,
+                loopStart: 1, loopLength: 2, loopType: 1
+            ),
+            makePlaybackSample(
+                sampleIndex: 4, name: "Content C", pcm: [-0.75, 0.75], volume: 0.75,
+                panning: 239, relativeNote: 12, finetune: 31, baseSampleRate: 16_000,
+                sourceBitDepthBits: 16, sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+            ),
+        ]
+        let permutation = try SampleSlotPermutation.move(from: 4, to: 1)
+
+        let transformed = try samples.map { sample in
+            sample.reidentified(sampleIndex: try permutation.apply(to: sample.sampleIndex))
+        }
+
+        XCTAssertEqual(transformed.map(\.sampleIndex), [0, 3, 1])
+        for (before, after) in zip(samples, transformed) {
+            XCTAssertEqual(after.reidentified(sampleIndex: before.sampleIndex), before)
+        }
+    }
+
+    func testExact96EntryKeymapAndRepresentedOrEmptySelectionUseSamePermutation() throws {
+        let map = (0..<96).map { $0 % 16 }
+        let permutation = try SampleSlotPermutation.move(from: 4, to: 1)
+
+        let transformedMap = try map.map(permutation.apply(to:))
+
+        XCTAssertEqual(transformedMap.count, 96)
+        XCTAssertEqual(transformedMap[0], 0)
+        XCTAssertEqual(transformedMap[1], 2, "an empty S02 identity shifts to S03")
+        XCTAssertEqual(transformedMap[4], 1, "represented S05 moves to S02")
+        XCTAssertEqual(transformedMap[5], 5)
+        XCTAssertEqual(try permutation.apply(to: 4), 1, "represented selection follows its slot identity")
+        XCTAssertEqual(try permutation.apply(to: 1), 2, "empty selection follows its slot identity")
+    }
+
+    func testDenseAndSparseMoveAndSwapPreserveEveryNotesAudibleMeaning() throws {
+        let cases: [SemanticCase] = [
+            SemanticCase(
+                name: "dense move", owners: [0: .a, 1: .b, 2: .c], referencedSlots: [0, 1, 2],
+                permutation: try .move(from: 2, to: 0)
+            ),
+            SemanticCase(
+                name: "sparse move into hole", owners: [0: .a, 2: .c], referencedSlots: [0, 1, 2],
+                permutation: try .move(from: 2, to: 1)
+            ),
+            SemanticCase(
+                name: "sparse multi-slot move", owners: [0: .a, 2: .b, 4: .c], referencedSlots: [0, 1, 2, 3, 4],
+                permutation: try .move(from: 4, to: 1)
+            ),
+            SemanticCase(
+                name: "represented to represented swap", owners: [0: .a, 1: .b, 2: .c], referencedSlots: [0, 1, 2],
+                permutation: try .swap(0, 2)
+            ),
+            SemanticCase(
+                name: "represented to empty swap", owners: [0: .a, 2: .c], referencedSlots: [0, 1, 2],
+                permutation: try .swap(0, 1)
+            ),
+        ]
+
+        for semanticCase in cases {
+            let map = (0..<96).map {
+                semanticCase.referencedSlots[$0 % semanticCase.referencedSlots.count]
+            }
+            let transformedOwners = try Dictionary(uniqueKeysWithValues: semanticCase.owners.map {
+                (try semanticCase.permutation.apply(to: $0.key), $0.value)
+            })
+            let transformedMap = try map.map(semanticCase.permutation.apply(to:))
+            let beforeResolution = map.map { semanticCase.owners[$0] }
+            let afterResolution = transformedMap.map { transformedOwners[$0] }
+
+            XCTAssertEqual(afterResolution, beforeResolution, semanticCase.name)
+        }
+    }
+
+    private func transformedIndices(using permutation: SampleSlotPermutation) throws -> [Int] {
+        try (0..<16).map(permutation.apply(to:))
+    }
+
+    private func assertInvalidIndex(
+        _ expectedIndex: Int,
+        operation: () throws -> Void,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(try operation(), file: file, line: line) { error in
+            XCTAssertEqual(
+                error as? SampleSlotPermutation.ValidationError,
+                .indexOutOfBounds(expectedIndex),
+                file: file,
+                line: line
+            )
+        }
+    }
+}
+
+private extension SampleSlotPermutationTests {
+    enum SyntheticContentIdentity: Equatable {
+        case a
+        case b
+        case c
+    }
+
+    struct SemanticCase {
+        let name: String
+        let owners: [Int: SyntheticContentIdentity]
+        let referencedSlots: [Int]
+        let permutation: SampleSlotPermutation
+    }
+}

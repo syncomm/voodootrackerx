@@ -16,7 +16,8 @@ round-trip and loaded-source provenance foundations support that action without 
 The shared sample-slot presentation/selection foundation is also implemented: editable and supported loaded
 sources can expose a canonical empty Sxx identity without fabricating a `PlaybackSample`. Sample Editor LOAD and
 SINE can now populate the exact selected canonical empty identity in a stopped editable document. Duplicate now
-deep-copies a represented sample to the next tail identity without mapping it or filling a sparse hole.
+deep-copies a represented sample to the next tail identity without mapping it or filling a sparse hole. The pure
+reference-preserving sample-slot permutation contract is pinned; document mutation and Move/Swap UI remain future work.
 
 ## Context
 
@@ -340,9 +341,24 @@ fallback. If the highest cleared identity is neither mapped nor followed by a re
 editable session can still show its selected empty Sxx, but Export XM does not serialize a header solely for that UI
 selection and reopen may therefore expose only the lower represented span.
 
-Reordering is semantic, not row-only. I08 to I02 remaps every pattern instrument reference; S05 to S02 remaps all 96
-keymap entries. Move/swap preserves PCM/metadata, normalizes selection, and undoes to exact prior numbering and
-references. It follows basic lifecycle/import work and requires dedicated synthetic tests.
+Reordering is semantic, not row-only. I08 to I02 remaps every pattern instrument reference. Sample Move/Swap uses
+one total old-identity-to-new-identity permutation over zero-based `0...15` / S01...S16. Move removes the identity
+at the source and inserts it at the destination, shifting the affected inclusive interval; Move Up/Down are
+one-position aliases, while Swap exchanges two identities. Same-slot operations are identity permutations, and
+out-of-domain indices fail rather than clamp.
+
+The exact same permutation must later transform every represented `PlaybackSample.sampleIndex`, all 96 exact
+keymap values, and the shared selected sample identity. Canonical empty identities participate, so a route to an
+unavailable slot remains unavailable and cannot become newly audible merely because represented content moved into
+its old numeric position. Sample PCM/metadata remains exact and no compaction occurs beyond the explicit
+permutation. Pattern cells store instrument identity, not sample-slot identity, and therefore are not remapped.
+
+`SampleSlotPermutation` is the current UI-independent proof only: it mutates no document, selection, keymap,
+writer, parser, or runtime state. Synthetic dense/sparse ownership tests preserve every note's represented-content
+identity or unavailable result, and transformed dense/sparse documents survive Export XM -> reopen -> Make Editable
+Copy through the existing writer/parser foundation. A future Move/Swap document transaction must validate exact
+96-entry maps and all bounded identities before one `applyEdit`; one successful action creates one undo entry,
+while no-op or failure creates none. Undo/Redo restores the exact old/new indices, map, and selection.
 
 ## Product Surface And Content Policy
 
@@ -429,7 +445,7 @@ This is a sequence of focused PRs, not one large implementation PR:
 13. Done: add editable keymap range assignment through `applyEdit`.
 14. Done: wire explicit selected-sample inclusive range assignment UI and
     non-mutating full-map graphical selection; paint/automatic mapping remain separate.
-15. Add reference-preserving instrument and sample move/swap.
+15. Sample-slot permutation checkpoint done; add reference-preserving instrument/sample transactions separately.
 16. Run the complete automated and manual from-scratch acceptance slice.
 17. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
 
@@ -445,8 +461,8 @@ Future project-owned tests cover an empty instrument/S01 destination; generated
 sine and waveform family; mono WAV; stereo mix/left/right; AIFF and FLAC;
 common-rate tuning; filename naming/truncation; first-sample all-note mapping;
 instrument/sample duplicate and instrument clear-in-place; represented-sample Clear already covers a keymap
-reference to a cleared sample; instrument move plus pattern-reference remap; sample move plus keymap
-remap; Export XM/reopen from a complete new composition; and WAV/M4A export of
+reference to a cleared sample; instrument move plus pattern-reference remap; sample permutation algebra and
+audible-semantics preservation are pinned before future transactional keymap remap; Export XM/reopen from a complete new composition; and WAV/M4A export of
 that composition. Tests use synthetic data and the public fixture pack only.
 
 ## Explicit Deferrals

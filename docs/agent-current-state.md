@@ -43,10 +43,14 @@ that exact map for reference-sensitive lifecycle work. Supported creation, mutat
 and public-fixture editable-copy paths satisfy this matrix. A synthetic represented-
 sample/nil-map value remains accepted by the writer, which emits an all-S01 map that
 reopens explicitly; the global resolver's first-playable fallback also means a sorted
-permutation can change audible content. Future Move/Swap must reject that noncanonical
-state with no mutation/history. No Move/Swap document mutation, `applyEdit`, UI,
-writer/parser, or runtime change exists yet. Export XM now computes an identity span
-through the highest represented
+permutation can change audible content. The UI-independent transaction now rejects that
+noncanonical state with no mutation, revision, or history. For canonical state C,
+`BlankTrackerDocument.applySampleSlotPermutation` atomically transforms every represented
+sample identity, all 96 exact map values, and the shared selected identity, then stores
+represented samples in ascending identity order. The stopped/editable coordinator commits
+one `Reorder Samples` `applyEdit`; exact Undo/Redo and dense/sparse Move plus represented-
+empty Swap persistence are covered. No Move/Swap UI, writer/parser/provenance, resolver,
+or runtime change exists. Export XM now computes an identity span through the highest represented
 or exact-map-referenced Sxx (maximum S16), emits an all-zero 40-byte/no-payload
 header for each missing position, and writes map indices directly. Reopen drops
 those structural headers without compacting later identities or changing unavailable

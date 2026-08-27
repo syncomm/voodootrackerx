@@ -529,6 +529,188 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         }
     }
 
+    func testSampleSlotPermutationTransactionPreservesDenseSparseMoveAndSwapSemantics() throws {
+        let scenarios: [(
+            name: String,
+            sampleIndices: [Int],
+            mapReferences: [Int],
+            selectedSampleIndex: Int,
+            permutation: SampleSlotPermutation
+        )] = [
+            ("dense move lower", [0, 1, 2], [0, 1, 2], 2, try .move(from: 2, to: 0)),
+            ("dense move higher", [0, 1, 2], [0, 1, 2], 0, try .move(from: 0, to: 2)),
+            ("sparse move into hole", [0, 2], [0, 1, 2], 1, try .move(from: 2, to: 1)),
+            ("sparse multi-slot move", [0, 2, 4], [0, 1, 2, 3, 4], 3, try .move(from: 4, to: 1)),
+            ("represented swap", [0, 1, 2], [0, 1, 2], 0, try .swap(0, 2)),
+            ("represented-empty swap", [0, 2], [0, 1, 2], 0, try .swap(0, 1)),
+            ("move to S16", [0], [0, 15], 0, try .move(from: 0, to: 15)),
+        ]
+
+        for scenario in scenarios {
+            let map = (0..<TrackerNoteKeyMap.maximumNoteValue).map {
+                scenario.mapReferences[$0 % scenario.mapReferences.count]
+            }
+            var before = makeSampleKeymapEditableDocument(
+                sampleIndices: scenario.sampleIndices,
+                noteSampleMap: map,
+                selection: TrackerEditorSelection(
+                    selectedInstrument: 1,
+                    selectedSample: scenario.selectedSampleIndex + 1
+                )
+            )
+            before.pattern.rows[0][0] = XMPatternEventCell(
+                note: 48, instrument: 1, volumeColumn: 0x30, effectType: 0x0F, effectParam: 0x06
+            )
+            let expected = try expectedDocument(
+                afterApplying: scenario.permutation,
+                instrumentAt: 0,
+                to: before
+            )
+            let semanticIdentityByNote = resolvedSampleContentIdentities(in: before)
+            let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+
+            XCTAssertTrue(
+                harness.coordinator.applySampleSlotPermutation(scenario.permutation, instrumentAt: 0),
+                scenario.name
+            )
+            let after = try XCTUnwrap(harness.editableDocument, scenario.name)
+            let afterInstrument = try XCTUnwrap(after.instrumentPalette[1], scenario.name)
+            XCTAssertEqual(after, expected, scenario.name)
+            XCTAssertEqual(afterInstrument.samples.map(\.sampleIndex), afterInstrument.samples.map(\.sampleIndex).sorted(), scenario.name)
+            XCTAssertEqual(afterInstrument.samples.count, scenario.sampleIndices.count, scenario.name)
+            XCTAssertEqual(afterInstrument.noteSampleMap?.count, TrackerNoteKeyMap.maximumNoteValue, scenario.name)
+            XCTAssertEqual(resolvedSampleContentIdentities(in: after), semanticIdentityByNote, scenario.name)
+            XCTAssertEqual(harness.appliedDocuments, [after], scenario.name)
+            XCTAssertEqual(harness.revision, 1, scenario.name)
+            XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Reorder Samples", scenario.name)
+
+            XCTAssertTrue(harness.coordinator.undo(), scenario.name)
+            XCTAssertEqual(harness.editableDocument, before, scenario.name)
+            XCTAssertEqual(resolvedSampleContentIdentities(in: harness.editableDocument), semanticIdentityByNote, scenario.name)
+            XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Reorder Samples", scenario.name)
+
+            XCTAssertTrue(harness.coordinator.redo(), scenario.name)
+            XCTAssertEqual(harness.editableDocument, after, scenario.name)
+            XCTAssertEqual(resolvedSampleContentIdentities(in: harness.editableDocument), semanticIdentityByNote, scenario.name)
+            XCTAssertEqual(harness.appliedDocuments, [after, before, after], scenario.name)
+        }
+    }
+
+    func testSampleSlotPermutationRejectsStateDWithoutFallbackMutationRevisionOrHistory() throws {
+        let before = makeSampleKeymapEditableDocument(
+            sampleIndices: [0],
+            noteSampleMap: nil,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
+        )
+        let permutation = try SampleSlotPermutation.move(from: 0, to: 1)
+        let instrument = try XCTUnwrap(before.instrumentPalette[1])
+        let fallbackIdentityBefore = PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1,
+            note: 1,
+            instrument: instrument,
+            missingKeymapPolicy: .firstPlayableSample
+        )?.sample.name
+        var directDocument = before
+        XCTAssertFalse(directDocument.applySampleSlotPermutation(permutation, instrumentAt: 0))
+        XCTAssertEqual(directDocument, before)
+        let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+
+        XCTAssertFalse(harness.coordinator.applySampleSlotPermutation(permutation, instrumentAt: 0))
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual(harness.editableDocument?.selection, before.selection)
+        XCTAssertEqual(harness.revision, 0)
+        XCTAssertTrue(harness.appliedDocuments.isEmpty)
+        XCTAssertFalse(harness.undoManager.canUndo)
+        let instrumentAfter = try XCTUnwrap(harness.editableDocument?.instrumentPalette[1])
+        XCTAssertNil(instrumentAfter.noteSampleMap)
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1,
+            note: 1,
+            instrument: instrumentAfter,
+            missingKeymapPolicy: .firstPlayableSample
+        )?.sample.name, fallbackIdentityBefore)
+    }
+
+    func testSampleSlotPermutationRejectsNoncanonicalDocumentsWithoutMutationOrHistory() throws {
+        var mapWithInvalidValue = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        mapWithInvalidValue[47] = SampleSlotPermutation.slotCount
+        let cases: [(name: String, document: BlankTrackerDocument, instrumentIndex: Int)] = [
+            ("zero samples and nil map", makeSampleKeymapEditableDocument(sampleIndices: [], noteSampleMap: nil), 0),
+            ("zero samples and exact map", makeSampleKeymapEditableDocument(sampleIndices: []), 0),
+            ("short map", makeSampleKeymapEditableDocument(noteSampleMap: Array(repeating: 0, count: 95)), 0),
+            ("out-of-range map value", makeSampleKeymapEditableDocument(noteSampleMap: mapWithInvalidValue), 0),
+            ("duplicate sample identity", makeSampleKeymapEditableDocument(sampleIndices: [0, 0]), 0),
+            ("out-of-range sample identity", makeSampleKeymapEditableDocument(sampleIndices: [16]), 0),
+            (
+                "out-of-range selection",
+                makeSampleKeymapEditableDocument(
+                    selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 17)
+                ),
+                0
+            ),
+            (
+                "different selected instrument",
+                makeSampleKeymapEditableDocument(
+                    selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1)
+                ),
+                0
+            ),
+            ("unrepresented target", makeSampleKeymapEditableDocument(), 2),
+            (
+                "incomplete represented sample",
+                makeSampleKeymapEditableDocument(sampleIndices: [0], emptySampleIndices: [0]),
+                0
+            ),
+        ]
+        let permutation = try SampleSlotPermutation.move(from: 0, to: 1)
+
+        for testCase in cases {
+            var directDocument = testCase.document
+            XCTAssertFalse(
+                directDocument.applySampleSlotPermutation(permutation, instrumentAt: testCase.instrumentIndex),
+                testCase.name
+            )
+            XCTAssertEqual(directDocument, testCase.document, testCase.name)
+            let harness = EditHarness(context: .editable(document: testCase.document, isPlaybackActive: false))
+            XCTAssertFalse(
+                harness.coordinator.applySampleSlotPermutation(permutation, instrumentAt: testCase.instrumentIndex),
+                testCase.name
+            )
+            XCTAssertEqual(harness.editableDocument, testCase.document, testCase.name)
+            XCTAssertEqual(harness.revision, 0, testCase.name)
+            XCTAssertTrue(harness.appliedDocuments.isEmpty, testCase.name)
+            XCTAssertFalse(harness.undoManager.canUndo, testCase.name)
+        }
+    }
+
+    func testSampleSlotPermutationIdentityReadOnlyAndPlayingContextsCreateNoEdit() throws {
+        let before = makeSampleKeymapEditableDocument()
+        let identity = try SampleSlotPermutation.swap(0, 0)
+        let identityHarness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+
+        XCTAssertTrue(identity.isIdentity)
+        var directDocument = before
+        XCTAssertFalse(directDocument.applySampleSlotPermutation(identity, instrumentAt: Int.max))
+        XCTAssertEqual(directDocument, before)
+        XCTAssertFalse(identityHarness.coordinator.applySampleSlotPermutation(identity, instrumentAt: 0))
+        XCTAssertEqual(identityHarness.editableDocument, before)
+        XCTAssertEqual(identityHarness.revision, 0)
+        XCTAssertFalse(identityHarness.undoManager.canUndo)
+
+        let permutation = try SampleSlotPermutation.swap(0, 1)
+        let blockedContexts: [EditableDocumentEditContext] = [
+            .loadedReadOnly,
+            .editable(document: before, isPlaybackActive: true),
+        ]
+        for context in blockedContexts {
+            let harness = EditHarness(context: context)
+            XCTAssertFalse(harness.coordinator.applySampleSlotPermutation(permutation, instrumentAt: 0))
+            XCTAssertEqual(harness.revision, 0)
+            XCTAssertTrue(harness.appliedDocuments.isEmpty)
+            XCTAssertFalse(harness.undoManager.canUndo)
+        }
+    }
+
     func testAudioImportRejectsLoadedPlayingInvalidAndStaleDestinationsWithoutHistory() throws {
         let base = BlankTrackerDocument.makeDefault()
         let invalid = documentWithInvalidSelectedSampleDestination()
@@ -1202,6 +1384,56 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(sourceMetadata.name, "Loaded Source")
         XCTAssertTrue(harness.appliedDocuments.isEmpty)
         XCTAssertFalse(containsURL(in: harness.context))
+    }
+
+    private func expectedDocument(
+        afterApplying permutation: SampleSlotPermutation,
+        instrumentAt zeroBasedInstrumentIndex: Int,
+        to document: BlankTrackerDocument
+    ) throws -> BlankTrackerDocument {
+        let instrumentIndex = zeroBasedInstrumentIndex + 1
+        let instrument = try XCTUnwrap(document.instrumentPalette[instrumentIndex])
+        let transformedSamples = try instrument.samples.map {
+            $0.reidentified(sampleIndex: try permutation.apply(to: $0.sampleIndex))
+        }.sorted { $0.sampleIndex < $1.sampleIndex }
+        let transformedMap = try XCTUnwrap(instrument.noteSampleMap).map(permutation.apply(to:))
+        var palette = document.instrumentPalette
+        palette[instrumentIndex] = PlaybackInstrument(
+            index: instrument.index,
+            name: instrument.name,
+            samples: transformedSamples,
+            volumeEnvelope: instrument.volumeEnvelope,
+            panningEnvelope: instrument.panningEnvelope,
+            autoVibrato: instrument.autoVibrato,
+            noteSampleMap: transformedMap
+        )
+        return BlankTrackerDocument(
+            title: document.title,
+            songLength: document.songLength,
+            currentPosition: document.currentPosition,
+            restartPosition: document.restartPosition,
+            currentPatternIndex: document.currentPatternIndex,
+            tempo: document.tempo,
+            speed: document.speed,
+            orderTable: document.orderTable,
+            selection: TrackerEditorSelection(
+                selectedInstrument: document.selection.selectedInstrument,
+                selectedSample: try permutation.apply(to: document.selection.selectedSample - 1) + 1
+            ),
+            instrumentPalette: palette,
+            patterns: document.patterns
+        )
+    }
+
+    private func resolvedSampleContentIdentities(in document: BlankTrackerDocument?) -> [String?] {
+        guard let instrument = document?.instrumentPalette[1] else { return [] }
+        return (1...TrackerNoteKeyMap.maximumNoteValue).map { note in
+            PlaybackInstrumentSampleResolver.resolveSample(
+                instrumentIndex: 1,
+                note: UInt8(note),
+                instrument: instrument
+            )?.sample.name
+        }
     }
 }
 

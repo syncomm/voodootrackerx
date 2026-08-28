@@ -244,6 +244,69 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         for displayState in unavailable { XCTAssertFalse(displayState.isDuplicateEnabled) }
     }
 
+    func testMoveMenuEligibilityRequiresSampleEditorContextAndCanonicalStoppedRepresentedSource() throws {
+        let represented = moveCoordinatorDocument()
+        let instrument = try XCTUnwrap(represented.instrumentPalette[1])
+        let stateD = makeSampleEditorDocument(
+            selection: represented.selection,
+            instrument: PlaybackInstrument(
+                index: instrument.index,
+                name: instrument.name,
+                samples: instrument.samples,
+                volumeEnvelope: instrument.volumeEnvelope,
+                panningEnvelope: instrument.panningEnvelope,
+                autoVibrato: instrument.autoVibrato,
+                noteSampleMap: nil
+            )
+        )
+        let malformedMap = makeSampleEditorDocument(
+            selection: represented.selection,
+            instrument: PlaybackInstrument(
+                index: instrument.index,
+                name: instrument.name,
+                samples: instrument.samples,
+                volumeEnvelope: instrument.volumeEnvelope,
+                panningEnvelope: instrument.panningEnvelope,
+                autoVibrato: instrument.autoVibrato,
+                noteSampleMap: Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue - 1)
+            )
+        )
+        var selectedEmpty = represented
+        XCTAssertTrue(selectedEmpty.clearSample(instrumentAt: 0, sampleAt: 1))
+        let eligible = SampleEditorDisplayState.editableDocument(represented)
+
+        XCTAssertTrue(eligible.isMoveEnabled)
+        XCTAssertTrue(SampleEditorMoveCommandAvailability.canPerform(
+            displayState: eligible,
+            isSampleEditorActionContext: true
+        ))
+        XCTAssertFalse(SampleEditorMoveCommandAvailability.canPerform(
+            displayState: eligible,
+            isSampleEditorActionContext: false
+        ))
+
+        let unavailable: [SampleEditorDisplayState] = [
+            .editableDocument(selectedEmpty),
+            .editableDocument(stateD),
+            .editableDocument(malformedMap),
+            .editableDocument(represented, isPlaybackActive: true),
+            .editableDocument(represented, isImportingWAV: true),
+            .editableDocument(represented, hasConflictingLifecycleOperation: true),
+            .loadedModule(
+                playbackSong: makeSampleEditorSong(instruments: represented.instrumentPalette),
+                selection: represented.selection
+            ),
+            .empty,
+        ]
+        for displayState in unavailable {
+            XCTAssertFalse(displayState.isMoveEnabled)
+            XCTAssertFalse(SampleEditorMoveCommandAvailability.canPerform(
+                displayState: displayState,
+                isSampleEditorActionContext: true
+            ))
+        }
+    }
+
     func testClearButtonRejectsStaleClearAndLoadActionsAndRecoversAfterSheetDismissal() async throws {
         var represented = BlankTrackerDocument.makeDefault()
         XCTAssertTrue(represented.generateSineInSelectedEmptySample())
@@ -1155,6 +1218,128 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(coordinator.isActive)
     }
 
+    func testMoveSheetShowsExactSourceAndFullDestinationDomain() throws {
+        let request = SampleEditorMoveRequest(
+            operationToken: UUID(),
+            instrumentIndex: 0,
+            sourceSampleIndex: 2,
+            sourceDisplay: "S03"
+        )
+        let sheet = SampleEditorMoveSheet(request: request)
+
+        XCTAssertEqual(sheet.alert.messageText, "Move Sample S03 to:")
+        XCTAssertEqual(sheet.alert.buttons.map(\.title), ["Move Sample", "Cancel"])
+        XCTAssertTrue(sheet.alert.informativeText.contains("Samples between the source and destination will shift."))
+        XCTAssertTrue(sheet.alert.informativeText.contains("Note mappings will be remapped automatically"))
+        XCTAssertEqual(sheet.destinationPicker.itemTitles, (1...16).map { String(format: "S%02X", $0) })
+        XCTAssertFalse(try XCTUnwrap(sheet.destinationPicker.menu).autoenablesItems)
+        XCTAssertEqual(
+            sheet.destinationPicker.itemArray.compactMap { $0.representedObject as? Int },
+            Array(0..<SampleSlotPermutation.slotCount)
+        )
+        XCTAssertFalse(try XCTUnwrap(sheet.destinationPicker.item(at: 2)).isEnabled)
+        XCTAssertNotEqual(sheet.destinationIndex, request.sourceSampleIndex)
+        sheet.destinationPicker.selectItem(at: 1)
+        XCTAssertEqual(sheet.destinationIndex, 1)
+        XCTAssertEqual(sheet.destinationPicker.accessibilityValue() as? String, "S02")
+        XCTAssertTrue(SampleEditorMoveSheet.isConfirmed(.alertFirstButtonReturn))
+        XCTAssertFalse(SampleEditorMoveSheet.isConfirmed(.alertSecondButtonReturn))
+    }
+
+    func testMoveCoordinatorRejectsCancelStaleSameSlotAndOutOfBoundsWithoutCommit() throws {
+        let identity = UUID()
+        let represented = moveCoordinatorDocument()
+        let base = makeMoveContext(represented, identity: identity)
+        var selectedElsewhere = represented
+        selectedElsewhere.selectSample(1)
+        var changedSource = represented
+        XCTAssertTrue(changedSource.setSampleVolume(instrumentAt: 0, sampleAt: 1, volume: 63))
+        var changedMap = represented
+        guard case .success = changedMap.assignSample(
+            instrumentIndex: 0, sampleIndex: 0, lowerNote: 32, upperNote: 32
+        ) else { return XCTFail("Expected a canonical map change") }
+        var removedSource = represented
+        XCTAssertTrue(removedSource.clearSample(instrumentAt: 0, sampleAt: 1))
+        let staleContexts = [
+            makeMoveContext(represented, identity: UUID()),
+            makeMoveContext(represented, identity: identity, revision: 5),
+            makeMoveContext(selectedElsewhere, identity: identity),
+            makeMoveContext(changedSource, identity: identity),
+            makeMoveContext(changedMap, identity: identity),
+            makeMoveContext(removedSource, identity: identity),
+            makeMoveContext(represented, identity: identity, isPlaybackActive: true),
+            SampleEditorMoveContext(
+                documentIdentity: nil, documentRevision: 4, editContext: .loadedReadOnly
+            ),
+            makeMoveContext(represented, identity: identity, hasLifecycleConflict: true),
+        ]
+
+        var context = base
+        var commits: [(SampleSlotPermutation, Int)] = []
+        let coordinator = SampleEditorMoveCoordinator(
+            contextProvider: { context },
+            commitHandler: { commits.append(($0, $1)); return true }
+        )
+
+        context = makeMoveContext(represented, identity: identity, hasModalConflict: true)
+        XCTAssertFalse(coordinator.canBegin)
+        XCTAssertNil(coordinator.begin())
+        context = base
+        let cancelled = try XCTUnwrap(coordinator.begin())
+        XCTAssertEqual(cancelled.sourceDisplay, "S02")
+        XCTAssertTrue(coordinator.cancel(operationToken: cancelled.operationToken))
+        XCTAssertTrue(commits.isEmpty)
+
+        for staleContext in staleContexts {
+            context = base
+            let request = try XCTUnwrap(coordinator.begin())
+            context = staleContext
+            XCTAssertFalse(coordinator.confirm(
+                operationToken: request.operationToken,
+                destinationSampleIndex: 0
+            ))
+        }
+
+        for destination in [-1, 1, SampleSlotPermutation.slotCount] {
+            context = base
+            let request = try XCTUnwrap(coordinator.begin())
+            XCTAssertFalse(coordinator.confirm(
+                operationToken: request.operationToken,
+                destinationSampleIndex: destination
+            ))
+        }
+        XCTAssertTrue(commits.isEmpty)
+    }
+
+    func testMoveCoordinatorConstructsExactMoveAndAllowsItsOwnConfirmationSheet() throws {
+        let identity = UUID()
+        let document = moveCoordinatorDocument()
+        var context = makeMoveContext(document, identity: identity, revision: 7)
+        var commits: [(SampleSlotPermutation, Int)] = []
+        let coordinator = SampleEditorMoveCoordinator(
+            contextProvider: { context },
+            commitHandler: { commits.append(($0, $1)); return true }
+        )
+
+        let request = try XCTUnwrap(coordinator.begin())
+        context = makeMoveContext(
+            document, identity: identity, revision: 7, hasModalConflict: true
+        )
+        XCTAssertTrue(coordinator.confirm(
+            operationToken: request.operationToken,
+            destinationSampleIndex: 15
+        ))
+        let commit = try XCTUnwrap(commits.first)
+        XCTAssertEqual(commit.1, 0)
+        XCTAssertEqual(try commit.0.apply(to: 1), 15)
+        XCTAssertEqual(try commit.0.apply(to: 2), 1)
+        XCTAssertFalse(coordinator.confirm(
+            operationToken: request.operationToken,
+            destinationSampleIndex: 0
+        ))
+        XCTAssertFalse(coordinator.isActive)
+    }
+
     func testWAVImportFileCancelAndDuplicateActionSuppressionCreateNoMutation() {
         let document = BlankTrackerDocument.makeDefault()
         let identity = UUID()
@@ -1758,6 +1943,17 @@ private func clearCoordinatorDocument() -> BlankTrackerDocument {
     )
 }
 
+private func moveCoordinatorDocument() -> BlankTrackerDocument {
+    var map = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+    for noteIndex in 32...63 { map[noteIndex] = 1 }
+    for noteIndex in 64...95 { map[noteIndex] = 2 }
+    return makeSampleKeymapEditableDocument(
+        sampleIndices: [0, 1, 2],
+        noteSampleMap: map,
+        selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
+    )
+}
+
 private func makeClearContext(
     _ document: BlankTrackerDocument,
     identity: UUID,
@@ -1767,6 +1963,23 @@ private func makeClearContext(
     hasModalConflict: Bool = false
 ) -> SampleEditorClearContext {
     SampleEditorClearContext(
+        documentIdentity: identity,
+        documentRevision: revision,
+        editContext: .editable(document: document, isPlaybackActive: isPlaybackActive),
+        hasConflictingLifecycleOperation: hasLifecycleConflict,
+        hasConflictingModalPresentation: hasModalConflict
+    )
+}
+
+private func makeMoveContext(
+    _ document: BlankTrackerDocument,
+    identity: UUID,
+    revision: UInt64 = 4,
+    isPlaybackActive: Bool = false,
+    hasLifecycleConflict: Bool = false,
+    hasModalConflict: Bool = false
+) -> SampleEditorMoveContext {
+    SampleEditorMoveContext(
         documentIdentity: identity,
         documentRevision: revision,
         editContext: .editable(document: document, isPlaybackActive: isPlaybackActive),

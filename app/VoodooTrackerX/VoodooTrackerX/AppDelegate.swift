@@ -79,6 +79,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self.sampleEditorWindowPresenter.refresh(displayState: self.currentSampleEditorDisplayState())
         }
     )
+    private lazy var sampleEditorMoveCoordinator = SampleEditorMoveCoordinator(
+        contextProvider: { [weak self] in
+            self?.currentSampleEditorMoveContext() ?? .unavailable
+        },
+        commitHandler: { [weak self] permutation, instrumentIndex in
+            self?.editableDocumentEditCoordinator.applySampleSlotPermutation(
+                permutation,
+                instrumentAt: instrumentIndex
+            ) ?? false
+        },
+        stateChangeHandler: { [weak self] in
+            guard let self else { return }
+            self.sampleEditorWindowPresenter.refresh(displayState: self.currentSampleEditorDisplayState())
+        }
+    )
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
     private var selectedPatternSelectionIndex = 0
@@ -213,6 +228,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return editableDocumentEditCoordinator.canCreateInstrument
         case ApplicationMenuBuilder.Actions.duplicateSample:
             return SampleEditorDuplicateCommandAvailability.canPerform(
+                displayState: currentSampleEditorDisplayState(),
+                isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
+            )
+        case ApplicationMenuBuilder.Actions.moveSample:
+            return SampleEditorMoveCommandAvailability.canPerform(
                 displayState: currentSampleEditorDisplayState(),
                 isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
             )
@@ -357,6 +377,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         _ = editableDocumentEditCoordinator.duplicateSample(
             instrumentAt: document.selection.selectedInstrument - 1,
             sampleAt: document.selection.selectedSample - 1
+        )
+    }
+
+    @objc
+    private func moveSample(_ sender: Any?) {
+        let displayState = currentSampleEditorDisplayState()
+        guard SampleEditorMoveCommandAvailability.canPerform(
+            displayState: displayState,
+            isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
+        ), let request = sampleEditorMoveCoordinator.begin() else { return }
+        let sheet = SampleEditorMoveSheet(request: request)
+        let completion: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            guard SampleEditorMoveSheet.isConfirmed(response),
+                  let destinationIndex = sheet.destinationIndex else {
+                self.sampleEditorMoveCoordinator.cancel(operationToken: request.operationToken)
+                return
+            }
+            _ = self.sampleEditorMoveCoordinator.confirm(
+                operationToken: request.operationToken,
+                destinationSampleIndex: destinationIndex
+            )
+        }
+        presentDocumentSheet(
+            begin: { hostWindow, restoreAuxiliaryWindow in
+                sheet.alert.beginSheetModal(for: hostWindow) { response in
+                    restoreAuxiliaryWindow()
+                    completion(response)
+                }
+            },
+            fallback: { completion(sheet.alert.runModal()) }
         )
     }
 
@@ -831,6 +882,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 isPlaybackActive: playbackEngine.state.isPlaying,
                 isImportingWAV: sampleEditorWAVImportCoordinator.isImporting,
                 hasConflictingLifecycleOperation: sampleEditorClearCoordinator.isActive ||
+                    sampleEditorMoveCoordinator.isActive ||
                     hasConflictingDocumentPresentation,
                 isPreviewAvailable: noteAuditionPreviewer.isPreviewAvailable
             )
@@ -856,6 +908,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func beginSampleEditorWAVImport() -> Bool {
         guard !sampleEditorClearCoordinator.isActive,
+              !sampleEditorMoveCoordinator.isActive,
               !hasConflictingDocumentPresentation else { return false }
         return sampleEditorWAVImportCoordinator.begin()
     }
@@ -865,7 +918,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             documentIdentity: loadedMetadata == nil ? editableDocumentIdentity : nil,
             documentRevision: editableDocumentRevision,
             editContext: currentEditableDocumentEditContext(),
-            hasConflictingLifecycleOperation: sampleEditorWAVImportCoordinator.isImporting,
+            hasConflictingLifecycleOperation: sampleEditorWAVImportCoordinator.isImporting ||
+                sampleEditorMoveCoordinator.isActive,
             hasConflictingModalPresentation: hasConflictingDocumentPresentation
         )
     }
@@ -886,6 +940,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
         return true
+    }
+
+    private func currentSampleEditorMoveContext() -> SampleEditorMoveContext {
+        SampleEditorMoveContext(
+            documentIdentity: loadedMetadata == nil ? editableDocumentIdentity : nil,
+            documentRevision: editableDocumentRevision,
+            editContext: currentEditableDocumentEditContext(),
+            hasConflictingLifecycleOperation: sampleEditorWAVImportCoordinator.isImporting ||
+                sampleEditorClearCoordinator.isActive,
+            hasConflictingModalPresentation: hasConflictingDocumentPresentation
+        )
     }
 
     private func chooseSampleEditorWAVFile(
@@ -1042,6 +1107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func generateSineFromSampleEditor() -> Bool {
         guard !sampleEditorWAVImportCoordinator.isImporting,
               !sampleEditorClearCoordinator.isActive,
+              !sampleEditorMoveCoordinator.isActive,
               !hasConflictingDocumentPresentation,
               editableDocumentEditCoordinator.canGenerateSineSample else { return false }
         cancelNoteAuditionForDocumentTransition()

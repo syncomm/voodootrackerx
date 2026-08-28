@@ -185,7 +185,7 @@ with a nil map, `EditableXMWriter` currently accepts the value and writes 96 zer
 S01). Normal reopen therefore materializes an explicit all-S01 map instead of preserving nil, so that input does not
 round-trip as the same canonical editable value. No supported File New/sample mutation or public-fixture loaded-XM ->
 Make Editable Copy workflow produces it. Runtime nil-map fallback, writer behavior, and loaded/read-only semantics are
-unchanged; a future reference-sensitive sample reorder must reject the state before mutation.
+unchanged; the reference-sensitive sample reorder transaction and Move UI reject the state before mutation.
 
 ### Represented-sample Clear and Export XM boundary
 
@@ -233,8 +233,9 @@ recover as sparse untitled editable copies and re-export byte-identically. A
 named sample, nonzero volume/pan/tuning/loop/reserved field, extended header, or
 any other nonzero header byte remains copy-unavailable rather than being silently
 canonicalized. This is a narrow lossless compatibility boundary, not arbitrary-XM
-parity. Clear relies on this existing boundary; Duplicate/Move/Swap persistence
-or UI remains outside this slice.
+parity. Clear and the user-facing Move operation rely on this existing boundary; Move changes only the canonical
+document state before the unchanged Export XM path. Dense and sparse moved state therefore uses the already-tested
+reopen/editable-copy/deterministic-re-export contract. Swap UI remains outside this slice.
 
 ### Future Native Project Format
 

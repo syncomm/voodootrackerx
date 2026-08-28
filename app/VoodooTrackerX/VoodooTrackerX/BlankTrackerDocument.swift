@@ -1245,21 +1245,28 @@ struct BlankTrackerDocument: Equatable {
         )
     }
 
-    /// Atomically remaps one selected represented instrument across the canonical S01...S16 domain.
-    @discardableResult
-    mutating func applySampleSlotPermutation(
-        _ permutation: SampleSlotPermutation,
+    /// Returns the exact selected represented source admitted by the canonical reorder transaction.
+    func representedSampleForSlotPermutation(
+        instrumentAt zeroBasedInstrumentIndex: Int,
+        sampleAt zeroBasedSampleIndex: Int
+    ) -> PlaybackSample? {
+        guard let context = sampleSlotPermutationContext(
+            instrumentAt: zeroBasedInstrumentIndex
+        ), context.selectedSampleIndex == zeroBasedSampleIndex else { return nil }
+        return context.instrument.sample(mappedSampleIndex: zeroBasedSampleIndex)
+    }
+
+    private func sampleSlotPermutationContext(
         instrumentAt zeroBasedInstrumentIndex: Int
-    ) -> Bool {
-        guard !permutation.isIdentity,
-              (0..<Self.maximumInstrumentCount).contains(zeroBasedInstrumentIndex) else { return false }
+    ) -> (instrumentIndex: Int, selectedSampleIndex: Int, instrument: PlaybackInstrument)? {
+        guard (0..<Self.maximumInstrumentCount).contains(zeroBasedInstrumentIndex) else { return nil }
         let instrumentIndex = zeroBasedInstrumentIndex + 1
         let selectedSampleIndex = selection.selectedSample - 1
         guard selection.selectedInstrument == instrumentIndex,
               (0..<Self.maximumSampleCountPerInstrument).contains(selectedSampleIndex),
               let instrument = instrumentPalette[instrumentIndex],
               instrument.index == instrumentIndex,
-              !instrument.samples.isEmpty else { return false }
+              !instrument.samples.isEmpty else { return nil }
 
         let sampleIndices = instrument.samples.map(\.sampleIndex)
         guard sampleIndices.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }),
@@ -1270,8 +1277,24 @@ struct BlankTrackerDocument: Equatable {
               let noteSampleMap = instrument.noteSampleMap,
               noteSampleMap.count == TrackerNoteKeyMap.maximumNoteValue,
               noteSampleMap.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }) else {
-            return false
+            return nil
         }
+        return (instrumentIndex, selectedSampleIndex, instrument)
+    }
+
+    /// Atomically remaps one selected represented instrument across the canonical S01...S16 domain.
+    @discardableResult
+    mutating func applySampleSlotPermutation(
+        _ permutation: SampleSlotPermutation,
+        instrumentAt zeroBasedInstrumentIndex: Int
+    ) -> Bool {
+        guard !permutation.isIdentity,
+              let context = sampleSlotPermutationContext(
+                  instrumentAt: zeroBasedInstrumentIndex
+              ), let noteSampleMap = context.instrument.noteSampleMap else { return false }
+        let instrumentIndex = context.instrumentIndex
+        let selectedSampleIndex = context.selectedSampleIndex
+        let instrument = context.instrument
 
         let transformedSamples: [PlaybackSample]
         let transformedMap: [Int]

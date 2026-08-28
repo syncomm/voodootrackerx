@@ -6,6 +6,200 @@ typealias SampleEditorSineGenerationHandler = () -> Bool
 typealias SampleEditorWAVLoadHandler = () -> Bool
 typealias SampleEditorClearHandler = () -> Bool
 
+struct SampleEditorMoveContext: Equatable {
+    static let unavailable = Self(
+        documentIdentity: nil,
+        documentRevision: 0,
+        editContext: .none
+    )
+
+    let documentIdentity: UUID?
+    let documentRevision: UInt64
+    let editContext: EditableDocumentEditContext
+    let hasConflictingLifecycleOperation: Bool
+    let hasConflictingModalPresentation: Bool
+
+    init(
+        documentIdentity: UUID?,
+        documentRevision: UInt64,
+        editContext: EditableDocumentEditContext,
+        hasConflictingLifecycleOperation: Bool = false,
+        hasConflictingModalPresentation: Bool = false
+    ) {
+        self.documentIdentity = documentIdentity
+        self.documentRevision = documentRevision
+        self.editContext = editContext
+        self.hasConflictingLifecycleOperation = hasConflictingLifecycleOperation
+        self.hasConflictingModalPresentation = hasConflictingModalPresentation
+    }
+}
+
+struct SampleEditorMoveRequest: Equatable {
+    let operationToken: UUID
+    let instrumentIndex: Int
+    let sourceSampleIndex: Int
+    let sourceDisplay: String
+}
+
+private struct SampleEditorMoveCapture {
+    let documentIdentity: UUID
+    let documentRevision: UInt64
+    let instrumentIndex: Int
+    let sourceSampleIndex: Int
+    let sourceSample: PlaybackSample
+    let noteSampleMap: [Int]
+
+    init?(context: SampleEditorMoveContext) {
+        guard !context.hasConflictingLifecycleOperation,
+              !context.hasConflictingModalPresentation,
+              let documentIdentity = context.documentIdentity,
+              case let .editable(document, false) = context.editContext else { return nil }
+        let instrumentIndex = document.selection.selectedInstrument - 1
+        let sourceSampleIndex = document.selection.selectedSample - 1
+        guard let sourceSample = document.representedSampleForSlotPermutation(
+            instrumentAt: instrumentIndex,
+            sampleAt: sourceSampleIndex
+        ), let noteSampleMap = document.instrument(
+            forInstrument: instrumentIndex + 1
+        )?.noteSampleMap else { return nil }
+
+        self.documentIdentity = documentIdentity
+        documentRevision = context.documentRevision
+        self.instrumentIndex = instrumentIndex
+        self.sourceSampleIndex = sourceSampleIndex
+        self.sourceSample = sourceSample
+        self.noteSampleMap = noteSampleMap
+    }
+
+    func isCurrent(in context: SampleEditorMoveContext) -> Bool {
+        // The Move sheet itself is expected to be modal here. Any competing
+        // lifecycle operation still invalidates the captured source.
+        guard !context.hasConflictingLifecycleOperation,
+              context.documentIdentity == documentIdentity,
+              context.documentRevision == documentRevision,
+              case let .editable(document, false) = context.editContext,
+              document.selection.selectedInstrument == instrumentIndex + 1,
+              document.selection.selectedSample == sourceSampleIndex + 1,
+              document.instrument(forInstrument: instrumentIndex + 1)?.noteSampleMap == noteSampleMap else {
+            return false
+        }
+        return document.representedSampleForSlotPermutation(
+            instrumentAt: instrumentIndex,
+            sampleAt: sourceSampleIndex
+        ) == sourceSample
+    }
+}
+
+@MainActor
+final class SampleEditorMoveCoordinator {
+    private let contextProvider: () -> SampleEditorMoveContext
+    private let commitHandler: (SampleSlotPermutation, Int) -> Bool
+    private let stateChangeHandler: () -> Void
+    private var activeOperation: (token: UUID, capture: SampleEditorMoveCapture)?
+
+    init(
+        contextProvider: @escaping () -> SampleEditorMoveContext,
+        commitHandler: @escaping (SampleSlotPermutation, Int) -> Bool,
+        stateChangeHandler: @escaping () -> Void = {}
+    ) {
+        self.contextProvider = contextProvider
+        self.commitHandler = commitHandler
+        self.stateChangeHandler = stateChangeHandler
+    }
+
+    var isActive: Bool { activeOperation != nil }
+    var canBegin: Bool {
+        activeOperation == nil && SampleEditorMoveCapture(context: contextProvider()) != nil
+    }
+
+    func begin() -> SampleEditorMoveRequest? {
+        guard activeOperation == nil,
+              let capture = SampleEditorMoveCapture(context: contextProvider()) else { return nil }
+        let token = UUID()
+        activeOperation = (token, capture)
+        stateChangeHandler()
+        return SampleEditorMoveRequest(
+            operationToken: token,
+            instrumentIndex: capture.instrumentIndex,
+            sourceSampleIndex: capture.sourceSampleIndex,
+            sourceDisplay: String(format: "S%02X", capture.sourceSampleIndex + 1)
+        )
+    }
+
+    @discardableResult
+    func cancel(operationToken: UUID) -> Bool {
+        guard activeOperation?.token == operationToken else { return false }
+        finish()
+        return true
+    }
+
+    @discardableResult
+    func confirm(operationToken: UUID, destinationSampleIndex: Int) -> Bool {
+        guard let activeOperation, activeOperation.token == operationToken else { return false }
+        defer { finish() }
+        guard activeOperation.capture.isCurrent(in: contextProvider()),
+              let permutation = try? SampleSlotPermutation.move(
+                  from: activeOperation.capture.sourceSampleIndex,
+                  to: destinationSampleIndex
+              ), !permutation.isIdentity else { return false }
+        return commitHandler(permutation, activeOperation.capture.instrumentIndex)
+    }
+
+    private func finish() {
+        activeOperation = nil
+        stateChangeHandler()
+    }
+}
+
+@MainActor
+final class SampleEditorMoveDestinationPicker: NSPopUpButton {
+    override func accessibilityValue() -> Any? {
+        selectedItem?.title ?? "No destination selected"
+    }
+}
+
+@MainActor
+final class SampleEditorMoveSheet {
+    let alert = NSAlert()
+    let destinationPicker = SampleEditorMoveDestinationPicker(
+        frame: NSRect(x: 0, y: 0, width: 180, height: 26)
+    )
+
+    init(request: SampleEditorMoveRequest) {
+        alert.alertStyle = .informational
+        alert.messageText = "Move Sample \(request.sourceDisplay) to:"
+        alert.informativeText = """
+        Samples between the source and destination will shift.
+
+        Note mappings will be remapped automatically so existing note-to-sound assignments are preserved.
+        """
+        destinationPicker.menu?.autoenablesItems = false
+        for sampleIndex in 0..<SampleSlotPermutation.slotCount {
+            destinationPicker.addItem(withTitle: String(format: "S%02X", sampleIndex + 1))
+            destinationPicker.lastItem?.representedObject = sampleIndex
+            destinationPicker.lastItem?.isEnabled = sampleIndex != request.sourceSampleIndex
+        }
+        let initialDestination = request.sourceSampleIndex == 0 ? 1 : 0
+        destinationPicker.selectItem(at: initialDestination)
+        destinationPicker.setAccessibilityLabel("Move destination sample slot")
+        alert.accessoryView = destinationPicker
+        alert.addButton(withTitle: "Move Sample")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].setAccessibilityLabel("Move \(request.sourceDisplay)")
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+    }
+
+    var destinationIndex: Int? {
+        guard let value = destinationPicker.selectedItem?.representedObject as? Int,
+              (0..<SampleSlotPermutation.slotCount).contains(value) else { return nil }
+        return value
+    }
+
+    static func isConfirmed(_ response: NSApplication.ModalResponse) -> Bool {
+        response == .alertFirstButtonReturn
+    }
+}
+
 struct SampleEditorClearContext: Equatable {
     static let unavailable = Self(
         documentIdentity: nil,
@@ -338,7 +532,7 @@ struct SampleEditorDisplayState: Equatable {
         source: .none, instrumentSlot: nil, instrumentName: "No instrument available",
         instrumentOptions: [], selectedSampleSlot: nil, sampleSlots: [], selectedSample: nil,
         emptyMessage: "No document sample palette is available.", isSineGenerationEnabled: false,
-        isWAVLoadEnabled: false, isClearEnabled: false, isDuplicateEnabled: false,
+        isWAVLoadEnabled: false, isClearEnabled: false, isDuplicateEnabled: false, isMoveEnabled: false,
         isImportingWAV: false, isAuditionEnabled: false
     )
 
@@ -354,6 +548,7 @@ struct SampleEditorDisplayState: Equatable {
     let isWAVLoadEnabled: Bool
     let isClearEnabled: Bool
     let isDuplicateEnabled: Bool
+    let isMoveEnabled: Bool
     let isImportingWAV: Bool
     let isAuditionEnabled: Bool
     var isReadOnly: Bool { source != .editableDocument }
@@ -394,7 +589,7 @@ struct SampleEditorDisplayState: Equatable {
                 forInstrument: selection.selectedInstrument
              ) ?? [],
              isSineGenerationEnabled: false, isWAVLoadEnabled: false,
-             isClearEnabled: false, isDuplicateEnabled: false,
+             isClearEnabled: false, isDuplicateEnabled: false, isMoveEnabled: false,
              isImportingWAV: false, isPreviewAvailable: isPreviewAvailable)
     }
 
@@ -406,6 +601,10 @@ struct SampleEditorDisplayState: Equatable {
         isPreviewAvailable: Bool = true
     ) -> Self {
         let hasClearTarget = document.representedSampleForClear(
+            instrumentAt: document.selection.selectedInstrument - 1,
+            sampleAt: document.selection.selectedSample - 1
+        ) != nil
+        let hasMoveTarget = document.representedSampleForSlotPermutation(
             instrumentAt: document.selection.selectedInstrument - 1,
             sampleAt: document.selection.selectedSample - 1
         ) != nil
@@ -421,6 +620,8 @@ struct SampleEditorDisplayState: Equatable {
                 !hasConflictingLifecycleOperation && hasClearTarget,
              isDuplicateEnabled: !isPlaybackActive && !isImportingWAV &&
                 !hasConflictingLifecycleOperation && document.canDuplicateSelectedSample,
+             isMoveEnabled: !isPlaybackActive && !isImportingWAV &&
+                !hasConflictingLifecycleOperation && hasMoveTarget,
              isImportingWAV: isImportingWAV, isPreviewAvailable: isPreviewAvailable)
     }
 
@@ -430,6 +631,7 @@ struct SampleEditorDisplayState: Equatable {
                              isSineGenerationEnabled: Bool,
                              isWAVLoadEnabled: Bool, isClearEnabled: Bool,
                              isDuplicateEnabled: Bool,
+                             isMoveEnabled: Bool,
                              isImportingWAV: Bool, isPreviewAvailable: Bool) -> Self {
         let instrumentOptions = palette
             .filter { (1...255).contains($0.key) }
@@ -450,7 +652,7 @@ struct SampleEditorDisplayState: Equatable {
                     ? "No represented instruments are available."
                     : "\(String(format: "I%02X", selection.selectedInstrument)) is not represented.",
                 isSineGenerationEnabled: false, isWAVLoadEnabled: false, isClearEnabled: false,
-                isDuplicateEnabled: false,
+                isDuplicateEnabled: false, isMoveEnabled: false,
                 isImportingWAV: isImportingWAV,
                 isAuditionEnabled: false
             )
@@ -487,6 +689,7 @@ struct SampleEditorDisplayState: Equatable {
             isWAVLoadEnabled: isWAVLoadEnabled,
             isClearEnabled: isClearEnabled,
             isDuplicateEnabled: isDuplicateEnabled,
+            isMoveEnabled: isMoveEnabled,
             isImportingWAV: isImportingWAV,
             isAuditionEnabled: isPreviewAvailable && !isImportingWAV && selected.map(isAuditionPlayable) == true
         )
@@ -513,6 +716,15 @@ enum SampleEditorDuplicateCommandAvailability {
         isSampleEditorActionContext: Bool
     ) -> Bool {
         isSampleEditorActionContext && displayState.isDuplicateEnabled
+    }
+}
+
+enum SampleEditorMoveCommandAvailability {
+    static func canPerform(
+        displayState: SampleEditorDisplayState,
+        isSampleEditorActionContext: Bool
+    ) -> Bool {
+        isSampleEditorActionContext && displayState.isMoveEnabled
     }
 }
 

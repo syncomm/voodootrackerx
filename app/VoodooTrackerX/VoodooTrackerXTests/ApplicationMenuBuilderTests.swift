@@ -85,6 +85,12 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(duplicateSample.keyEquivalent, "")
         XCTAssertFalse(duplicateSample.isEnabled)
 
+        let moveSample = try XCTUnwrap(editMenu.item(withTitle: "Move Sample…"))
+        XCTAssertEqual(moveSample.action, ApplicationMenuBuilder.Actions.moveSample)
+        XCTAssertTrue(moveSample.target === target)
+        XCTAssertEqual(moveSample.keyEquivalent, "")
+        XCTAssertFalse(moveSample.isEnabled)
+
         for title in ["Cut", "Copy", "Paste", "Delete", "Select All"] {
             let item = try XCTUnwrap(editMenu.item(withTitle: title))
             XCTAssertFalse(item.isEnabled, "\(title) should stay disabled until editor behavior exists")

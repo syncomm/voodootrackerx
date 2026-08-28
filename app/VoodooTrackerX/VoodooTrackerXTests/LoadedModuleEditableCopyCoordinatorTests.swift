@@ -526,7 +526,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         )?.sampleIndex, 2)
     }
 
-    func testDensePermutedStateSurvivesExportReopenAndEditableCopy() throws {
+    func testDenseMoveTransactionResultSurvivesExportReopenAndEditableCopy() throws {
         let source = PlaybackInstrument(
             index: 1,
             name: "Dense Permutation",
@@ -538,21 +538,19 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             noteSampleMap: (0..<96).map { $0 % 3 }
         )
         let permutation = try SampleSlotPermutation.move(from: 2, to: 0)
-        let transformed = try permutedInstrument(source, using: permutation)
-        let document = sparseSourceDocument(
-            instrument: transformed,
-            selection: TrackerEditorSelection(
-                selectedInstrument: 1,
-                selectedSample: try permutation.apply(to: 2) + 1
-            )
+        var document = sparseSourceDocument(
+            instrument: source,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 3)
         )
+        XCTAssertTrue(document.applySampleSlotPermutation(permutation, instrumentAt: 0))
+        let transformed = try XCTUnwrap(document.instrumentPalette[1])
 
         XCTAssertEqual(transformed.samples.map(\.name), ["Content C", "Content A", "Content B"])
         XCTAssertEqual(transformed.samples.map(\.sampleIndex), [0, 1, 2])
         _ = try assertPermutationPersistence(document, instrument: transformed, filename: "dense-permutation.xm")
     }
 
-    func testSparsePermutedStateIncludingEmptyIdentitiesSurvivesExportReopenAndEditableCopy() throws {
+    func testSparseMoveTransactionIncludingEmptyIdentitiesSurvivesExportReopenAndEditableCopy() throws {
         let source = PlaybackInstrument(
             index: 1,
             name: "Sparse Permutation",
@@ -564,12 +562,13 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             noteSampleMap: (0..<96).map { $0 % 5 }
         )
         let permutation = try SampleSlotPermutation.move(from: 4, to: 1)
-        let transformed = try permutedInstrument(source, using: permutation)
-        let selectedEmptyIndex = try permutation.apply(to: 1)
-        let document = sparseSourceDocument(
-            instrument: transformed,
-            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: selectedEmptyIndex + 1)
+        var document = sparseSourceDocument(
+            instrument: source,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
         )
+        XCTAssertTrue(document.applySampleSlotPermutation(permutation, instrumentAt: 0))
+        let transformed = try XCTUnwrap(document.instrumentPalette[1])
+        let selectedEmptyIndex = document.selection.selectedSample - 1
 
         XCTAssertEqual(transformed.samples.map(\.name), ["Content A", "Content C", "Content B"])
         XCTAssertEqual(transformed.samples.map(\.sampleIndex), [0, 1, 3])
@@ -580,6 +579,36 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             song.xmSampleSlotProvenanceByInstrument[1]?.filter(\.isCanonicalEmptySlotHeader).map(\.sampleIndex),
             [2, 4]
+        )
+    }
+
+    func testRepresentedEmptySwapSurvivesExportReopenAndEditableCopy() throws {
+        let source = PlaybackInstrument(
+            index: 1,
+            name: "Sparse Swap",
+            samples: [
+                persistableSample(sampleIndex: 0, name: "Content A", pcm: [-0.25, 0.25]),
+                persistableSample(sampleIndex: 2, name: "Content B", pcm: [-0.5, 0.5]),
+            ],
+            noteSampleMap: (0..<96).map { $0 % 3 }
+        )
+        let permutation = try SampleSlotPermutation.swap(0, 1)
+        var document = sparseSourceDocument(
+            instrument: source,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
+        )
+        XCTAssertTrue(document.applySampleSlotPermutation(permutation, instrumentAt: 0))
+        let transformed = try XCTUnwrap(document.instrumentPalette[1])
+
+        XCTAssertEqual(transformed.samples.map(\.name), ["Content A", "Content B"])
+        XCTAssertEqual(transformed.samples.map(\.sampleIndex), [1, 2])
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        let song = try assertPermutationPersistence(
+            document, instrument: transformed, filename: "sparse-swap.xm"
+        )
+        XCTAssertEqual(
+            song.xmSampleSlotProvenanceByInstrument[1]?.filter(\.isCanonicalEmptySlotHeader).map(\.sampleIndex),
+            [0]
         )
     }
 
@@ -1423,25 +1452,6 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(copy.selection, document.selection)
         XCTAssertEqual(try EditableXMWriter().data(from: copy), data)
         return song
-    }
-
-    private func permutedInstrument(
-        _ instrument: PlaybackInstrument,
-        using permutation: SampleSlotPermutation
-    ) throws -> PlaybackInstrument {
-        let samples = try instrument.samples.map {
-            $0.reidentified(sampleIndex: try permutation.apply(to: $0.sampleIndex))
-        }.sorted { $0.sampleIndex < $1.sampleIndex }
-        let map = try XCTUnwrap(instrument.noteSampleMap).map(permutation.apply(to:))
-        return PlaybackInstrument(
-            index: instrument.index,
-            name: instrument.name,
-            samples: samples,
-            volumeEnvelope: instrument.volumeEnvelope,
-            panningEnvelope: instrument.panningEnvelope,
-            autoVibrato: instrument.autoVibrato,
-            noteSampleMap: map
-        )
     }
 
     private func assertPermutationPersistence(

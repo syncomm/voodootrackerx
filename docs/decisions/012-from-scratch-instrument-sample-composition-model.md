@@ -16,9 +16,9 @@ round-trip and loaded-source provenance foundations support that action without 
 The shared sample-slot presentation/selection foundation is also implemented: editable and supported loaded
 sources can expose a canonical empty Sxx identity without fabricating a `PlaybackSample`. Sample Editor LOAD and
 SINE can now populate the exact selected canonical empty identity in a stopped editable document. Duplicate now
-deep-copies a represented sample to the next tail identity without mapping it or filling a sparse hole. The pure
-reference-preserving sample-slot permutation contract and its canonical editable keymap-presence precondition are
-pinned; document mutation and Move/Swap UI remain future work.
+deep-copies a represented sample to the next tail identity without mapping it or filling a sparse hole. The
+reference-preserving sample-slot permutation contract, canonical editable keymap-presence precondition, and one
+transactional document mutation are now implemented; Move/Swap UI remains future work.
 
 ## Context
 
@@ -145,7 +145,9 @@ an expansion to arbitrary XM editing.
 
 Implementation evidence is in `PlaybackModel.swift` (`PlaybackInstrument` and
 `PlaybackInstrumentSampleResolver`), `BlankTrackerDocument.swift` (`makeDefault`, `nextAppendSampleIndex`,
-`clearSample`, and selection normalization), `EditableXMWriter.swift` (`exportedInstrument` /
+`clearSample`, `applySampleSlotPermutation`, and selection normalization),
+`EditableDocumentEditCoordinator.swift` (one `Reorder Samples` `applyEdit`),
+`EditableXMWriter.swift` (`exportedInstrument` /
 `validatedNoteSampleMap`),
 `PlaybackSongBuilder.swift` (`loadXMInstrumentState`), and `LoadedModuleEditableCopyCoordinator.swift`.
 Characterization and round-trip coverage is pinned by
@@ -356,8 +358,8 @@ represented sample.
 
 The final matrix row is not declared invalid for every shared `PlaybackInstrument` runtime or read-only use. Current
 global resolution deliberately falls back to the first playable sample when the map is absent. Reindexing and sorting
-represented samples while preserving that absence can therefore change audible content. A future reference-sensitive
-Move, Swap, or other identity reorder must reject that row before mutation and create no history.
+represented samples while preserving that absence can therefore change audible content. The reference-sensitive
+sample-slot transaction rejects that row before mutation and creates no revision or history.
 
 XM persistence remains document-semantic rather than selection-semantic. A cleared interior identity survives when
 a later represented sample or map reference requires its span; a mapped cleared route remains unavailable with no
@@ -371,19 +373,21 @@ at the source and inserts it at the destination, shifting the affected inclusive
 one-position aliases, while Swap exchanges two identities. Same-slot operations are identity permutations, and
 out-of-domain indices fail rather than clamp.
 
-The exact same permutation must later transform every represented `PlaybackSample.sampleIndex`, all 96 exact
+The exact same permutation transaction transforms every represented `PlaybackSample.sampleIndex`, all 96 exact
 keymap values, and the shared selected sample identity. Canonical empty identities participate, so a route to an
 unavailable slot remains unavailable and cannot become newly audible merely because represented content moved into
 its old numeric position. Sample PCM/metadata remains exact and no compaction occurs beyond the explicit
 permutation. Pattern cells store instrument identity, not sample-slot identity, and therefore are not remapped.
 
-`SampleSlotPermutation` is the current UI-independent proof only: it mutates no document, selection, keymap,
-writer, parser, or runtime state. Synthetic dense/sparse ownership tests preserve every note's represented-content
-identity or unavailable result, and transformed dense/sparse documents survive Export XM -> reopen -> Make Editable
-Copy through the existing writer/parser foundation. A future Move/Swap document transaction must require an exact
-96-entry bounded map whenever represented samples exist and validate all bounded identities before one `applyEdit`;
-one successful action creates one undo entry, while no-op or failure creates none. Undo/Redo restores the exact old/new
-indices, map, and selection.
+`BlankTrackerDocument.applySampleSlotPermutation` consumes `SampleSlotPermutation` only for the selected represented
+instrument in canonical state C: complete unique S01...S16 samples, an exact bounded 96-entry map, and a bounded
+selection. It computes the entire result before replacement, stores represented samples in ascending transformed
+identity order, and preserves every other document field. `EditableDocumentEditCoordinator` commits that value as
+one `Reorder Samples` `applyEdit`; identity, zero-sample, malformed, read-only, playing, and state-D paths create no
+edit or history. Undo/Redo restores the exact old/new indices, map, selection, PCM/metadata, and unrelated state.
+Dense and sparse Move plus represented/empty Swap results preserve every note's represented-content identity or
+unavailable result and survive Export XM -> reopen -> Make Editable Copy -> deterministic re-export without writer,
+parser, provenance, resolver, or runtime changes.
 
 ## Product Surface And Content Policy
 
@@ -470,8 +474,8 @@ This is a sequence of focused PRs, not one large implementation PR:
 13. Done: add editable keymap range assignment through `applyEdit`.
 14. Done: wire explicit selected-sample inclusive range assignment UI and
     non-mutating full-map graphical selection; paint/automatic mapping remain separate.
-15. Sample-slot permutation and canonical keymap-presence prerequisites done; add reference-preserving
-    instrument/sample transactions separately.
+15. Done: sample-slot permutation, canonical keymap-presence prerequisite, and one reference-preserving sample
+    transaction; add user-facing Move/Swap separately.
 16. Run the complete automated and manual from-scratch acceptance slice.
 17. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
 
@@ -479,7 +483,8 @@ The graphical range-selection slice is complete. Select later lifecycle, envelop
 loop, drag-to-paint, and automatic-mapping work as separate focused PRs.
 
 The sparse writer/reopen/editable-copy dependency, interior empty-slot presentation, represented-sample Clear,
-selected-empty population, and tail-only Duplicate are complete. Move/Swap remains separate scoped lifecycle work.
+selected-empty population, tail-only Duplicate, and model Move/Swap transaction are complete. Move/Swap UI remains
+separate scoped lifecycle work.
 
 ## Test And Fixture Plan
 
@@ -487,8 +492,8 @@ Future project-owned tests cover an empty instrument/S01 destination; generated
 sine and waveform family; mono WAV; stereo mix/left/right; AIFF and FLAC;
 common-rate tuning; filename naming/truncation; first-sample all-note mapping;
 instrument/sample duplicate and instrument clear-in-place; represented-sample Clear already covers a keymap
-reference to a cleared sample; instrument move plus pattern-reference remap; sample permutation algebra and
-audible-semantics preservation are pinned before future transactional keymap remap; Export XM/reopen from a complete new composition; and WAV/M4A export of
+reference to a cleared sample; instrument move plus pattern-reference remap; transactional sample permutation and
+audible-semantics preservation are pinned across exact keymap/selection remap; Export XM/reopen from a complete new composition; and WAV/M4A export of
 that composition. Tests use synthetic data and the public fixture pack only.
 
 ## Explicit Deferrals

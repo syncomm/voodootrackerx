@@ -156,6 +156,22 @@ final class EditableDocumentEditCoordinator {
         return applyEdit(label: "Duplicate Sample", updatedDocument: document)
     }
 
+    /// Applies one canonical sample-slot identity permutation as a whole-document edit.
+    @discardableResult
+    func applySampleSlotPermutation(
+        _ permutation: SampleSlotPermutation,
+        instrumentAt zeroBasedInstrumentIndex: Int
+    ) -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.applySampleSlotPermutation(
+                  permutation,
+                  instrumentAt: zeroBasedInstrumentIndex
+              ) else {
+            return false
+        }
+        return applyEdit(label: "Reorder Samples", updatedDocument: document)
+    }
+
     @discardableResult
     func renameInstrument(at zeroBasedIndex: Int, name: String) -> Bool {
         guard var document = contextProvider().documentAvailableForMutation,

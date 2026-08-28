@@ -150,7 +150,8 @@ WAV cue/`smpl`/broadcast fields, AIFF/AIFC MARK/INST/COMT/NAME/AUTH/ANNO,
 and FLAC tags, pictures, cues, seek tables, application/padding blocks, ReplayGain,
 embedded names, and loops remains deferred. The Sample Editor panel still lists
 every currently supported lossless import format. Add as New Sample and explicit selected-empty population are
-current; tail-only duplication is available from Edit, while reorder, standalone New Sample, graphical/automatic keymap editing, and global import/drop
+current; tail-only duplication is available from Edit. The UI-independent reorder transaction is implemented, while
+user-facing Move/Swap controls, standalone New Sample, graphical/automatic keymap editing, and global import/drop
 creation remain deferred.
 Square/pulse, triangle, saw, and noise remain future generators.
 Neutral first-S01 import/generation maps all 96 notes and becomes immediately auditionable in one `applyEdit`
@@ -163,7 +164,9 @@ Clear is non-compacting: removing represented Sxx leaves that zero-based
 identity absent, keeps every later represented sample index and all 96 keymap
 values unchanged, and makes any route to Sxx unavailable rather than falling
 back to S01 or the first playable sample. Duplicate appends after the highest represented identity without
-filling gaps or changing the keymap; Move/Swap remain unimplemented.
+filling gaps or changing the keymap. The shared Move/Swap transaction requires canonical state C (represented
+samples plus an exact bounded 96-entry map), atomically remaps sample identity + keymap + selection, and rejects
+represented-sample/nil-map state D; user-facing Move/Swap controls remain unimplemented.
 
 Editable selection is stored in the `BlankTrackerDocument` value, while normal
 row selection remains a non-editing UI gesture. Clearing the selected Sxx must

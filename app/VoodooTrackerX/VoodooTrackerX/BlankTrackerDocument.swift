@@ -1245,6 +1245,79 @@ struct BlankTrackerDocument: Equatable {
         )
     }
 
+    /// Atomically remaps one selected represented instrument across the canonical S01...S16 domain.
+    @discardableResult
+    mutating func applySampleSlotPermutation(
+        _ permutation: SampleSlotPermutation,
+        instrumentAt zeroBasedInstrumentIndex: Int
+    ) -> Bool {
+        guard !permutation.isIdentity,
+              (0..<Self.maximumInstrumentCount).contains(zeroBasedInstrumentIndex) else { return false }
+        let instrumentIndex = zeroBasedInstrumentIndex + 1
+        let selectedSampleIndex = selection.selectedSample - 1
+        guard selection.selectedInstrument == instrumentIndex,
+              (0..<Self.maximumSampleCountPerInstrument).contains(selectedSampleIndex),
+              let instrument = instrumentPalette[instrumentIndex],
+              instrument.index == instrumentIndex,
+              !instrument.samples.isEmpty else { return false }
+
+        let sampleIndices = instrument.samples.map(\.sampleIndex)
+        guard sampleIndices.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }),
+              Set(sampleIndices).count == sampleIndices.count,
+              instrument.samples.allSatisfy({
+                  $0.instrumentIndex == instrumentIndex && Self.isCompleteRepresentedSample($0)
+              }),
+              let noteSampleMap = instrument.noteSampleMap,
+              noteSampleMap.count == TrackerNoteKeyMap.maximumNoteValue,
+              noteSampleMap.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }) else {
+            return false
+        }
+
+        let transformedSamples: [PlaybackSample]
+        let transformedMap: [Int]
+        let transformedSelectedSampleIndex: Int
+        do {
+            transformedSamples = try instrument.samples.map {
+                $0.reidentified(sampleIndex: try permutation.apply(to: $0.sampleIndex))
+            }.sorted { $0.sampleIndex < $1.sampleIndex }
+            transformedMap = try noteSampleMap.map(permutation.apply(to:))
+            transformedSelectedSampleIndex = try permutation.apply(to: selectedSampleIndex)
+        } catch {
+            return false
+        }
+
+        let transformedIndices = transformedSamples.map(\.sampleIndex)
+        guard transformedIndices.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }),
+              Set(transformedIndices).count == transformedIndices.count,
+              transformedSamples.allSatisfy({
+                  $0.instrumentIndex == instrumentIndex && Self.isCompleteRepresentedSample($0)
+              }),
+              transformedMap.count == TrackerNoteKeyMap.maximumNoteValue,
+              transformedMap.allSatisfy({ (0..<Self.maximumSampleCountPerInstrument).contains($0) }),
+              (0..<Self.maximumSampleCountPerInstrument).contains(transformedSelectedSampleIndex) else {
+            return false
+        }
+
+        var palette = instrumentPalette
+        palette[instrumentIndex] = PlaybackInstrument(
+            index: instrument.index,
+            name: instrument.name,
+            samples: transformedSamples,
+            volumeEnvelope: instrument.volumeEnvelope,
+            panningEnvelope: instrument.panningEnvelope,
+            autoVibrato: instrument.autoVibrato,
+            noteSampleMap: transformedMap
+        )
+        self = replacingInstrumentPalette(
+            palette,
+            selection: TrackerEditorSelection(
+                selectedInstrument: instrumentIndex,
+                selectedSample: transformedSelectedSampleIndex + 1
+            )
+        )
+        return true
+    }
+
     /// Appends one complete represented sample without compacting indices or changing the keymap.
     @discardableResult
     mutating func appendSample(instrumentIndex: Int, sample: PlaybackSample) -> Int? {

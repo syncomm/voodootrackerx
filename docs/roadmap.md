@@ -102,7 +102,10 @@ Editable Copy/deterministic re-export. `Edit > Move Sample…` now supplies the 
 action-context wrapper over this transaction. Its S01...S16 sheet uses insertion/shift semantics, and confirmation
 revalidates the captured source, exact map, document/revision, selection, transport, bounds, and lifecycle state.
 The transaction remaps keymap and shared selection automatically, so audible and unavailable assignments remain
-stable through one Undo/Redo entry. Swap UI remains future work; Move Up/Down convenience controls remain deferred.
+stable through one Undo/Redo entry. `Edit > Swap Sample…` is the matching thin wrapper: its full-domain sheet
+constructs the pairwise `swap`, supports represented or empty destinations, and uses the same stale-state gate and
+transaction so selection follows source content without changing audible or unavailable routing. Move Up/Down
+convenience controls remain deferred.
 
 The canonical editable keymap-presence prerequisite is also pinned. A zero-sample
 instrument may have no map as the neutral File New/New Instrument state, or may
@@ -548,8 +551,8 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next PR:
 
-- Next: add one user-facing sample Swap UI slice that only constructs a
-  `SampleSlotPermutation.swap` and calls the existing `Reorder Samples` transaction.
+- Next: run the Sample Lifecycle milestone gate across Clear, empty population, Duplicate, Move, and Swap before
+  choosing any convenience or consistency follow-up.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -858,7 +861,7 @@ Current implemented foundation:
 - transactional sample-slot Move/Swap foundation across fixed S01...S16 identities,
   including canonical-state validation, empty identities, exact sample/keymap/selection
   transforms, one applyEdit/Undo/Redo, audible-semantics preservation, and dense/sparse
-  deterministic persistence, plus the first Move To UI over that unchanged transaction
+  deterministic persistence, plus Move To and pairwise Swap UI over that unchanged transaction
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
@@ -887,8 +890,7 @@ Next composition targets after backend foundation freeze:
   PCM/waveform mutation slices
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- user-facing sample Swap over the existing transaction, remaining sample lifecycle,
-  and instrument clear lifecycle; Move Up/Down remain deferred and XI remains separate
+- remaining sample lifecycle and instrument clear lifecycle; Move Up/Down remain deferred and XI remains separate
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics

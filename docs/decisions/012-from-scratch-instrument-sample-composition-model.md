@@ -18,8 +18,8 @@ sources can expose a canonical empty Sxx identity without fabricating a `Playbac
 SINE can now populate the exact selected canonical empty identity in a stopped editable document. Duplicate now
 deep-copies a represented sample to the next tail identity without mapping it or filling a sparse hole. The
 reference-preserving sample-slot permutation contract, canonical editable keymap-presence precondition, and one
-transactional document mutation are now implemented. `Edit > Move Sample…` is the first user-facing permutation
-operation; Swap UI remains future work, and Move Up/Down convenience commands remain deferred.
+transactional document mutation are now implemented. `Edit > Move Sample…` and `Edit > Swap Sample…` are the
+user-facing permutation operations; Move Up/Down convenience commands remain deferred.
 
 ## Context
 
@@ -390,13 +390,16 @@ Dense and sparse Move plus represented/empty Swap results preserve every note's 
 unavailable result and survive Export XM -> reopen -> Make Editable Copy -> deterministic re-export without writer,
 parser, provenance, resolver, or runtime changes.
 
-The Sample Editor action-context command `Edit > Move Sample…` captures the exact represented source, document
-identity/revision, selected instrument/Sxx, source value, and exact keymap before presenting all 16 canonical
-destinations S01...S16. Confirmation constructs only `SampleSlotPermutation.move(from:to:)` and passes it to the
-existing `Reorder Samples` coordinator transaction. This is removal/insertion behavior: identities between source
-and destination shift, while the transaction remaps the keymap and shared selection so represented sounds and
-unavailable routes retain their meaning. Cancel, same-slot, out-of-range, stale, read-only, playing, state-D,
-malformed, and conflicting-lifecycle paths create no edit or history. No Swap, Move Up, or Move Down UI is included.
+The Sample Editor action-context commands `Edit > Move Sample…` and `Edit > Swap Sample…` capture the exact
+represented source, document identity/revision, selected instrument/Sxx, source value, and exact keymap before
+presenting all 16 canonical destinations S01...S16. Move confirmation constructs only
+`SampleSlotPermutation.move(from:to:)`; Swap confirmation constructs only `SampleSlotPermutation.swap(_:_:)`.
+Both pass that value to the existing `Reorder Samples` coordinator transaction. Move is removal/insertion behavior:
+identities between source and destination shift. Swap instead exchanges exactly two identities, including a
+represented source and an empty destination. The transaction remaps the keymap and shared selection so represented
+sounds and unavailable routes retain their meaning and selection follows the original source content. Cancel,
+same-slot, out-of-range, stale, read-only, playing, state-D, malformed, and conflicting-lifecycle paths create no edit
+or history. No Move Up or Move Down UI is included.
 
 ## Product Surface And Content Policy
 
@@ -484,7 +487,7 @@ This is a sequence of focused PRs, not one large implementation PR:
 14. Done: wire explicit selected-sample inclusive range assignment UI and
     non-mutating full-map graphical selection; paint/automatic mapping remain separate.
 15. Done: sample-slot permutation, canonical keymap-presence prerequisite, one reference-preserving sample
-    transaction, and user-facing Move To through that transaction; add Swap separately and defer Move Up/Down.
+    transaction, and user-facing Move To plus Swap through that transaction; defer Move Up/Down.
 16. Run the complete automated and manual from-scratch acceptance slice.
 17. Prepare `v0.3.0-alpha.1` docs, notes, checklist, and tag/build instructions.
 
@@ -492,8 +495,8 @@ The graphical range-selection slice is complete. Select later lifecycle, envelop
 loop, drag-to-paint, and automatic-mapping work as separate focused PRs.
 
 The sparse writer/reopen/editable-copy dependency, interior empty-slot presentation, represented-sample Clear,
-selected-empty population, tail-only Duplicate, model Move/Swap transaction, and Move To UI are complete. Swap UI
-remains separate scoped lifecycle work; Move Up/Down convenience controls remain deferred.
+selected-empty population, tail-only Duplicate, model Move/Swap transaction, and Move To/Swap UI are complete.
+Move Up/Down convenience controls remain deferred.
 
 ## Test And Fixture Plan
 

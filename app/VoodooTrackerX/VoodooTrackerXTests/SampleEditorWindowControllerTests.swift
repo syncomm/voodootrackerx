@@ -244,7 +244,7 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         for displayState in unavailable { XCTAssertFalse(displayState.isDuplicateEnabled) }
     }
 
-    func testMoveMenuEligibilityRequiresSampleEditorContextAndCanonicalStoppedRepresentedSource() throws {
+    func testMoveAndSwapMenuEligibilityRequireSampleEditorContextAndCanonicalStoppedRepresentedSource() throws {
         let represented = moveCoordinatorDocument()
         let instrument = try XCTUnwrap(represented.instrumentPalette[1])
         let stateD = makeSampleEditorDocument(
@@ -276,11 +276,20 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         let eligible = SampleEditorDisplayState.editableDocument(represented)
 
         XCTAssertTrue(eligible.isMoveEnabled)
+        XCTAssertTrue(eligible.isSwapEnabled)
         XCTAssertTrue(SampleEditorMoveCommandAvailability.canPerform(
             displayState: eligible,
             isSampleEditorActionContext: true
         ))
+        XCTAssertTrue(SampleEditorSwapCommandAvailability.canPerform(
+            displayState: eligible,
+            isSampleEditorActionContext: true
+        ))
         XCTAssertFalse(SampleEditorMoveCommandAvailability.canPerform(
+            displayState: eligible,
+            isSampleEditorActionContext: false
+        ))
+        XCTAssertFalse(SampleEditorSwapCommandAvailability.canPerform(
             displayState: eligible,
             isSampleEditorActionContext: false
         ))
@@ -300,7 +309,12 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         ]
         for displayState in unavailable {
             XCTAssertFalse(displayState.isMoveEnabled)
+            XCTAssertFalse(displayState.isSwapEnabled)
             XCTAssertFalse(SampleEditorMoveCommandAvailability.canPerform(
+                displayState: displayState,
+                isSampleEditorActionContext: true
+            ))
+            XCTAssertFalse(SampleEditorSwapCommandAvailability.canPerform(
                 displayState: displayState,
                 isSampleEditorActionContext: true
             ))
@@ -1333,6 +1347,124 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(commit.1, 0)
         XCTAssertEqual(try commit.0.apply(to: 1), 15)
         XCTAssertEqual(try commit.0.apply(to: 2), 1)
+        XCTAssertFalse(coordinator.confirm(
+            operationToken: request.operationToken,
+            destinationSampleIndex: 0
+        ))
+        XCTAssertFalse(coordinator.isActive)
+    }
+
+    func testSwapSheetShowsExactSourceExchangeCopyAndFullDestinationDomain() throws {
+        let request = SampleEditorSwapRequest(
+            operationToken: UUID(),
+            instrumentIndex: 0,
+            sourceSampleIndex: 2,
+            sourceDisplay: "S03"
+        )
+        let sheet = SampleEditorSwapSheet(request: request)
+
+        XCTAssertEqual(sheet.alert.messageText, "Swap Sample S03 with:")
+        XCTAssertEqual(sheet.alert.buttons.map(\.title), ["Swap Sample", "Cancel"])
+        XCTAssertTrue(sheet.alert.informativeText.contains("The two sample-slot identities will exchange."))
+        XCTAssertTrue(sheet.alert.informativeText.contains("Note mappings will be remapped automatically"))
+        XCTAssertFalse(sheet.alert.informativeText.localizedCaseInsensitiveContains("shift"))
+        XCTAssertEqual(sheet.destinationPicker.itemTitles, (1...16).map { String(format: "S%02X", $0) })
+        XCTAssertFalse(try XCTUnwrap(sheet.destinationPicker.menu).autoenablesItems)
+        XCTAssertEqual(
+            sheet.destinationPicker.itemArray.compactMap { $0.representedObject as? Int },
+            Array(0..<SampleSlotPermutation.slotCount)
+        )
+        XCTAssertFalse(try XCTUnwrap(sheet.destinationPicker.item(at: 2)).isEnabled)
+        XCTAssertNotEqual(sheet.destinationIndex, request.sourceSampleIndex)
+        sheet.destinationPicker.selectItem(at: 1)
+        XCTAssertEqual(sheet.destinationIndex, 1)
+        XCTAssertEqual(sheet.destinationPicker.accessibilityLabel(), "Swap destination sample slot")
+        XCTAssertEqual(sheet.destinationPicker.accessibilityValue() as? String, "S02")
+        XCTAssertEqual(sheet.alert.buttons[0].accessibilityLabel(), "Swap S03 with selected sample slot")
+        XCTAssertTrue(SampleEditorSwapSheet.isConfirmed(.alertFirstButtonReturn))
+        XCTAssertFalse(SampleEditorSwapSheet.isConfirmed(.alertSecondButtonReturn))
+    }
+
+    func testSwapCoordinatorRejectsCancelStaleSameSlotAndOutOfBoundsWithoutCommit() throws {
+        let identity = UUID()
+        let represented = moveCoordinatorDocument()
+        let base = makeMoveContext(represented, identity: identity)
+        var selectedElsewhere = represented
+        selectedElsewhere.selectSample(1)
+        var changedSource = represented
+        XCTAssertTrue(changedSource.setSampleVolume(instrumentAt: 0, sampleAt: 1, volume: 63))
+        var changedMap = represented
+        guard case .success = changedMap.assignSample(
+            instrumentIndex: 0, sampleIndex: 0, lowerNote: 32, upperNote: 32
+        ) else { return XCTFail("Expected a canonical map change") }
+        var removedSource = represented
+        XCTAssertTrue(removedSource.clearSample(instrumentAt: 0, sampleAt: 1))
+        let staleContexts = [
+            makeMoveContext(represented, identity: UUID()),
+            makeMoveContext(represented, identity: identity, revision: 5),
+            makeMoveContext(selectedElsewhere, identity: identity),
+            makeMoveContext(changedSource, identity: identity),
+            makeMoveContext(changedMap, identity: identity),
+            makeMoveContext(removedSource, identity: identity),
+            makeMoveContext(represented, identity: identity, isPlaybackActive: true),
+            SampleEditorSwapContext(
+                documentIdentity: nil, documentRevision: 4, editContext: .loadedReadOnly
+            ),
+            makeMoveContext(represented, identity: identity, hasLifecycleConflict: true),
+        ]
+
+        var context = base
+        var commits: [(SampleSlotPermutation, Int)] = []
+        let coordinator = SampleEditorSwapCoordinator(
+            contextProvider: { context },
+            commitHandler: { commits.append(($0, $1)); return true }
+        )
+
+        context = makeMoveContext(represented, identity: identity, hasModalConflict: true)
+        XCTAssertFalse(coordinator.canBegin)
+        XCTAssertNil(coordinator.begin())
+        context = base
+        let cancelled = try XCTUnwrap(coordinator.begin())
+        XCTAssertEqual(cancelled.sourceDisplay, "S02")
+        XCTAssertTrue(coordinator.cancel(operationToken: cancelled.operationToken))
+        XCTAssertFalse(coordinator.isActive)
+        XCTAssertTrue(commits.isEmpty)
+
+        for staleContext in staleContexts {
+            context = base
+            let request = try XCTUnwrap(coordinator.begin())
+            context = staleContext
+            XCTAssertFalse(coordinator.confirm(
+                operationToken: request.operationToken,
+                destinationSampleIndex: 0
+            ))
+            XCTAssertFalse(coordinator.isActive)
+        }
+
+        for destination in [-1, 1, SampleSlotPermutation.slotCount] {
+            context = base
+            let request = try XCTUnwrap(coordinator.begin())
+            XCTAssertFalse(coordinator.confirm(
+                operationToken: request.operationToken,
+                destinationSampleIndex: destination
+            ))
+        }
+        XCTAssertTrue(commits.isEmpty)
+
+        context = makeMoveContext(represented, identity: identity, revision: 7)
+        let request = try XCTUnwrap(coordinator.begin())
+        context = makeMoveContext(
+            represented, identity: identity, revision: 7, hasModalConflict: true
+        )
+        XCTAssertTrue(coordinator.confirm(
+            operationToken: request.operationToken,
+            destinationSampleIndex: 15
+        ))
+        let commit = try XCTUnwrap(commits.first)
+        XCTAssertEqual(commit.1, 0)
+        XCTAssertEqual(try commit.0.apply(to: 1), 15)
+        XCTAssertEqual(try commit.0.apply(to: 15), 1)
+        XCTAssertEqual(try commit.0.apply(to: 2), 2)
         XCTAssertFalse(coordinator.confirm(
             operationToken: request.operationToken,
             destinationSampleIndex: 0

@@ -117,6 +117,11 @@ the writer currently accepts that synthetic value and reopens it with an explici
 all-S01 map, while first-playable fallback makes slot reordering semantically
 ambiguous. The transaction rejects it before mutation, revision, or history.
 
+The Sample Lifecycle Alpha release-readiness gate on `647dbfcc` is a go with no
+known correctness blocker. The full automated matrix, clean host/universal
+Release builds, and maintainer listening/UI gate pass; see the
+[gate report](reports/sample-lifecycle-alpha-release-readiness.md).
+
 ## Project Goals
 
 - Preserve classic MOD/XM compatibility and tracker workflow.

@@ -126,6 +126,11 @@ labeled `applyEdit`. Stale destination identity, revision, selection, occupancy,
 playback, capacity, or operation-token changes reject the commit. Clear ->
 populate -> Undo/Redo preserves the canonical gap, map bytes, later samples, and
 unavailable/available routing transition exactly.
+The Sample Lifecycle Alpha release-readiness gate on `647dbfcc` is a go with no
+known correctness blocker. Its automated lifecycle/persistence matrix and clean
+host/universal Release builds pass, and the maintainer listening/UI gate passed.
+See the
+[gate report](reports/sample-lifecycle-alpha-release-readiness.md).
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 

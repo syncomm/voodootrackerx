@@ -1403,6 +1403,218 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertGreaterThan(try Data(contentsOf: m4aURL).count, 0)
     }
 
+    @MainActor
+    func testSampleLifecycleMilestoneGateComposesActionsAndRoundTripsSupportedState() throws {
+        var document = try makeSampleLifecycleGateDocument()
+        let initial = document
+        let originalMap = try XCTUnwrap(document.instrumentPalette[1]?.noteSampleMap)
+        let coordinator = EditableDocumentEditCoordinator(
+            contextProvider: { .editable(document: document, isPlaybackActive: false) },
+            documentApplyHandler: { document = $0 }
+        )
+
+        func routedNames(in snapshot: BlankTrackerDocument) -> [String?] {
+            [UInt8(1), 33, 65].map {
+                PlaybackInstrumentSampleResolver.resolveSample(
+                    instrumentIndex: 1, note: $0, instrumentsByIndex: snapshot.instrumentPalette
+                )?.sample.name
+            }
+        }
+
+        func exactRegionMap(_ low: Int, _ middle: Int, _ high: Int) -> [Int] {
+            Array(repeating: low, count: 32)
+                + Array(repeating: middle, count: 32)
+                + Array(repeating: high, count: 32)
+        }
+
+        func assertUndoRedo(
+            from before: BlankTrackerDocument,
+            to after: BlankTrackerDocument,
+            _ operation: String
+        ) {
+            XCTAssertTrue(coordinator.undo(), operation)
+            XCTAssertEqual(document, before, operation)
+            XCTAssertTrue(coordinator.redo(), operation)
+            XCTAssertEqual(document, after, operation)
+        }
+
+        XCTAssertEqual(originalMap, exactRegionMap(0, 1, 2))
+        XCTAssertEqual(routedNames(in: initial), ["Low Pulse", "High Ramp", "Impulse"])
+        XCTAssertTrue(coordinator.clearSample(instrumentAt: 0, sampleAt: 1))
+        let cleared = document
+        XCTAssertEqual(cleared.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 2])
+        XCTAssertEqual(cleared.instrumentPalette[1]?.noteSampleMap, originalMap)
+        XCTAssertEqual(routedNames(in: cleared), ["Low Pulse", nil, "Impulse"])
+        XCTAssertEqual(cleared.patterns, initial.patterns)
+        assertUndoRedo(from: initial, to: cleared, "Clear")
+
+        document.selectSample(3)
+        let beforeSparseMove = document
+        let sparseRouting = routedNames(in: document)
+        XCTAssertTrue(coordinator.applySampleSlotPermutation(
+            try .move(from: 2, to: 1), instrumentAt: 0
+        ))
+        let sparseMoved = document
+        XCTAssertEqual(sparseMoved.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 1])
+        XCTAssertEqual(sparseMoved.instrumentPalette[1]?.noteSampleMap, exactRegionMap(0, 2, 1))
+        XCTAssertEqual(sparseMoved.selection.selectedSample, 2)
+        XCTAssertEqual(routedNames(in: sparseMoved), sparseRouting)
+        XCTAssertEqual(sparseMoved.patterns, initial.patterns)
+        assertUndoRedo(from: beforeSparseMove, to: sparseMoved, "Sparse Move")
+        XCTAssertTrue(coordinator.undo())
+        XCTAssertEqual(document, beforeSparseMove)
+
+        document.selectSample(1)
+        let beforeDuplicate = document
+        let duplicateSource = try XCTUnwrap(document.instrumentPalette[1]?.sample(mappedSampleIndex: 0))
+        XCTAssertTrue(coordinator.duplicateSample(instrumentAt: 0, sampleAt: 0))
+        let duplicated = document
+        let duplicate = try XCTUnwrap(duplicated.instrumentPalette[1]?.sample(mappedSampleIndex: 3))
+        XCTAssertEqual(duplicated.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 2, 3])
+        XCTAssertNil(duplicated.instrumentPalette[1]?.sample(mappedSampleIndex: 1))
+        XCTAssertEqual(duplicate.reidentified(sampleIndex: 0), duplicateSource)
+        XCTAssertEqual(duplicated.instrumentPalette[1]?.noteSampleMap, originalMap)
+        XCTAssertEqual(routedNames(in: duplicated), routedNames(in: beforeDuplicate))
+        assertUndoRedo(from: beforeDuplicate, to: duplicated, "Duplicate")
+
+        document.selectSample(2)
+        let beforePopulate = document
+        let destination = try XCTUnwrap(document.selectedSampleImportDestination)
+        XCTAssertEqual(destination, .emptyDestination(instrumentIndex: 1, sampleIndex: 1))
+        XCTAssertTrue(coordinator.importAudioSample(
+            try normalizedImportCandidate(name: "Replacement.wav", pcm: [-0.625, 0, 0.625]),
+            destination: destination
+        ))
+        let populated = document
+        XCTAssertEqual(populated.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 1, 2, 3])
+        XCTAssertEqual(populated.instrumentPalette[1]?.noteSampleMap, originalMap)
+        XCTAssertEqual(routedNames(in: populated), ["Low Pulse", "Replacement", "Impulse"])
+        XCTAssertEqual(populated.patterns, initial.patterns)
+        assertUndoRedo(from: beforePopulate, to: populated, "Populate")
+
+        let routingBeforeSelection = routedNames(in: document)
+        document.selectSample(1)
+        XCTAssertEqual(routedNames(in: document), routingBeforeSelection)
+        document.selectSample(4)
+        XCTAssertEqual(routedNames(in: document), routingBeforeSelection)
+        let directRequest = SampleEditorAuditionRequestFactory.request(
+            selection: document.selection, sourceContext: .blankDocument
+        )
+        guard case let .potentiallyAvailable(directSample) = document.noteAuditionAvailability(for: directRequest)
+        else { return XCTFail("duplicated sample should remain directly auditionable") }
+        XCTAssertEqual(directSample.sampleIndex, 3)
+
+        let beforeDenseMove = document
+        XCTAssertTrue(coordinator.applySampleSlotPermutation(
+            try .move(from: 3, to: 0), instrumentAt: 0
+        ))
+        let denseMoved = document
+        XCTAssertEqual(denseMoved.selection.selectedSample, 1)
+        XCTAssertEqual(denseMoved.instrumentPalette[1]?.noteSampleMap, exactRegionMap(1, 2, 3))
+        XCTAssertEqual(routedNames(in: denseMoved), routingBeforeSelection)
+        XCTAssertEqual(denseMoved.patterns, initial.patterns)
+        assertUndoRedo(from: beforeDenseMove, to: denseMoved, "Dense Move")
+
+        let beforeRepresentedSwap = document
+        XCTAssertTrue(coordinator.applySampleSlotPermutation(
+            try .swap(0, 3), instrumentAt: 0
+        ))
+        let representedSwap = document
+        XCTAssertEqual(representedSwap.selection.selectedSample, 4)
+        XCTAssertEqual(representedSwap.instrumentPalette[1]?.noteSampleMap, exactRegionMap(1, 2, 0))
+        XCTAssertEqual(routedNames(in: representedSwap), routingBeforeSelection)
+        assertUndoRedo(from: beforeRepresentedSwap, to: representedSwap, "Represented Swap")
+
+        let replacementIndex = try XCTUnwrap(document.instrumentPalette[1]?.samples.first {
+            $0.name == "Replacement"
+        }?.sampleIndex)
+        document.selectSample(replacementIndex + 1)
+        XCTAssertTrue(coordinator.clearSample(instrumentAt: 0, sampleAt: replacementIndex))
+        XCTAssertEqual(routedNames(in: document), ["Low Pulse", nil, "Impulse"])
+        let impulseIndex = try XCTUnwrap(document.instrumentPalette[1]?.samples.first {
+            $0.name == "Impulse"
+        }?.sampleIndex)
+        document.selectSample(impulseIndex + 1)
+        let beforeEmptySwap = document
+        let sparseRoutingBeforeSwap = routedNames(in: document)
+        XCTAssertTrue(coordinator.applySampleSlotPermutation(
+            try .swap(impulseIndex, replacementIndex), instrumentAt: 0
+        ))
+        let final = document
+        XCTAssertEqual(final.instrumentPalette[1]?.noteSampleMap, exactRegionMap(1, 0, 2))
+        XCTAssertEqual(routedNames(in: final), sparseRoutingBeforeSwap)
+        XCTAssertEqual(final.selection.selectedSample, replacementIndex + 1)
+        XCTAssertEqual(final.patterns, initial.patterns)
+        assertUndoRedo(from: beforeEmptySwap, to: final, "Represented/empty Swap")
+
+        XCTAssertEqual(final.orderTable, initial.orderTable)
+        XCTAssertEqual(final.restartPosition, initial.restartPosition)
+        XCTAssertEqual(final.speed, initial.speed)
+        XCTAssertEqual(final.tempo, initial.tempo)
+        XCTAssertEqual(final.instrumentPalette[2], initial.instrumentPalette[2])
+        let finalInstrument = try XCTUnwrap(final.instrumentPalette[1])
+        XCTAssertEqual(finalInstrument.volumeEnvelope, initial.instrumentPalette[1]?.volumeEnvelope)
+        XCTAssertEqual(finalInstrument.panningEnvelope, initial.instrumentPalette[1]?.panningEnvelope)
+        XCTAssertEqual(finalInstrument.autoVibrato, initial.instrumentPalette[1]?.autoVibrato)
+        let lowPulseIndices = finalInstrument.samples.filter { $0.name == "Low Pulse" }.map(\.sampleIndex)
+        XCTAssertEqual(lowPulseIndices.count, 2)
+        XCTAssertEqual(Set(try XCTUnwrap(finalInstrument.noteSampleMap)).intersection(lowPulseIndices).count, 1)
+
+        let firstExport = try EditableXMWriter().data(from: final)
+        XCTAssertEqual(try EditableXMWriter().data(from: final), firstExport)
+        let xmURL = try temporaryExportURL(filename: "sample-lifecycle-gate.xm")
+        XCTAssertEqual(
+            ExportXMCoordinator(
+                destinationProvider: LifecycleGateExportXMDestinationProvider(destination: xmURL)
+            ).beginExport(context: .editable(
+                document: final, displayName: final.title, isPlaybackActive: false
+            )),
+            .exported(destination: xmURL)
+        )
+        XCTAssertEqual(try Data(contentsOf: xmURL), firstExport)
+        let metadata = try ModuleMetadataLoader().load(fromPath: xmURL.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: xmURL.path)
+        XCTAssertEqual(metadata.title, final.title)
+        XCTAssertEqual(metadata.orderTable, final.orderTable)
+        XCTAssertEqual(metadata.restartPosition, final.restartPosition)
+        XCTAssertEqual(metadata.defaultTempo, final.speed)
+        XCTAssertEqual(metadata.defaultBPM, final.tempo)
+        XCTAssertEqual(metadata.xmPatterns, final.patterns)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex, final.instrumentPalette)
+        XCTAssertEqual(
+            reopenedSong.xmSampleSlotProvenanceByInstrument[1]?.filter(\.isCanonicalEmptySlotHeader).map(\.sampleIndex),
+            [0]
+        )
+
+        let copyContext = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: reopenedSong,
+            selection: final.selection,
+            currentPatternIndex: final.currentPatternIndex,
+            isPlaybackActive: false
+        )
+        guard case let .copied(copy) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: copyContext)
+        else { return XCTFail("supported sparse lifecycle export should make an editable copy") }
+        XCTAssertEqual(copy.orderTable, final.orderTable)
+        XCTAssertEqual(copy.restartPosition, final.restartPosition)
+        XCTAssertEqual(copy.speed, final.speed)
+        XCTAssertEqual(copy.tempo, final.tempo)
+        XCTAssertEqual(copy.patterns, final.patterns)
+        XCTAssertEqual(copy.instrumentPalette, final.instrumentPalette)
+        XCTAssertEqual(copy.selection, final.selection)
+        XCTAssertEqual(try EditableXMWriter().data(from: copy), firstExport)
+        let reexportURL = try temporaryExportURL(filename: "sample-lifecycle-gate-reexport.xm")
+        XCTAssertEqual(
+            ExportXMCoordinator(
+                destinationProvider: LifecycleGateExportXMDestinationProvider(destination: reexportURL)
+            ).beginExport(context: .editable(
+                document: copy, displayName: copy.title, isPlaybackActive: false
+            )),
+            .exported(destination: reexportURL)
+        )
+        XCTAssertEqual(try Data(contentsOf: reexportURL), firstExport)
+    }
+
     private func makeDocument(
         title: String = BlankTrackerDocument.defaultTitle,
         currentPatternIndex: Int = BlankTrackerDocument.defaultPatternIndex,
@@ -1488,6 +1700,50 @@ final class EditableXMWriterTests: XCTestCase {
                 )
             ],
             patterns: [firstPattern, secondPattern]
+        )
+    }
+
+    private func makeSampleLifecycleGateDocument() throws -> BlankTrackerDocument {
+        let base = makeCompositionReleaseGateDocument()
+        let source = try XCTUnwrap(base.instrumentPalette[1])
+        let impulse = makeXMSourceSample(
+            sampleIndex: 2,
+            name: "Impulse",
+            pcm: (0..<64).map { $0 == 0 ? 0.875 : Float(64 - $0) / -128 },
+            volume: 0.875,
+            panning: 191,
+            relativeNote: 7,
+            finetune: -19,
+            loopStart: 8,
+            loopLength: 40,
+            loopType: 2,
+            sourceBitDepthBits: 16
+        )
+        let lifecycleInstrument = PlaybackInstrument(
+            index: source.index,
+            name: source.name,
+            samples: source.samples + [impulse],
+            volumeEnvelope: source.volumeEnvelope,
+            panningEnvelope: source.panningEnvelope,
+            autoVibrato: source.autoVibrato,
+            noteSampleMap: Array(repeating: 0, count: 32)
+                + Array(repeating: 1, count: 32)
+                + Array(repeating: 2, count: 32)
+        )
+        var palette = base.instrumentPalette
+        palette[1] = lifecycleInstrument
+        return BlankTrackerDocument(
+            title: "Untitled",
+            songLength: base.songLength,
+            currentPosition: base.currentPosition,
+            restartPosition: base.restartPosition,
+            currentPatternIndex: base.currentPatternIndex,
+            tempo: base.tempo,
+            speed: base.speed,
+            orderTable: base.orderTable,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            instrumentPalette: palette,
+            patterns: base.patterns
         )
     }
 
@@ -1578,6 +1834,19 @@ final class EditableXMWriterTests: XCTestCase {
             XCTFail("generated XM did not reload through ModuleMetadataLoader: \(error)", file: file, line: line)
             throw error
         }
+    }
+}
+
+@MainActor
+private final class LifecycleGateExportXMDestinationProvider: ExportXMDestinationProviding {
+    private let destination: URL
+
+    init(destination: URL) {
+        self.destination = destination
+    }
+
+    func chooseExportXMDestination(request _: ExportXMDestinationRequest) -> URL? {
+        destination
     }
 }
 

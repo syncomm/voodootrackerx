@@ -233,9 +233,9 @@ recover as sparse untitled editable copies and re-export byte-identically. A
 named sample, nonzero volume/pan/tuning/loop/reserved field, extended header, or
 any other nonzero header byte remains copy-unavailable rather than being silently
 canonicalized. This is a narrow lossless compatibility boundary, not arbitrary-XM
-parity. Clear and the user-facing Move operation rely on this existing boundary; Move changes only the canonical
-document state before the unchanged Export XM path. Dense and sparse moved state therefore uses the already-tested
-reopen/editable-copy/deterministic-re-export contract. Swap UI remains outside this slice.
+parity. Clear and the user-facing Move/Swap operations rely on this existing boundary; each changes only canonical
+document state before the unchanged Export XM path. Dense and sparse moved or swapped state therefore uses the
+already-tested reopen/editable-copy/deterministic-re-export contract.
 
 ### Future Native Project Format
 

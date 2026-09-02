@@ -91,6 +91,14 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(moveSample.keyEquivalent, "")
         XCTAssertFalse(moveSample.isEnabled)
 
+        let swapSample = try XCTUnwrap(editMenu.item(withTitle: "Swap Sample…"))
+        XCTAssertEqual(swapSample.action, ApplicationMenuBuilder.Actions.swapSample)
+        XCTAssertTrue(swapSample.target === target)
+        XCTAssertEqual(swapSample.keyEquivalent, "")
+        XCTAssertFalse(swapSample.isEnabled)
+        XCTAssertNil(editMenu.item(withTitle: "Move Sample Up"))
+        XCTAssertNil(editMenu.item(withTitle: "Move Sample Down"))
+
         for title in ["Cut", "Copy", "Paste", "Delete", "Select All"] {
             let item = try XCTUnwrap(editMenu.item(withTitle: title))
             XCTAssertFalse(item.isEnabled, "\(title) should stay disabled until editor behavior exists")

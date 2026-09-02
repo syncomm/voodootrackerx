@@ -11,8 +11,8 @@ implemented. CLEAR now removes the selected represented sample in place through
 one confirmed undoable edit. LOAD and SINE now populate an explicitly selected canonical empty
 S01...S16 destination in place. `Edit > Duplicate Sample` copies a represented
 selection to the next tail Sxx without changing the fixed window. `Edit > Move Sample…` moves a represented
-selection to any S01...S16 identity through the canonical permutation transaction. Other sample mutation remains
-deferred. Header
+selection to any S01...S16 identity, while `Edit > Swap Sample…` exchanges it with any other identity through the
+same canonical permutation transaction. Other sample mutation remains deferred. Header
 AUDITION directly previews the selected sample at C-4.
 
 For appearance, hierarchy, geometry, labels, grouping, placement, spacing, and
@@ -110,13 +110,14 @@ still show Sxx where the preserved map references it, but resolution is honestly
 unavailable with no fallback. Undo/Redo restores/removes the exact represented
 sample and retains the same selection and map.
 
-MOVE is enabled only for the Sample Editor action context when the selected Sxx is represented in a stopped,
-editable, canonical state with an exact bounded 96-note map and no conflicting import, Clear, modal, export, or
-other lifecycle operation. Its native sheet names the captured source, exposes the full S01...S16 destination
-domain, disables the current source choice, and explains the removal/insertion shift and automatic note-map remap.
-Confirmation revalidates document identity/revision, instrument/Sxx selection, exact source value, exact keymap,
-transport, bounds, and lifecycle state. Cancel, same-slot, stale, invalid, read-only, playing, state-D, malformed,
-or conflicting confirmation creates no revision or undo history.
+MOVE and SWAP are enabled only for the Sample Editor action context when the selected Sxx is represented in a
+stopped, editable, canonical state with an exact bounded 96-note map and no conflicting import, Clear, modal,
+export, or other lifecycle operation. Each native sheet names the captured source, exposes the full S01...S16
+destination domain, and disables the current source choice. Move explains removal/insertion shifting; Swap explains
+that exactly two identities exchange. Both explain the automatic note-map remap. Confirmation revalidates document
+identity/revision, instrument/Sxx selection, exact source value, exact keymap, transport, bounds, and lifecycle state.
+Cancel, same-slot, stale, invalid, read-only, playing, state-D, malformed, or conflicting confirmation creates no
+revision or undo history.
 
 An effective Move constructs `SampleSlotPermutation.move(from:to:)` and invokes the existing one-edit `Reorder
 Samples` operation. The Sample Editor does not rewrite sample indices, keymap values, or selection. Samples between
@@ -124,7 +125,13 @@ source and destination shift; the keymap and shared selection follow the same to
 note's represented sound or unavailable result. Main control-panel, Instrument Editor, and Sample Editor refreshes
 therefore agree on the moved sample's destination identity and exact metadata. A selection-changing refresh releases
 direct Sample Editor preview through the existing lifecycle; Move, Undo, and Redo do not auto-audition or rebuild the
-preview graph. Swap UI is absent, and Move Up/Down convenience controls remain deferred.
+preview graph.
+
+An effective Swap constructs `SampleSlotPermutation.swap(_:_:)` and invokes that same `Reorder Samples` operation.
+Only source and destination identities exchange; represented↔empty is supported without fabricating a sample. The
+keymap transforms with the pairwise exchange so represented sounds and unavailable routes remain stable, and shared
+selection follows the original source content. Swap, Undo, and Redo use the same refresh and preview rules as Move.
+Move Up/Down convenience controls remain deferred.
 
 ### From-scratch creation/import contract
 
@@ -169,7 +176,7 @@ and FLAC tags, pictures, cues, seek tables, application/padding blocks, ReplayGa
 embedded names, and loops remains deferred. The Sample Editor panel still lists
 every currently supported lossless import format. Add as New Sample and explicit selected-empty population are
 current; tail-only duplication is available from Edit. The UI-independent reorder transaction is implemented, while
-Move To is available from Edit through that transaction. Swap controls, Move Up/Down convenience controls,
+Move To and Swap are available from Edit through that transaction. Move Up/Down convenience controls,
 standalone New Sample, graphical/automatic keymap editing, and global import/drop creation remain deferred.
 Square/pulse, triangle, saw, and noise remain future generators.
 Neutral first-S01 import/generation maps all 96 notes and becomes immediately auditionable in one `applyEdit`
@@ -184,8 +191,8 @@ values unchanged, and makes any route to Sxx unavailable rather than falling
 back to S01 or the first playable sample. Duplicate appends after the highest represented identity without
 filling gaps or changing the keymap. The shared Move/Swap transaction requires canonical state C (represented
 samples plus an exact bounded 96-entry map), atomically remaps sample identity + keymap + selection, and rejects
-represented-sample/nil-map state D. User-facing Move To invokes that transaction; Swap UI remains unimplemented and
-Move Up/Down convenience controls remain deferred.
+represented-sample/nil-map state D. User-facing Move To and Swap invoke that transaction; Move Up/Down convenience
+controls remain deferred.
 
 Editable selection is stored in the `BlankTrackerDocument` value, while normal
 row selection remains a non-editing UI gesture. Clearing the selected Sxx must

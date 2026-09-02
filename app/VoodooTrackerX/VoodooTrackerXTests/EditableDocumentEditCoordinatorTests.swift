@@ -730,6 +730,119 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.appliedDocuments, [moved, before, moved])
     }
 
+    func testSwapSampleUIRefreshesSharedSelectionMetadataOwnershipAndPreview() throws {
+        let map = (0..<TrackerNoteKeyMap.maximumNoteValue).map { $0 / 32 }
+        let before = makeSampleKeymapEditableDocument(
+            sampleIndices: [0, 1, 2], noteSampleMap: map,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 3)
+        )
+        let source = try XCTUnwrap(before.instrumentPalette[1]?.sample(mappedSampleIndex: 2))
+        let routingBefore = resolvedSampleContentIdentities(in: before)
+        let token = EditorNoteAuditionPreviewToken(
+            generation: 1, keyIdentity: .sampleEditorAudition,
+            noteValue: SampleEditorAuditionRequestFactory.noteValue,
+            selectedOctave: SampleEditorAuditionRequestFactory.octave
+        )
+        var stoppedTokens: [EditorNoteAuditionPreviewToken] = []
+        let instrumentController = InstrumentEditorWindowController(displayState: .editableDocument(before))
+        let sampleController = SampleEditorWindowController(
+            displayState: .editableDocument(before),
+            auditionHandlers: .init(start: { token }, stop: { stoppedTokens.append($0); return true })
+        )
+        sampleController.synchronizeActivePreviewToken(token)
+        let instrumentView = try XCTUnwrap(instrumentController.window?.contentView as? InstrumentEditorView)
+        let sampleView = try XCTUnwrap(sampleController.window?.contentView as? SampleEditorView)
+        let harness = EditHarness(
+            context: .editable(document: before, isPlaybackActive: false),
+            onApply: {
+                instrumentController.apply(displayState: .editableDocument($0))
+                sampleController.apply(displayState: .editableDocument($0))
+            }
+        )
+        let identity = UUID()
+        let coordinator = SampleEditorSwapCoordinator(
+            contextProvider: {
+                SampleEditorSwapContext(
+                    documentIdentity: identity, documentRevision: UInt64(harness.revision),
+                    editContext: harness.context
+                )
+            },
+            commitHandler: { harness.coordinator.applySampleSlotPermutation($0, instrumentAt: $1) }
+        )
+
+        let request = try XCTUnwrap(coordinator.begin())
+        XCTAssertTrue(coordinator.confirm(operationToken: request.operationToken, destinationSampleIndex: 0))
+
+        let swapped = try XCTUnwrap(harness.editableDocument)
+        let instrument = try XCTUnwrap(swapped.instrumentPalette[1])
+        let selectedSample = source.reidentified(sampleIndex: 0)
+        XCTAssertEqual(instrument.samples.map(\.name), ["Sample 3", "Sample 2", "Sample 1"])
+        XCTAssertEqual(instrument.noteSampleMap, map.map { [2, 1, 0][$0] })
+        XCTAssertEqual(swapped.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1))
+        XCTAssertEqual(swapped.patterns, before.patterns)
+        XCTAssertEqual(resolvedSampleContentIdentities(in: swapped), routingBefore)
+        XCTAssertTrue(swapped.controlPanelMetadata.selectedSampleDisplay.hasPrefix("S01 Sample 3"))
+        XCTAssertEqual(instrumentView.displayState.selectedSample?.representedSample, selectedSample)
+        XCTAssertEqual(instrumentView.displayState.keymapRanges.map(\.sampleSlot), [3, 2, 1])
+        XCTAssertEqual(sampleView.displayState.selectedSample, selectedSample)
+        XCTAssertEqual(sampleView.displayState.waveformPCM, source.pcm)
+        XCTAssertEqual(sampleView.displayState.panning, source.panning)
+        XCTAssertEqual(sampleView.displayState.sampleSlots.map(\.slot), [1, 2, 3])
+        XCTAssertTrue(sampleView.displayState.isSwapEnabled)
+        XCTAssertEqual(stoppedTokens, [token])
+        XCTAssertNil(sampleView.activeAuditionToken)
+        XCTAssertEqual(harness.appliedDocuments, [swapped])
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Reorder Samples")
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual([instrumentView.displayState.selectedSampleSlot, sampleView.displayState.selectedSampleSlot], [3, 3])
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, swapped)
+        XCTAssertEqual([instrumentView.displayState.selectedSampleSlot, sampleView.displayState.selectedSampleSlot], [1, 1])
+    }
+
+    func testSwapSampleUIWithEmptyIdentityPreservesUnavailableRouteAndUndoRedo() throws {
+        let map = (0..<TrackerNoteKeyMap.maximumNoteValue).map { [0, 1, 2][$0 % 3] }
+        let before = makeSampleKeymapEditableDocument(
+            sampleIndices: [0, 2], noteSampleMap: map,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 3)
+        )
+        let routingBefore = resolvedSampleContentIdentities(in: before)
+        let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+        let identity = UUID()
+        let coordinator = SampleEditorSwapCoordinator(
+            contextProvider: {
+                SampleEditorSwapContext(
+                    documentIdentity: identity, documentRevision: UInt64(harness.revision),
+                    editContext: harness.context
+                )
+            },
+            commitHandler: { harness.coordinator.applySampleSlotPermutation($0, instrumentAt: $1) }
+        )
+
+        let request = try XCTUnwrap(coordinator.begin())
+        XCTAssertTrue(coordinator.confirm(operationToken: request.operationToken, destinationSampleIndex: 1))
+
+        let swapped = try XCTUnwrap(harness.editableDocument)
+        let instrument = try XCTUnwrap(swapped.instrumentPalette[1])
+        XCTAssertEqual(instrument.samples.map(\.name), ["Sample 1", "Sample 3"])
+        XCTAssertEqual(instrument.samples.map(\.sampleIndex), [0, 1])
+        XCTAssertEqual(instrument.noteSampleMap?[0...2].map { $0 }, [0, 2, 1])
+        XCTAssertEqual(swapped.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        XCTAssertEqual(swapped.sampleSlotPresentationRows(forInstrument: 1).map(\.isEmptyDestination), [false, false, true])
+        XCTAssertEqual(resolvedSampleContentIdentities(in: swapped), routingBefore)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 2, instrument: instrument
+        ))
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Reorder Samples")
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, swapped)
+        XCTAssertEqual(harness.appliedDocuments, [swapped, before, swapped])
+    }
+
     func testSampleSlotPermutationRejectsStateDWithoutFallbackMutationRevisionOrHistory() throws {
         let before = makeSampleKeymapEditableDocument(
             sampleIndices: [0],

@@ -18,6 +18,7 @@ enum ApplicationMenuBuilder {
         static let newInstrument = NSSelectorFromString("newInstrument:")
         static let duplicateSample = NSSelectorFromString("duplicateSample:")
         static let moveSample = NSSelectorFromString("moveSample:")
+        static let swapSample = NSSelectorFromString("swapSample:")
         static let clearCurrentPattern = NSSelectorFromString("clearCurrentPattern:")
         static let clearSongData = NSSelectorFromString("clearSongData:")
         static let showSongOrderEditor = NSSelectorFromString("showSongOrderEditor:")
@@ -140,6 +141,14 @@ enum ApplicationMenuBuilder {
         )
         moveSample.isEnabled = false
         menu.addItem(moveSample)
+        let swapSample = menuItem(
+            title: "Swap Sample…",
+            action: Actions.swapSample,
+            keyEquivalent: "",
+            target: target
+        )
+        swapSample.isEnabled = false
+        menu.addItem(swapSample)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(disabledItem(title: "Cut", keyEquivalent: "x"))
         menu.addItem(disabledItem(title: "Copy", keyEquivalent: "c"))

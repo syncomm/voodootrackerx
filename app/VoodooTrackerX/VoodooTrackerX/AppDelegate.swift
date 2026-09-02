@@ -94,6 +94,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self.sampleEditorWindowPresenter.refresh(displayState: self.currentSampleEditorDisplayState())
         }
     )
+    private lazy var sampleEditorSwapCoordinator = SampleEditorSwapCoordinator(
+        contextProvider: { [weak self] in
+            self?.currentSampleEditorSwapContext() ?? .unavailable
+        },
+        commitHandler: { [weak self] permutation, instrumentIndex in
+            self?.editableDocumentEditCoordinator.applySampleSlotPermutation(
+                permutation,
+                instrumentAt: instrumentIndex
+            ) ?? false
+        },
+        stateChangeHandler: { [weak self] in
+            guard let self else { return }
+            self.sampleEditorWindowPresenter.refresh(displayState: self.currentSampleEditorDisplayState())
+        }
+    )
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
     private var selectedPatternSelectionIndex = 0
@@ -233,6 +248,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             )
         case ApplicationMenuBuilder.Actions.moveSample:
             return SampleEditorMoveCommandAvailability.canPerform(
+                displayState: currentSampleEditorDisplayState(),
+                isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
+            )
+        case ApplicationMenuBuilder.Actions.swapSample:
+            return SampleEditorSwapCommandAvailability.canPerform(
                 displayState: currentSampleEditorDisplayState(),
                 isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
             )
@@ -396,6 +416,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             _ = self.sampleEditorMoveCoordinator.confirm(
+                operationToken: request.operationToken,
+                destinationSampleIndex: destinationIndex
+            )
+        }
+        presentDocumentSheet(
+            begin: { hostWindow, restoreAuxiliaryWindow in
+                sheet.alert.beginSheetModal(for: hostWindow) { response in
+                    restoreAuxiliaryWindow()
+                    completion(response)
+                }
+            },
+            fallback: { completion(sheet.alert.runModal()) }
+        )
+    }
+
+    @objc
+    private func swapSample(_ sender: Any?) {
+        let displayState = currentSampleEditorDisplayState()
+        guard SampleEditorSwapCommandAvailability.canPerform(
+            displayState: displayState,
+            isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
+        ), let request = sampleEditorSwapCoordinator.begin() else { return }
+        let sheet = SampleEditorSwapSheet(request: request)
+        let completion: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            guard SampleEditorSwapSheet.isConfirmed(response),
+                  let destinationIndex = sheet.destinationIndex else {
+                self.sampleEditorSwapCoordinator.cancel(operationToken: request.operationToken)
+                return
+            }
+            _ = self.sampleEditorSwapCoordinator.confirm(
                 operationToken: request.operationToken,
                 destinationSampleIndex: destinationIndex
             )
@@ -883,6 +934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 isImportingWAV: sampleEditorWAVImportCoordinator.isImporting,
                 hasConflictingLifecycleOperation: sampleEditorClearCoordinator.isActive ||
                     sampleEditorMoveCoordinator.isActive ||
+                    sampleEditorSwapCoordinator.isActive ||
                     hasConflictingDocumentPresentation,
                 isPreviewAvailable: noteAuditionPreviewer.isPreviewAvailable
             )
@@ -909,6 +961,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func beginSampleEditorWAVImport() -> Bool {
         guard !sampleEditorClearCoordinator.isActive,
               !sampleEditorMoveCoordinator.isActive,
+              !sampleEditorSwapCoordinator.isActive,
               !hasConflictingDocumentPresentation else { return false }
         return sampleEditorWAVImportCoordinator.begin()
     }
@@ -919,7 +972,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             documentRevision: editableDocumentRevision,
             editContext: currentEditableDocumentEditContext(),
             hasConflictingLifecycleOperation: sampleEditorWAVImportCoordinator.isImporting ||
-                sampleEditorMoveCoordinator.isActive,
+                sampleEditorMoveCoordinator.isActive ||
+                sampleEditorSwapCoordinator.isActive,
             hasConflictingModalPresentation: hasConflictingDocumentPresentation
         )
     }
@@ -948,7 +1002,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             documentRevision: editableDocumentRevision,
             editContext: currentEditableDocumentEditContext(),
             hasConflictingLifecycleOperation: sampleEditorWAVImportCoordinator.isImporting ||
-                sampleEditorClearCoordinator.isActive,
+                sampleEditorClearCoordinator.isActive ||
+                sampleEditorSwapCoordinator.isActive,
+            hasConflictingModalPresentation: hasConflictingDocumentPresentation
+        )
+    }
+
+    private func currentSampleEditorSwapContext() -> SampleEditorSwapContext {
+        SampleEditorSwapContext(
+            documentIdentity: loadedMetadata == nil ? editableDocumentIdentity : nil,
+            documentRevision: editableDocumentRevision,
+            editContext: currentEditableDocumentEditContext(),
+            hasConflictingLifecycleOperation: sampleEditorWAVImportCoordinator.isImporting ||
+                sampleEditorClearCoordinator.isActive ||
+                sampleEditorMoveCoordinator.isActive,
             hasConflictingModalPresentation: hasConflictingDocumentPresentation
         )
     }
@@ -1108,6 +1175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard !sampleEditorWAVImportCoordinator.isImporting,
               !sampleEditorClearCoordinator.isActive,
               !sampleEditorMoveCoordinator.isActive,
+              !sampleEditorSwapCoordinator.isActive,
               !hasConflictingDocumentPresentation,
               editableDocumentEditCoordinator.canGenerateSineSample else { return false }
         cancelNoteAuditionForDocumentTransition()

@@ -49,13 +49,14 @@ noncanonical state with no mutation, revision, or history. For canonical state C
 sample identity, all 96 exact map values, and the shared selected identity, then stores
 represented samples in ascending identity order. The stopped/editable coordinator commits
 one `Reorder Samples` `applyEdit`; exact Undo/Redo and dense/sparse Move plus represented-
-empty Swap persistence are covered. `Edit > Move Sample…` now exposes removal/insertion Move To only from the
-Sample Editor action context. Its native sheet names the captured represented source and offers the full S01...S16
-domain; confirmation revalidates document/revision, selection, exact source/map, stopped transport, bounds, and
-lifecycle state before constructing `SampleSlotPermutation.move` and invoking the unchanged transaction. The map
-and shared selection follow the permutation automatically, so represented sound and unavailable routing remain
-stable through one Undo/Redo entry and all shared surfaces refresh to the destination. Same-slot, Cancel, and stale
-paths create no history. Swap UI is absent and Move Up/Down convenience controls remain deferred; no
+empty Swap persistence are covered. `Edit > Move Sample…` and `Edit > Swap Sample…` now expose removal/insertion
+and pairwise exchange from the Sample Editor action context. Their native sheets name the captured represented source
+and offer the full S01...S16 domain; confirmation revalidates document/revision, selection, exact source/map, stopped
+transport, bounds, and lifecycle state before constructing only the matching `SampleSlotPermutation` and invoking
+the unchanged transaction. The map and shared selection follow the permutation automatically, so represented sound
+and unavailable routing remain stable through one Undo/Redo entry and all shared surfaces refresh to the destination.
+Swap supports represented or empty destinations without fabricating a sample. Same-slot, Cancel, and stale paths
+create no history. Move Up/Down convenience controls remain deferred; no
 writer/parser/provenance, resolver, or runtime change exists. Export XM now computes an identity span through the highest represented
 or exact-map-referenced Sxx (maximum S16), emits an all-zero 40-byte/no-payload
 header for each missing position, and writes map indices directly. Reopen drops

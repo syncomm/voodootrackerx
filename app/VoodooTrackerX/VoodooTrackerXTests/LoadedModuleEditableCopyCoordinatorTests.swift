@@ -526,7 +526,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         )?.sampleIndex, 2)
     }
 
-    func testDenseMoveTransactionResultSurvivesExportReopenAndEditableCopy() throws {
+    func testDenseMoveAndRepresentedSwapResultsSurviveExportReopenAndEditableCopy() throws {
         let source = PlaybackInstrument(
             index: 1,
             name: "Dense Permutation",
@@ -537,17 +537,27 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             ],
             noteSampleMap: (0..<96).map { $0 % 3 }
         )
-        let permutation = try SampleSlotPermutation.move(from: 2, to: 0)
-        var document = sparseSourceDocument(
-            instrument: source,
-            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 3)
-        )
-        XCTAssertTrue(document.applySampleSlotPermutation(permutation, instrumentAt: 0))
-        let transformed = try XCTUnwrap(document.instrumentPalette[1])
+        let scenarios: [(name: String, permutation: SampleSlotPermutation, expectedNames: [String])] = [
+            ("move", try .move(from: 2, to: 0), ["Content C", "Content A", "Content B"]),
+            ("swap", try .swap(2, 0), ["Content C", "Content B", "Content A"]),
+        ]
 
-        XCTAssertEqual(transformed.samples.map(\.name), ["Content C", "Content A", "Content B"])
-        XCTAssertEqual(transformed.samples.map(\.sampleIndex), [0, 1, 2])
-        _ = try assertPermutationPersistence(document, instrument: transformed, filename: "dense-permutation.xm")
+        for scenario in scenarios {
+            var document = sparseSourceDocument(
+                instrument: source,
+                selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 3)
+            )
+            XCTAssertTrue(document.applySampleSlotPermutation(scenario.permutation, instrumentAt: 0), scenario.name)
+            let transformed = try XCTUnwrap(document.instrumentPalette[1], scenario.name)
+
+            XCTAssertEqual(transformed.samples.map(\.name), scenario.expectedNames, scenario.name)
+            XCTAssertEqual(transformed.samples.map(\.sampleIndex), [0, 1, 2], scenario.name)
+            _ = try assertPermutationPersistence(
+                document,
+                instrument: transformed,
+                filename: "dense-\(scenario.name)-permutation.xm"
+            )
+        }
     }
 
     func testSparseMoveTransactionIncludingEmptyIdentitiesSurvivesExportReopenAndEditableCopy() throws {

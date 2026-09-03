@@ -29,13 +29,18 @@ enum ApplicationMenuBuilder {
     struct BuiltMenu {
         let mainMenu: NSMenu
         let windowMenu: NSMenu
+        let audioExportMenu: NSMenu
     }
 
     static func build(target: AnyObject?) -> BuiltMenu {
         let mainMenu = NSMenu()
+        let audioExportMenu = audioExportMenu(target: target)
 
         mainMenu.addItem(topLevelItem(title: "VoodooTracker X", submenu: appMenu()))
-        mainMenu.addItem(topLevelItem(title: "File", submenu: fileMenu(target: target)))
+        mainMenu.addItem(topLevelItem(
+            title: "File",
+            submenu: fileMenu(target: target, audioExportMenu: audioExportMenu)
+        ))
         mainMenu.addItem(topLevelItem(title: "Edit", submenu: editMenu(target: target)))
         mainMenu.addItem(topLevelItem(title: "View", submenu: viewMenu()))
         mainMenu.addItem(topLevelItem(title: "Transport", submenu: transportMenu(target: target)))
@@ -43,7 +48,11 @@ enum ApplicationMenuBuilder {
         mainMenu.addItem(topLevelItem(title: "Window", submenu: windowMenu))
         mainMenu.addItem(topLevelItem(title: "Help", submenu: helpMenu()))
 
-        return BuiltMenu(mainMenu: mainMenu, windowMenu: windowMenu)
+        return BuiltMenu(
+            mainMenu: mainMenu,
+            windowMenu: windowMenu,
+            audioExportMenu: audioExportMenu
+        )
     }
 
     private static func topLevelItem(title: String, submenu: NSMenu) -> NSMenuItem {
@@ -70,7 +79,7 @@ enum ApplicationMenuBuilder {
         return menu
     }
 
-    private static func fileMenu(target: AnyObject?) -> NSMenu {
+    private static func fileMenu(target: AnyObject?, audioExportMenu: NSMenu) -> NSMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(menuItem(title: "New", action: Actions.newTrackerDocument, keyEquivalent: "n", target: target))
         menu.addItem(menuItem(title: "Open...", action: Actions.openModuleFile, keyEquivalent: "o", target: target))
@@ -81,19 +90,17 @@ enum ApplicationMenuBuilder {
         saveAs.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(saveAs)
         menu.addItem(menuItem(title: "Export XM...", action: Actions.exportXM, keyEquivalent: "", target: target))
-        menu.addItem(exportAudioMenu(target: target))
+        menu.addItem(topLevelItem(title: "Export Audio", submenu: audioExportMenu))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         return menu
     }
 
-    private static func exportAudioMenu(target: AnyObject?) -> NSMenuItem {
-        let item = NSMenuItem(title: "Export Audio", action: nil, keyEquivalent: "")
-        let submenu = NSMenu(title: "Export Audio")
-        submenu.addItem(menuItem(title: "WAV...", action: Actions.exportWAV, keyEquivalent: "", target: target))
-        submenu.addItem(menuItem(title: "M4A...", action: Actions.exportM4A, keyEquivalent: "", target: target))
-        item.submenu = submenu
-        return item
+    private static func audioExportMenu(target: AnyObject?) -> NSMenu {
+        let menu = NSMenu(title: "Export Audio")
+        menu.addItem(menuItem(title: "WAV...", action: Actions.exportWAV, keyEquivalent: "", target: target))
+        menu.addItem(menuItem(title: "M4A...", action: Actions.exportM4A, keyEquivalent: "", target: target))
+        return menu
     }
 
     private static func editMenu(target: AnyObject?) -> NSMenu {

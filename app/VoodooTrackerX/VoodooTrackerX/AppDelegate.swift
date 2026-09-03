@@ -136,7 +136,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var liveResizeHorizontalOrigin: CGFloat?
     private var debugStopTimer: Timer?
     private var debugAutoplayTimer: Timer?
-    private var audioExportProgressSheet: AudioExportProgressSheet?
+    private weak var audioExportMenu: NSMenu?
+    private var audioExportProgressSheet: AudioExportProgressSheet? {
+        didSet {
+            audioExportMenu?.update()
+        }
+    }
+
+    private var isAudioExportInFlight: Bool {
+        audioExportProgressSheet != nil
+    }
 
     private var mainWindow: NSWindow? { windowController?.window }
     private var controlPanelView: ControlPanelView? { windowController?.controlPanelView }
@@ -228,9 +237,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case ApplicationMenuBuilder.Actions.exportXM:
             return ExportXMCoordinator.canExport(context: currentExportXMDocumentContext())
         case ApplicationMenuBuilder.Actions.exportWAV:
-            return WAVExportCoordinator.canExport(context: currentWAVExportDocumentContext())
+            return AudioExportPresentationGate.isCommandAvailable(
+                isExportInFlight: isAudioExportInFlight
+            ) {
+                WAVExportCoordinator.canExport(context: currentWAVExportDocumentContext())
+            }
         case ApplicationMenuBuilder.Actions.exportM4A:
-            return M4AExportCoordinator.canExport(context: currentWAVExportDocumentContext())
+            return AudioExportPresentationGate.isCommandAvailable(
+                isExportInFlight: isAudioExportInFlight
+            ) {
+                M4AExportCoordinator.canExport(context: currentWAVExportDocumentContext())
+            }
         case ApplicationMenuBuilder.Actions.makeEditableCopy:
             return LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: currentLoadedModuleEditableCopyContext())
         case ApplicationMenuBuilder.Actions.undoDocumentEdit:
@@ -352,6 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func configureMenu() {
         let builtMenu = ApplicationMenuBuilder.build(target: self)
+        audioExportMenu = builtMenu.audioExportMenu
         NSApp.mainMenu = builtMenu.mainMenu
         NSApp.windowsMenu = builtMenu.windowMenu
     }
@@ -473,20 +491,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func exportWAV(_ sender: Any?) {
-        let destinationProvider = NSSavePanelWAVExportDestinationProvider()
-        let coordinator = WAVExportCoordinator(destinationProvider: destinationProvider)
-        handleWAVExportStartResult(
-            coordinator.beginExport(context: currentWAVExportDocumentContext())
-        )
+        AudioExportPresentationGate.performIfAvailable(isExportInFlight: isAudioExportInFlight) {
+            let destinationProvider = NSSavePanelWAVExportDestinationProvider()
+            let coordinator = WAVExportCoordinator(destinationProvider: destinationProvider)
+            handleWAVExportStartResult(
+                coordinator.beginExport(context: currentWAVExportDocumentContext())
+            )
+        }
     }
 
     @objc
     private func exportM4A(_ sender: Any?) {
-        let destinationProvider = NSSavePanelM4AExportDestinationProvider()
-        let coordinator = M4AExportCoordinator(destinationProvider: destinationProvider)
-        handleM4AExportStartResult(
-            coordinator.beginExport(context: currentWAVExportDocumentContext())
-        )
+        AudioExportPresentationGate.performIfAvailable(isExportInFlight: isAudioExportInFlight) {
+            let destinationProvider = NSSavePanelM4AExportDestinationProvider()
+            let coordinator = M4AExportCoordinator(destinationProvider: destinationProvider)
+            handleM4AExportStartResult(
+                coordinator.beginExport(context: currentWAVExportDocumentContext())
+            )
+        }
     }
 
     @objc
@@ -558,11 +580,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        let cancellationToken = WAVExportCancellationToken()
-        let progressSheet = AudioExportProgressSheet(title: "Export WAV") {
-            cancellationToken.cancel()
+        guard let export = AudioExportPresentationGate.performIfAvailable(
+            isExportInFlight: isAudioExportInFlight,
+            operation: {
+                let cancellationToken = WAVExportCancellationToken()
+                let progressSheet = AudioExportProgressSheet(title: "Export WAV") {
+                    cancellationToken.cancel()
+                }
+                audioExportProgressSheet = progressSheet
+                return (cancellationToken: cancellationToken, progressSheet: progressSheet)
+            }
+        ) else {
+            return
         }
-        audioExportProgressSheet = progressSheet
+        let cancellationToken = export.cancellationToken
+        let progressSheet = export.progressSheet
         if let mainWindow {
             progressSheet.beginSheet(for: mainWindow)
         } else {
@@ -587,8 +619,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func finishWAVExport(_ result: WAVExportCompletionResult) {
-        audioExportProgressSheet?.close()
-        audioExportProgressSheet = nil
+        audioExportProgressSheet = AudioExportPresentationGate.endPresentation(audioExportProgressSheet) {
+            $0.close()
+        }
         refreshEditorsAfterDocumentSheetDismissal()
         WAVExportPerformanceSummaryLogger.writeIfEnabled(result)
 
@@ -612,11 +645,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        let cancellationToken = M4AExportCancellationToken()
-        let progressSheet = AudioExportProgressSheet(title: "Export M4A") {
-            cancellationToken.cancel()
+        guard let export = AudioExportPresentationGate.performIfAvailable(
+            isExportInFlight: isAudioExportInFlight,
+            operation: {
+                let cancellationToken = M4AExportCancellationToken()
+                let progressSheet = AudioExportProgressSheet(title: "Export M4A") {
+                    cancellationToken.cancel()
+                }
+                audioExportProgressSheet = progressSheet
+                return (cancellationToken: cancellationToken, progressSheet: progressSheet)
+            }
+        ) else {
+            return
         }
-        audioExportProgressSheet = progressSheet
+        let cancellationToken = export.cancellationToken
+        let progressSheet = export.progressSheet
         if let mainWindow {
             progressSheet.beginSheet(for: mainWindow)
         } else {
@@ -641,8 +684,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func finishM4AExport(_ result: M4AExportCompletionResult) {
-        audioExportProgressSheet?.close()
-        audioExportProgressSheet = nil
+        audioExportProgressSheet = AudioExportPresentationGate.endPresentation(audioExportProgressSheet) {
+            $0.close()
+        }
         refreshEditorsAfterDocumentSheetDismissal()
         if case .cancelled = result {
             return

@@ -15,7 +15,8 @@ final class ApplicationMenuBuilderTests: XCTestCase {
 
     func testFileMenuWiresNewOpenEditableCopyExportXMAndExportAudioWhileKeepingSaveDisabled() throws {
         let target = NSObject()
-        let fileMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: target).mainMenu.submenu(titled: "File"))
+        let builtMenu = ApplicationMenuBuilder.build(target: target)
+        let fileMenu = try XCTUnwrap(builtMenu.mainMenu.submenu(titled: "File"))
 
         XCTAssertEqual(
             fileMenu.items.map(\.title),
@@ -39,6 +40,7 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertNil(fileMenu.item(withTitle: "Export..."))
 
         let exportAudio = try XCTUnwrap(fileMenu.item(withTitle: "Export Audio")?.submenu)
+        XCTAssertTrue(exportAudio === builtMenu.audioExportMenu)
         let exportWAV = try XCTUnwrap(exportAudio.item(withTitle: "WAV..."))
         XCTAssertEqual(exportWAV.action, ApplicationMenuBuilder.Actions.exportWAV)
         XCTAssertTrue(exportWAV.target === target)
@@ -47,6 +49,31 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(exportM4A.action, ApplicationMenuBuilder.Actions.exportM4A)
         XCTAssertTrue(exportM4A.target === target)
         XCTAssertEqual(exportM4A.keyEquivalent, "")
+    }
+
+    func testAudioExportMenuUpdateRefreshesNestedCommandAvailability() throws {
+        _ = NSApplication.shared
+        let target = AudioExportMenuValidationTarget()
+        let builtMenu = ApplicationMenuBuilder.build(target: target)
+        let fileMenu = try XCTUnwrap(builtMenu.mainMenu.submenu(titled: "File"))
+        let attachedMenu = try XCTUnwrap(fileMenu.item(withTitle: "Export Audio")?.submenu)
+        let wavItem = try XCTUnwrap(builtMenu.audioExportMenu.item(withTitle: "WAV..."))
+        let m4aItem = try XCTUnwrap(builtMenu.audioExportMenu.item(withTitle: "M4A..."))
+
+        XCTAssertTrue(attachedMenu === builtMenu.audioExportMenu)
+
+        target.isExportInFlight = true
+        builtMenu.audioExportMenu.update()
+        XCTAssertEqual(target.validationResults, [false, false])
+        XCTAssertFalse(wavItem.isEnabled)
+        XCTAssertFalse(m4aItem.isEnabled)
+
+        target.isExportInFlight = false
+        target.validationResults.removeAll()
+        builtMenu.audioExportMenu.update()
+        XCTAssertEqual(target.validationResults, [true, true])
+        XCTAssertTrue(wavItem.isEnabled)
+        XCTAssertTrue(m4aItem.isEnabled)
     }
 
     func testFileMenuKeepsSaveAndSaveAsDisabledWithNilTarget() throws {
@@ -151,6 +178,27 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertTrue(sample.target === target)
         XCTAssertEqual(sample.keyEquivalent, "")
         XCTAssertTrue(sample.isEnabled)
+    }
+}
+
+private final class AudioExportMenuValidationTarget: NSObject, NSMenuItemValidation {
+    var isExportInFlight = false
+    var validationResults = [Bool]()
+
+    @objc
+    func exportWAV(_ sender: Any?) {}
+
+    @objc
+    func exportM4A(_ sender: Any?) {}
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let result = AudioExportPresentationGate.isCommandAvailable(
+            isExportInFlight: isExportInFlight
+        ) {
+            true
+        }
+        validationResults.append(result)
+        return result
     }
 }
 

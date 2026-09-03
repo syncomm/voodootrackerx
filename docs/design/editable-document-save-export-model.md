@@ -336,6 +336,11 @@ Save/export is a file-output boundary. It must not change:
 - tracker viewport or static-highlight behavior
 - Instrument Editor mutation or Sample Editor behavior
 
+At most one product WAV/M4A audio export may be in flight. While its progress
+sheet is active, both audio-export commands are disabled, and direct or
+re-entrant starts are rejected until that export succeeds, fails, or is
+cancelled.
+
 Export validation may later reuse existing offline/public-safe render tooling,
 but save/export implementation should not add render behavior unless a focused
 future PR explicitly scopes that work.

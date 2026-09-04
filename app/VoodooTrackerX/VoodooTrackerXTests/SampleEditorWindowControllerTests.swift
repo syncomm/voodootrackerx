@@ -1131,11 +1131,15 @@ final class SampleEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(
             warning.informativeText,
             """
-            The sample PCM and metadata will be removed. Undo can restore it.
+            The sample PCM and metadata will be removed.
 
             12 mapped notes currently reference S02. Those mappings will be preserved and will become unavailable until explicitly remapped or the slot is populated again.
+
+            You can undo this change immediately with Edit > Undo.
             """
         )
+        XCTAssertFalse(warning.informativeText.contains("Undo can restore it."))
+        XCTAssertTrue(warning.informativeText.contains("You can undo this change immediately with Edit > Undo."))
         XCTAssertTrue(SampleEditorClearAlert.isConfirmed(.alertFirstButtonReturn))
         XCTAssertFalse(SampleEditorClearAlert.isConfirmed(.alertSecondButtonReturn))
 

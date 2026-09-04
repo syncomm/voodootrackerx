@@ -70,6 +70,24 @@ instrument/sample palette data and playable sample payloads where available,
 then clears song/order/pattern note data into an editable blank song. It is not
 full loaded-module editing.
 
+### Clear Song Data Safety Boundary
+
+Clear Song Data requires stopped transport and one shared native confirmation
+from both `Edit > Clear Song Data` and the Song / Order editor's `CLEAR SONG`
+control. For an editable document, confirmation clears pattern/order data while
+preserving the instrument/sample palette through one `Clear Song Data`
+`applyEdit`; immediate Undo restores the exact prior document and Redo restores
+the cleared value. Cancelled, stale, conflicting-presentation, playing, and
+value-identical requests create no mutation or history.
+
+For a loaded read-only module, confirmation truthfully describes the transition
+to an editable document with cleared song data. The loaded source remains
+untouched, and the bridge continues to use
+`BlankTrackerDocument.makeEditableCopyClearingSongData`. The separate
+`VTX-J-002` admission-asymmetry finding remains unresolved; this safety boundary
+does not tighten, relax, or redirect that bridge through the Make Editable Copy
+coordinator.
+
 ## From-Scratch Sample Ownership
 
 Imported or generated PCM is copied into the editable document before it becomes

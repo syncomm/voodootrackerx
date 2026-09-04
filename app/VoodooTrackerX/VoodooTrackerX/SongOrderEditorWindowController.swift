@@ -1,5 +1,216 @@
 import AppKit
 
+enum ClearSongDataSourceContext: Equatable {
+    case none
+    case editable(
+        documentIdentity: UUID?,
+        documentRevision: UInt64,
+        document: BlankTrackerDocument
+    )
+    case loadedReadOnly(
+        moduleIdentity: UUID?,
+        metadata: ParsedModuleMetadata,
+        playbackSong: PlaybackSong,
+        selection: TrackerEditorSelection,
+        sourcePatternIndex: Int,
+        bridgeEligible: Bool
+    )
+}
+
+struct ClearSongDataContext: Equatable {
+    let source: ClearSongDataSourceContext
+    let isPlaybackActive: Bool
+    let hasConflictingDocumentPresentation: Bool
+
+    static let unavailable = Self(
+        source: .none,
+        isPlaybackActive: false,
+        hasConflictingDocumentPresentation: false
+    )
+
+    fileprivate var commitTarget: ClearSongDataCommitTarget? {
+        switch source {
+        case .none:
+            return nil
+        case let .editable(documentIdentity, documentRevision, document):
+            guard let documentIdentity,
+                  EditorCommandAvailability.canClearSongData(
+                      hasBlankDocument: true,
+                      sourceContext: document.noteAuditionSourceContext,
+                      isPlaybackActive: isPlaybackActive,
+                      hasConflictingDocumentPresentation: hasConflictingDocumentPresentation,
+                      isConfirmationActive: false
+                  ) else { return nil }
+            return .editable(
+                documentIdentity: documentIdentity,
+                documentRevision: documentRevision,
+                document: document
+            )
+        case let .loadedReadOnly(
+            moduleIdentity,
+            metadata,
+            playbackSong,
+            selection,
+            sourcePatternIndex,
+            bridgeEligible
+        ):
+            guard let moduleIdentity,
+                  EditorCommandAvailability.canClearSongData(
+                      hasBlankDocument: false,
+                      sourceContext: .loadedModule(patternIndex: sourcePatternIndex),
+                      loadedModuleCanMakeEditableCopy: bridgeEligible,
+                      isPlaybackActive: isPlaybackActive,
+                      hasConflictingDocumentPresentation: hasConflictingDocumentPresentation,
+                      isConfirmationActive: false
+                  ) else { return nil }
+            return .loadedReadOnly(
+                moduleIdentity: moduleIdentity,
+                metadata: metadata,
+                playbackSong: playbackSong,
+                selection: selection,
+                sourcePatternIndex: sourcePatternIndex
+            )
+        }
+    }
+}
+
+enum ClearSongDataConfirmationKind: Equatable {
+    case editableDocument
+    case loadedReadOnlyModule
+}
+
+struct ClearSongDataRequest: Equatable {
+    let operationToken: UUID
+    let kind: ClearSongDataConfirmationKind
+}
+
+enum ClearSongDataCommitTarget: Equatable {
+    case editable(
+        documentIdentity: UUID,
+        documentRevision: UInt64,
+        document: BlankTrackerDocument
+    )
+    case loadedReadOnly(
+        moduleIdentity: UUID,
+        metadata: ParsedModuleMetadata,
+        playbackSong: PlaybackSong,
+        selection: TrackerEditorSelection,
+        sourcePatternIndex: Int
+    )
+
+    fileprivate var confirmationKind: ClearSongDataConfirmationKind {
+        switch self {
+        case .editable:
+            return .editableDocument
+        case .loadedReadOnly:
+            return .loadedReadOnlyModule
+        }
+    }
+
+    func isCurrent(in context: ClearSongDataContext) -> Bool {
+        context.commitTarget == self
+    }
+}
+
+@MainActor
+final class ClearSongDataCoordinator {
+    private let contextProvider: () -> ClearSongDataContext
+    private let commitHandler: (ClearSongDataCommitTarget) -> Bool
+    private let stateChangeHandler: () -> Void
+    private var activeOperation: (
+        token: UUID,
+        target: ClearSongDataCommitTarget,
+        didObservePlayback: Bool
+    )?
+
+    init(
+        contextProvider: @escaping () -> ClearSongDataContext,
+        commitHandler: @escaping (ClearSongDataCommitTarget) -> Bool,
+        stateChangeHandler: @escaping () -> Void = {}
+    ) {
+        self.contextProvider = contextProvider
+        self.commitHandler = commitHandler
+        self.stateChangeHandler = stateChangeHandler
+    }
+
+    var isActive: Bool { activeOperation != nil }
+    var canBegin: Bool {
+        activeOperation == nil && contextProvider().commitTarget != nil
+    }
+
+    func begin() -> ClearSongDataRequest? {
+        guard activeOperation == nil,
+              let target = contextProvider().commitTarget else { return nil }
+        let token = UUID()
+        activeOperation = (token, target, false)
+        stateChangeHandler()
+        return ClearSongDataRequest(operationToken: token, kind: target.confirmationKind)
+    }
+
+    func invalidateActiveConfirmationForPlaybackStart() {
+        guard var activeOperation else { return }
+        activeOperation.didObservePlayback = true
+        self.activeOperation = activeOperation
+    }
+
+    @discardableResult
+    func cancel(operationToken: UUID) -> Bool {
+        guard activeOperation?.token == operationToken else { return false }
+        finish()
+        return true
+    }
+
+    @discardableResult
+    func confirm(operationToken: UUID) -> Bool {
+        guard let activeOperation,
+              activeOperation.token == operationToken else { return false }
+        defer { finish() }
+        guard !activeOperation.didObservePlayback,
+              activeOperation.target.isCurrent(in: contextProvider()) else { return false }
+        return commitHandler(activeOperation.target)
+    }
+
+    private func finish() {
+        activeOperation = nil
+        stateChangeHandler()
+    }
+}
+
+@MainActor
+enum ClearSongDataAlert {
+    static func make(request: ClearSongDataRequest) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        switch request.kind {
+        case .editableDocument:
+            alert.messageText = "Clear Song Data?"
+            alert.informativeText = """
+            This will remove all pattern and order data from the current editable document.
+            Instruments and samples will be preserved.
+
+            You can undo this change immediately with Edit > Undo.
+            """
+            alert.addButton(withTitle: "Clear Song Data")
+            alert.buttons[0].setAccessibilityLabel("Clear song pattern and order data")
+        case .loadedReadOnlyModule:
+            alert.messageText = "Create Editable Copy with Song Data Cleared?"
+            alert.informativeText = """
+            The loaded module will remain unchanged.
+            VTX will create an editable document with pattern/order data cleared and the supported instrument/sample palette preserved.
+            """
+            alert.addButton(withTitle: "Create Editable Copy")
+            alert.buttons[0].setAccessibilityLabel("Create editable copy with song data cleared")
+        }
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        return alert
+    }
+
+    static func isConfirmed(_ response: NSApplication.ModalResponse) -> Bool {
+        response == .alertFirstButtonReturn
+    }
+}
+
 enum SongOrderEditorViewIdentifier {
     static let contentView = "songOrderEditor.contentView"
     static let orderListPanel = "songOrderEditor.orderListPanel"
@@ -155,7 +366,8 @@ struct SongOrderEditorDisplayState: Equatable {
     static func editableDocument(
         _ document: BlankTrackerDocument,
         requestedBankIndex: Int? = nil,
-        isOrderMutationEnabled: Bool = true
+        isOrderMutationEnabled: Bool = true,
+        isClearSongEnabled: Bool? = nil
     ) -> SongOrderEditorDisplayState {
         let rowCounts = document.patterns.reduce(into: [Int: Int]()) { partialResult, pattern in
             partialResult[pattern.index] = pattern.rowCount
@@ -173,7 +385,7 @@ struct SongOrderEditorDisplayState: Equatable {
             requestedBankIndex: requestedBankIndex,
             hasDocumentState: true,
             isOrderMutationEnabled: isOrderMutationEnabled,
-            isClearSongEnabled: isOrderMutationEnabled
+            isClearSongEnabled: isClearSongEnabled ?? isOrderMutationEnabled
         )
     }
 
@@ -205,6 +417,25 @@ struct SongOrderEditorDisplayState: Equatable {
             isOrderMutationEnabled: isOrderMutationEnabled,
             isPatternMutationEnabled: isPatternMutationEnabled,
             isClearSongEnabled: isClearSongEnabled
+        )
+    }
+
+    func withClearSongEnabled(_ isEnabled: Bool) -> SongOrderEditorDisplayState {
+        SongOrderEditorDisplayState(
+            orderRows: orderRows,
+            patternBankCells: patternBankCells,
+            bankRangeLabel: bankRangeLabel,
+            bankDisplayLabel: bankDisplayLabel,
+            bankIndex: bankIndex,
+            totalBankCount: totalBankCount,
+            existingPatternIndices: existingPatternIndices,
+            usedPatternIndices: usedPatternIndices,
+            selectedOrderPosition: selectedOrderPosition,
+            selectedPatternIndex: selectedPatternIndex,
+            hasDocumentState: hasDocumentState,
+            isOrderMutationEnabled: isOrderMutationEnabled,
+            isPatternMutationEnabled: isPatternMutationEnabled,
+            isClearSongEnabled: isEnabled
         )
     }
 
@@ -554,18 +785,6 @@ enum SongOrderEditorNavigation {
         return updatedDocument
     }
 
-    static func editableDocumentClearingSongDataForEditing(
-        _ document: BlankTrackerDocument,
-        isPlaybackActive: Bool
-    ) -> BlankTrackerDocument? {
-        guard !isPlaybackActive else {
-            return nil
-        }
-        var updatedDocument = document
-        updatedDocument.clearSongData()
-        return updatedDocument
-    }
-
     static func editableDocument(
         _ document: BlankTrackerDocument,
         selectingOrderPosition orderPosition: Int,
@@ -824,6 +1043,13 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
         return apply(displayState: displayState)
     }
 
+    @discardableResult
+    func applyClearSongAvailability(_ isEnabled: Bool) -> Bool {
+        guard isVisibleForRefresh,
+              let contentView = window?.contentView as? SongOrderEditorContentView else { return false }
+        return contentView.applyClearSongAvailability(isEnabled)
+    }
+
     func windowWillClose(_ notification: Notification) {
         closeHandler?()
     }
@@ -849,6 +1075,7 @@ final class SongOrderEditorContentView: FlippedEditorView {
     private(set) var selectedOrderScrollCount = 0
     private let usedPatternFill = NSColor(srgbRed: 0x2A / 255.0, green: 0x2A / 255.0, blue: 0x10 / 255.0, alpha: 1.0)
     private var lastScrolledSelectedOrderPosition: Int?
+    private weak var clearSongButton: NSButton?
 
     init(frame frameRect: NSRect, displayState: SongOrderEditorDisplayState = .empty) {
         self.displayState = displayState
@@ -870,6 +1097,18 @@ final class SongOrderEditorContentView: FlippedEditorView {
         }
         self.displayState = displayState
         rebuildShell()
+        return true
+    }
+
+    @discardableResult
+    func applyClearSongAvailability(_ isEnabled: Bool) -> Bool {
+        guard displayState.isClearSongEnabled != isEnabled else { return false }
+        displayState = displayState.withClearSongEnabled(isEnabled)
+        clearSongButton?.isEnabled = isEnabled
+        clearSongButton?.target = isEnabled ? self : nil
+        clearSongButton?.action = isEnabled ? #selector(clearSong(_:)) : nil
+        clearSongButton?.sendAction(on: isEnabled ? .leftMouseUp : [])
+        clearSongButton?.toolTip = isEnabled ? "Clear song/order/pattern data" : "Clear song unavailable"
         return true
     }
 
@@ -1269,7 +1508,7 @@ final class SongOrderEditorContentView: FlippedEditorView {
     }
 
     private func buildDangerPanel(_ panel: NSView) {
-        addButton(
+        clearSongButton = addButton(
             "⌫ CLEAR SONG",
             to: panel,
             frame: NSRect(x: 10, y: 12, width: 124, height: 25),
@@ -1315,6 +1554,7 @@ final class SongOrderEditorContentView: FlippedEditorView {
         addControl(readout, to: parent, frame: frame)
     }
 
+    @discardableResult
     private func addButton(
         _ title: String,
         to parent: NSView,
@@ -1324,7 +1564,7 @@ final class SongOrderEditorContentView: FlippedEditorView {
         action: Selector? = nil,
         isEnabled: Bool = true,
         toolTip: String = "Inactive shell control"
-    ) {
+    ) -> VTXEditorButton {
         let button = VTXEditorControlFactory.makeButton(title: title, role: role, fixedWidth: frame.width)
         button.isEnabled = isEnabled
         button.target = target
@@ -1334,6 +1574,7 @@ final class SongOrderEditorContentView: FlippedEditorView {
         }
         button.toolTip = toolTip
         addControl(button, to: parent, frame: frame)
+        return button
     }
 
     private func addLED(to parent: NSView, frame: NSRect) {

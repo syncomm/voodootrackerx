@@ -140,6 +140,16 @@ final class EditableDocumentEditCoordinator {
         return applyEdit(label: "Clear Sample", updatedDocument: document)
     }
 
+    /// Clears the editable song/order state as one whole-document undoable edit.
+    @discardableResult
+    func clearSongData() -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation else {
+            return false
+        }
+        document.clearSongData()
+        return applyEdit(label: "Clear Song Data", updatedDocument: document)
+    }
+
     /// Duplicates one exact selected sample as a single undoable tail append.
     @discardableResult
     func duplicateSample(

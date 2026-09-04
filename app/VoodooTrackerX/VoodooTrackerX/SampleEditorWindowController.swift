@@ -467,12 +467,13 @@ enum SampleEditorClearAlert {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Clear Sample \(request.sampleDisplay)?"
-        var detail = "The sample PCM and metadata will be removed. Undo can restore it."
+        var detail = "The sample PCM and metadata will be removed."
         if request.mappedNoteCount > 0 {
             let noteLabel = request.mappedNoteCount == 1 ? "mapped note" : "mapped notes"
             detail += "\n\n\(request.mappedNoteCount) \(noteLabel) currently reference \(request.sampleDisplay). "
             detail += "Those mappings will be preserved and will become unavailable until explicitly remapped or the slot is populated again."
         }
+        detail += "\n\nYou can undo this change immediately with Edit > Undo."
         alert.informativeText = detail
         alert.addButton(withTitle: "Clear Sample")
         alert.addButton(withTitle: "Cancel")

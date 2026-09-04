@@ -943,20 +943,32 @@ final class BlankTrackerDocumentTests: XCTestCase {
         ))
         XCTAssertTrue(EditorCommandAvailability.canClearSongData(
             hasBlankDocument: true,
-            sourceContext: .blankDocument
+            sourceContext: .blankDocument,
+            isPlaybackActive: false,
+            hasConflictingDocumentPresentation: false,
+            isConfirmationActive: false
         ))
         XCTAssertFalse(EditorCommandAvailability.canClearSongData(
             hasBlankDocument: false,
-            sourceContext: .blankDocument
+            sourceContext: .blankDocument,
+            isPlaybackActive: false,
+            hasConflictingDocumentPresentation: false,
+            isConfirmationActive: false
         ))
         XCTAssertFalse(EditorCommandAvailability.canClearSongData(
             hasBlankDocument: false,
-            sourceContext: .loadedModule(patternIndex: 0)
+            sourceContext: .loadedModule(patternIndex: 0),
+            isPlaybackActive: false,
+            hasConflictingDocumentPresentation: false,
+            isConfirmationActive: false
         ))
         XCTAssertTrue(EditorCommandAvailability.canClearSongData(
             hasBlankDocument: false,
             sourceContext: .loadedModule(patternIndex: 0),
-            loadedModuleCanMakeEditableCopy: true
+            loadedModuleCanMakeEditableCopy: true,
+            isPlaybackActive: false,
+            hasConflictingDocumentPresentation: false,
+            isConfirmationActive: false
         ))
     }
 
@@ -3351,12 +3363,18 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertFalse(EditorCommandAvailability.canClearSongData(
             hasBlankDocument: false,
-            sourceContext: .loadedModule(patternIndex: 0)
+            sourceContext: .loadedModule(patternIndex: 0),
+            isPlaybackActive: false,
+            hasConflictingDocumentPresentation: false,
+            isConfirmationActive: false
         ))
         XCTAssertTrue(EditorCommandAvailability.canClearSongData(
             hasBlankDocument: false,
             sourceContext: .loadedModule(patternIndex: 0),
-            loadedModuleCanMakeEditableCopy: true
+            loadedModuleCanMakeEditableCopy: true,
+            isPlaybackActive: false,
+            hasConflictingDocumentPresentation: false,
+            isConfirmationActive: false
         ))
         XCTAssertEqual(metadata, before)
         XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].note, 49)

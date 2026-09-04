@@ -54,6 +54,49 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.appliedDocuments, [cleared, before, cleared])
     }
 
+    func testClearSongDataIsOneApplyEditActionWithExactUndoRedoAndPreservedPalette() {
+        let before = documentWithArrangedSongDataAndPalette()
+        var cleared = before
+        cleared.clearSongData()
+        let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+
+        XCTAssertTrue(harness.coordinator.clearSongData())
+        XCTAssertEqual(harness.editableDocument, cleared)
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette, before.instrumentPalette)
+        XCTAssertEqual(harness.appliedDocuments, [cleared])
+        XCTAssertEqual(harness.revision, 1)
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Clear Song Data")
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument, before)
+        XCTAssertEqual(harness.revision, 2)
+        XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Clear Song Data")
+
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument, cleared)
+        XCTAssertEqual(harness.appliedDocuments, [cleared, before, cleared])
+        XCTAssertEqual(harness.revision, 3)
+    }
+
+    func testClearSongDataRejectsUnavailablePlaybackAndNoOpContextsWithoutHistory() {
+        let populated = documentWithArrangedSongDataAndPalette()
+        let contexts: [EditableDocumentEditContext] = [
+            .none,
+            .loadedReadOnly,
+            .editable(document: populated, isPlaybackActive: true),
+            .editable(document: .makeDefault(), isPlaybackActive: false),
+        ]
+
+        for context in contexts {
+            let harness = EditHarness(context: context)
+            XCTAssertFalse(harness.coordinator.clearSongData())
+            XCTAssertTrue(harness.appliedDocuments.isEmpty)
+            XCTAssertEqual(harness.revision, 0)
+            XCTAssertFalse(harness.undoManager.canUndo)
+            XCTAssertFalse(harness.undoManager.canRedo)
+        }
+    }
+
     func testNewInstrumentIsOneApplyEditActionWithExactSelectionUndoRedo() throws {
         let before = BlankTrackerDocument.makeDefault()
         let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
@@ -1808,6 +1851,35 @@ private func documentWithThreeDistinctSamplesSelectedS02() -> BlankTrackerDocume
     )
     document.selectSample(2)
     return document
+}
+
+private func documentWithArrangedSongDataAndPalette() -> BlankTrackerDocument {
+    let paletteDocument = documentWithThreeDistinctSamplesSelectedS02()
+    var firstPattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 16, channels: 2)
+    firstPattern.rows[1][0] = XMPatternEventCell(
+        note: 49, instrument: 1, volumeColumn: 0x40, effectType: 0x0F, effectParam: 0x7D
+    )
+    var secondPattern = BlankTrackerDocument.makeEmptyPattern(index: 7, rowCount: 32, channels: 3)
+    secondPattern.rows[2][1] = XMPatternEventCell(
+        note: TrackerNoteKeyMap.keyOffNoteValue,
+        instrument: 1,
+        volumeColumn: 0x30,
+        effectType: 0x0E,
+        effectParam: 0x9C
+    )
+    return BlankTrackerDocument(
+        title: "Arranged Song",
+        songLength: 3,
+        currentPosition: 1,
+        restartPosition: 2,
+        currentPatternIndex: 7,
+        tempo: 144,
+        speed: 3,
+        orderTable: [0, 7, 0],
+        selection: paletteDocument.selection,
+        instrumentPalette: paletteDocument.instrumentPalette,
+        patterns: [firstPattern, secondPattern]
+    )
 }
 
 private func samplePCMBaseAddress(in document: BlankTrackerDocument) -> UInt? {

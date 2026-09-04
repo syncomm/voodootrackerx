@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let instrumentEditorWindowPresenter = InstrumentEditorWindowPresenter()
     private let sampleEditorWindowPresenter = SampleEditorWindowPresenter()
     private var editableDocumentIdentity: UUID?
+    private var loadedModuleIdentity: UUID?
     private var editableDocumentRevision: UInt64 = 0
     private var blankDocument: BlankTrackerDocument? {
         didSet { editableDocumentRevision &+= 1 }
@@ -20,6 +21,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private lazy var editableDocumentEditCoordinator = EditableDocumentEditCoordinator(
         contextProvider: { [weak self] in self?.currentEditableDocumentEditContext() ?? .none },
         documentApplyHandler: { [weak self] document in self?.applyEditableDocumentSnapshot(document) }
+    )
+    private lazy var clearSongDataCoordinator = ClearSongDataCoordinator(
+        contextProvider: { [weak self] in self?.currentClearSongDataContext() ?? .unavailable },
+        commitHandler: { [weak self] target in self?.commitClearSongData(target) ?? false },
+        stateChangeHandler: { [weak self] in self?.refreshClearSongDataAvailability() }
     )
     private lazy var instrumentKeymapRangeAssignmentCoordinator =
         InstrumentKeymapRangeAssignmentCoordinator(
@@ -137,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var debugStopTimer: Timer?
     private var debugAutoplayTimer: Timer?
     private weak var audioExportMenu: NSMenu?
+    private weak var clearSongDataConfirmationWindow: NSWindow?
     private var audioExportProgressSheet: AudioExportProgressSheet? {
         didSet {
             audioExportMenu?.update()
@@ -296,11 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     sourceContext: currentEditorNoteAuditionSourceContext()
                 )
         case ApplicationMenuBuilder.Actions.clearSongData:
-            return EditorCommandAvailability.canClearSongData(
-                hasBlankDocument: blankDocument != nil,
-                sourceContext: currentEditorNoteAuditionSourceContext(),
-                loadedModuleCanMakeEditableCopy: loadedModuleCanMakeEditableCopy()
-            )
+            return clearSongDataCoordinator.canBegin
         case #selector(NSWindow.performClose(_:)):
             return mainWindow != nil
         default:
@@ -729,6 +732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func applyUntitledEditableCopy(_ document: BlankTrackerDocument) {
         editableDocumentIdentity = UUID()
+        loadedModuleIdentity = nil
         blankDocument = document
         loadedMetadata = nil
         editableDocumentEditCoordinator.discardUndoHistory()
@@ -814,7 +818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self?.stepSongOrderEditorSelectedOrderPattern(delta: delta)
         }
         controller.onClearSongRequested = { [weak self] in
-            self?.clearSongOrderEditorSongData()
+            _ = self?.beginClearSongDataConfirmation()
         }
         controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
@@ -1162,7 +1166,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func presentDocumentSheet(
         begin: (_ hostWindow: NSWindow, _ restoreAuxiliaryWindow: @escaping @MainActor () -> Void) -> Void,
-        fallback: () -> Void
+        fallback: () -> Void,
+        refreshSongOrderEditor: Bool = true
     ) {
         let presentation = LoadedModuleEditableCopyAlertHostPolicy.presentation(
             keyWindow: NSApp.keyWindow,
@@ -1170,7 +1175,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         guard let hostWindow = presentation.hostWindow else {
             fallback()
-            refreshEditorsAfterDocumentSheetDismissal()
+            refreshEditorsAfterDocumentSheetDismissal(
+                refreshSongOrderEditor: refreshSongOrderEditor
+            )
             return
         }
         let auxiliaryWindow = presentation.auxiliaryWindowToRestore
@@ -1189,26 +1196,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     auxiliaryWindow.makeKeyAndOrderFront(nil)
                 }
             }
-            self?.refreshEditorsAfterDocumentSheetDismissal()
+            self?.refreshEditorsAfterDocumentSheetDismissal(
+                refreshSongOrderEditor: refreshSongOrderEditor
+            )
         }
-        refreshEditorsForCurrentDocumentState()
+        refreshEditorsForCurrentDocumentState(refreshSongOrderEditor: refreshSongOrderEditor)
     }
 
-    private func refreshEditorsAfterDocumentSheetDismissal() {
+    private func refreshEditorsAfterDocumentSheetDismissal(refreshSongOrderEditor: Bool = true) {
         // AppKit can still report a just-dismissed sheet inside its completion
-        // callback, so recompute both editors' eligibility on the next turn.
+        // callback, so recompute dependent editor eligibility on the next turn.
         InstrumentKeymapRangeAssignmentSheetLifecycle.refreshAfterDismissal { [weak self] in
-            self?.refreshEditorsForCurrentDocumentState()
+            self?.refreshEditorsForCurrentDocumentState(
+                refreshSongOrderEditor: refreshSongOrderEditor
+            )
         }
     }
 
-    private func refreshEditorsForCurrentDocumentState() {
+    private func refreshEditorsForCurrentDocumentState(refreshSongOrderEditor: Bool = true) {
+        if refreshSongOrderEditor {
+            self.refreshSongOrderEditor()
+        }
         refreshInstrumentEditor()
         sampleEditorWindowPresenter.refresh(displayState: currentSampleEditorDisplayState())
     }
 
     private var hasConflictingDocumentPresentation: Bool {
-        audioExportProgressSheet != nil || mainWindow?.attachedSheet != nil || NSApp.modalWindow != nil
+        hasConflictingDocumentPresentation(excluding: nil)
+    }
+
+    private func hasConflictingDocumentPresentation(excluding allowedWindow: NSWindow?) -> Bool {
+        if audioExportProgressSheet != nil {
+            return true
+        }
+        if let attachedSheet = mainWindow?.attachedSheet,
+           attachedSheet !== allowedWindow {
+            return true
+        }
+        if let modalWindow = NSApp.modalWindow,
+           modalWindow !== allowedWindow {
+            return true
+        }
+        return false
+    }
+
+    private func refreshClearSongDataAvailability() {
+        NSApp.mainMenu?.update()
+        songOrderEditorWindowController?.applyClearSongAvailability(
+            clearSongDataCoordinator.canBegin
+        )
     }
 
     private func refreshInstrumentEditor() {
@@ -1514,19 +1550,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         applyEditableSongOrderDocument(updatedDocument)
     }
 
-    private func clearSongOrderEditorSongData() {
-        guard let document = blankDocument,
-              loadedMetadata == nil,
-              let updatedDocument = SongOrderEditorNavigation.editableDocumentClearingSongDataForEditing(
-                  document,
-                  isPlaybackActive: playbackEngine.state.isPlaying
-              ) else {
-            return
-        }
-
-        applyClearedEditableSongData(updatedDocument)
-    }
-
     private func currentEditableDocumentEditContext() -> EditableDocumentEditContext {
         if let blankDocument, loadedMetadata == nil {
             return .editable(document: blankDocument, isPlaybackActive: playbackEngine.state.isPlaying)
@@ -1570,7 +1593,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let blankDocument {
             return SongOrderEditorDisplayState.editableDocument(
                 blankDocument,
-                isOrderMutationEnabled: !playbackEngine.state.isPlaying
+                isOrderMutationEnabled: !playbackEngine.state.isPlaying,
+                isClearSongEnabled: clearSongDataCoordinator.canBegin
             )
         }
         if let loadedMetadata {
@@ -1584,11 +1608,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func refreshSongOrderEditor() {
-        guard let controller = songOrderEditorWindowController,
-              SongOrderEditorRefreshPolicy.shouldRefresh(
-                  isWindowVisible: controller.isVisibleForRefresh,
-                  isPlaybackActive: playbackEngine.state.isPlaying
-              ) else {
+        guard let controller = songOrderEditorWindowController else { return }
+        guard SongOrderEditorRefreshPolicy.shouldRefresh(
+            isWindowVisible: controller.isVisibleForRefresh,
+            isPlaybackActive: playbackEngine.state.isPlaying
+        ) else {
+            if controller.isVisibleForRefresh, playbackEngine.state.isPlaying {
+                // Preserve the panel's playback-refresh policy while ensuring
+                // this destructive control never looks spuriously available.
+                controller.applyClearSongAvailability(false)
+            }
             return
         }
         controller.applyIfVisible(displayState: currentSongOrderEditorDisplayState())
@@ -1633,69 +1662,100 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func clearSongData(_ sender: Any?) {
-        discardHiddenSongOrderEditorController()
-
-        if var document = blankDocument,
-           loadedMetadata == nil,
-           EditorCommandAvailability.canClearSongData(
-               hasBlankDocument: true,
-               sourceContext: document.noteAuditionSourceContext
-           ) {
-            document.clearSongData()
-            applyClearedEditableSongData(document)
-            return
-        }
-
-        guard let metadata = loadedMetadata,
-              let playbackSong = playbackEngine.song,
-              EditorCommandAvailability.canClearSongData(
-                  hasBlankDocument: false,
-                  sourceContext: .loadedModule(patternIndex: currentPatternIndex),
-                  loadedModuleCanMakeEditableCopy: loadedModuleCanMakeEditableCopy()
-              ),
-              let document = BlankTrackerDocument.makeEditableCopyClearingSongData(
-                  from: metadata,
-                  playbackSong: playbackSong,
-                  selection: loadedModuleSelection,
-                  sourcePatternIndex: currentPatternIndex
-              ) else {
-            return
-        }
-
-        cancelNoteAuditionForDocumentTransition()
-        playbackEngine.load(song: nil)
-        editableDocumentIdentity = UUID()
-        blankDocument = document
-        loadedMetadata = nil
-        editableDocumentEditCoordinator.discardUndoHistory()
-        loadedModuleSelection = .default
-        debugAutoplayTimer?.invalidate()
-        debugAutoplayTimer = nil
-        debugStopTimer?.invalidate()
-        debugStopTimer = nil
-        selectedSongPositionIndex = document.currentPosition
-        currentPatternIndex = document.currentPatternIndex
-        cursor = .clearSongDataResetPosition
-        visibleGridRangesByRow = [:]
-        currentViewportState = nil
-        currentViewportLayout = nil
-        updatePatternSelector(for: document.metadata, keepPattern: document.currentPatternIndex)
-        renderCurrentPattern(metadata: document.metadata)
-        syncControlPanelView()
+        _ = beginClearSongDataConfirmation()
     }
 
-    private func applyClearedEditableSongData(_ document: BlankTrackerDocument) {
-        blankDocument = document
-        editableDocumentEditCoordinator.discardUndoHistory()
-        selectedSongPositionIndex = document.currentPosition
-        currentPatternIndex = document.currentPatternIndex
-        cursor = .clearSongDataResetPosition
-        visibleGridRangesByRow = [:]
-        currentViewportState = nil
-        currentViewportLayout = nil
-        updatePatternSelector(for: document.metadata, keepPattern: document.currentPatternIndex)
-        renderCurrentPattern(metadata: document.metadata)
-        syncControlPanelView()
+    @discardableResult
+    private func beginClearSongDataConfirmation() -> Bool {
+        guard let request = clearSongDataCoordinator.begin() else { return false }
+        let alert = ClearSongDataAlert.make(request: request)
+        clearSongDataConfirmationWindow = alert.window
+        let completion: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            if ClearSongDataAlert.isConfirmed(response) {
+                _ = self.clearSongDataCoordinator.confirm(operationToken: request.operationToken)
+            } else {
+                self.clearSongDataCoordinator.cancel(operationToken: request.operationToken)
+            }
+            self.clearSongDataConfirmationWindow = nil
+        }
+        presentDocumentSheet(
+            begin: { hostWindow, restoreAuxiliaryWindow in
+                alert.beginSheetModal(for: hostWindow) { response in
+                    restoreAuxiliaryWindow()
+                    completion(response)
+                }
+            },
+            fallback: { completion(alert.runModal()) },
+            refreshSongOrderEditor: false
+        )
+        return true
+    }
+
+    private func currentClearSongDataContext() -> ClearSongDataContext {
+        let hasConflict = hasConflictingDocumentPresentation(
+            excluding: clearSongDataConfirmationWindow
+        )
+        if let document = blankDocument, loadedMetadata == nil {
+            return ClearSongDataContext(
+                source: .editable(
+                    documentIdentity: editableDocumentIdentity,
+                    documentRevision: editableDocumentRevision,
+                    document: document
+                ),
+                isPlaybackActive: playbackEngine.state.isPlaying,
+                hasConflictingDocumentPresentation: hasConflict
+            )
+        }
+        if blankDocument == nil,
+           let metadata = loadedMetadata,
+           let playbackSong = playbackEngine.song {
+            return ClearSongDataContext(
+                source: .loadedReadOnly(
+                    moduleIdentity: loadedModuleIdentity,
+                    metadata: metadata,
+                    playbackSong: playbackSong,
+                    selection: loadedModuleSelection,
+                    sourcePatternIndex: currentPatternIndex,
+                    bridgeEligible: loadedModuleCanMakeEditableCopy()
+                ),
+                isPlaybackActive: playbackEngine.state.isPlaying,
+                hasConflictingDocumentPresentation: hasConflict
+            )
+        }
+        return ClearSongDataContext(
+            source: .none,
+            isPlaybackActive: playbackEngine.state.isPlaying,
+            hasConflictingDocumentPresentation: hasConflict
+        )
+    }
+
+    private func commitClearSongData(_ target: ClearSongDataCommitTarget) -> Bool {
+        // Revalidate again at the write boundary; coordinator confirmation and
+        // mutation therefore both reject a stale document or active transport.
+        guard target.isCurrent(in: currentClearSongDataContext()) else { return false }
+        switch target {
+        case let .editable(_, _, document):
+            var clearedDocument = document
+            clearedDocument.clearSongData()
+            guard clearedDocument != document else { return false }
+            cursor = .clearSongDataResetPosition
+            visibleGridRangesByRow = [:]
+            currentViewportState = nil
+            currentViewportLayout = nil
+            return editableDocumentEditCoordinator.clearSongData()
+        case let .loadedReadOnly(_, metadata, playbackSong, selection, sourcePatternIndex):
+            guard let document = BlankTrackerDocument.makeEditableCopyClearingSongData(
+                from: metadata,
+                playbackSong: playbackSong,
+                selection: selection,
+                sourcePatternIndex: sourcePatternIndex
+            ) else { return false }
+            cancelNoteAuditionForDocumentTransition()
+            playbackEngine.load(song: nil)
+            applyUntitledEditableCopy(document)
+            return true
+        }
     }
 
     private func loadModule(from url: URL) {
@@ -1716,6 +1776,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let stateUpdateStart = timingSession?.beginPhase()
             cancelNoteAuditionForDocumentTransition()
             editableDocumentIdentity = nil
+            loadedModuleIdentity = UUID()
             blankDocument = nil
             loadedMetadata = metadata
             editableDocumentEditCoordinator.discardUndoHistory()
@@ -1804,6 +1865,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         cancelNoteAuditionForDocumentTransition()
         let document = BlankTrackerDocument.makeDefault()
         editableDocumentIdentity = UUID()
+        loadedModuleIdentity = nil
         blankDocument = document
         loadedMetadata = nil
         editableDocumentEditCoordinator.discardUndoHistory()
@@ -3023,6 +3085,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func syncControlPanelView(reloadInstrumentControls shouldReloadInstrumentControls: Bool = true) {
+        if playbackEngine.state.isPlaying {
+            clearSongDataCoordinator.invalidateActiveConfirmationForPlaybackStart()
+        }
         defer {
             refreshSongOrderEditor()
             instrumentEditorWindowPresenter.refresh(displayState: currentInstrumentEditorDisplayState())

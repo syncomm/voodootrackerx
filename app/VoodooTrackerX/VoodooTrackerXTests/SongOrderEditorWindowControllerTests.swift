@@ -216,6 +216,31 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(SongOrderEditorRefreshPolicy.shouldRefresh(isWindowVisible: false, isPlaybackActive: true))
     }
 
+    func testClearSongAvailabilityUpdatesWithoutAFullPlaybackRefresh() throws {
+        let controller = SongOrderEditorWindowController(
+            displayState: .editableDocument(.makeDefault())
+        )
+        controller.showWindowAndActivate()
+        defer { controller.window?.close() }
+        let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
+        let dangerPanel = try identifiedView(SongOrderEditorViewIdentifier.dangerPanel, in: contentView)
+        let clearButton = try button(titled: "⌫ CLEAR SONG", in: dangerPanel)
+        let rebuildCount = contentView.rebuildCount
+
+        XCTAssertTrue(clearButton.isEnabled)
+        XCTAssertTrue(controller.applyClearSongAvailability(false))
+        XCTAssertFalse(contentView.displayState.isClearSongEnabled)
+        XCTAssertFalse(clearButton.isEnabled)
+        XCTAssertNil(clearButton.action)
+        XCTAssertEqual(contentView.rebuildCount, rebuildCount)
+
+        XCTAssertTrue(controller.applyClearSongAvailability(true))
+        XCTAssertTrue(contentView.displayState.isClearSongEnabled)
+        XCTAssertTrue(clearButton.isEnabled)
+        XCTAssertEqual(clearButton.action, NSSelectorFromString("clearSong:"))
+        XCTAssertEqual(contentView.rebuildCount, rebuildCount)
+    }
+
     func testClosedControllerSkipsDocumentAndPlaybackLikeRefreshWork() throws {
         let metadata = makeLoadedMetadata(
             orderTable: (0..<96).map { min($0, 64) },
@@ -1133,100 +1158,308 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(contentView.displayState.selectedPatternIndex, 1)
     }
 
-    func testClearSongButtonRequestsEditableResetAndRefreshesDisplayState() throws {
-        let sample = makePlaybackSample(
-            instrumentIndex: 2,
-            sampleIndex: 0,
-            name: "Lead Sample",
-            pcm: [0.25, -0.25],
-            volume: 1,
-            baseSampleRate: 8_363
+    func testClearSongButtonStartsSharedConfirmationWithoutDirectMutation() throws {
+        let document = makeClearSongEditableDocument()
+        let before = document
+        let identity = UUID()
+        let context = makeEditableClearSongContext(document, identity: identity, revision: 7)
+        var committedTargets: [ClearSongDataCommitTarget] = []
+        let coordinator = ClearSongDataCoordinator(
+            contextProvider: { context },
+            commitHandler: { committedTargets.append($0); return true }
         )
-        let instrument = PlaybackInstrument(index: 2, name: "Lead", samples: [sample])
-        var firstPattern = makePattern(index: 0, rowCount: 16, channels: 2)
-        var secondPattern = makePattern(index: 1, rowCount: 32, channels: 3)
-        firstPattern.rows[0][0] = XMPatternEventCell(
-            note: 49,
-            instrument: 2,
-            volumeColumn: 0x40,
-            effectType: 0x0F,
-            effectParam: 0x7D
-        )
-        secondPattern.rows[2][1] = XMPatternEventCell(
-            note: TrackerNoteKeyMap.keyOffNoteValue,
-            instrument: 0x02,
-            volumeColumn: 0x30,
-            effectType: 0x0E,
-            effectParam: 0x9C
-        )
-        var document = makeBlankDocument(
-            currentPosition: 2,
-            currentPatternIndex: 1,
-            orderTable: [0, 1, 0],
-            patterns: [firstPattern, secondPattern],
-            tempo: 144,
-            speed: 3,
-            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1),
-            instrumentPalette: [2: instrument]
-        )
-        let beforePalette = document.instrumentPalette
         let controller = SongOrderEditorWindowController(displayState: .editableDocument(document))
         let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
-        var clearRequestCount = 0
-        controller.onClearSongRequested = {
-            clearRequestCount += 1
-            guard let updated = SongOrderEditorNavigation.editableDocumentClearingSongDataForEditing(
-                document,
-                isPlaybackActive: false
-            ) else {
-                return
-            }
-            document = updated
-            controller.apply(displayState: .editableDocument(updated))
-        }
+        var request: ClearSongDataRequest?
+        controller.onClearSongRequested = { request = coordinator.begin() }
 
         try button(titled: "⌫ CLEAR SONG", in: contentView).performClick(nil)
-        let currentCell = try XCTUnwrap(contentView.displayState.patternBankCells.first { $0.patternIndex == 0 })
-        let content = ControlPanelDisplayState.blankDocumentContent(
-            for: document,
-            selectedOctave: 6,
-            isLoopEnabled: true,
-            isEditModeEnabled: true,
-            isPlaybackActive: false
+
+        let capturedRequest = try XCTUnwrap(request)
+        XCTAssertEqual(capturedRequest.kind, .editableDocument)
+        XCTAssertTrue(coordinator.isActive)
+        XCTAssertTrue(committedTargets.isEmpty)
+        XCTAssertEqual(document, before)
+        XCTAssertEqual(contentView.displayState, .editableDocument(before))
+
+        XCTAssertTrue(coordinator.confirm(operationToken: capturedRequest.operationToken))
+        XCTAssertEqual(committedTargets, [
+            .editable(documentIdentity: identity, documentRevision: 7, document: before),
+        ])
+    }
+
+    func testClearSongDataCoordinatorAvailabilityGatesPlaybackConflictAndActiveConfirmation() throws {
+        let editable = makeClearSongEditableDocument()
+        let editableIdentity = UUID()
+        let loaded = makeClearSongLoadedSource()
+        var context = makeEditableClearSongContext(editable, identity: editableIdentity)
+        var commits: [ClearSongDataCommitTarget] = []
+        var stateChanges = 0
+        let coordinator = ClearSongDataCoordinator(
+            contextProvider: { context },
+            commitHandler: { commits.append($0); return true },
+            stateChangeHandler: { stateChanges += 1 }
         )
 
-        XCTAssertEqual(clearRequestCount, 1)
-        XCTAssertEqual(document.songLength, 1)
-        XCTAssertEqual(document.currentPosition, 0)
-        XCTAssertEqual(document.currentPatternIndex, 0)
-        XCTAssertEqual(document.orderTable, [0])
-        XCTAssertEqual(document.patterns.map(\.index), [0])
-        XCTAssertNil(document.pattern(for: 1))
-        XCTAssertEqual(document.pattern.rowCount, 32)
-        XCTAssertEqual(document.pattern.channels, 3)
-        XCTAssertTrue(document.pattern.rows.allSatisfy { row in
-            row.allSatisfy { $0 == .empty }
-        })
-        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[2][1]), "... .. .. ...")
-        XCTAssertEqual(document.instrumentPalette, beforePalette)
-        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
-        XCTAssertEqual(document.tempo, 144)
-        XCTAssertEqual(document.speed, 3)
-        XCTAssertEqual(content.songPosition, "00")
-        XCTAssertEqual(content.songLength, "01")
-        XCTAssertEqual(content.patternRowCount, "32")
-        XCTAssertEqual(content.channelCount, "3")
-        XCTAssertEqual(content.selectedInstrumentDisplay, "I02 Lead")
-        XCTAssertEqual(content.selectedSampleDisplay, "S01 Lead Sample")
-        XCTAssertEqual(content.selectedOctave, 6)
-        XCTAssertTrue(content.isEditModeEnabled)
-        XCTAssertEqual(contentView.displayState.orderRows.map(\.patternIndex), [0])
-        XCTAssertEqual(contentView.displayState.orderRows.map(\.isSelected), [true])
-        XCTAssertEqual(contentView.displayState.selectedOrderPosition, 0)
-        XCTAssertEqual(contentView.displayState.selectedPatternIndex, 0)
-        XCTAssertTrue(currentCell.exists)
-        XCTAssertTrue(currentCell.isUsed)
-        XCTAssertTrue(currentCell.isCurrent)
+        XCTAssertTrue(coordinator.canBegin)
+        context = makeEditableClearSongContext(editable, identity: editableIdentity, isPlaybackActive: true)
+        XCTAssertFalse(coordinator.canBegin)
+        context = makeLoadedClearSongContext(loaded, moduleIdentity: loaded.moduleIdentity)
+        XCTAssertTrue(coordinator.canBegin)
+        context = makeLoadedClearSongContext(
+            loaded, moduleIdentity: loaded.moduleIdentity, isPlaybackActive: true
+        )
+        XCTAssertFalse(coordinator.canBegin)
+        context = makeEditableClearSongContext(editable, identity: editableIdentity, hasConflict: true)
+        XCTAssertFalse(coordinator.canBegin)
+        context = makeLoadedClearSongContext(
+            loaded, moduleIdentity: loaded.moduleIdentity, hasConflict: true
+        )
+        XCTAssertFalse(coordinator.canBegin)
+        context = makeLoadedClearSongContext(
+            loaded, moduleIdentity: loaded.moduleIdentity, bridgeEligible: false
+        )
+        XCTAssertFalse(coordinator.canBegin)
+        context = .unavailable
+        XCTAssertFalse(coordinator.canBegin)
+
+        context = makeEditableClearSongContext(editable, identity: editableIdentity)
+        let request = try XCTUnwrap(coordinator.begin())
+        XCTAssertTrue(coordinator.isActive)
+        XCTAssertFalse(coordinator.canBegin)
+        XCTAssertNil(coordinator.begin())
+        XCTAssertFalse(coordinator.cancel(operationToken: UUID()))
+        XCTAssertTrue(coordinator.isActive)
+        XCTAssertTrue(coordinator.cancel(operationToken: request.operationToken))
+        XCTAssertFalse(coordinator.isActive)
+        XCTAssertTrue(coordinator.canBegin)
+        XCTAssertTrue(commits.isEmpty)
+        XCTAssertEqual(stateChanges, 2)
+    }
+
+    func testClearSongDataCoordinatorRejectsExactEditableStalenessWithoutCommit() throws {
+        let document = makeClearSongEditableDocument()
+        let identity = UUID()
+        let baseline = makeEditableClearSongContext(document, identity: identity, revision: 11)
+        var changedDocument = document
+        XCTAssertTrue(changedDocument.enterNote(trackerKey: "w", octave: 5, row: 5, channel: 0))
+        let loaded = makeClearSongLoadedSource()
+        let staleContexts = [
+            makeEditableClearSongContext(document, identity: UUID(), revision: 11),
+            makeEditableClearSongContext(document, identity: identity, revision: 12),
+            makeEditableClearSongContext(changedDocument, identity: identity, revision: 11),
+            makeLoadedClearSongContext(loaded, moduleIdentity: loaded.moduleIdentity),
+            makeEditableClearSongContext(
+                document, identity: identity, revision: 11, isPlaybackActive: true
+            ),
+            makeEditableClearSongContext(
+                document, identity: identity, revision: 11, hasConflict: true
+            ),
+        ]
+
+        for staleContext in staleContexts {
+            var context = baseline
+            var commits: [ClearSongDataCommitTarget] = []
+            let coordinator = ClearSongDataCoordinator(
+                contextProvider: { context },
+                commitHandler: { commits.append($0); return true }
+            )
+            let request = try XCTUnwrap(coordinator.begin())
+            context = staleContext
+
+            XCTAssertFalse(coordinator.confirm(operationToken: request.operationToken))
+            XCTAssertFalse(coordinator.isActive)
+            XCTAssertTrue(commits.isEmpty)
+        }
+    }
+
+    func testClearSongDataCoordinatorRejectsConfirmationAfterPlaybackStartsAndStops() throws {
+        let document = makeClearSongEditableDocument()
+        let identity = UUID()
+        let context = makeEditableClearSongContext(document, identity: identity, revision: 4)
+        var commits: [ClearSongDataCommitTarget] = []
+        let coordinator = ClearSongDataCoordinator(
+            contextProvider: { context },
+            commitHandler: { commits.append($0); return true }
+        )
+        let request = try XCTUnwrap(coordinator.begin())
+
+        coordinator.invalidateActiveConfirmationForPlaybackStart()
+
+        XCTAssertFalse(coordinator.confirm(operationToken: request.operationToken))
+        XCTAssertFalse(coordinator.isActive)
+        XCTAssertTrue(commits.isEmpty)
+    }
+
+    func testClearSongDataCoordinatorRejectsExactLoadedStalenessWithoutCommit() throws {
+        let loaded = makeClearSongLoadedSource()
+        let baseline = makeLoadedClearSongContext(loaded, moduleIdentity: loaded.moduleIdentity)
+        let changedMetadata = makeLoadedMetadata(
+            orderTable: [2, 2],
+            patterns: loaded.metadata.xmPatterns,
+            channels: loaded.metadata.channels
+        )
+        let changedSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 32],
+            instrumentsByIndex: loaded.playbackSong.instrumentsByIndex,
+            note: 53,
+            instrument: 2
+        )
+        let staleContexts = [
+            makeLoadedClearSongContext(loaded, moduleIdentity: UUID()),
+            makeLoadedClearSongContext(
+                loaded, moduleIdentity: loaded.moduleIdentity, metadata: changedMetadata
+            ),
+            makeLoadedClearSongContext(
+                loaded, moduleIdentity: loaded.moduleIdentity, playbackSong: changedSong
+            ),
+            makeLoadedClearSongContext(
+                loaded,
+                moduleIdentity: loaded.moduleIdentity,
+                selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+            ),
+            makeLoadedClearSongContext(
+                loaded, moduleIdentity: loaded.moduleIdentity, sourcePatternIndex: 0
+            ),
+            makeLoadedClearSongContext(
+                loaded, moduleIdentity: loaded.moduleIdentity, bridgeEligible: false
+            ),
+            makeEditableClearSongContext(
+                makeClearSongEditableDocument(), identity: UUID(), revision: 0
+            ),
+            makeLoadedClearSongContext(
+                loaded, moduleIdentity: loaded.moduleIdentity, isPlaybackActive: true
+            ),
+            makeLoadedClearSongContext(
+                loaded, moduleIdentity: loaded.moduleIdentity, hasConflict: true
+            ),
+        ]
+
+        for staleContext in staleContexts {
+            var context = baseline
+            var commits: [ClearSongDataCommitTarget] = []
+            let coordinator = ClearSongDataCoordinator(
+                contextProvider: { context },
+                commitHandler: { commits.append($0); return true }
+            )
+            let request = try XCTUnwrap(coordinator.begin())
+            context = staleContext
+
+            XCTAssertFalse(coordinator.confirm(operationToken: request.operationToken))
+            XCTAssertFalse(coordinator.isActive)
+            XCTAssertTrue(commits.isEmpty)
+        }
+    }
+
+    func testClearSongDataCoordinatorLoadedConfirmPreservesSourceAndBuildsExactClearedCopyOnce() throws {
+        let loaded = makeClearSongLoadedSource()
+        let metadataBefore = loaded.metadata
+        let playbackSongBefore = loaded.playbackSong
+        let context = makeLoadedClearSongContext(loaded, moduleIdentity: loaded.moduleIdentity)
+        let expected = try XCTUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
+            from: loaded.metadata,
+            playbackSong: loaded.playbackSong,
+            selection: loaded.selection,
+            sourcePatternIndex: loaded.sourcePatternIndex
+        ))
+        var committedTargets: [ClearSongDataCommitTarget] = []
+        var editableCopy: BlankTrackerDocument?
+        let coordinator = ClearSongDataCoordinator(
+            contextProvider: { context },
+            commitHandler: { target in
+                committedTargets.append(target)
+                guard case let .loadedReadOnly(_, metadata, playbackSong, selection, sourcePatternIndex) = target else {
+                    return false
+                }
+                editableCopy = BlankTrackerDocument.makeEditableCopyClearingSongData(
+                    from: metadata,
+                    playbackSong: playbackSong,
+                    selection: selection,
+                    sourcePatternIndex: sourcePatternIndex
+                )
+                return editableCopy != nil
+            }
+        )
+
+        let request = try XCTUnwrap(coordinator.begin())
+        XCTAssertEqual(request.kind, .loadedReadOnlyModule)
+        XCTAssertTrue(coordinator.confirm(operationToken: request.operationToken))
+        XCTAssertFalse(coordinator.confirm(operationToken: request.operationToken))
+        XCTAssertEqual(editableCopy, expected)
+        XCTAssertEqual(committedTargets, [
+            .loadedReadOnly(
+                moduleIdentity: loaded.moduleIdentity,
+                metadata: loaded.metadata,
+                playbackSong: loaded.playbackSong,
+                selection: loaded.selection,
+                sourcePatternIndex: loaded.sourcePatternIndex
+            ),
+        ])
+        XCTAssertEqual(loaded.metadata, metadataBefore)
+        XCTAssertEqual(loaded.playbackSong, playbackSongBefore)
+    }
+
+    func testClearSongDataCoordinatorLoadedCancelPreservesSourceWithoutCommit() throws {
+        let loaded = makeClearSongLoadedSource()
+        let metadataBefore = loaded.metadata
+        let playbackSongBefore = loaded.playbackSong
+        var commits: [ClearSongDataCommitTarget] = []
+        let coordinator = ClearSongDataCoordinator(
+            contextProvider: {
+                makeLoadedClearSongContext(loaded, moduleIdentity: loaded.moduleIdentity)
+            },
+            commitHandler: { commits.append($0); return true }
+        )
+
+        let request = try XCTUnwrap(coordinator.begin())
+        XCTAssertTrue(coordinator.cancel(operationToken: request.operationToken))
+
+        XCTAssertFalse(coordinator.isActive)
+        XCTAssertTrue(commits.isEmpty)
+        XCTAssertEqual(loaded.metadata, metadataBefore)
+        XCTAssertEqual(loaded.playbackSong, playbackSongBefore)
+    }
+
+    func testClearSongDataAlertsHaveExactSourceSpecificCopyAndSafeButtons() {
+        let editable = ClearSongDataAlert.make(request: ClearSongDataRequest(
+            operationToken: UUID(), kind: .editableDocument
+        ))
+        XCTAssertEqual(editable.alertStyle, .warning)
+        XCTAssertEqual(editable.messageText, "Clear Song Data?")
+        XCTAssertEqual(
+            editable.informativeText,
+            """
+            This will remove all pattern and order data from the current editable document.
+            Instruments and samples will be preserved.
+
+            You can undo this change immediately with Edit > Undo.
+            """
+        )
+        XCTAssertEqual(editable.buttons.map(\.title), ["Clear Song Data", "Cancel"])
+        XCTAssertEqual(editable.buttons[0].accessibilityLabel(), "Clear song pattern and order data")
+        XCTAssertEqual(editable.buttons[1].keyEquivalent, "\u{1b}")
+
+        let loaded = ClearSongDataAlert.make(request: ClearSongDataRequest(
+            operationToken: UUID(), kind: .loadedReadOnlyModule
+        ))
+        XCTAssertEqual(loaded.alertStyle, .warning)
+        XCTAssertEqual(loaded.messageText, "Create Editable Copy with Song Data Cleared?")
+        XCTAssertEqual(
+            loaded.informativeText,
+            """
+            The loaded module will remain unchanged.
+            VTX will create an editable document with pattern/order data cleared and the supported instrument/sample palette preserved.
+            """
+        )
+        XCTAssertEqual(loaded.buttons.map(\.title), ["Create Editable Copy", "Cancel"])
+        XCTAssertEqual(
+            loaded.buttons[0].accessibilityLabel(),
+            "Create editable copy with song data cleared"
+        )
+        XCTAssertEqual(loaded.buttons[1].keyEquivalent, "\u{1b}")
+        XCTAssertTrue(ClearSongDataAlert.isConfirmed(.alertFirstButtonReturn))
+        XCTAssertFalse(ClearSongDataAlert.isConfirmed(.alertSecondButtonReturn))
     }
 
     func testEditableDuplicateSelectedOrderInsertsAfterSelectionAndMiddlePreservesReferences() throws {
@@ -1741,10 +1974,6 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
             document,
             isPlaybackActive: engine.state.isPlaying
         ))
-        XCTAssertNil(SongOrderEditorNavigation.editableDocumentClearingSongDataForEditing(
-            document,
-            isPlaybackActive: engine.state.isPlaying
-        ))
         XCTAssertFalse(SongOrderEditorDisplayState.editableDocument(
             document,
             isOrderMutationEnabled: false
@@ -2239,6 +2468,112 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(patternCells.allSatisfy { !($0 is NSControl) })
         XCTAssertEqual(document, before)
     }
+}
+
+private struct ClearSongLoadedSource {
+    let moduleIdentity: UUID
+    let metadata: ParsedModuleMetadata
+    let playbackSong: PlaybackSong
+    let selection: TrackerEditorSelection
+    let sourcePatternIndex: Int
+}
+
+private func makeClearSongEditableDocument() -> BlankTrackerDocument {
+    let sample = makePlaybackSample(
+        instrumentIndex: 2,
+        sampleIndex: 0,
+        name: "Lead Sample",
+        pcm: [0.25, -0.25],
+        volume: 1,
+        baseSampleRate: 8_363
+    )
+    let instrument = PlaybackInstrument(index: 2, name: "Lead", samples: [sample])
+    var firstPattern = makePattern(index: 0, rowCount: 16, channels: 2)
+    var secondPattern = makePattern(index: 1, rowCount: 32, channels: 3)
+    firstPattern.rows[0][0] = XMPatternEventCell(
+        note: 49, instrument: 2, volumeColumn: 0x40, effectType: 0x0F, effectParam: 0x7D
+    )
+    secondPattern.rows[2][1] = XMPatternEventCell(
+        note: TrackerNoteKeyMap.keyOffNoteValue,
+        instrument: 2,
+        volumeColumn: 0x30,
+        effectType: 0x0E,
+        effectParam: 0x9C
+    )
+    return makeBlankDocument(
+        currentPosition: 2,
+        currentPatternIndex: 1,
+        orderTable: [0, 1, 0],
+        patterns: [firstPattern, secondPattern],
+        tempo: 144,
+        speed: 3,
+        selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1),
+        instrumentPalette: [2: instrument]
+    )
+}
+
+private func makeClearSongLoadedSource() -> ClearSongLoadedSource {
+    let editable = makeClearSongEditableDocument()
+    var pattern = makePattern(index: 2, rowCount: 32, channels: 3)
+    pattern.rows[3][1] = XMPatternEventCell(
+        note: 52, instrument: 2, volumeColumn: 0x40, effectType: 0x0F, effectParam: 0x7D
+    )
+    return ClearSongLoadedSource(
+        moduleIdentity: UUID(),
+        metadata: makeLoadedMetadata(orderTable: [2], patterns: [pattern], channels: 3),
+        playbackSong: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 32],
+            instrumentsByIndex: editable.instrumentPalette,
+            note: 52,
+            instrument: 2
+        ),
+        selection: editable.selection,
+        sourcePatternIndex: 2
+    )
+}
+
+private func makeEditableClearSongContext(
+    _ document: BlankTrackerDocument,
+    identity: UUID?,
+    revision: UInt64 = 0,
+    isPlaybackActive: Bool = false,
+    hasConflict: Bool = false
+) -> ClearSongDataContext {
+    ClearSongDataContext(
+        source: .editable(
+            documentIdentity: identity,
+            documentRevision: revision,
+            document: document
+        ),
+        isPlaybackActive: isPlaybackActive,
+        hasConflictingDocumentPresentation: hasConflict
+    )
+}
+
+private func makeLoadedClearSongContext(
+    _ source: ClearSongLoadedSource,
+    moduleIdentity: UUID?,
+    metadata: ParsedModuleMetadata? = nil,
+    playbackSong: PlaybackSong? = nil,
+    selection: TrackerEditorSelection? = nil,
+    sourcePatternIndex: Int? = nil,
+    bridgeEligible: Bool = true,
+    isPlaybackActive: Bool = false,
+    hasConflict: Bool = false
+) -> ClearSongDataContext {
+    ClearSongDataContext(
+        source: .loadedReadOnly(
+            moduleIdentity: moduleIdentity,
+            metadata: metadata ?? source.metadata,
+            playbackSong: playbackSong ?? source.playbackSong,
+            selection: selection ?? source.selection,
+            sourcePatternIndex: sourcePatternIndex ?? source.sourcePatternIndex,
+            bridgeEligible: bridgeEligible
+        ),
+        isPlaybackActive: isPlaybackActive,
+        hasConflictingDocumentPresentation: hasConflict
+    )
 }
 
 private extension NSView {

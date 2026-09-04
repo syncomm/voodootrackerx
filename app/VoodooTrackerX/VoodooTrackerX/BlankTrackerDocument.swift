@@ -282,8 +282,14 @@ enum EditorCommandAvailability {
     static func canClearSongData(
         hasBlankDocument: Bool,
         sourceContext: EditorNoteAuditionSourceContext,
-        loadedModuleCanMakeEditableCopy: Bool = false
+        loadedModuleCanMakeEditableCopy: Bool = false,
+        isPlaybackActive: Bool,
+        hasConflictingDocumentPresentation: Bool,
+        isConfirmationActive: Bool
     ) -> Bool {
+        guard !isPlaybackActive,
+              !hasConflictingDocumentPresentation,
+              !isConfirmationActive else { return false }
         switch sourceContext {
         case .blankDocument:
             return hasBlankDocument && EditorPatternMutationPolicy.canClearSongData(sourceContext: sourceContext)

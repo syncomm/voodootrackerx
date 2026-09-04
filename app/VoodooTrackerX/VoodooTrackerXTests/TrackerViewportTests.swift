@@ -305,11 +305,11 @@ final class TrackerViewportTests: XCTestCase {
 
     func testCursorOutlineGeometryExpandsFieldRectAndReservesVisibleBounds() {
         let fieldRect = CGRect(x: 100, y: 8, width: 18, height: 15)
-        let strokeRect = TestPatternCursorOutlineGeometry.strokeRect(for: fieldRect)
-        let clipRect = TestPatternCursorOutlineGeometry.minimumVisibleBounds(for: CGRect(x: 0, y: 0, width: 320, height: 200))
+        let strokeRect = PatternCursorOutlineGeometry.strokeRect(for: fieldRect)
+        let clipRect = PatternCursorOutlineGeometry.minimumVisibleBounds(for: CGRect(x: 0, y: 0, width: 320, height: 200))
 
         XCTAssertEqual(strokeRect, CGRect(x: 98, y: 6, width: 22, height: 19))
-        XCTAssertEqual(clipRect, CGRect(x: 2, y: 2, width: 316, height: 196))
+        XCTAssertEqual(clipRect, CGRect(x: 0, y: 2, width: 318, height: 196))
         XCTAssertTrue(clipRect.contains(CGPoint(x: strokeRect.minX, y: strokeRect.minY)))
     }
 
@@ -478,11 +478,6 @@ final class TrackerViewportTests: XCTestCase {
         XCTAssertEqual(displayedPatternIndex(orderTable: [1, 4, 6], songLength: 3, songPosition: 99), 6)
     }
 
-    func testPatternSelectorUsesHexPatternLabels() {
-        XCTAssertEqual(formattedPatternSelectorTitle(patternIndex: 0x00, rowCount: 64), "P00")
-        XCTAssertEqual(formattedPatternSelectorTitle(patternIndex: 0x0A, rowCount: 32), "P0A")
-        XCTAssertEqual(formattedPatternSelectorTitle(patternIndex: 0x1F, rowCount: 16), "P1F")
-    }
 }
 
 private func makeTrackerKeyDownEvent(

@@ -332,16 +332,6 @@ enum TestTrackerViewportResizeBehavior {
     }
 }
 
-enum TestPatternCursorOutlineGeometry {
-    static func strokeRect(for fieldRect: CGRect) -> CGRect {
-        fieldRect.insetBy(dx: -2, dy: -2)
-    }
-
-    static func minimumVisibleBounds(for bounds: CGRect) -> CGRect {
-        bounds.insetBy(dx: 2, dy: 2)
-    }
-}
-
 func displayedPatternIndex(orderTable: [Int], songLength: Int, songPosition: Int) -> Int? {
     let safeSongLength = min(songLength, orderTable.count)
     guard safeSongLength > 0 else {
@@ -349,10 +339,6 @@ func displayedPatternIndex(orderTable: [Int], songLength: Int, songPosition: Int
     }
     let clampedPosition = min(max(0, songPosition), safeSongLength - 1)
     return orderTable[clampedPosition]
-}
-
-func formattedPatternSelectorTitle(patternIndex: Int, rowCount: Int) -> String {
-    String(format: "P%02X", patternIndex)
 }
 
 func makePlaybackSong(

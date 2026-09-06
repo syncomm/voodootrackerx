@@ -92,9 +92,9 @@ the writer currently accepts that synthetic value and reopens it with an explici
 all-S01 map, while first-playable fallback makes slot reordering semantically
 ambiguous. The transaction rejects it before mutation, revision, or history.
 
-The Sample Lifecycle Alpha release-readiness gate on `647dbfcc` is a go with no
-known correctness blocker. The full automated matrix, clean host/universal
-Release builds, and maintainer listening/UI gate pass; see the
+The historical Sample Lifecycle Alpha internal gate on `647dbfcc` was a go. The
+later final release candidate is NO-GO after a live maintainer multi-order workflow
+promoted VTX-J-003 editable navigation dual authority to a release blocker; see the
 [gate report](reports/sample-lifecycle-alpha-release-readiness.md).
 
 The independent cross-family audit of `f0017862` is complete with 0 BLOCKER
@@ -108,8 +108,12 @@ mismatch), and VTX-D1-001 (CoreAudio callback allocation / real-time safety)
 remain accepted HIGH findings for focused post-alpha playback/RT work. They are
 not Sample Lifecycle correctness blockers.
 
-Current next action: run the final release gate and prepare the next Sample
-Lifecycle Alpha tag. Do not start the next feature milestone before that gate.
+The focused `fix/editable-song-position-authority` candidate change addresses VTX-J-003 by
+making stopped editable document navigation canonical and keeping playback follow
+transient. Active editable POS, PTN, and tracker presentation now follow the same
+transient playback position while the document remains unchanged until Stop reconciliation.
+It awaits Gregory's exact stopped-navigation and live-playback rerun, review, merge, and
+a rerun of the final release gate. Do not start the next feature milestone before that gate.
 
 ## Project Goals
 

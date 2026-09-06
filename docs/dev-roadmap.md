@@ -23,7 +23,9 @@ VoodooTracker X currently has:
   editable Undo/Redo and loaded-module copy safety, pattern-loop playback at Play start,
   Transport > Play Current Pattern for explicit current-pattern loop playback,
   and the Song / Order editor order-list / paginated pattern-bank binding with
-  stopped selected-order navigation, editable Pattern Bank double-click
+  stopped selected-order navigation shared with the main POS control through
+  canonical editable-document position/pattern state, view-only Pattern Bank
+  single-click, editable Pattern Bank double-click
   assignment, stopped editable order-slot insert/delete controls, stopped
   editable ORDER OPS PTN -/+ pattern-reference stepping, and stopped editable
   Pattern Ops NEW/DUP/CLEAR pattern creation, duplication, and
@@ -121,13 +123,14 @@ selection remain future work.
 `v0.3.0-alpha.1` is tagged and shipped as the From-Scratch Composition Alpha.
 The current unreleased Sample Lifecycle Alpha implementation, internal gate,
 independent cross-family audit, and accepted pre-alpha remediation are complete.
-The audit found 0 BLOCKER findings; its disposition is recorded in
-`docs/reports/sample-lifecycle-alpha-cross-family-audit-disposition.md`.
-
-Current next action: run the final release gate and prepare the next Sample
-Lifecycle Alpha tag. Do not begin another product milestone from this
-release-preparation work. Use `docs/roadmap.md` for release sequencing and
-`docs/agent-current-state.md` for current implementation invariants.
+The later final release candidate is NO-GO: live maintainer evidence promoted
+VTX-J-003 editable navigation dual authority to a release blocker. The focused
+`fix/editable-song-position-authority` candidate change addresses stopped authority,
+empty represented-pattern projection, and active editable POS/PTN playback follow while
+retaining one-time Stop reconciliation. It remains pending Gregory's exact stopped and
+live three-order rerun, review, merge, and a rerun of the final release gate. Do not begin
+another product milestone from this release-preparation work. Use `docs/roadmap.md` for
+release sequencing and `docs/agent-current-state.md` for current invariants.
 
 ## Backend Snapshot
 

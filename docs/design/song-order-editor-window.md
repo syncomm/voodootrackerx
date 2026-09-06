@@ -3,7 +3,7 @@
 **Window:** Song / Order editor (independent floating utility window).
 **Fixed size (first pass):** ~660 × 480.
 **Mockup:** `assets/mockups/song-order-editor-v1.html`.
-**Status:** Design-only. Does not change playback, the tracker viewport, the parser, or audio backend.
+**Status:** First-pass implementation shipped; this document records its current interaction contract.
 
 See `docs/design/editor-window-design-overview.md` for the shared direction and
 `docs/design/editor-control-vocabulary.md` for the controls.
@@ -85,8 +85,8 @@ pattern in the bank is marked with a small red indicator LED.
 - **ORDER LIST:** scrollable order slots (index · pattern segment · row count). Primary interaction
   surface; selection drives every op and the pattern stepper.
 - **PATTERN BANK:** a paginated grid of pattern slots (e.g. 64 per bank with prev/next + a bank
-  readout, since a song can reference many patterns). Marks current and used patterns; click to jump
-  / point the selected slot.
+  readout, since a song can reference many patterns). Marks current and used patterns; single-click
+  views a pattern, while double-click explicitly assigns it to the selected order slot.
 - **PATTERN OPS:** New (blank) pattern, Duplicate current pattern, Clear current pattern.
 - **ORDER OPS:** Insert / Delete / Duplicate slot, Move up / down, and Pattern −/+ for the selected
   slot.
@@ -124,14 +124,42 @@ inside the bank grid (keep it a label/state grid); no cross-module pattern impor
 
 ## 8. Interaction notes
 
-- Selecting a slot binds all Order Ops and Pattern −/+ to that slot; Insert places a new slot after
-  the selection and selects it; Delete selects the previous slot.
-- Pattern −/+ and the bank grid edit the **selected slot's** pattern reference; they never create a
-  pattern (use New Pattern for that). Pattern −/+ step to the next lower/higher allocated pattern,
-  skipping gaps; they do not allocate missing pattern numbers.
+- Selecting a slot binds all Order Ops and Pattern −/+ to that slot; Insert duplicates that selected
+  slot's existing pattern reference after the selection and selects the new slot. Delete selects the
+  row that moves into the deleted numeric position, except deleting the tail selects the new final row.
+  Insert does not use a merely viewed Pattern Bank pattern.
+- Pattern −/+ edits the **selected slot's** pattern reference and never creates a pattern (use New
+  Pattern for that). It steps to the next lower/higher allocated pattern, skipping gaps; it does not
+  allocate missing pattern numbers.
+- Pattern Bank single-click is view-only: it changes the displayed pattern without changing the
+  selected order or its reference. Double-click remains the explicit assignment gesture.
 - Transport actions here drive the same engine as the main window — no second playback path.
 - Clear Song is a deliberate danger action; it must provably preserve the instrument and sample
   tables.
+
+### Canonical stopped navigation and transport
+
+For a stopped editable document, `BlankTrackerDocument.currentPosition` and
+`currentPatternIndex` are the canonical navigation state. The corresponding
+`AppDelegate` fields are projections of that value; during playback they may instead
+carry transient playhead-follow presentation. Loaded/read-only modules retain their
+session-only navigation because they have no editable document.
+
+During active editable song playback, main POS, PTN, and tracker presentation follow the
+same transient playback callback without rewriting document navigation on every callback.
+Stop reconciles the final position into the editable document once. The Song / Order row
+highlight remains selection state rather than becoming a second moving playhead display.
+
+Main POS stepping and Song / Order row selection both update the canonical order
+position and display that order's referenced pattern. Main selector and Pattern Bank
+single-click update only the canonical viewed pattern. Normal Play follows the selected
+POS/order reference; Play Current Pattern follows the viewed pattern from row 0.
+Reselecting the already-selected editable order row reasserts its referenced pattern
+when a prior view-only gesture has left that order and the displayed pattern split.
+For editable documents, the main Pattern selector lists every represented pattern
+exactly once in ascending pattern-index order, including structurally present empty or
+unused patterns; rebuilding that list does not choose a different viewed pattern.
+Loaded/read-only pattern selection retains its existing session-only policy.
 
 ---
 
@@ -143,7 +171,7 @@ main window's transport semantics; Tab cycles order list → pattern bank.
 
 ---
 
-## 10. AppKit implementation notes (for a future PR)
+## 10. AppKit implementation notes
 
 - Fixed-size window (non-resizable mask, first pass); single shared instance toggled from a menu item.
 - **Order list:** a view-based table (or collection view) with index / pattern / rows columns; custom

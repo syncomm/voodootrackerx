@@ -108,16 +108,20 @@ enum ControlPanelDisplayState {
 
     static func blankDocumentContent(
         for document: BlankTrackerDocument,
+        selectedSongPositionIndex: Int,
         selectedOctave: Int,
         isLoopEnabled: Bool,
         isEditModeEnabled: Bool,
         isPlaybackActive: Bool
     ) -> ControlPanelContent {
         let metadata = document.controlPanelMetadata
+        let displayedSongPosition = isPlaybackActive
+            ? selectedSongPositionIndex
+            : metadata.songPositionValue
         var content = ControlPanelContent()
         content.songTitle = metadata.songTitle
         content.songLength = metadata.songLength
-        content.songPosition = metadata.songPosition
+        content.songPosition = twoDigit(displayedSongPosition)
         content.restartPosition = metadata.restartPosition
         content.patternRowCount = metadata.patternRowCount
         content.channelCount = metadata.channelCount
@@ -128,7 +132,7 @@ enum ControlPanelDisplayState {
         content.tempo = metadata.tempo
         content.speed = metadata.speed
         content.selectedOctave = selectedOctave
-        content.songPositionValue = metadata.songPositionValue
+        content.songPositionValue = displayedSongPosition
         content.maximumSongPosition = metadata.maximumSongPosition
         content.isLoopEnabled = isLoopEnabled
         content.isEditModeEnabled = isEditModeEnabled

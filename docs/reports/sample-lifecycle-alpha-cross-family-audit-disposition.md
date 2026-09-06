@@ -22,6 +22,12 @@ manager-approved release disposition after remediation.
 | VTX-L-001 (targeted contradictory-spec portion only) | Remediated for this release candidate | `tests/fix-viewport-shadow-spec-drift`, PR #395, `b82f703` | The cursor-outline test now exercises production geometry with the shipped bounds, and the contradictory test-local pattern-selector specification was removed. Full viewport-test de-shadowing remains deferred. |
 | VTX-CS-003 | Remediated by removal | `assets/remove-placeholder-app-icon`, PR #396, `a2a703d` | The third-party-derived placeholder icon files and their Xcode resource/app-icon references were removed; no replacement artwork or asset scope was added. |
 
+## Release-blocker promotion after live validation
+
+| Finding ID | Disposition | Fix branch / PR / commit | Verification summary |
+| --- | --- | --- | --- |
+| VTX-J-003 | Promoted from a nonblocking audit finding to a release blocker by the maintainer's live three-order workflow; candidate follow-up correction pending maintainer validation | `fix/editable-song-position-authority` (uncommitted for maintainer/manager review) | Stopped editable order and pattern navigation uses `BlankTrackerDocument.currentPosition/currentPatternIndex` as its sole authority. Main POS and Song / Order navigation converge there; pattern viewing remains non-assigning, navigation remains non-undoable, and playback follow remains transient. The missing P001 popup entry was a second editable selector-population defect: content filtering omitted an empty but structurally represented pattern, and the candidate now derives entries from represented patterns. The earlier Make Editable Copy smoke used a pre-existing loaded inventory and did not exercise File > New growth. The final release gate remains NO-GO until maintainer validation, merge, and a full rerun. |
+
 ## Explicitly accepted and deferred
 
 | Finding ID | Disposition and timing | Reason |

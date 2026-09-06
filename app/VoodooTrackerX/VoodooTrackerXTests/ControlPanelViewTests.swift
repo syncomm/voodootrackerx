@@ -69,6 +69,23 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertFalse(view.stopButton.isEnabled)
     }
 
+    func testApplyCanGrowSongPositionRangeAndSelectItsNewMaximum() {
+        let view = ControlPanelView(frame: .zero)
+        var content = ControlPanelContent()
+        content.isSongPositionEnabled = true
+
+        for (position, maximum) in [(0, 0), (1, 1), (2, 2), (1, 2), (0, 2)] {
+            content.songPosition = String(format: "%02d", position)
+            content.songPositionValue = position
+            content.maximumSongPosition = maximum
+            view.apply(content)
+
+            XCTAssertEqual(view.songPositionField.stringValue, String(format: "%02d", position))
+            XCTAssertEqual(view.songPositionStepper.integerValue, position)
+            XCTAssertEqual(view.songPositionStepper.maxValue, Double(maximum))
+        }
+    }
+
     func testControlPanelAddsAccentLineAndGroupSeparators() {
         let view = ControlPanelView(frame: .zero)
 

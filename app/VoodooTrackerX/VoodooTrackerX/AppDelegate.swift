@@ -22,6 +22,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         contextProvider: { [weak self] in self?.currentEditableDocumentEditContext() ?? .none },
         documentApplyHandler: { [weak self] document in self?.applyEditableDocumentSnapshot(document) }
     )
+    private lazy var editableDocumentNavigationCoordinator = EditableDocumentNavigationCoordinator(
+        contextProvider: { [weak self] in self?.currentEditableDocumentEditContext() ?? .none },
+        documentApplyHandler: { [weak self] document, application in
+            self?.applyEditableNavigationSnapshot(document, application: application)
+        }
+    )
     private lazy var clearSongDataCoordinator = ClearSongDataCoordinator(
         contextProvider: { [weak self] in self?.currentClearSongDataContext() ?? .unavailable },
         commitHandler: { [weak self] target in self?.commitClearSongData(target) ?? false },
@@ -117,6 +123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     )
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
+    // These are UI/session projections. A stopped editable document owns its
+    // canonical position and viewed pattern; loaded modules and playback follow do not.
     private var selectedPatternSelectionIndex = 0
     private var selectedSongPositionIndex = 0
     private var currentPatternIndex = 0
@@ -356,7 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 self?.syncControlPanelView()
                 return
             }
-            self?.applyPlaybackPosition(position)
+            self?.applyStoppedPlaybackPosition(position)
         }
         playbackEngine.runtimeAdapterPlanDidUpdate = { [weak self] in
             self?.syncControlPanelView()
@@ -747,7 +755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         visibleGridRangesByRow = [:]
         currentViewportState = nil
         currentViewportLayout = nil
-        updatePatternSelector(for: document.metadata, keepPattern: document.currentPatternIndex)
+        updateEditablePatternSelector(for: document)
         renderCurrentPattern(metadata: document.metadata)
         syncControlPanelView()
     }
@@ -1336,21 +1344,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        if let document = blankDocument {
-            guard let updatedDocument = SongOrderEditorNavigation.editableDocument(
-                document,
-                selectingOrderPosition: orderPosition,
-                isPlaybackActive: playbackEngine.state.isPlaying
-            ) else {
-                return
-            }
-            blankDocument = updatedDocument
-            selectedSongPositionIndex = updatedDocument.currentPosition
-            currentPatternIndex = updatedDocument.currentPatternIndex
-            cursor = PatternCursor(row: 0, channel: 0, field: .note)
-            updatePatternSelector(for: updatedDocument.metadata, keepPattern: updatedDocument.currentPatternIndex)
-            renderCurrentPattern(metadata: updatedDocument.metadata)
-            syncControlPanelView()
+        if blankDocument != nil, loadedMetadata == nil {
+            _ = editableDocumentNavigationCoordinator.selectOrderPosition(orderPosition)
             return
         }
 
@@ -1374,22 +1369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        if let document = blankDocument {
-            guard let updatedDocument = SongOrderEditorNavigation.editableDocument(
-                document,
-                selectingPatternIndex: patternIndex,
-                isPlaybackActive: playbackEngine.state.isPlaying
-            ) else {
-                return
-            }
-            blankDocument = updatedDocument
-            selectedSongPositionIndex = updatedDocument.currentPosition
-            cursor = PatternCursor(row: 0, channel: 0, field: .note)
-            guard selectPatternForDisplay(updatedDocument.currentPatternIndex, in: updatedDocument.metadata) else {
-                return
-            }
-            renderCurrentPattern(metadata: updatedDocument.metadata)
-            syncControlPanelView()
+        if blankDocument != nil, loadedMetadata == nil {
+            _ = editableDocumentNavigationCoordinator.selectPatternForViewing(patternIndex)
             return
         }
 
@@ -1433,7 +1414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         currentPatternIndex = updatedDocument.currentPatternIndex
         cursor = PatternCursor(row: 0, channel: 0, field: .note)
         let metadata = updatedDocument.metadata
-        updatePatternSelector(for: metadata, keepPattern: updatedDocument.currentPatternIndex)
+        updateEditablePatternSelector(for: updatedDocument)
         guard selectPatternForDisplay(updatedDocument.currentPatternIndex, in: metadata) else {
             return
         }
@@ -1565,10 +1546,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             cancelPreviewForSelectionChange()
         }
         blankDocument = document
+        refreshEditableDocumentPresentation(document)
+    }
+
+    private func applyEditableNavigationSnapshot(
+        _ document: BlankTrackerDocument,
+        application: EditableDocumentNavigationApplication
+    ) {
+        switch application {
+        case .userSelection:
+            cursor = PatternCursor(row: 0, channel: 0, field: .note)
+        case let .playbackStopped(rowIndex):
+            cursor.row = rowIndex
+        }
+        applyEditableDocumentSnapshot(document)
+    }
+
+    private func refreshEditableDocumentPresentation(_ document: BlankTrackerDocument) {
         selectedSongPositionIndex = document.currentPosition
         currentPatternIndex = document.currentPatternIndex
         let metadata = document.metadata
-        updatePatternSelector(for: metadata, keepPattern: document.currentPatternIndex)
+        updateEditablePatternSelector(for: document)
         _ = selectPatternForDisplay(document.currentPatternIndex, in: metadata)
         renderCurrentPattern(metadata: metadata)
         syncControlPanelView()
@@ -1581,7 +1579,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         currentPatternIndex = updatedDocument.currentPatternIndex
         cursor = PatternCursor(row: 0, channel: 0, field: .note)
         let metadata = updatedDocument.metadata
-        updatePatternSelector(for: metadata, keepPattern: updatedDocument.currentPatternIndex)
+        updateEditablePatternSelector(for: updatedDocument)
         guard selectPatternForDisplay(updatedDocument.currentPatternIndex, in: metadata) else {
             return
         }
@@ -1913,7 +1911,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard displayedPatternEntries.indices.contains(selectedPatternSelectionIndex) else {
             return
         }
-        currentPatternIndex = displayedPatternEntries[selectedPatternSelectionIndex].patternIndex
+        let selectedPatternIndex = displayedPatternEntries[selectedPatternSelectionIndex].patternIndex
+        if blankDocument != nil, loadedMetadata == nil, !playbackEngine.state.isPlaying {
+            if !editableDocumentNavigationCoordinator.selectPatternForViewing(selectedPatternIndex) {
+                syncControlPanelView()
+            }
+            return
+        }
+        currentPatternIndex = selectedPatternIndex
         cursor = PatternCursor(row: 0, channel: 0, field: .note)
         renderCurrentPattern(metadata: metadata)
         syncControlPanelView()
@@ -1999,6 +2004,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc
     private func currentSongPositionStepperChanged(_ sender: NSStepper) {
         guard let metadata = displayedMetadata else {
+            return
+        }
+        if blankDocument != nil, loadedMetadata == nil, !playbackEngine.state.isPlaying {
+            if !editableDocumentNavigationCoordinator.selectOrderPosition(sender.integerValue) {
+                syncControlPanelView()
+            }
             return
         }
         applySongPosition(sender.integerValue, in: metadata)
@@ -2259,19 +2270,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func currentPlaybackStartContext() -> PlaybackStartContext? {
+        if let blankDocument, loadedMetadata == nil, !playbackEngine.state.isPlaying {
+            return TrackerPlaybackStartContextResolver.normalPlayContext(
+                editableDocument: blankDocument,
+                row: 0
+            )
+        }
         guard let metadata = displayedMetadata else {
             return nil
         }
-        let startRow = loadedMetadata == nil && blankDocument != nil ? 0 : cursor.row
         return TrackerPlaybackStartContextResolver.normalPlayContext(
             metadata: metadata,
             selectedSongPositionIndex: selectedSongPositionIndex,
             displayedPatternIndex: currentPatternIndex,
-            row: startRow
+            row: cursor.row
         )
     }
 
     private func currentPatternLoopStartContext() -> PlaybackStartContext? {
+        if let blankDocument, loadedMetadata == nil {
+            return TrackerPlaybackStartContextResolver.currentPatternLoopContext(
+                editableDocument: blankDocument
+            )
+        }
         guard let metadata = displayedMetadata else {
             return nil
         }
@@ -2339,13 +2360,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        selectedSongPositionIndex = clampedSongPosition(position.orderIndex, songLength: metadata.songLength)
-        currentPatternIndex = position.patternIndex
-        if let selectorIndex = displayedPatternEntries.firstIndex(where: { $0.patternIndex == position.patternIndex }) {
+        if let blankDocument, loadedMetadata == nil {
+            guard case let .transientPresentation(orderPosition, patternIndex)? = EditablePlaybackNavigationPolicy.update(
+                document: blankDocument,
+                position: position,
+                phase: .activeFollow
+            ) else {
+                syncControlPanelView()
+                return
+            }
+            applyPlaybackPresentation(
+                orderPosition: orderPosition,
+                patternIndex: patternIndex,
+                rowIndex: position.rowIndex,
+                metadata: metadata
+            )
+            return
+        }
+
+        applyPlaybackPresentation(
+            orderPosition: position.orderIndex,
+            patternIndex: position.patternIndex,
+            rowIndex: position.rowIndex,
+            metadata: metadata
+        )
+    }
+
+    private func applyStoppedPlaybackPosition(_ position: PlaybackPosition) {
+        guard let document = blankDocument, loadedMetadata == nil else {
+            applyPlaybackPosition(position)
+            return
+        }
+        guard case let .canonicalDocument(updatedDocument, didChange)? =
+            editableDocumentNavigationCoordinator.reconcilePlaybackStop(at: position) else {
+            refreshEditableDocumentPresentation(document)
+            return
+        }
+
+        if !didChange {
+            cursor.row = position.rowIndex
+            refreshEditableDocumentPresentation(updatedDocument)
+        }
+    }
+
+    private func applyPlaybackPresentation(
+        orderPosition: Int,
+        patternIndex: Int,
+        rowIndex: Int,
+        metadata: ParsedModuleMetadata
+    ) {
+        selectedSongPositionIndex = clampedSongPosition(orderPosition, songLength: metadata.songLength)
+        currentPatternIndex = patternIndex
+        if let selectorIndex = displayedPatternEntries.firstIndex(where: { $0.patternIndex == patternIndex }) {
             selectedPatternSelectionIndex = selectorIndex
             patternSelector?.selectItem(at: selectorIndex)
         }
-        cursor.row = position.rowIndex
+        cursor.row = rowIndex
         renderCurrentPattern(metadata: metadata, restoreEditorFocus: false)
         syncControlPanelView(reloadInstrumentControls: false)
     }
@@ -2394,6 +2464,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         currentPatternIndex = displayedPatternEntries[selectedPatternSelectionIndex].patternIndex
         selector.selectItem(at: selectedPatternSelectionIndex)
+        selector.isEnabled = true
+    }
+
+    private func updateEditablePatternSelector(for document: BlankTrackerDocument) {
+        guard let selector = patternSelector else {
+            return
+        }
+        let projection = EditableMainPatternSelectorProjection(document: document)
+        displayedPatternEntries = projection.entries
+        invalidReferencedPatternIndices = projection.invalidReferencedPatterns
+
+        selector.removeAllItems()
+        for entry in displayedPatternEntries {
+            selector.addItem(
+                withTitle: formattedPatternSelectorTitle(
+                    patternIndex: entry.patternIndex,
+                    rowCount: entry.rowCount
+                )
+            )
+        }
+        guard !displayedPatternEntries.isEmpty else {
+            selector.isEnabled = false
+            return
+        }
+
+        if let selectedEntryIndex = projection.selectedEntryIndex {
+            selectedPatternSelectionIndex = selectedEntryIndex
+            selector.selectItem(at: selectedEntryIndex)
+        } else {
+            selectedPatternSelectionIndex = 0
+            selector.select(nil)
+        }
         selector.isEnabled = true
     }
 
@@ -3100,6 +3202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             controlPanelView?.apply(ControlPanelDisplayState.blankDocumentContent(
                 for: blankDocument,
+                selectedSongPositionIndex: selectedSongPositionIndex,
                 selectedOctave: selectedOctave,
                 isLoopEnabled: isLoopPlaybackEnabled,
                 isEditModeEnabled: isEditModeEnabled,

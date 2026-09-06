@@ -129,8 +129,8 @@ final class ControlPanelView: NSView {
         editModeButton.state = content.isEditModeEnabled ? .on : .off
         playButton.isEnabled = !content.isPlaybackActive
         stopButton.isEnabled = content.isPlaybackActive
-        songPositionStepper.integerValue = content.songPositionValue
         songPositionStepper.maxValue = Double(content.maximumSongPosition)
+        songPositionStepper.integerValue = content.songPositionValue
         songPositionStepper.isEnabled = content.isSongPositionEnabled
         patternSelector.isEnabled = content.isPatternControlsEnabled
         instrumentSelector.isEnabled = content.areInstrumentPlaceholdersEnabled

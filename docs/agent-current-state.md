@@ -17,9 +17,9 @@ display, or pattern-entry milestone, and it is not a DAW/plugin-host milestone.
 
 [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md)
 defines the File New-to-export instrument, sample, import, generation, keymap,
-lifecycle, ownership, and release model. Its first implementation slice is now
-present: File New owns one unnamed zero-sample I01 with an honest selected S01
-destination, and `Edit > New Instrument` appends/selects another zero-sample
+lifecycle, ownership, and release model. The current Sample Lifecycle Alpha
+invariants are implemented: File New owns one unnamed zero-sample I01 with an
+honest selected S01 destination, and `Edit > New Instrument` appends/selects another zero-sample
 instrument through one labeled `applyEdit`/undo action. The command is limited
 to stopped editable documents with capacity; loaded modules and playback remain
 read-only. Sample Editor LOAD and SINE now populate the exact selected canonical
@@ -61,9 +61,8 @@ writer/parser/provenance, resolver, or runtime change exists. Export XM now comp
 or exact-map-referenced Sxx (maximum S16), emits an all-zero 40-byte/no-payload
 header for each missing position, and writes map indices directly. Reopen drops
 those structural headers without compacting later identities or changing unavailable
-routes; existing dense alpha.1 output remains byte-identical. Sample Editor SINE uses the existing
-deterministic looped PCM recipe at the selected eligible destination. A UI-independent audio
-import facade now validates container identity before dispatching WAV/WAVE,
+routes; existing dense alpha.1 output remains byte-identical. A UI-independent
+audio import facade validates container identity before dispatching WAV/WAVE,
 AIFF/AIF, AIFC, or native `fLaC` to bounded decoders. Native FLAC is limited to
 16/24-bit mono/stereo and uses raw STREAMINFO preflight plus chunked Apple
 `ExtAudioFile` decode; 8-bit and all untested depths are rejected before decode.
@@ -72,14 +71,13 @@ Sample Editor LOAD uses that facade off the main thread: it fills the selected c
 Replace/Add as New/Cancel for the exact represented selection, reuses stereo
 Mix/Left/Right, and commits one import, replace, or append edit with stale-result
 protection. Add appends/selects the next represented Sxx without changing the
-keymap. Its panel accepts WAV/AIFF/AIFC and native FLAC; Ogg-FLAC is unsupported,
-and FLAC metadata/loops are ignored. Instrument Editor now projects committed
+keymap. Instrument Editor now projects committed
 ownership for the exact visible 36-note audition range through the shared
 `InstrumentKeyboardVisibleRange` and piano geometry. The document retains its
 canonical 96-note C-0...B-7 map, and explicit selected-sample assignment remains
 the manual `MAP RANGE…` workflow. Graphical range selection, drag-to-paint,
-automatic mapping, and destructive lifecycle beyond represented-sample Clear and Move To
-remain deferred.
+automatic mapping, Rename Sample, Move Up/Down convenience commands, and direct
+waveform/PCM editing remain deferred.
 
 Loaded modules remain read-only by default. Supported stopped loaded XM modules
 can be converted only through the explicit `File > Make Editable Copy` command,
@@ -126,6 +124,7 @@ labeled `applyEdit`. Stale destination identity, revision, selection, occupancy,
 playback, capacity, or operation-token changes reject the commit. Clear ->
 populate -> Undo/Redo preserves the canonical gap, map bytes, later samples, and
 unavailable/available routing transition exactly.
+
 The Sample Lifecycle Alpha release-readiness gate on `647dbfcc` is a go with no
 known correctness blocker. Its automated lifecycle/persistence matrix and clean
 host/universal Release builds pass, and the maintainer listening/UI gate passed.
@@ -140,25 +139,23 @@ engine and contained UI are proven. AUv3 is the only approved format in this
 direction; it does not expand v1, add a target, or change the runtime. See
 `docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
 
-Release status: `v0.2.0-alpha.5` is the released Rendered Audio Export Alpha.
-`v0.3.0-alpha.1` is prepared as the From-Scratch Composition Alpha and is
-pending its maintainer post-merge tag. Its final composition/XM round-trip gate
-is a conditional go: all automated gates and the generated-data from-scratch
-Debug-app workflow pass with no known product blocker. PR #370 resolves every
-instrument-note route through one 96-note keymap resolver, and PR #372 aligns
-committed ownership with the piano's visible 36-note range and geometry while
-retaining the manual sheet. Exact distinct-sample coverage spans New
-Instrument, two patterns/orders, XM export/reopen, and WAV/M4A. The final gate
-explicitly did not claim the AirPods idle/quick-audition smoke because paired
-devices were unavailable; an optional maintainer smoke may follow, but hardware
-unavailability alone does not block the tag absent a new defect. See the
-[release notes](release-notes/v0.3.0-alpha.1.md) and
-[final-gate readiness report](reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md).
+## Release Status And Next Action
 
-Release-prep verification on Xcode 26.5 passes clean host and universal
-`arm64 + x86_64` Release builds after PR #375 scoped one UI-only builder out of
-optimization to avoid a Swift 6.3.2 compiler crash. That resolved toolchain
-build blocker is not a user-facing alpha limitation.
+`v0.3.0-alpha.1` is tagged and shipped as the From-Scratch Composition Alpha;
+see its [release notes](release-notes/v0.3.0-alpha.1.md). The current unreleased
+Sample Lifecycle Alpha implementation and internal gate are complete.
+
+The independent cross-family audit of `f0017862` completed with 0 BLOCKER
+findings. VTX-F-001, VTX-G-001, VTX-G-002, VTX-A1-002, the targeted
+contradictory-spec portion of VTX-L-001, and VTX-CS-003 were remediated before
+the release candidate. VTX-CS-001, VTX-CS-002, and VTX-D1-001 remain accepted
+HIGH findings for focused post-alpha playback/RT work, not Sample Lifecycle
+correctness blockers. See the
+[audit disposition](reports/sample-lifecycle-alpha-cross-family-audit-disposition.md).
+
+Current next action: run the final release gate and prepare the next Sample Lifecycle Alpha tag.
+Do not start another feature milestone before that gate. After release, prefer focused
+consolidation of the lifecycle/document seams rather than a broad rewrite.
 
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
 `File > Export Audio` for stopped loaded modules, editable documents, and
@@ -225,7 +222,8 @@ sample surface and are labeled as empty destinations. Empty rows remain selectab
 during playback, but direct AUDITION is unavailable; SINE/LOAD become eligible only
 for the exact selected canonical empty row in a stopped editable document. FORMAT reports represented bit depth and mono without treating
 playback-policy `baseSampleRate` as source metadata.
-SINE, audio LOAD, and represented-sample CLEAR are the current Sample Editor mutations. LOAD is available
+SINE, audio LOAD, represented-sample CLEAR, and the Edit-menu Duplicate/Move/Swap
+commands are the current sample mutations. LOAD is available
 only for a stopped editable selected canonical empty Sxx or represented selected sample and is
 disabled during an active import. Its single-file panel accepts WAV/WAVE,
 AIFF/AIF, AIFC, and native FLAC; container identity is authoritative and
@@ -243,8 +241,8 @@ other population and replacement preserve the exact map, slot, and unrelated ins
 once, refreshes every editor, and does not auto-audition; the next trigger uses
 imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
 state, and no source path is retained. CLEAR uses the stopped-editable exact-target
-confirmation and one-edit contract summarized above; broader destructive sample
-lifecycle remains deferred.
+confirmation and one-edit contract summarized above. Rename Sample, Move Up/Down
+convenience, and direct loop/PCM/waveform editing remain deferred.
 Separately, stopped editable documents can map a nonempty represented sample in
 the selected instrument through the Instrument Editor's `MAP RANGE…` sheet over
 the canonical C-0...B-7 domain. The read-only ownership strip projects only the
@@ -291,8 +289,8 @@ editable-copy, snapshot, and Export XM paths. The local display-only VOL/PAN
 selector exposes their graph, point count, enabled, sustain, and loop state;
 they remain runtime-inert and create no document or undo mutation. These
 metadata slices add no loop, PCM, envelope, waveform, vibrato, or XI mutation.
-Save/Save As,
-loaded-module direct editing, broader Instrument Editor editing, Sample Editor mutation beyond selected-empty SINE/audio LOAD and represented CLEAR, PCM16 product export,
+Save/Save As, loaded-module direct editing, broader Instrument Editor editing,
+Rename Sample, Move Up/Down convenience, direct loop/PCM/waveform editing, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 
@@ -499,7 +497,7 @@ Recently completed narrow targets:
   control-panel, Song / Order, and Instrument Editor state paths, and rejects
   loaded read-only or playback-active contexts. Clear Current Pattern proves
   undo/redo; source paths are absent from the edit context, Save/Save As stay
-  disabled, and broader instrument/sample editing remains future work.
+  disabled, and the explicitly deferred instrument/sample work above remains future work.
 - `Window > Instrument Editor` now opens one reusable fixed 920 × 638 utility
   window aligned to `assets/mockups/instrument-editor-v1.html`, bound to the current document and selection.
   Supported stopped-editable metadata routes through undo, and computer/graphical keys use isolated preview.

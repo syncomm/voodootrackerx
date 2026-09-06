@@ -70,33 +70,22 @@ Loaded modules remain read-only, Save and Save As remain disabled, Export XM
 remains scoped to the current editable subset, and advanced audio export
 options remain future work.
 
-The prepared `v0.3.0-alpha.1` From-Scratch Composition Alpha is pending its
-maintainer post-merge tag. Its final composition/XM round-trip gate concluded
-**CONDITIONAL GO** with no known product blocker. The automated matrix and
-generated-data Debug-app workflow pass from File New through instruments,
-multiple samples, manual keymap assignment, patterns/orders, playback, XM
-export/reopen, and WAV/M4A export. Instrument Editor and pattern audition plus
-editable live/static playback resolve the played note through the canonical
-96-note instrument map, independently of selected-sample editing focus. Sample
-Editor audition remains the intentional direct-selected-sample route. The gate
-did not claim an AirPods smoke because paired devices were unavailable; an
-optional hardware smoke may follow, but unavailability alone does not block the
-tag absent a new defect.
+`v0.3.0-alpha.1`, the From-Scratch Composition Alpha, is tagged and released.
+It supports the public File New-to-export workflow: create instruments, generate
+or import samples, assign note ranges, compose patterns and orders, Export XM,
+reopen the result, and render WAV/M4A audio.
 
-Empty instruments/S01 destinations, deterministic Sine, and Sample Editor
-WAV/AIFF/AIFC/native-FLAC LOAD offer Replace, Add as New, and Cancel for
-occupied samples. Add appends/selects represented S02+ without changing keymap
-references. In Instrument Editor, the noninteractive committed-ownership strip
-now projects exactly the same movable 36-note range as the audition piano and
-uses the piano's note-boundary geometry. For a visible C-4...B-6 piano, a
-manual C-5...B-5 assignment therefore occupies exactly those 12 keys, with
-B-4 and C-6 returning to S01. Octave navigation rebuilds both surfaces from one
-visible-range state; changing selected sample does not change ownership.
-Loaded modules use the same projection while `MAP RANGE…` remains disabled.
-The canonical C-0...B-7 map and manual inclusive `MAP RANGE…` selectors remain
-authoritative, and mapping stays one undoable edit. Graphical selection,
-drag-to-paint, automatic mapping, delete, clear, reorder, duplication, and
-standalone New Sample remain deferred.
+The current unreleased Sample Lifecycle Alpha implementation is complete and
+release-gated on `main`. Represented samples and canonical empty S01...S16
+destinations share one sparse slot model across the editors and XM persistence.
+SINE or LOAD can populate the exact selected canonical empty destination; Clear
+removes a represented sample in place; Duplicate appends an independent copy;
+and `Edit > Move Sample…` / `Edit > Swap Sample…` preserve sample identity,
+all 96 keymap references, selection, and unavailable routes through one
+transactional Undo/Redo path. Supported sparse exports reopen and can become an
+editable copy without compacting identities. Graphical keymap redesign,
+destructive waveform editing, Rename Sample, and Move Up/Down convenience
+commands remain deferred.
 
 What works today:
 
@@ -123,11 +112,12 @@ What works today:
   exact identity/metadata, efficient waveform overview, and display-only loop
   region stay coherent for loaded and editable documents. Unnamed represented
   samples are distinct from absent samples; FORMAT reports represented bit depth
-  and mono without claiming a source rate. In a stopped editable zero-sample
-  instrument, SINE fills empty S01 with original deterministic 16-bit mono
-  looped PCM through one undoable action and maps every note to S01. LOAD now
-  imports one WAV/WAVE, AIFF/AIF, AIFC, or native FLAC into empty S01 or the
-  occupied-sample flow described above. Native FLAC is limited to mono/stereo 16-bit and 24-bit
+  and mono without claiming a source rate. In a stopped editable document, SINE
+  fills the exact selected canonical empty S01...S16 with original deterministic
+  16-bit mono looped PCM through one undoable action. Only neutral empty S01
+  initializes the all-S01 keymap. LOAD imports one WAV/WAVE, AIFF/AIF, AIFC, or
+  native FLAC into that exact empty destination or the occupied-sample flow
+  described above. Native FLAC is limited to mono/stereo 16-bit and 24-bit
   sources; 8-bit and untested depths, Ogg-FLAC, and malformed or mismatched
   containers are rejected. Mono skips channel choice; stereo offers Mix to
   Mono, Left, or Right. Decode and canonical normalization run in the
@@ -135,11 +125,14 @@ What works today:
   modules, playback, invalid destinations, and active imports.
   AUDITION toggles the selected sample directly at C-4 through the persistent
   preview stream, preserving sample planning without keymap lookup or mutation.
+  CLEAR removes the represented selection in place with confirmation and exact
+  Undo/Redo. Duplicate, Move, and Swap are available from Edit for the represented
+  Sample Editor selection and preserve sparse identity and keymap meaning.
 - The audio import facade dispatches validated WAV, AIFF, AIFC, and native
   FLAC containers to bounded decoders; every format shares one normalized,
   value-owned candidate and commit path. FLAC tags, pictures, cues, seek
   tables, application blocks, ReplayGain, embedded names, and loops are
-  ignored. Destructive sample lifecycle, drag/drop, and global sample import
+  ignored. Direct waveform/PCM editing, drag/drop, and global sample import
   remain future work.
 - Pattern Bank single-click viewing/navigation and double-click assignment for
   editable documents.
@@ -181,12 +174,13 @@ What is still future work:
   export settings.
 - Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
-- Destructive sample lifecycle operations, square/triangle/saw/noise
-  generation, drag-to-paint/automatic keymap assignment, editable loop and PCM/waveform work, and
-  destructive processing. Loaded modules remain read-only; see
+- Rename Sample, Move Up/Down convenience commands, square/triangle/saw/noise
+  generation, drag-to-paint/automatic keymap assignment, editable loop and
+  PCM/waveform work, and destructive processing. Loaded modules remain read-only; see
   [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md).
-- XI instrument import/export and broader sample move/swap/duplicate workflows.
+- XI instrument import/export and broader instrument lifecycle/copy workflows.
 - MIDI input and broad UI polish. AUv3 remains a post-v1.0 direction.
+- Runtime backend transition; the CoreAudio-hosted C mixer remains the current path.
 - Live Loop retargeting during active playback, loop-range editing, arbitrary
   loop ranges, and broader tracker editing workflows.
 - Full FastTracker II, OpenMPT, or MikMod parity.
@@ -271,8 +265,8 @@ render timing.
 - [docs/playback-trace.md](docs/playback-trace.md) - runtime trace and capture diagnostics.
 - [docs/design/parsed-xm-to-c-mixer-adapter.md](docs/design/parsed-xm-to-c-mixer-adapter.md) - bounded parsed-XM-to-C-mixer adapter design and non-goals.
 - [docs/decisions/](docs/decisions) - architecture decision records, including the software mixer transition and C mixer boundary.
-- [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md) - future from-scratch instrument, sample, import, mapping, lifecycle, and release contract.
-- [v0.3.0-alpha.1 release notes](docs/release-notes/v0.3.0-alpha.1.md) - From-Scratch Composition Alpha scope, limitations, checklist, and post-merge tag instructions.
+- [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md) - from-scratch instrument, sample, import, mapping, lifecycle, and release contract.
+- [v0.3.0-alpha.1 release notes](docs/release-notes/v0.3.0-alpha.1.md) - shipped From-Scratch Composition Alpha scope and limitations.
 - [docs/tracker-behavior-spec.md](docs/tracker-behavior-spec.md) - tracker viewport and editor behavior rules.
 - [docs/testing.md](docs/testing.md) - local build/test commands, fixture rules, parser smoke tests, and golden snapshot workflow.
 - [AGENTS.md](AGENTS.md) - contribution and automation requirements for humans and agents.

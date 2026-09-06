@@ -18,40 +18,16 @@ AAC-encoded M4A export for convenient sharing. Both formats write only to a
 user-selected destination. Loaded modules remain read-only, Save/Save As remain
 disabled, and advanced audio export options remain future work.
 
-`v0.3.0-alpha.1` is prepared as the From-Scratch Composition Alpha and is
-pending its maintainer post-merge tag. Its final XM round-trip gate is a
-conditional go with no known product blocker. The full automated matrix and the
-generated-data Debug-app workflow pass from File New through two instruments,
-two patterns/orders, playback, XM export/reopen, and WAV/M4A. The final gate did
-not claim an AirPods idle/quick-audition smoke because paired devices were
-unavailable; an optional maintainer smoke may follow, but hardware
-unavailability alone does not block the tag absent a new defect. The dedicated
-live keymap-routing correction merged in PR #370, and PR #372 aligned the
-ownership strip with the audition piano's exact visible range and geometry.
-`MAP RANGE…` retains explicit manual From/To selectors; graphical range
-selection and painting remain deferred.
-Its complete acceptance gate and
-dependency-ordered PR plan are defined by
-[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
-The first gate slice is implemented: File New represents empty I01/S01 and
-`Edit > New Instrument` creates another honest empty destination through one
-undoable stopped-editable action. Deterministic SINE and Sample Editor audio
-load/replace now populate that destination through the same undo boundary.
-LOAD accepts WAV/WAVE, AIFF/AIF, AIFC, and native FLAC, validates container
-identity before format dispatch, and commits the shared normalized candidate.
-Native FLAC is limited to preflighted 16/24-bit mono/stereo sources; 8-bit and
-untested depths plus Ogg-FLAC are rejected, and FLAC metadata/loops are ignored.
-Sample Editor AUDITION toggles its represented selected slot directly at C-4
-through the persistent preview stream for loaded/read-only and editable sources,
-without keymap lookup or mutation.
-Instrument Editor and pattern-entry audition plus editable playback now share
-exact note-map resolution, independent of selected-sample editing focus. Distinct
-S01/S02 tests cover preview, live scheduling, offline planning, and the complete
-export/reopen composition workflow. See
-`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md` and
-`docs/release-notes/v0.3.0-alpha.1.md`.
+`v0.3.0-alpha.1` is tagged and shipped as the From-Scratch Composition Alpha.
+Its File New-to-export workflow, boundaries, and known alpha limitations are
+recorded in [its release notes](release-notes/v0.3.0-alpha.1.md).
 
-The post-alpha sparse sample-slot XM foundation now preserves canonical S01...S16
+The current unreleased milestone is Sample Lifecycle Alpha. Its implementation
+and internal milestone gate are complete; the supported lifecycle and remaining
+deferrals are summarized below and specified by
+[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
+
+The current sparse sample-slot XM foundation preserves canonical S01...S16
 identity and exact keymap references through Export XM/reopen by projecting missing
 positions to all-zero zero-length headers only at the writer boundary. Dense alpha.1
 bytes remain unchanged. The normal XM load path now classifies each source sample
@@ -60,18 +36,17 @@ That provenance permits only lossless canonical sparse state through Make Editab
 Copy and a byte-identical re-export; arbitrary named or metadata-bearing zero-length
 headers remain outside the supported editable subset.
 
-The post-alpha canonical interior-empty-slot presentation foundation is complete.
+The canonical interior-empty-slot presentation foundation is complete.
 One shared UI-independent projection now distinguishes represented samples from
 empty destinations across the main control panel, Instrument Editor, and Sample
 Editor. Editable spans are contiguous and capped at S16; loaded gaps require
 canonical source provenance and do not gain append rows. Editable capacity does
 not advertise a future append row; the occupied LOAD -> Add as New workflow
 creates the next represented identity before it appears. Empty selection is
-non-mutating, and SINE/LOAD, keymap routing, runtime, writer, and Save behavior are
-unchanged.
+non-mutating and does not alter keymap routing, runtime, writer, or Save behavior.
 
-The first destructive sample lifecycle slice now clears the selected represented
-Sxx in place from Sample Editor. It is stopped/editable-only, requires exact
+Clear Sample removes the selected represented sample in place while retaining
+its Sxx identity. It is stopped/editable-only, requires exact
 confirmation with mapped-note count when applicable, revalidates stale state,
 and commits one `Clear Sample` edit with exact Undo/Redo. It preserves selection,
 later sample identities, all 96 map bytes, and honest unavailable routing; direct
@@ -121,6 +96,20 @@ The Sample Lifecycle Alpha release-readiness gate on `647dbfcc` is a go with no
 known correctness blocker. The full automated matrix, clean host/universal
 Release builds, and maintainer listening/UI gate pass; see the
 [gate report](reports/sample-lifecycle-alpha-release-readiness.md).
+
+The independent cross-family audit of `f0017862` is complete with 0 BLOCKER
+findings. Accepted pre-alpha remediation for VTX-F-001, VTX-G-001, VTX-G-002,
+VTX-A1-002, the targeted contradictory-spec portion of VTX-L-001, and
+VTX-CS-003 is merged. Full viewport-test de-shadowing remains deferred. See the
+[audit disposition](reports/sample-lifecycle-alpha-cross-family-audit-disposition.md).
+
+VTX-CS-001 (Fxx timing-planner disagreement), VTX-CS-002 (portamento scale
+mismatch), and VTX-D1-001 (CoreAudio callback allocation / real-time safety)
+remain accepted HIGH findings for focused post-alpha playback/RT work. They are
+not Sample Lifecycle correctness blockers.
+
+Current next action: run the final release gate and prepare the next Sample
+Lifecycle Alpha tag. Do not start the next feature milestone before that gate.
 
 ## Project Goals
 
@@ -265,10 +254,10 @@ The backend is in a temporary foundation freeze so development can return to
 GUI, editor, and product milestones. During the freeze, keep backend work
 docs/tooling-only unless a freeze-exit blocker is promoted.
 
-Recommended next PR sequence:
-
-After `v0.3.0-alpha.1` is tagged, begin with the architecture-only milestone
-definition above before promoting a product backlog item.
+Release sequencing takes precedence over backend work: complete the final
+Sample Lifecycle Alpha release gate before promoting another milestone. After
+that release, schedule the accepted playback/RT findings as focused work rather
+than folding them into lifecycle release preparation.
 
 The three-part instrument-rich reference-pack milestone is complete. The
 existing synthetic generator now consumes a validated schema-v2 manifest and can
@@ -554,18 +543,14 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 - tracker viewport changes
 - retired AVAudio backend reintroduction
 
-Recommended next PR:
+Release and post-release order:
 
-- Next: run the Sample Lifecycle milestone gate across Clear, empty population, Duplicate, Move, and Swap before
-  choosing any convenience or consistency follow-up.
-- Module TIME/headroom work should follow
-  `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
-  from the cached/prewarmed adapter plan; do not add synchronous full-song
-  analysis to file load, do not infer duration from title strings, and do not
-  move runtime gain/headroom policy without a cache/invalidation plan.
-- Future Song / Order follow-up work should be scoped separately from playback:
-  confirmation/undo/redo, drag or keyboard polish, pattern length utilities, and
-  editable-copy/save/export flow before persistence work.
+- First, run the final Sample Lifecycle Alpha release gate and prepare the next
+  Sample Lifecycle Alpha tag.
+- After release, consolidate the lifecycle coordinator/document-status seams in
+  focused PRs and address VTX-CS-001, VTX-CS-002, and VTX-D1-001 through
+  separately scoped playback/RT work. Do not turn that consolidation into a
+  broad rewrite.
 
 Recently completed product foundation:
 
@@ -682,8 +667,8 @@ Recently completed product foundation:
   editing is allowed, and Play/Stop transport, runtime song playback, backend
   selection, C mixer DSP, parser architecture, tracker viewport behavior,
   save/export behavior, and loaded-module read-only mutation policy remain
-  unchanged. Full FT2/XM envelope/key-off/fadeout parity, sample editing,
-  sample loading, and XI import remain deferred.
+  unchanged. Full FT2/XM envelope/key-off/fadeout parity and XI import remain
+  deferred; current sample editing/import status is summarized above.
 - Edit-mode loaded-module note preview now carries sanitized sample-loop
   metadata through the preview descriptor/render plan and lets held preview
   notes sustain through existing forward or ping-pong C mixer loop support
@@ -794,11 +779,12 @@ Export XM v1 for stopped editable documents was released as
 Rendered audio export was released as `v0.2.0-alpha.5`. VTX 1.0 still needs the
 broader composition surface below.
 
-The prepared `v0.3.0-alpha.1` From-Scratch Composition Alpha packages the
-current File New-to-export instrument/sample workflow without claiming that the
-remaining VTX 1.0 composition scope is complete. It keeps manual `MAP RANGE…`
-as the keymap workflow and leaves graphical mapping plus broader destructive
-sample lifecycle work beyond represented-sample Clear for later pre-v1.0 milestones.
+The tagged `v0.3.0-alpha.1` From-Scratch Composition Alpha shipped the File
+New-to-export instrument/sample workflow without claiming that the remaining
+VTX 1.0 composition scope is complete. The current unreleased Sample Lifecycle
+Alpha implementation adds sparse lifecycle operations while keeping manual
+`MAP RANGE…` as the keymap workflow and leaving graphical mapping and direct
+waveform/PCM editing for later pre-v1.0 milestones.
 
 Current implemented foundation:
 
@@ -863,6 +849,8 @@ Current implemented foundation:
   keymap bytes, and unavailable routes, invalidates direct preview, and creates
   one exact `Clear Sample` Undo/Redo snapshot. Sparse Export XM/reopen/Make
   Editable Copy preserves semantic gaps without serializing UI selection alone
+- Edit > Duplicate Sample copies the represented selection to the next tail
+  identity without filling gaps or changing keymap assignments
 - transactional sample-slot Move/Swap foundation across fixed S01...S16 identities,
   including canonical-state validation, empty identities, exact sample/keymap/selection
   transforms, one applyEdit/Undo/Redo, audible-semantics preservation, and dense/sparse
@@ -888,19 +876,19 @@ Current implemented foundation:
   no XI or reference audio
 - basic transport smoke workflow
 
-Next composition targets after backend foundation freeze:
+Deferred composition scope after the Sample Lifecycle Alpha release:
 
 - envelope playback/editing and broader instrument/sample metadata behind applyEdit
 - editable Sample Editor loop mode/range behind applyEdit, followed by separate
   PCM/waveform mutation slices
-- editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- remaining sample lifecycle and instrument clear lifecycle; Move Up/Down remain deferred and XI remains separate
+- Rename Sample, Move Up/Down convenience commands, and instrument clear
+  lifecycle; XI interchange remains separate
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics
-- Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
-  pattern length utilities, and deeper arrangement editing
+- Song / Order keyboard polish, pattern length utilities, and deeper arrangement
+  editing
 - broader loop-and-edit workflow for composing while hearing playback
 - save XM and advanced audio export options
 - keyboard workflow parity
@@ -924,8 +912,8 @@ audio backends. Planned sequencing is:
 - treat key release as preview key-off only
 - keep pattern key-off as explicit `===` entry through the tracker key binding
 - allow loaded modules to become auditionable before they become editable
-- include XI import, sample loading, instrument editor, and sample editor work
-  in the 1.0 composition path
+- keep XI import and remaining instrument/sample editor work in the 1.0
+  composition path
 
 ### Future Instrument Keymap Direction
 

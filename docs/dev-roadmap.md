@@ -19,8 +19,8 @@ VoodooTracker X currently has:
 - current XM effect support tracked in `docs/xm-effect-support.md`
 - blank tracker startup, note-entry foundations, selected instrument/sample
   slot state, loaded-module note audition, Clear Current Pattern for
-  blank/editable documents, Clear Song Data for blank documents and loaded
-  module editable-copy palette reuse, pattern-loop playback at Play start,
+  blank/editable documents, confirmed playback-gated Clear Song Data with exact
+  editable Undo/Redo and loaded-module copy safety, pattern-loop playback at Play start,
   Transport > Play Current Pattern for explicit current-pattern loop playback,
   and the Song / Order editor order-list / paginated pattern-bank binding with
   stopped selected-order navigation, editable Pattern Bank double-click
@@ -62,8 +62,9 @@ VoodooTracker X currently has:
   popup bound to canonical instrument/sample selection. Canonical normalization
   drives one coherent selected sample row, identity, metadata, bounded read-only
   waveform, and display-only loop region; unnamed samples remain distinct from
-  absent samples and no source rate is fabricated. Stopped-editable empty-S01
-  SINE creates deterministic looped PCM with all-note mapping and Export XM;
+  absent samples and no source rate is fabricated. Stopped-editable SINE
+  populates the exact selected canonical empty S01...S16; only neutral empty S01
+  initializes the all-note map, and the result survives Export XM;
   Sample Editor LOAD now accepts WAV/WAVE, AIFF/AIF, AIFC, and native FLAC
   through one container-validating facade and background workflow. Native FLAC
   is mono/stereo 16-bit and 24-bit only; 8-bit and untested depths plus
@@ -71,11 +72,15 @@ VoodooTracker X currently has:
   S01 or offers Replace/Add as New/Cancel, with stereo Mix/Left/Right,
   stale-result checks, one format-neutral undoable edit, and document-owned
   mono 16-bit PCM. Add appends/selects S02+ while preserving the keymap;
+  Clear removes a represented sample in place, Duplicate appends at the tail, and
+  Move/Swap preserve sample, keymap, selection, and unavailable-route identity
+  through one transactional Undo/Redo path;
   Instrument Editor now exposes the undoable inclusive keymap-range foundation
   through a manual selected-represented-sample `MAP RANGE…` sheet over the
   canonical 96-note map. The ownership strip is a non-interactive projection of
-  the visible 36-note piano range. Destructive lifecycle, standalone New Sample,
-  graphical selection, drag-to-paint, and automatic mapping remain unavailable.
+  the visible 36-note piano range. Rename Sample, Move Up/Down convenience,
+  standalone New Sample, graphical selection, drag-to-paint, automatic mapping,
+  and direct waveform/PCM editing remain unavailable.
   AUDITION now toggles that selected slot directly at C-4 through the persistent
   preview stream, respecting existing sample planning without keymap lookup or mutation
 - a deterministic, original MIT-licensed sustained 16-bit XM reference
@@ -113,25 +118,16 @@ current editable subset, and advanced options such as PCM16, pattern/order
 ranges, channel/stem export, bitrate/quality controls, and diagnostic profile
 selection remain future work.
 
-The `v0.3.0-alpha.1` From-Scratch Composition Alpha is prepared and pending its
-maintainer post-merge tag. Its final composition/XM round-trip gate is a
-conditional go with no known product blocker. The complete automated matrix and
-generated-data Debug-app workflow pass. Distinct-sample preview, scheduling,
-planning, and export/reopen tests cover the corrected live keymap route, and the
-Instrument Editor ownership strip shares the audition piano's visible range and
-geometry. The gate starts from a clean launch, creates instruments plus
-imported/generated samples, composes and arranges a song, then proves Export
-XM/reopen and WAV/M4A export. It explicitly did not claim the AirPods smoke
-because paired devices were unavailable; an optional maintainer smoke may
-follow, but hardware unavailability alone does not block the tag absent a new
-defect. See
-[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md) and
-`docs/reports/v0.3.0-alpha.1-xm-roundtrip-release-readiness.md`, plus
-`docs/release-notes/v0.3.0-alpha.1.md`.
+`v0.3.0-alpha.1` is tagged and shipped as the From-Scratch Composition Alpha.
+The current unreleased Sample Lifecycle Alpha implementation, internal gate,
+independent cross-family audit, and accepted pre-alpha remediation are complete.
+The audit found 0 BLOCKER findings; its disposition is recorded in
+`docs/reports/sample-lifecycle-alpha-cross-family-audit-disposition.md`.
 
-After the tag, the recommended next step is
-`architecture: define the next v0.3.x milestone from the post-alpha backlog`.
-Do not begin a product feature automatically from this release-prep work.
+Current next action: run the final release gate and prepare the next Sample
+Lifecycle Alpha tag. Do not begin another product milestone from this
+release-preparation work. Use `docs/roadmap.md` for release sequencing and
+`docs/agent-current-state.md` for current implementation invariants.
 
 ## Backend Snapshot
 
@@ -152,15 +148,10 @@ The XM backend is in a temporary backend foundation freeze. During the freeze,
 avoid behavior-changing effect, C mixer DSP, parser architecture, runtime
 backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
-Recommended next work should return to GUI/editor and product milestones while
-preserving the backend freeze:
-
-After `v0.3.0-alpha.1` is tagged, first define the next v0.3.x milestone from
-the post-alpha backlog. Keep that planning slice separate from implementation,
-broad UI polish, MIDI, and post-v1 AUv3 work.
-
-Recently completed target:
-`sample: wire Sample Editor selected-sample audition button`.
+Release work takes precedence over GUI/editor and backend milestones: complete
+the final Sample Lifecycle Alpha gate first. After release, use focused PRs for
+consolidation and the accepted VTX-CS-001, VTX-CS-002, and VTX-D1-001
+playback/RT debt. Keep broad UI polish, MIDI, and post-v1 AUv3 work deferred.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -191,8 +182,8 @@ Recently completed target:
    appends after the highest represented instrument and does not fill sparse holes.
    Deterministic SINE and WAV/AIFF/AIFC/native-FLAC decode/canonical
    normalization are done through the shared candidate. Sample Editor audio
-   load/replace exposes every supported format for empty S01 and exact
-   represented destinations.
+   load/replace exposes every supported format for the exact selected canonical
+   empty S01...S16 and represented destinations.
 9. Pattern editor completion for instrument, volume-column, and effect-column
    entry remains part of the complete composition gate. XI stays a separate
    broader VTX 1.0 target.
@@ -244,13 +235,15 @@ Recently completed narrow target:
   16/24-bit mono/stereo sources through the shared canonical importer. Valid
   8-bit FLAC and all untested depths are rejected before decode; tags, pictures,
   cues, seek tables, ReplayGain, and loops are ignored.
-- Sample Editor LOAD imports one supported audio file into stopped editable
-  empty S01 or confirms replacement of the exact represented selected sample.
+- Sample Editor LOAD imports one supported audio file into the exact selected
+  stopped-editable canonical empty S01...S16 or confirms replacement of the
+  exact represented selected sample.
   Header-based dispatch, extension/container mismatch rejection,
   stereo Mix/Left/Right, background decode, operation/document revision checks,
   document-owned canonical mono 16-bit PCM, all-S01 first-sample mapping, and
-  one format-neutral import/replace/add undo action are implemented. Delete,
-  clear, reorder, duplication, graphical keymap mapping, drag/drop, and global
+  one format-neutral import/replace/add undo action are implemented. Clear,
+  Duplicate, Move, and Swap are now implemented as summarized in
+  `docs/agent-current-state.md`; graphical keymap mapping, drag/drop, and global
   import remain separate work.
 - Labeled whole-editable-document snapshots now flow through
   `EditableDocumentEditCoordinator` and a capped `UndoManager`. Clear Current
@@ -472,10 +465,10 @@ Recently completed narrow target:
   Clear Song Data creates a new editable blank song with copied instrument and
   sample palette data, playable sample payloads where available, cleared
   song/order/pattern note data, order 0, pattern 0, and safe preserved timing
-  and dimensions. Broader arrangement editing and undo/redo migration beyond
-  Clear Current Pattern, WAV/AIFF import, XI import,
-  sample/instrument editors, Save XM, and advanced audio export options remain
-  deferred.
+  and dimensions. Both entry points now share confirmation and playback gating;
+  editable Clear Song Data is one exact applyEdit/Undo/Redo action, and the
+  loaded source remains untouched. Broader arrangement editing, XI import, Save
+  XM, and advanced audio export options remain deferred.
 - Adapter-safe pattern-loop playback now uses the existing Loop control at Play
   start to repeat the selected/current order/pattern through a bounded range of
   the cached `RuntimeCMixerAdapterEventPlan`. The loop path keeps adapter-plan
@@ -572,8 +565,8 @@ Recently completed narrow target:
   editing is allowed, and runtime song playback, transport state, backend
   selection, C mixer DSP, parser architecture, tracker viewport behavior,
   save/export behavior, and loaded-module read-only editing remain unchanged.
-  Full FT2/XM envelope/key-off/fadeout parity, sample editing, sample loading,
-  and XI import remain deferred.
+  Full FT2/XM envelope/key-off/fadeout parity and XI import remain deferred;
+  current sample editing/import status is summarized at the top of this file.
 - Editor note preview now routes sanitized sample-loop metadata from loaded
   `PlaybackSong` samples into the preview-only render plan and C mixer voice,
   so held Edit-mode preview notes can sustain through existing forward or
@@ -705,9 +698,8 @@ Remaining:
 Note audition now has a minimal loaded-module audible preview path behind the
 editor/audio boundary. Edit-mode key release stops only the active preview
 voice; pattern key-off remains explicit `===` entry. Loaded modules may be
-auditionable before they are editable, while XI import, sample loading,
-instrument editing, and sample editing remain later 1.0 composition
-milestones.
+auditionable before they are editable. XI import, graphical keymap redesign,
+and direct waveform/PCM editing remain later 1.0 composition work.
 
 ## Phase 2: Audio Engine And Playback Accuracy
 
@@ -759,11 +751,12 @@ AAC-in-M4A provides a convenient sharing format. Both write only to a selected
 destination and preserve loaded-module read-only and disabled Save/Save As
 semantics.
 
-The prepared `v0.3.0-alpha.1` release packages the current From-Scratch
-Composition Alpha flow: create instruments, generate/import and append samples,
-map note ranges manually, compose patterns/orders, Export XM/reopen, and render
-WAV/M4A. It does not promote the remaining pattern-editor, destructive sample
-lifecycle, graphical mapping, or persistence work below.
+The tagged `v0.3.0-alpha.1` release shipped the From-Scratch Composition Alpha
+flow: create instruments, generate/import and append samples, map note ranges
+manually, compose patterns/orders, Export XM/reopen, and render WAV/M4A. The
+current unreleased Sample Lifecycle Alpha adds sparse Clear, exact empty-slot
+population, Duplicate, Move, and Swap without promoting graphical mapping,
+direct waveform editing, or Save/Save As.
 
 Remaining phase scope:
 
@@ -816,11 +809,12 @@ Implemented foundation:
   synchronize the main window and Instrument Editor. The selected row, identity,
   exact metadata, bounded read-only waveform, and display-only loop region share
   one sample state, with unnamed represented samples distinct from absence; it
-  adds stopped-editable empty-S01 SINE through one undo action; LOAD imports
-  WAV/AIFF/AIFC/supported native FLAC into empty or represented slots, occupied
-  LOAD can append S02+, and AUDITION plays the selected sample directly. Other
-  generators, destructive lifecycle, loop/PCM mutation, and processing remain
-  deferred
+  adds stopped-editable selected-empty S01...S16 SINE through one undo action;
+  LOAD imports WAV/AIFF/AIFC/supported native FLAC into empty or represented
+  slots, occupied LOAD can append S02+, and AUDITION plays the selected sample directly. Clear,
+  Duplicate, Move, and Swap provide the current sparse sample lifecycle. Other
+  generators, Rename Sample, Move Up/Down convenience, loop/PCM mutation, and
+  processing remain deferred
 - manual inclusive `MAP RANGE…` assignment over the exact 96-note keymap, with
   Instrument Editor/pattern/playback routes consuming the map independently of
   selected-sample editing focus and the ownership strip sharing the piano's
@@ -828,7 +822,7 @@ Implemented foundation:
 
 Remaining VTX 1.0 scope:
 
-- the dependency-ordered from-scratch instrument/sample workflow in
+- the explicitly deferred instrument/sample work in
   [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md)
 - envelope playback/editing and broader instrument metadata/editing behind
   applyEdit

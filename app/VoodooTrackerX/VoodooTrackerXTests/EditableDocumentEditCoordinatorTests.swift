@@ -3,6 +3,98 @@ import XCTest
 
 @MainActor
 final class EditableDocumentEditCoordinatorTests: XCTestCase {
+    func testEditableNavigationCreatesNoUndoAndContentUndoRedoKeepsCanonicalPositionAndView() throws {
+        let initial = documentWithArrangedSongDataAndPalette()
+        let harness = EditHarness(context: .editable(document: initial, isPlaybackActive: false))
+        XCTAssertTrue(harness.navigationCoordinator.selectPatternForViewing(0))
+
+        XCTAssertFalse(harness.coordinator.canUndo)
+        XCTAssertFalse(harness.coordinator.canRedo)
+        XCTAssertEqual(harness.revision, 1)
+        XCTAssertEqual(harness.appliedDocuments.count, 1)
+        XCTAssertTrue(harness.coordinator.setSampleVolume(
+            instrumentAt: 0,
+            sampleAt: 1,
+            volume: 31
+        ))
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 1)
+        XCTAssertEqual(harness.editableDocument?.currentPatternIndex, 0)
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 1)
+        XCTAssertEqual(harness.editableDocument?.currentPatternIndex, 0)
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 1)
+        XCTAssertEqual(harness.editableDocument?.currentPatternIndex, 0)
+        XCTAssertEqual(TrackerPlaybackStartContextResolver.normalPlayContext(
+            editableDocument: try XCTUnwrap(harness.editableDocument), row: 0
+        ).patternIndex, 7)
+        XCTAssertEqual(TrackerPlaybackStartContextResolver.currentPatternLoopContext(
+            editableDocument: try XCTUnwrap(harness.editableDocument)
+        )?.patternIndex, 0)
+
+        let undoTitle = harness.coordinator.undoMenuItemTitle
+        XCTAssertTrue(harness.navigationCoordinator.selectOrderPosition(0))
+        XCTAssertTrue(harness.coordinator.canUndo)
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, undoTitle)
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 0)
+        XCTAssertEqual(harness.editableDocument?.currentPatternIndex, 0)
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 0)
+        XCTAssertEqual(harness.editableDocument?.currentPatternIndex, 0)
+        XCTAssertTrue(harness.coordinator.setSampleVolume(instrumentAt: 0, sampleAt: 1, volume: 30))
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 0)
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 0)
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 0)
+        XCTAssertEqual(harness.revision, 10)
+        XCTAssertEqual(harness.appliedDocuments.count, 10)
+    }
+
+    func testPlaybackStopNavigationBumpsRevisionWithoutUndoAndSurvivesContentUndoRedo() throws {
+        let initial = documentWithArrangedSongDataAndPalette()
+        let harness = EditHarness(context: .editable(document: initial, isPlaybackActive: false))
+        XCTAssertTrue(harness.coordinator.setSampleVolume(instrumentAt: 0, sampleAt: 1, volume: 31))
+        let undoTitle = harness.coordinator.undoMenuItemTitle
+
+        let update = try XCTUnwrap(harness.navigationCoordinator.reconcilePlaybackStop(
+            at: PlaybackPosition(orderIndex: 2, patternIndex: 7, rowIndex: 5)
+        ))
+        guard case let .canonicalDocument(stoppedDocument, didChange) = update else {
+            return XCTFail("Stop must produce canonical editable navigation")
+        }
+        XCTAssertTrue(didChange)
+        XCTAssertEqual(stoppedDocument.currentPosition, 2)
+        XCTAssertEqual(stoppedDocument.currentPatternIndex, 7)
+        XCTAssertEqual(harness.revision, 2)
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, undoTitle)
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 2)
+        XCTAssertEqual(harness.editableDocument?.currentPatternIndex, 7)
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument?.currentPosition, 2)
+        XCTAssertEqual(harness.editableDocument?.currentPatternIndex, 7)
+    }
+
+    func testEditableNavigationCoordinatorRejectsUnavailableReadOnlyAndPlaybackContexts() {
+        let document = documentWithArrangedSongDataAndPalette()
+        for context in [
+            EditableDocumentEditContext.none,
+            .loadedReadOnly,
+            .editable(document: document, isPlaybackActive: true),
+        ] {
+            let harness = EditHarness(context: context)
+            XCTAssertFalse(harness.navigationCoordinator.selectOrderPosition(0))
+            XCTAssertFalse(harness.navigationCoordinator.selectPatternForViewing(0))
+            XCTAssertEqual(harness.revision, 0)
+            XCTAssertTrue(harness.appliedDocuments.isEmpty)
+            XCTAssertFalse(harness.coordinator.canUndo)
+        }
+    }
+
     func testLoadedReadOnlyContextCannotApplyOrUseStaleUndoHistory() {
         let before = BlankTrackerDocument.makeDefault()
         var edited = before
@@ -1739,6 +1831,15 @@ private final class EditHarness {
         undoManager: undoManager,
         contextProvider: { [unowned self] in context },
         documentApplyHandler: { [unowned self] document in
+            context = .editable(document: document, isPlaybackActive: false)
+            appliedDocuments.append(document)
+            revision += 1
+            onApply(document)
+        }
+    )
+    lazy var navigationCoordinator = EditableDocumentNavigationCoordinator(
+        contextProvider: { [unowned self] in context },
+        documentApplyHandler: { [unowned self] document, _ in
             context = .editable(document: document, isPlaybackActive: false)
             appliedDocuments.append(document)
             revision += 1

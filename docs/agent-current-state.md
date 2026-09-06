@@ -125,10 +125,10 @@ playback, capacity, or operation-token changes reject the commit. Clear ->
 populate -> Undo/Redo preserves the canonical gap, map bytes, later samples, and
 unavailable/available routing transition exactly.
 
-The Sample Lifecycle Alpha release-readiness gate on `647dbfcc` is a go with no
-known correctness blocker. Its automated lifecycle/persistence matrix and clean
-host/universal Release builds pass, and the maintainer listening/UI gate passed.
-See the
+The historical Sample Lifecycle Alpha internal gate on `647dbfcc` was a go, but
+the later final release candidate is NO-GO. A live maintainer three-order workflow
+promoted audit finding VTX-J-003 to a release blocker because stopped editable POS,
+order selection, displayed pattern, and normal-Play start could diverge. See the
 [gate report](reports/sample-lifecycle-alpha-release-readiness.md).
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
@@ -153,9 +153,27 @@ HIGH findings for focused post-alpha playback/RT work, not Sample Lifecycle
 correctness blockers. See the
 [audit disposition](reports/sample-lifecycle-alpha-cross-family-audit-disposition.md).
 
-Current next action: run the final release gate and prepare the next Sample Lifecycle Alpha tag.
-Do not start another feature milestone before that gate. After release, prefer focused
-consolidation of the lifecycle/document seams rather than a broad rewrite.
+VTX-J-003 was subsequently promoted to a release blocker by live maintainer evidence.
+The earlier GUI smoke opened the public three-pattern XM and then used
+`File > Make Editable Copy`; it exercised an editable copy with a pre-existing
+order/pattern inventory, not `File > New`, so it did not cover from-scratch order
+growth or POS-control range expansion and was insufficient evidence for this blocker.
+The focused `fix/editable-song-position-authority` candidate change makes stopped editable
+`BlankTrackerDocument.currentPosition/currentPatternIndex` canonical while leaving
+loaded-module navigation and transient playback follow session-owned. Its editable
+main Pattern selector derives all represented patterns from that document without
+content filtering or navigation mutation. The POS synchronization and selected-row
+reassertion failures belong to the navigation/control correction; the missing P001
+was a second, surgically corrected editable selector-population defect. During active
+editable playback, the main POS text and stepper now project the same transient order
+position that already drives PTN and the tracker; the document navigation value remains
+unchanged until the existing one-time Stop reconciliation. The final release verdict
+remains NO-GO.
+
+Gregory reruns the exact stopped three-order navigation and live POS/PTN playback workflow
+against the freshly rebuilt canonical Debug executable; only if his manual test passes
+should the fix be reviewed/merged and the final release gate rerun.
+Do not start another feature milestone before that gate.
 
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
 `File > Export Audio` for stopped loaded modules, editable documents, and

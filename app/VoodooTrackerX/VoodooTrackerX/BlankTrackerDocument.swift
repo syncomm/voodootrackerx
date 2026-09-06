@@ -1539,6 +1539,79 @@ struct BlankTrackerDocument: Equatable {
             .clampedToAvailableSampleSlots(eligibleSlots)
     }
 
+    /// Selects an existing order position and displays the pattern referenced by that order.
+    @discardableResult
+    mutating func selectOrderPositionForNavigation(_ orderPosition: Int) -> Bool {
+        let effectiveOrderCount = min(max(0, songLength), orderTable.count)
+        guard orderPosition >= 0,
+              orderPosition < effectiveOrderCount else {
+            return false
+        }
+        let patternIndex = orderTable[orderPosition]
+        guard pattern(for: patternIndex) != nil,
+              orderPosition != currentPosition || patternIndex != currentPatternIndex else {
+            return false
+        }
+        replaceNavigationState(
+            currentPosition: orderPosition,
+            currentPatternIndex: patternIndex
+        )
+        return true
+    }
+
+    /// Displays an existing pattern without assigning it to the selected order.
+    @discardableResult
+    mutating func selectPatternForViewing(_ patternIndex: Int) -> Bool {
+        guard patternIndex != currentPatternIndex,
+              pattern(for: patternIndex) != nil else {
+            return false
+        }
+        replaceNavigationState(
+            currentPosition: currentPosition,
+            currentPatternIndex: patternIndex
+        )
+        return true
+    }
+
+    /// Makes the final playback playhead the stopped editable navigation state.
+    @discardableResult
+    mutating func reconcileNavigationAfterPlaybackStop(
+        orderPosition: Int,
+        patternIndex: Int
+    ) -> Bool {
+        let effectiveOrderCount = min(max(0, songLength), orderTable.count)
+        guard orderPosition >= 0,
+              orderPosition < effectiveOrderCount,
+              pattern(for: orderTable[orderPosition]) != nil,
+              pattern(for: patternIndex) != nil,
+              orderPosition != currentPosition || patternIndex != currentPatternIndex else {
+            return false
+        }
+        replaceNavigationState(
+            currentPosition: orderPosition,
+            currentPatternIndex: patternIndex
+        )
+        return true
+    }
+
+    /// Carries non-undoable navigation into a content snapshot where it remains valid.
+    func preservingValidNavigation(from source: BlankTrackerDocument) -> BlankTrackerDocument {
+        let effectiveOrderCount = min(max(0, songLength), orderTable.count)
+        let preservedPosition = source.currentPosition >= 0 && source.currentPosition < effectiveOrderCount &&
+            pattern(for: orderTable[source.currentPosition]) != nil
+            ? source.currentPosition
+            : currentPosition
+        let preservedPatternIndex = pattern(for: source.currentPatternIndex) != nil
+            ? source.currentPatternIndex
+            : currentPatternIndex
+        var updatedDocument = self
+        updatedDocument.replaceNavigationState(
+            currentPosition: preservedPosition,
+            currentPatternIndex: preservedPatternIndex
+        )
+        return updatedDocument
+    }
+
     /// Assigns a represented zero-based sample to an inclusive zero-based note range.
     @discardableResult
     mutating func assignSample(
@@ -2148,6 +2221,25 @@ struct BlankTrackerDocument: Equatable {
             tempo: tempo,
             speed: speed,
             orderTable: updatedOrderTable,
+            selection: selection,
+            instrumentPalette: instrumentPalette,
+            patterns: patterns
+        )
+    }
+
+    private mutating func replaceNavigationState(
+        currentPosition updatedPosition: Int,
+        currentPatternIndex updatedPatternIndex: Int
+    ) {
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: updatedPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: updatedPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
             selection: selection,
             instrumentPalette: instrumentPalette,
             patterns: patterns

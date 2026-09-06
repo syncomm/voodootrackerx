@@ -3017,6 +3017,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         let content = ControlPanelDisplayState.blankDocumentContent(
             for: document,
+            selectedSongPositionIndex: document.currentPosition,
             selectedOctave: 6,
             isLoopEnabled: true,
             isEditModeEnabled: true,
@@ -4363,6 +4364,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
     func testBlankDocumentControlPanelDisplayStateUsesStartupDefaults() {
         let content = ControlPanelDisplayState.blankDocumentContent(
             for: BlankTrackerDocument.makeDefault(),
+            selectedSongPositionIndex: 0,
             selectedOctave: 4,
             isLoopEnabled: false,
             isEditModeEnabled: false,
@@ -4393,6 +4395,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         let content = ControlPanelDisplayState.blankDocumentContent(
             for: document,
+            selectedSongPositionIndex: document.currentPosition,
             selectedOctave: 6,
             isLoopEnabled: true,
             isEditModeEnabled: true,
@@ -4427,6 +4430,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         let content = ControlPanelDisplayState.blankDocumentContent(
             for: BlankTrackerDocument.makeDefault(),
+            selectedSongPositionIndex: 0,
             selectedOctave: 4,
             isLoopEnabled: false,
             isEditModeEnabled: false,

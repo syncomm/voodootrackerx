@@ -17,6 +17,112 @@ enum EditableDocumentEditContext: Equatable {
     }
 }
 
+/// Applies only validated, non-undoable editable song-navigation changes.
+@MainActor
+final class EditableDocumentNavigationCoordinator {
+    private let contextProvider: () -> EditableDocumentEditContext
+    private let documentApplyHandler: (BlankTrackerDocument, EditableDocumentNavigationApplication) -> Void
+
+    init(
+        contextProvider: @escaping () -> EditableDocumentEditContext,
+        documentApplyHandler: @escaping (BlankTrackerDocument, EditableDocumentNavigationApplication) -> Void
+    ) {
+        self.contextProvider = contextProvider
+        self.documentApplyHandler = documentApplyHandler
+    }
+
+    @discardableResult
+    func selectOrderPosition(_ orderPosition: Int) -> Bool {
+        apply(application: .userSelection) { document in
+            document.selectOrderPositionForNavigation(orderPosition)
+        }
+    }
+
+    @discardableResult
+    func selectPatternForViewing(_ patternIndex: Int) -> Bool {
+        apply(application: .userSelection) { document in
+            document.selectPatternForViewing(patternIndex)
+        }
+    }
+
+    @discardableResult
+    func reconcilePlaybackStop(
+        at position: PlaybackPosition
+    ) -> EditablePlaybackNavigationUpdate? {
+        guard let document = contextProvider().documentAvailableForMutation,
+              let update = EditablePlaybackNavigationPolicy.update(
+                  document: document,
+                  position: position,
+                  phase: .playbackStopped
+              ) else {
+            return nil
+        }
+        if case let .canonicalDocument(updatedDocument, true) = update {
+            documentApplyHandler(updatedDocument, .playbackStopped(rowIndex: position.rowIndex))
+        }
+        return update
+    }
+
+    private func apply(
+        application: EditableDocumentNavigationApplication,
+        _ navigation: (inout BlankTrackerDocument) -> Bool
+    ) -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              navigation(&document) else {
+            return false
+        }
+        documentApplyHandler(document, application)
+        return true
+    }
+}
+
+enum EditableDocumentNavigationApplication: Equatable {
+    case userSelection
+    case playbackStopped(rowIndex: Int)
+}
+
+enum EditablePlaybackNavigationPhase: Equatable {
+    case activeFollow
+    case playbackStopped
+}
+
+enum EditablePlaybackNavigationUpdate: Equatable {
+    case transientPresentation(orderPosition: Int, patternIndex: Int)
+    case canonicalDocument(BlankTrackerDocument, didChange: Bool)
+}
+
+/// Separates active playback-follow presentation from one-time stopped reconciliation.
+enum EditablePlaybackNavigationPolicy {
+    static func update(
+        document: BlankTrackerDocument,
+        position: PlaybackPosition,
+        phase: EditablePlaybackNavigationPhase
+    ) -> EditablePlaybackNavigationUpdate? {
+        let effectiveOrderCount = min(max(0, document.songLength), document.orderTable.count)
+        guard position.orderIndex >= 0,
+              position.orderIndex < effectiveOrderCount,
+              document.pattern(for: document.orderTable[position.orderIndex]) != nil,
+              document.pattern(for: position.patternIndex) != nil else {
+            return nil
+        }
+
+        switch phase {
+        case .activeFollow:
+            return .transientPresentation(
+                orderPosition: position.orderIndex,
+                patternIndex: position.patternIndex
+            )
+        case .playbackStopped:
+            var updatedDocument = document
+            let didChange = updatedDocument.reconcileNavigationAfterPlaybackStop(
+                orderPosition: position.orderIndex,
+                patternIndex: position.patternIndex
+            )
+            return .canonicalDocument(updatedDocument, didChange: didChange)
+        }
+    }
+}
+
 /// Applies whole editable-document values and registers reciprocal snapshot undo operations.
 @MainActor
 final class EditableDocumentEditCoordinator {
@@ -310,7 +416,18 @@ final class EditableDocumentEditCoordinator {
         replacing expectedCurrentDocument: BlankTrackerDocument,
         actionName: String
     ) -> Bool {
-        guard contextProvider().documentAvailableForMutation != nil else { return false }
+        guard let currentDocument = contextProvider().documentAvailableForMutation else { return false }
+        // Content commands may intentionally change navigation (for example Clear Song).
+        // Carry it forward only when it changed after the captured content snapshot.
+        let navigationChangedAfterSnapshot =
+            currentDocument.currentPosition != expectedCurrentDocument.currentPosition ||
+            currentDocument.currentPatternIndex != expectedCurrentDocument.currentPatternIndex
+        let appliedSnapshot = navigationChangedAfterSnapshot
+            ? snapshot.preservingValidNavigation(from: currentDocument)
+            : snapshot
+        let reciprocalSnapshot = navigationChangedAfterSnapshot
+            ? expectedCurrentDocument.preservingValidNavigation(from: currentDocument)
+            : expectedCurrentDocument
 
         let opensUndoGroup = !undoManager.isUndoing &&
             !undoManager.isRedoing &&
@@ -320,13 +437,13 @@ final class EditableDocumentEditCoordinator {
         }
         undoManager.registerUndo(withTarget: self) { coordinator in
             coordinator.replaceDocument(
-                with: expectedCurrentDocument,
-                replacing: snapshot,
+                with: reciprocalSnapshot,
+                replacing: appliedSnapshot,
                 actionName: actionName
             )
         }
         undoManager.setActionName(actionName)
-        documentApplyHandler(snapshot)
+        documentApplyHandler(appliedSnapshot)
         if opensUndoGroup {
             undoManager.endUndoGrouping()
         }

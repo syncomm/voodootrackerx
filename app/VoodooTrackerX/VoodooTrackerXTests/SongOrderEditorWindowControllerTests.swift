@@ -562,6 +562,416 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(currentCell.isCurrent)
     }
 
+    func testEditableOrderNavigationRealignsAlreadySelectedPositionToItsOrderReference() {
+        var document = makeBlankDocument(
+            currentPosition: 1,
+            currentPatternIndex: 0,
+            orderTable: [0, 1, 2],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 24),
+                makePattern(index: 2, rowCount: 32),
+            ]
+        )
+
+        XCTAssertTrue(document.selectOrderPositionForNavigation(1))
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 1)
+        XCTAssertEqual(document.orderTable, [0, 1, 2])
+    }
+
+    func testEditableMainPatternSelectorIncludesEveryRepresentedPatternExactlyOnce() {
+        var patterns = [
+            makePattern(index: 0, rowCount: 16),
+            makePattern(index: 1, rowCount: 24),
+            makePattern(index: 2, rowCount: 32),
+        ]
+        patterns[0].rows[0][0] = XMPatternEventCell(
+            note: 49, instrument: 1, volumeColumn: 0x10, effectType: 0, effectParam: 0
+        )
+        patterns[2].rows[0][0] = XMPatternEventCell(
+            note: 56, instrument: 1, volumeColumn: 0x30, effectType: 0, effectParam: 0
+        )
+        let document = makeBlankDocument(
+            currentPosition: 1,
+            currentPatternIndex: 1,
+            orderTable: [0, 1, 2],
+            patterns: patterns
+        )
+
+        let projection = EditableMainPatternSelectorProjection(document: document)
+
+        XCTAssertEqual(projection.entries.map(\.patternIndex), [0, 1, 2])
+        XCTAssertEqual(projection.entries.map(\.isUsed), [true, true, true])
+        XCTAssertEqual(projection.entries.map(\.rowCount), [16, 24, 32])
+        XCTAssertEqual(Set(projection.entries.map(\.patternIndex)).count, 3)
+        XCTAssertEqual(projection.invalidReferencedPatterns, [])
+        XCTAssertEqual(projection.selectedEntryIndex, 1)
+    }
+
+    func testEditableNavigationAuthorityKeepsThreeOrderPresentationAndNormalPlayCoherent() throws {
+        var patterns = [
+            makePattern(index: 0, rowCount: 16),
+            makePattern(index: 1, rowCount: 24),
+            makePattern(index: 2, rowCount: 32),
+        ]
+        patterns[0].rows[0][0] = XMPatternEventCell(
+            note: 49, instrument: 1, volumeColumn: 0x10, effectType: 0, effectParam: 0
+        )
+        patterns[1].rows[0][0] = XMPatternEventCell(
+            note: 53, instrument: 1, volumeColumn: 0x20, effectType: 0, effectParam: 0
+        )
+        patterns[2].rows[0][0] = XMPatternEventCell(
+            note: 56, instrument: 1, volumeColumn: 0x30, effectType: 0, effectParam: 0
+        )
+        let sample = makePlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0, name: "Navigation Sample", pcm: [0.25, -0.25]
+        )
+        let noteSampleMap = Array(repeating: 0, count: TrackerNoteKeyMap.maximumNoteValue)
+        var document = BlankTrackerDocument(
+            title: "Navigation Song",
+            songLength: 3,
+            currentPosition: 0,
+            restartPosition: 2,
+            currentPatternIndex: 0,
+            tempo: 144,
+            speed: 3,
+            orderTable: [0, 1, 2],
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            instrumentPalette: [1: PlaybackInstrument(
+                index: 1, samples: [sample], noteSampleMap: noteSampleMap
+            )],
+            patterns: patterns
+        )
+        let originalOrder = document.orderTable
+        let originalPatterns = document.patterns
+        let originalPalette = document.instrumentPalette
+        let navigation = EditableDocumentNavigationCoordinator(
+            contextProvider: {
+                .editable(document: document, isPlaybackActive: false)
+            },
+            documentApplyHandler: { updatedDocument, _ in
+                document = updatedDocument
+            }
+        )
+
+        for (stepIndex, checkpoint) in [(0, 0), (1, 1), (2, 2), (1, 1), (0, 0)].enumerated() {
+            let (position, patternIndex) = checkpoint
+            if stepIndex > 0 {
+                XCTAssertTrue(navigation.selectOrderPosition(position))
+            }
+
+            let controlPanel = ControlPanelDisplayState.blankDocumentContent(
+                for: document,
+                selectedSongPositionIndex: document.currentPosition,
+                selectedOctave: 4,
+                isLoopEnabled: false,
+                isEditModeEnabled: false,
+                isPlaybackActive: false
+            )
+            let songOrder = SongOrderEditorDisplayState.editableDocument(document)
+            let patternSelector = EditableMainPatternSelectorProjection(document: document)
+            let normalPlay = TrackerPlaybackStartContextResolver.normalPlayContext(
+                editableDocument: document,
+                row: 0
+            )
+            let selectedPatternEntry = try XCTUnwrap(patternSelector.selectedEntryIndex)
+
+            XCTAssertEqual(document.currentPosition, position)
+            XCTAssertEqual(document.currentPatternIndex, patternIndex)
+            XCTAssertEqual(controlPanel.songPositionValue, position)
+            XCTAssertEqual(controlPanel.songPosition, String(format: "%02d", position))
+            XCTAssertEqual(
+                ControlPanelDisplayState.patternDisplayTitle(patternIndex: document.currentPatternIndex),
+                String(format: "%03d", patternIndex)
+            )
+            XCTAssertEqual(songOrder.selectedOrderPosition, position)
+            XCTAssertEqual(songOrder.selectedPatternIndex, patternIndex)
+            XCTAssertEqual(songOrder.orderRows.map(\.isSelected), (0..<3).map { $0 == position })
+            XCTAssertEqual(patternSelector.entries[selectedPatternEntry].patternIndex, patternIndex)
+            XCTAssertEqual(normalPlay.songPosition, position)
+            XCTAssertEqual(normalPlay.patternIndex, patternIndex)
+            XCTAssertEqual(normalPlay.row, 0)
+            XCTAssertEqual(document.orderTable, originalOrder)
+            XCTAssertEqual(document.patterns, originalPatterns)
+            XCTAssertEqual(document.instrumentPalette, originalPalette)
+            XCTAssertEqual(document.title, "Navigation Song")
+            XCTAssertEqual(document.restartPosition, 2)
+            XCTAssertEqual(document.tempo, 144)
+            XCTAssertEqual(document.speed, 3)
+            XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1))
+        }
+
+        let beforeRejectedNavigation = document
+        XCTAssertFalse(navigation.selectOrderPosition(-1))
+        XCTAssertFalse(navigation.selectOrderPosition(3))
+        XCTAssertFalse(navigation.selectOrderPosition(0))
+        XCTAssertEqual(document, beforeRejectedNavigation)
+
+        var malformedDocument = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0, 99],
+            patterns: [makePattern(index: 0, rowCount: 16)]
+        )
+        let beforeMissingReference = malformedDocument
+        XCTAssertFalse(malformedDocument.selectOrderPositionForNavigation(1))
+        XCTAssertEqual(malformedDocument, beforeMissingReference)
+    }
+
+    func testEditablePatternViewNavigationKeepsOrderAuthorityAndTransportSemanticsSeparate() throws {
+        var document = makeBlankDocument(
+            currentPosition: 1,
+            currentPatternIndex: 1,
+            orderTable: [0, 1, 2],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 24),
+                makePattern(index: 2, rowCount: 32),
+            ]
+        )
+        let beforeOrder = document.orderTable
+        let beforePatterns = document.patterns
+        let beforePalette = document.instrumentPalette
+
+        XCTAssertTrue(document.selectPatternForViewing(0))
+
+        let normalPlay = TrackerPlaybackStartContextResolver.normalPlayContext(
+            editableDocument: document,
+            row: 0
+        )
+        let currentPattern = try XCTUnwrap(TrackerPlaybackStartContextResolver.currentPatternLoopContext(
+            editableDocument: document
+        ))
+        let controlPanel = ControlPanelDisplayState.blankDocumentContent(
+            for: document,
+            selectedSongPositionIndex: document.currentPosition,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 0)
+        XCTAssertEqual(document.orderTable, beforeOrder)
+        XCTAssertEqual(document.patterns, beforePatterns)
+        XCTAssertEqual(document.instrumentPalette, beforePalette)
+        XCTAssertEqual(controlPanel.songPositionValue, 1)
+        XCTAssertEqual(normalPlay.songPosition, 1)
+        XCTAssertEqual(normalPlay.patternIndex, 1)
+        XCTAssertEqual(currentPattern.songPosition, 1)
+        XCTAssertEqual(currentPattern.patternIndex, 0)
+        XCTAssertEqual(currentPattern.row, 0)
+
+        let beforeRejectedNavigation = document
+        XCTAssertFalse(document.selectPatternForViewing(99))
+        XCTAssertFalse(document.selectPatternForViewing(0))
+        XCTAssertEqual(document, beforeRejectedNavigation)
+    }
+
+    func testMainAndSongOrderNavigationDecisionPathsProduceTheSameEditableValue() throws {
+        let source = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0, 2, 1],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 24),
+                makePattern(index: 2, rowCount: 32),
+            ]
+        )
+        var mainControlResult = source
+        let mainControlNavigation = EditableDocumentNavigationCoordinator(
+            contextProvider: {
+                .editable(document: mainControlResult, isPlaybackActive: false)
+            },
+            documentApplyHandler: { document, _ in mainControlResult = document }
+        )
+        XCTAssertTrue(mainControlNavigation.selectOrderPosition(1))
+        let songOrderResult = try XCTUnwrap(SongOrderEditorNavigation.editableDocument(
+            source,
+            selectingOrderPosition: 1,
+            isPlaybackActive: false
+        ))
+        XCTAssertEqual(mainControlResult, songOrderResult)
+
+        XCTAssertTrue(mainControlNavigation.selectPatternForViewing(1))
+        let patternBankResult = try XCTUnwrap(SongOrderEditorNavigation.editableDocument(
+            songOrderResult,
+            selectingPatternIndex: 1,
+            isPlaybackActive: false
+        ))
+        XCTAssertEqual(mainControlResult, patternBankResult)
+        XCTAssertEqual(mainControlResult.currentPosition, 1)
+        XCTAssertEqual(mainControlResult.orderTable, [0, 2, 1])
+    }
+
+    func testEditableControlPanelUsesDocumentPositionWhileStopped() {
+        let document = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0, 1, 2],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 24),
+                makePattern(index: 2, rowCount: 32),
+            ]
+        )
+
+        let content = ControlPanelDisplayState.blankDocumentContent(
+            for: document,
+            selectedSongPositionIndex: 2,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(content.songPosition, "00")
+        XCTAssertEqual(content.songPositionValue, 0)
+    }
+
+    func testEditablePlaybackFollowProjectsCoherentPositionAndPatternWithoutMutatingDocument() throws {
+        let document = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0, 1, 2],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 24),
+                makePattern(index: 2, rowCount: 32),
+            ]
+        )
+        let originalDocument = document
+        let checkpoints = [
+            PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
+            PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0),
+            PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 0),
+        ]
+
+        for checkpoint in checkpoints {
+            let update = try XCTUnwrap(EditablePlaybackNavigationPolicy.update(
+                document: document,
+                position: checkpoint,
+                phase: .activeFollow
+            ))
+            guard case let .transientPresentation(orderPosition, patternIndex) = update else {
+                return XCTFail("Active playback must produce transient presentation state")
+            }
+            let content = ControlPanelDisplayState.blankDocumentContent(
+                for: document,
+                selectedSongPositionIndex: orderPosition,
+                selectedOctave: 4,
+                isLoopEnabled: false,
+                isEditModeEnabled: false,
+                isPlaybackActive: true
+            )
+
+            XCTAssertEqual(content.songPosition, String(format: "%02d", checkpoint.orderIndex))
+            XCTAssertEqual(content.songPositionValue, checkpoint.orderIndex)
+            XCTAssertEqual(
+                ControlPanelDisplayState.patternDisplayTitle(patternIndex: patternIndex),
+                String(format: "%03d", checkpoint.patternIndex)
+            )
+            XCTAssertEqual(document, originalDocument)
+        }
+    }
+
+    func testEditablePlaybackFollowIsTransientAndStopReconcilesCanonicalNavigationOnce() throws {
+        let document = makeBlankDocument(
+            currentPosition: 1,
+            currentPatternIndex: 0,
+            orderTable: [0, 1, 2],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 24),
+                makePattern(index: 2, rowCount: 32),
+            ]
+        )
+        let followedPosition = PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 7)
+
+        let activeUpdate = try XCTUnwrap(EditablePlaybackNavigationPolicy.update(
+            document: document,
+            position: followedPosition,
+            phase: .activeFollow
+        ))
+        guard case let .transientPresentation(orderPosition, patternIndex) = activeUpdate else {
+            return XCTFail("Active playback follow must remain transient presentation state")
+        }
+        XCTAssertEqual(orderPosition, 2)
+        XCTAssertEqual(patternIndex, 2)
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 0)
+
+        let stoppedUpdate = try XCTUnwrap(EditablePlaybackNavigationPolicy.update(
+            document: document,
+            position: followedPosition,
+            phase: .playbackStopped
+        ))
+        guard case let .canonicalDocument(stoppedDocument, didChange) = stoppedUpdate else {
+            return XCTFail("Playback Stop must reconcile the canonical editable navigation value")
+        }
+        XCTAssertTrue(didChange)
+        XCTAssertEqual(stoppedDocument.currentPosition, 2)
+        XCTAssertEqual(stoppedDocument.currentPatternIndex, 2)
+        XCTAssertEqual(stoppedDocument.orderTable, document.orderTable)
+        XCTAssertEqual(stoppedDocument.patterns, document.patterns)
+        XCTAssertEqual(stoppedDocument.instrumentPalette, document.instrumentPalette)
+
+        let stoppedContent = ControlPanelDisplayState.blankDocumentContent(
+            for: stoppedDocument,
+            selectedSongPositionIndex: 2,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false
+        )
+        XCTAssertEqual(stoppedContent.songPosition, "02")
+        XCTAssertEqual(stoppedContent.songPositionValue, 2)
+        XCTAssertEqual(
+            ControlPanelDisplayState.patternDisplayTitle(patternIndex: stoppedDocument.currentPatternIndex),
+            "002"
+        )
+
+        let nextNormalPlay = TrackerPlaybackStartContextResolver.normalPlayContext(
+            editableDocument: stoppedDocument,
+            row: 0
+        )
+        XCTAssertEqual(nextNormalPlay.songPosition, 2)
+        XCTAssertEqual(nextNormalPlay.patternIndex, 2)
+
+        let isolatedStop = try XCTUnwrap(EditablePlaybackNavigationPolicy.update(
+            document: stoppedDocument,
+            position: PlaybackPosition(orderIndex: 1, patternIndex: 0, rowIndex: 3),
+            phase: .playbackStopped
+        ))
+        guard case let .canonicalDocument(isolatedDocument, isolatedDidChange) = isolatedStop else {
+            return XCTFail("Isolated-pattern Stop must retain its order anchor and viewed pattern")
+        }
+        XCTAssertTrue(isolatedDidChange)
+        XCTAssertEqual(isolatedDocument.currentPosition, 1)
+        XCTAssertEqual(isolatedDocument.currentPatternIndex, 0)
+        XCTAssertEqual(TrackerPlaybackStartContextResolver.normalPlayContext(
+            editableDocument: isolatedDocument,
+            row: 0
+        ).patternIndex, 1)
+        XCTAssertEqual(TrackerPlaybackStartContextResolver.currentPatternLoopContext(
+            editableDocument: isolatedDocument
+        )?.patternIndex, 0)
+
+        let repeatedStop = try XCTUnwrap(EditablePlaybackNavigationPolicy.update(
+            document: isolatedDocument,
+            position: PlaybackPosition(orderIndex: 1, patternIndex: 0, rowIndex: 3),
+            phase: .playbackStopped
+        ))
+        guard case let .canonicalDocument(repeatedDocument, repeatedDidChange) = repeatedStop else {
+            return XCTFail("Repeated Stop reconciliation must remain canonical")
+        }
+        XCTAssertFalse(repeatedDidChange)
+        XCTAssertEqual(repeatedDocument, isolatedDocument)
+    }
+
     func testLoadedModulePatternBankNavigationUpdatesCurrentPatternWithoutOrderMutation() throws {
         let metadata = makeLoadedMetadata(
             orderTable: [0, 2],
@@ -812,6 +1222,7 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         let incrementedCell = try XCTUnwrap(incrementedState.patternBankCells.first { $0.patternIndex == 1 })
         let incrementedContent = ControlPanelDisplayState.blankDocumentContent(
             for: incremented,
+            selectedSongPositionIndex: incremented.currentPosition,
             selectedOctave: 4,
             isLoopEnabled: false,
             isEditModeEnabled: false,
@@ -1504,6 +1915,7 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         let state = SongOrderEditorDisplayState.editableDocument(updated)
         let content = ControlPanelDisplayState.blankDocumentContent(
             for: updated,
+            selectedSongPositionIndex: updated.currentPosition,
             selectedOctave: 4,
             isLoopEnabled: false,
             isEditModeEnabled: false,
@@ -2061,6 +2473,48 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(contentView.displayState.orderRows.map(\.isSelected), [false, true])
         XCTAssertEqual(contentView.displayState.bankIndex, 1)
         XCTAssertEqual(contentView.displayState.bankDisplayLabel, "BANK 2/2")
+        XCTAssertTrue(currentCell.isCurrent)
+    }
+
+    func testSelectedEditableOrderRowRealignsAViewOnlyPatternThroughItsNavigationHandler() throws {
+        var document = makeBlankDocument(
+            currentPosition: 1,
+            currentPatternIndex: 0,
+            orderTable: [0, 1, 2],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 24),
+                makePattern(index: 2, rowCount: 32),
+            ]
+        )
+        let controller = SongOrderEditorWindowController(
+            displayState: .editableDocument(document)
+        )
+        let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
+        var selectedOrders = [Int]()
+        controller.onOrderSelected = { orderPosition in
+            selectedOrders.append(orderPosition)
+            guard let updatedDocument = SongOrderEditorNavigation.editableDocument(
+                document,
+                selectingOrderPosition: orderPosition,
+                isPlaybackActive: false
+            ) else {
+                return
+            }
+            document = updatedDocument
+            controller.apply(displayState: .editableDocument(updatedDocument))
+        }
+
+        try clickOrderRow("001", in: contentView)
+        let currentCell = try XCTUnwrap(
+            contentView.displayState.patternBankCells.first { $0.patternIndex == 1 }
+        )
+
+        XCTAssertEqual(selectedOrders, [1])
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 1)
+        XCTAssertEqual(contentView.displayState.selectedOrderPosition, 1)
+        XCTAssertEqual(contentView.displayState.selectedPatternIndex, 1)
         XCTAssertTrue(currentCell.isCurrent)
     }
 

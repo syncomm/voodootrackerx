@@ -222,6 +222,39 @@ enum SongOrderEditorViewIdentifier {
     static let patternCellPrefix = "songOrderEditor.patternCell."
 }
 
+struct EditableMainPatternSelectorProjection: Equatable {
+    let entries: [ModuleMetadataLoader.PatternSelectionEntry]
+    let invalidReferencedPatterns: [Int]
+    let selectedEntryIndex: Int?
+
+    init(document: BlankTrackerDocument) {
+        let effectiveOrderCount = min(max(0, document.songLength), document.orderTable.count)
+        let effectiveOrder = Array(document.orderTable.prefix(effectiveOrderCount))
+        var representedPatternsByIndex = [Int: XMPatternData]()
+        for pattern in document.patterns where representedPatternsByIndex[pattern.index] == nil {
+            representedPatternsByIndex[pattern.index] = pattern
+        }
+        let representedPatternIndices = Set(representedPatternsByIndex.keys)
+        let usedPatternIndices = Set(effectiveOrder.filter { representedPatternIndices.contains($0) })
+
+        // Editable pattern existence is document structure, independent of whether cells are empty.
+        entries = representedPatternsByIndex.keys.sorted().compactMap { patternIndex in
+            guard let pattern = representedPatternsByIndex[patternIndex] else {
+                return nil
+            }
+            return ModuleMetadataLoader.PatternSelectionEntry(
+                patternIndex: patternIndex,
+                isUsed: usedPatternIndices.contains(patternIndex),
+                rowCount: max(1, pattern.rowCount)
+            )
+        }
+        invalidReferencedPatterns = effectiveOrder.filter { !representedPatternIndices.contains($0) }
+        selectedEntryIndex = entries.firstIndex {
+            $0.patternIndex == document.currentPatternIndex
+        }
+    }
+}
+
 struct SongOrderEditorDisplayState: Equatable {
     struct OrderRow: Equatable {
         let orderPosition: Int
@@ -623,24 +656,12 @@ enum SongOrderEditorNavigation {
         selectingPatternIndex patternIndex: Int,
         isPlaybackActive: Bool
     ) -> BlankTrackerDocument? {
-        guard !isPlaybackActive,
-              patternIndex != document.currentPatternIndex,
-              document.pattern(for: patternIndex) != nil else {
+        guard !isPlaybackActive else {
             return nil
         }
-        return BlankTrackerDocument(
-            title: document.title,
-            songLength: document.songLength,
-            currentPosition: document.currentPosition,
-            restartPosition: document.restartPosition,
-            currentPatternIndex: patternIndex,
-            tempo: document.tempo,
-            speed: document.speed,
-            orderTable: document.orderTable,
-            selection: document.selection,
-            instrumentPalette: document.instrumentPalette,
-            patterns: document.patterns
-        )
+        var updatedDocument = document
+        guard updatedDocument.selectPatternForViewing(patternIndex) else { return nil }
+        return updatedDocument
     }
 
     static func editableDocument(
@@ -790,29 +811,12 @@ enum SongOrderEditorNavigation {
         selectingOrderPosition orderPosition: Int,
         isPlaybackActive: Bool
     ) -> BlankTrackerDocument? {
-        guard !isPlaybackActive,
-              orderPosition != document.currentPosition,
-              let patternIndex = referencedPatternIndex(
-                  orderPosition: orderPosition,
-                  orderTable: document.orderTable,
-                  songLength: document.songLength
-              ),
-              document.pattern(for: patternIndex) != nil else {
+        guard !isPlaybackActive else {
             return nil
         }
-        return BlankTrackerDocument(
-            title: document.title,
-            songLength: document.songLength,
-            currentPosition: orderPosition,
-            restartPosition: document.restartPosition,
-            currentPatternIndex: patternIndex,
-            tempo: document.tempo,
-            speed: document.speed,
-            orderTable: document.orderTable,
-            selection: document.selection,
-            instrumentPalette: document.instrumentPalette,
-            patterns: document.patterns
-        )
+        var updatedDocument = document
+        guard updatedDocument.selectOrderPositionForNavigation(orderPosition) else { return nil }
+        return updatedDocument
     }
 
     private static func referencedPatternIndex(orderPosition: Int, orderTable: [Int], songLength: Int) -> Int? {
@@ -826,6 +830,16 @@ enum SongOrderEditorNavigation {
 }
 
 enum TrackerPlaybackStartContextResolver {
+    static func currentPatternLoopContext(
+        editableDocument document: BlankTrackerDocument
+    ) -> PlaybackStartContext? {
+        currentPatternLoopContext(
+            metadata: document.metadata,
+            selectedSongPositionIndex: document.currentPosition,
+            displayedPatternIndex: document.currentPatternIndex
+        )
+    }
+
     static func currentPatternLoopContext(
         metadata: ParsedModuleMetadata,
         selectedSongPositionIndex: Int,
@@ -843,6 +857,18 @@ enum TrackerPlaybackStartContextResolver {
             songPosition: orderPosition,
             patternIndex: displayedPatternIndex,
             row: 0
+        )
+    }
+
+    static func normalPlayContext(
+        editableDocument document: BlankTrackerDocument,
+        row: Int
+    ) -> PlaybackStartContext {
+        normalPlayContext(
+            metadata: document.metadata,
+            selectedSongPositionIndex: document.currentPosition,
+            displayedPatternIndex: document.currentPatternIndex,
+            row: row
         )
     }
 
@@ -1306,9 +1332,11 @@ final class SongOrderEditorContentView: FlippedEditorView {
     }
 
     private func addOrderRow(to parent: NSView, y: CGFloat, row rowState: SongOrderEditorDisplayState.OrderRow, width: CGFloat) {
+        let requestsNavigation = !rowState.isSelected ||
+            (displayState.isOrderMutationEnabled && rowState.patternIndex != displayState.selectedPatternIndex)
         let row = SongOrderEditorOrderRowView(
             orderPosition: rowState.orderPosition,
-            isSelectedOrder: rowState.isSelected
+            requestsNavigation: requestsNavigation
         ) { [weak self] orderPosition in
             self?.onOrderSelected?(orderPosition)
         }
@@ -1702,12 +1730,12 @@ final class SongOrderEditorContentView: FlippedEditorView {
 
 final class SongOrderEditorOrderRowView: FlippedEditorView {
     private let orderPosition: Int
-    private let isSelectedOrder: Bool
+    private let requestsNavigation: Bool
     private let selectHandler: (Int) -> Void
 
-    init(orderPosition: Int, isSelectedOrder: Bool, selectHandler: @escaping (Int) -> Void) {
+    init(orderPosition: Int, requestsNavigation: Bool, selectHandler: @escaping (Int) -> Void) {
         self.orderPosition = orderPosition
-        self.isSelectedOrder = isSelectedOrder
+        self.requestsNavigation = requestsNavigation
         self.selectHandler = selectHandler
         super.init(frame: .zero)
     }
@@ -1718,7 +1746,7 @@ final class SongOrderEditorOrderRowView: FlippedEditorView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard !isSelectedOrder else {
+        guard requestsNavigation else {
             return
         }
         selectHandler(orderPosition)

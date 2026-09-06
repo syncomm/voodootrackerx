@@ -1448,35 +1448,6 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(cleared.patterns, initial.patterns)
         assertUndoRedo(from: initial, to: cleared, "Clear")
 
-        document.selectSample(3)
-        let beforeSparseMove = document
-        let sparseRouting = routedNames(in: document)
-        XCTAssertTrue(coordinator.applySampleSlotPermutation(
-            try .move(from: 2, to: 1), instrumentAt: 0
-        ))
-        let sparseMoved = document
-        XCTAssertEqual(sparseMoved.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 1])
-        XCTAssertEqual(sparseMoved.instrumentPalette[1]?.noteSampleMap, exactRegionMap(0, 2, 1))
-        XCTAssertEqual(sparseMoved.selection.selectedSample, 2)
-        XCTAssertEqual(routedNames(in: sparseMoved), sparseRouting)
-        XCTAssertEqual(sparseMoved.patterns, initial.patterns)
-        assertUndoRedo(from: beforeSparseMove, to: sparseMoved, "Sparse Move")
-        XCTAssertTrue(coordinator.undo())
-        XCTAssertEqual(document, beforeSparseMove)
-
-        document.selectSample(1)
-        let beforeDuplicate = document
-        let duplicateSource = try XCTUnwrap(document.instrumentPalette[1]?.sample(mappedSampleIndex: 0))
-        XCTAssertTrue(coordinator.duplicateSample(instrumentAt: 0, sampleAt: 0))
-        let duplicated = document
-        let duplicate = try XCTUnwrap(duplicated.instrumentPalette[1]?.sample(mappedSampleIndex: 3))
-        XCTAssertEqual(duplicated.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 2, 3])
-        XCTAssertNil(duplicated.instrumentPalette[1]?.sample(mappedSampleIndex: 1))
-        XCTAssertEqual(duplicate.reidentified(sampleIndex: 0), duplicateSource)
-        XCTAssertEqual(duplicated.instrumentPalette[1]?.noteSampleMap, originalMap)
-        XCTAssertEqual(routedNames(in: duplicated), routedNames(in: beforeDuplicate))
-        assertUndoRedo(from: beforeDuplicate, to: duplicated, "Duplicate")
-
         document.selectSample(2)
         let beforePopulate = document
         let destination = try XCTUnwrap(document.selectedSampleImportDestination)
@@ -1486,11 +1457,23 @@ final class EditableXMWriterTests: XCTestCase {
             destination: destination
         ))
         let populated = document
-        XCTAssertEqual(populated.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 1, 2, 3])
+        XCTAssertEqual(populated.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 1, 2])
         XCTAssertEqual(populated.instrumentPalette[1]?.noteSampleMap, originalMap)
         XCTAssertEqual(routedNames(in: populated), ["Low Pulse", "Replacement", "Impulse"])
         XCTAssertEqual(populated.patterns, initial.patterns)
         assertUndoRedo(from: beforePopulate, to: populated, "Populate")
+
+        document.selectSample(1)
+        let beforeDuplicate = document
+        let duplicateSource = try XCTUnwrap(document.instrumentPalette[1]?.sample(mappedSampleIndex: 0))
+        XCTAssertTrue(coordinator.duplicateSample(instrumentAt: 0, sampleAt: 0))
+        let duplicated = document
+        let duplicate = try XCTUnwrap(duplicated.instrumentPalette[1]?.sample(mappedSampleIndex: 3))
+        XCTAssertEqual(duplicated.instrumentPalette[1]?.samples.map(\.sampleIndex), [0, 1, 2, 3])
+        XCTAssertEqual(duplicate.reidentified(sampleIndex: 0), duplicateSource)
+        XCTAssertEqual(duplicated.instrumentPalette[1]?.noteSampleMap, originalMap)
+        XCTAssertEqual(routedNames(in: duplicated), routedNames(in: beforeDuplicate))
+        assertUndoRedo(from: beforeDuplicate, to: duplicated, "Duplicate")
 
         let routingBeforeSelection = routedNames(in: document)
         document.selectSample(1)

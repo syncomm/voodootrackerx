@@ -80,6 +80,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             metadata: context.loadedMetadata.map { metadata in
                 makeLoadedModuleMetadata(
                     channels: metadata.channels,
+                    instruments: 1,
                     xmFlags: 0,
                     orderTable: metadata.orderTable,
                     patterns: metadata.xmPatterns
@@ -99,6 +100,64 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context),
             .unavailable(.unsupportedLoadedModule)
         )
+        XCTAssertEqual(
+            LoadedModuleEditableCopyPlanner.plan(context: context),
+            .unavailable(.nonLinearFrequencyTable)
+        )
+    }
+
+    func testPlannerClassifiesDenseCanonicalLoadedXMAsExact() throws {
+        let instrument = PlaybackInstrument(
+            index: 1,
+            name: "Dense Exact",
+            samples: [persistableSample(sampleIndex: 0, name: "S01", pcm: [-0.5, 0.5])],
+            noteSampleMap: Array(repeating: 0, count: 96)
+        )
+        let context = try loadedContext(
+            from: EditableXMWriter().data(from: sparseSourceDocument(instrument: instrument)),
+            filename: "planner-dense-exact.xm"
+        )
+
+        guard case let .exact(document) = LoadedModuleEditableCopyPlanner.plan(context: context) else {
+            return XCTFail("expected dense canonical state to plan an exact copy")
+        }
+        try assertSupportedSemanticsPreserved(context: context, document: document)
+    }
+
+    func testPlannerClassifiesSparseCanonicalInteriorEmptyAsExact() throws {
+        var map = Array(repeating: 0, count: 96)
+        map[48] = 1
+        map[49] = 2
+        let instrument = PlaybackInstrument(
+            index: 1,
+            name: "Sparse Exact",
+            samples: [
+                persistableSample(sampleIndex: 0, name: "S01", pcm: [-0.5, 0.5]),
+                persistableSample(sampleIndex: 2, name: "S03", pcm: [-0.75, 0.75]),
+            ],
+            noteSampleMap: map
+        )
+        let source = sparseSourceDocument(instrument: instrument)
+        let context = try loadedContext(from: EditableXMWriter().data(from: source), filename: "planner-sparse-exact.xm")
+
+        guard case let .exact(document) = LoadedModuleEditableCopyPlanner.plan(context: context) else {
+            return XCTFail("expected canonical interior empty state to plan an exact copy")
+        }
+        try assertSupportedSemanticsPreserved(context: context, document: document)
+        XCTAssertNil(document.instrumentPalette[1]?.sample(mappedSampleIndex: 1))
+    }
+
+    func testPlannerClassifiesCurrentVTXAuthoredExportReopenAsExact() throws {
+        let source = BlankTrackerDocument.makeDefault()
+        let context = try loadedContext(
+            from: EditableXMWriter().data(from: source),
+            filename: "planner-vtx-authored-exact.xm"
+        )
+
+        guard case let .exact(document) = LoadedModuleEditableCopyPlanner.plan(context: context) else {
+            return XCTFail("expected current VTX-authored export/reopen to plan an exact copy")
+        }
+        try assertSupportedSemanticsPreserved(context: context, document: document)
     }
 
     @MainActor
@@ -170,6 +229,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         let metadata = makeLoadedModuleMetadata(
             title: "Loaded Source",
             channels: 2,
+            instruments: 1,
             defaultTempo: 3,
             defaultBPM: 140,
             songLength: 2,
@@ -177,9 +237,8 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             orderTable: [0, 1],
             patterns: [firstPattern, secondPattern]
         )
-        let song = makePlaybackSong(
-            orderPatternIndices: [0, 1],
-            patternRowCounts: [0: 4, 1: 6],
+        let song = playbackSongMatchingMetadata(
+            metadata,
             instrumentsByIndex: [1: PlaybackInstrument(
                 index: 1,
                 name: "Tiny Inst",
@@ -799,7 +858,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(try EditableXMWriter().data(from: document), sourceData)
     }
 
-    func testNoncanonicalZeroLengthSourceHeadersRemainUnavailableForEditableCopy() throws {
+    func testProfileV1InertRequiredEmptyHeadersPlanNormalizedButRemainUnavailableToCurrentUI() throws {
         let first = makePlaybackSample(
             name: "Only S01",
             pcm: [-0.5, 0.5],
@@ -813,22 +872,20 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         let canonicalData = try EditableXMWriter().data(from: sparseSourceDocument(
             instrument: PlaybackInstrument(index: 1, samples: [first], noteSampleMap: noteSampleMap)
         ))
-        let instrumentOffset = firstInstrumentOffset(in: canonicalData)
         let emptyHeaderOffset = firstInstrumentSampleHeaderOffset(in: canonicalData, sampleIndex: 1)
-        let mutations: [(String, Int, UInt8, Bool)] = [
-            ("name", 18, 0x4E, false),
-            ("volume", 12, 1, false),
-            ("panning", 15, 128, false),
-            ("reserved", 17, 1, false),
-            ("unreferenced-trailing-name", 18, 0x4E, true),
+        let mutations: [(String, Int, UInt8)] = [
+            ("name", 18, 0x4E),
+            ("name-padding", 19, 0x20),
+            ("volume", 12, 1),
+            ("finetune", 13, 0x80),
+            ("panning", 15, 128),
+            ("relative-note", 16, 0x80),
+            ("reserved", 17, 1),
         ]
 
-        for (name, fieldOffset, value, removesEmptyReference) in mutations {
+        for (name, fieldOffset, value) in mutations {
             var sourceData = canonicalData
             sourceData[emptyHeaderOffset + fieldOffset] = value
-            if removesEmptyReference {
-                sourceData.replaceSubrange(instrumentOffset + 33..<instrumentOffset + 129, with: repeatElement(0, count: 96))
-            }
             let sourceURL = try temporaryDestination(filename: "noncanonical-empty-\(name).xm")
             try sourceData.write(to: sourceURL, options: .atomic)
             let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
@@ -844,6 +901,21 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
                 isPlaybackActive: false
             )
 
+            guard case let .normalized(document, summary) = LoadedModuleEditableCopyPlanner.plan(context: context) else {
+                return XCTFail("expected Profile-v1 normalized plan for \(name)")
+            }
+            XCTAssertEqual(summary.requiredEmptySlotsCanonicalized, 1, name)
+            XCTAssertEqual(summary.trailingEmptySlotsDropped, 0, name)
+            XCTAssertEqual(summary.instrumentCountAffected, 1, name)
+            XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap, noteSampleMap, name)
+            XCTAssertNil(document.instrumentPalette[1]?.sample(mappedSampleIndex: 1), name)
+            XCTAssertEqual(document.instrumentPalette[1]?.samples.first, first, name)
+            XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+                instrumentIndex: 1,
+                note: 49,
+                instrumentsByIndex: document.instrumentPalette
+            ), name)
+            try assertSupportedSemanticsPreserved(context: context, document: document, message: name)
             XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context), name)
             XCTAssertEqual(
                 LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context),
@@ -852,6 +924,247 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             )
             XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData, name)
         }
+    }
+
+    func testProfileV1TrailingEmptyHeadersPlanNormalizedAndAreDroppedFromSemanticSpan() throws {
+        let first = persistableSample(sampleIndex: 0, name: "Only S01", pcm: [-0.5, 0.5])
+        var sourceMap = Array(repeating: 0, count: 96)
+        sourceMap[48] = 2
+        let source = sparseSourceDocument(instrument: PlaybackInstrument(
+            index: 1,
+            samples: [first],
+            noteSampleMap: sourceMap
+        ))
+        var data = try EditableXMWriter().data(from: source)
+        let instrumentOffset = firstInstrumentOffset(in: data)
+        data.replaceSubrange(instrumentOffset + 33..<instrumentOffset + 129, with: repeatElement(0, count: 96))
+        data[firstInstrumentSampleHeaderOffset(in: data, sampleIndex: 2) + 12] = 32
+        let context = try loadedContext(from: data, filename: "planner-trailing-normalized.xm")
+
+        guard case let .normalized(document, summary) = LoadedModuleEditableCopyPlanner.plan(context: context) else {
+            return XCTFail("expected trailing empty slots to plan a normalized copy")
+        }
+        XCTAssertEqual(summary.requiredEmptySlotsCanonicalized, 0)
+        XCTAssertEqual(summary.trailingEmptySlotsDropped, 2)
+        XCTAssertEqual(summary.instrumentCountAffected, 1)
+        XCTAssertEqual(document.instrumentPalette[1]?.samples, [first])
+        XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap, Array(repeating: 0, count: 96))
+        try assertSupportedSemanticsPreserved(context: context, document: document)
+        XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context))
+    }
+
+    func testProfileV1CombinedRequiredAndTrailingNormalizationCountsAndRouting() throws {
+        let first = persistableSample(sampleIndex: 0, name: "Only S01", pcm: [-0.5, 0.5])
+        var sourceMap = Array(repeating: 0, count: 96)
+        sourceMap[48] = 2
+        let source = sparseSourceDocument(instrument: PlaybackInstrument(
+            index: 1,
+            samples: [first],
+            noteSampleMap: sourceMap
+        ))
+        var data = try EditableXMWriter().data(from: source)
+        let instrumentOffset = firstInstrumentOffset(in: data)
+        data.replaceSubrange(instrumentOffset + 33..<instrumentOffset + 129, with: repeatElement(0, count: 96))
+        data[instrumentOffset + 33 + 48] = 1
+        data[firstInstrumentSampleHeaderOffset(in: data, sampleIndex: 1) + 15] = 64
+        data[firstInstrumentSampleHeaderOffset(in: data, sampleIndex: 2) + 18] = 0x42
+        let context = try loadedContext(from: data, filename: "planner-combined-normalized.xm")
+
+        guard case let .normalized(document, summary) = LoadedModuleEditableCopyPlanner.plan(context: context) else {
+            return XCTFail("expected combined Profile-v1 normalized plan")
+        }
+        XCTAssertEqual(summary.requiredEmptySlotsCanonicalized, 1)
+        XCTAssertEqual(summary.trailingEmptySlotsDropped, 1)
+        XCTAssertEqual(summary.instrumentCountAffected, 1)
+        XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap?[48], 1)
+        XCTAssertNil(document.instrumentPalette[1]?.sample(mappedSampleIndex: 1))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1,
+            note: 49,
+            instrumentsByIndex: document.instrumentPalette
+        ))
+        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1,
+            note: 1,
+            instrumentsByIndex: document.instrumentPalette
+        )?.sampleIndex, 0)
+        try assertSupportedSemanticsPreserved(context: context, document: document)
+    }
+
+    func testPlannerRejectsSampleAndKeymapBoundaryAmbiguity() {
+        let first = persistableSample(sampleIndex: 0, name: "S01", pcm: [-0.5, 0.5])
+        var missingMap = Array(repeating: 0, count: 96)
+        missingMap[48] = 1
+        let sourceSlots: [(String, XMSourceSampleSlotProvenance)] = [
+            ("declared-payload", profileEmptyProvenance(sampleIndex: 1, declaredPayloadLength: 1)),
+            ("decoded-payload", profileEmptyProvenance(sampleIndex: 1, decodedPayloadLength: 1)),
+            ("extended-header", profileEmptyProvenance(sampleIndex: 1, sampleHeaderSize: 41)),
+            ("loop-start", profileEmptyProvenance(sampleIndex: 1, loopStart: 1)),
+            ("loop-length", profileEmptyProvenance(sampleIndex: 1, loopLength: 1)),
+            ("active-loop", profileEmptyProvenance(sampleIndex: 1, typeFlags: 0x01)),
+            ("sixteen-bit", profileEmptyProvenance(sampleIndex: 1, typeFlags: 0x10)),
+        ]
+        for (name, missingSlot) in sourceSlots {
+            let instrument = PlaybackInstrument(index: 1, samples: [first], noteSampleMap: missingMap)
+            let context = planningContext(
+                instrumentsByIndex: [1: instrument],
+                provenance: [1: [
+                    .init(sampleIndex: 0, decodedPayloadLength: first.pcm.count, isCanonicalEmptySlotHeader: false),
+                    missingSlot,
+                ]]
+            )
+            XCTAssertEqual(
+                LoadedModuleEditableCopyPlanner.plan(context: context),
+                .unavailable(.unsupportedSampleOrKeymapBoundary),
+                name
+            )
+        }
+
+        let invalidIdentities = PlaybackInstrument(
+            index: 1,
+            samples: [persistableSample(sampleIndex: 16, name: "S17", pcm: [-0.5, 0.5])],
+            noteSampleMap: Array(repeating: 16, count: 96)
+        )
+        XCTAssertEqual(
+            LoadedModuleEditableCopyPlanner.plan(context: planningContext(instrumentsByIndex: [1: invalidIdentities])),
+            .unavailable(.unsupportedSampleOrKeymapBoundary)
+        )
+
+        let invalidMap = PlaybackInstrument(
+            index: 1,
+            samples: [first],
+            noteSampleMap: Array(repeating: 16, count: 96)
+        )
+        XCTAssertEqual(
+            LoadedModuleEditableCopyPlanner.plan(context: planningContext(instrumentsByIndex: [1: invalidMap])),
+            .unavailable(.unsupportedSampleOrKeymapBoundary)
+        )
+    }
+
+    func testPlannerRejectsRepresentedSamplesWithoutCanonicalKeymap() {
+        let sample = persistableSample(sampleIndex: 0, name: "S01", pcm: [-0.5, 0.5])
+        for map in [nil, Array(repeating: 0, count: 95)] as [[Int]?] {
+            let instrument = PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: map)
+            XCTAssertEqual(
+                LoadedModuleEditableCopyPlanner.plan(context: planningContext(instrumentsByIndex: [1: instrument])),
+                .unavailable(.unsupportedSampleOrKeymapBoundary)
+            )
+        }
+
+        let emptyWithoutSourceMap = PlaybackInstrument(index: 1, samples: [], noteSampleMap: nil)
+        XCTAssertEqual(
+            LoadedModuleEditableCopyPlanner.plan(context: planningContext(
+                instrumentsByIndex: [1: emptyWithoutSourceMap],
+                patternInstrument: 0,
+                provenance: [1: [profileEmptyProvenance(sampleIndex: 0)]]
+            )),
+            .unavailable(.unsupportedSampleOrKeymapBoundary)
+        )
+    }
+
+    func testPlannerRejectsWriterUnstableEnvelopeState() {
+        let sample = persistableSample(sampleIndex: 0, name: "S01", pcm: [-0.5, 0.5])
+        let points = [PlaybackEnvelopePoint(tick: 0, value: 64), .init(tick: 8, value: 32)]
+        let unstableInstruments = [
+            PlaybackInstrument(
+                index: 1,
+                samples: [sample],
+                volumeEnvelope: PlaybackVolumeEnvelope(
+                    enabled: true,
+                    points: points,
+                    sustainPointIndex: nil,
+                    loopStartPointIndex: 0,
+                    loopEndPointIndex: 1,
+                    typeFlags: 0x03,
+                    fadeout: 1_024
+                ),
+                noteSampleMap: Array(repeating: 0, count: 96)
+            ),
+            PlaybackInstrument(
+                index: 1,
+                samples: [sample],
+                panningEnvelope: PlaybackPanningEnvelope(
+                    enabled: true,
+                    points: points,
+                    sustainPointIndex: 0,
+                    loopStartPointIndex: 0,
+                    loopEndPointIndex: 1,
+                    typeFlags: 0x0F
+                ),
+                noteSampleMap: Array(repeating: 0, count: 96)
+            ),
+        ]
+
+        for instrument in unstableInstruments {
+            XCTAssertEqual(
+                LoadedModuleEditableCopyPlanner.plan(context: planningContext(instrumentsByIndex: [1: instrument])),
+                .unavailable(.representedInstrumentStateUnstable)
+            )
+        }
+    }
+
+    func testPlannerRejectsInstrumentIdentityInstabilityAndIncompletePalette() {
+        let instrument = PlaybackInstrument(
+            index: 1,
+            samples: [persistableSample(sampleIndex: 0, name: "S01", pcm: [-0.5, 0.5])],
+            noteSampleMap: Array(repeating: 0, count: 96)
+        )
+        XCTAssertEqual(
+            LoadedModuleEditableCopyPlanner.plan(context: planningContext(
+                instrumentsByIndex: [1: instrument],
+                metadataInstrumentCount: 2
+            )),
+            .unavailable(.instrumentIdentityUnstable)
+        )
+        XCTAssertEqual(
+            LoadedModuleEditableCopyPlanner.plan(context: planningContext(
+                instrumentsByIndex: [1: instrument],
+                metadataInstrumentCount: 1,
+                patternInstrument: 2
+            )),
+            .unavailable(.instrumentIdentityUnstable)
+        )
+    }
+
+    func testPlannerRejectsInvalidRepresentedLoopStateAndOtherWriterFailures() {
+        let looped = makePlaybackSample(
+            name: "Invalid Loop",
+            pcm: [-0.5, 0.5],
+            baseSampleRate: PlaybackSample.xmNeutralSampleRate,
+            loopStart: 1,
+            loopLength: 0,
+            loopType: 1,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+        let loopInstrument = PlaybackInstrument(
+            index: 1,
+            samples: [looped],
+            noteSampleMap: Array(repeating: 0, count: 96)
+        )
+        XCTAssertEqual(
+            LoadedModuleEditableCopyPlanner.plan(context: planningContext(instrumentsByIndex: [1: loopInstrument])),
+            .unavailable(.representedLoopStateUnsupported)
+        )
+
+        let unsupportedPCM = makePlaybackSample(
+            name: "Unsupported Depth",
+            pcm: [-0.5, 0.5],
+            baseSampleRate: 8_363,
+            sourceBitDepthBits: 24,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+        let unsupportedInstrument = PlaybackInstrument(
+            index: 1,
+            samples: [unsupportedPCM],
+            noteSampleMap: Array(repeating: 0, count: 96)
+        )
+        XCTAssertEqual(
+            LoadedModuleEditableCopyPlanner.plan(context: planningContext(instrumentsByIndex: [1: unsupportedInstrument])),
+            .unavailable(.writerUnsupported)
+        )
     }
 
     @MainActor
@@ -1397,13 +1710,17 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         )
         let metadata = makeLoadedModuleMetadata(
             channels: 1,
+            instruments: 1,
             orderTable: [0],
             patterns: [pattern]
         )
-        let song = makePlaybackSong(
-            orderPatternIndices: [0],
-            patternRowCounts: [0: 4]
+        let sample = persistableSample(sampleIndex: 0, name: "Supported S01", pcm: [-0.5, 0.5])
+        let instrument = PlaybackInstrument(
+            index: 1,
+            samples: [sample],
+            noteSampleMap: Array(repeating: 0, count: 96)
         )
+        let song = playbackSongMatchingMetadata(metadata, instrumentsByIndex: [1: instrument])
         return .loadedReadOnly(
             metadata: metadata,
             playbackSong: song,
@@ -1411,6 +1728,118 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             currentPatternIndex: 0,
             isPlaybackActive: isPlaybackActive
         )
+    }
+
+    private func planningContext(
+        instrumentsByIndex: [Int: PlaybackInstrument],
+        metadataInstrumentCount: Int? = nil,
+        patternInstrument: UInt8 = 1,
+        provenance: [Int: [XMSourceSampleSlotProvenance]] = [:]
+    ) -> LoadedModuleEditableCopyContext {
+        let sourcePattern = pattern(index: 0, rowCount: 4, channels: 1, cells: [
+            (0, 0, XMPatternEventCell(
+                note: 49, instrument: patternInstrument, volumeColumn: 0, effectType: 0, effectParam: 0
+            )),
+        ])
+        let metadata = makeLoadedModuleMetadata(
+            channels: 1,
+            instruments: metadataInstrumentCount ?? instrumentsByIndex.count,
+            orderTable: [0],
+            patterns: [sourcePattern]
+        )
+        let song = playbackSongMatchingMetadata(
+            metadata,
+            instrumentsByIndex: instrumentsByIndex,
+            provenance: provenance
+        )
+        return .loadedReadOnly(
+            metadata: metadata,
+            playbackSong: song,
+            selection: TrackerEditorSelection(
+                selectedInstrument: instrumentsByIndex.keys.sorted().first ?? 1,
+                selectedSample: 1
+            ),
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+    }
+
+    private func loadedContext(from data: Data, filename: String) throws -> LoadedModuleEditableCopyContext {
+        let url = try temporaryDestination(filename: filename)
+        try data.write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        return .loadedReadOnly(
+            metadata: metadata,
+            playbackSong: song,
+            selection: .default,
+            currentPatternIndex: metadata.orderTable.first ?? 0,
+            isPlaybackActive: false
+        )
+    }
+
+    private func playbackSongMatchingMetadata(
+        _ metadata: ParsedModuleMetadata,
+        instrumentsByIndex: [Int: PlaybackInstrument],
+        provenance: [Int: [XMSourceSampleSlotProvenance]] = [:]
+    ) -> PlaybackSong {
+        let base = try! PlaybackSongBuilder.build(from: metadata)
+        return PlaybackSong(
+            title: base.title,
+            orders: base.orders,
+            patternsByIndex: base.patternsByIndex,
+            instrumentsByIndex: instrumentsByIndex,
+            restartOrderIndex: base.restartOrderIndex,
+            endBehavior: base.endBehavior,
+            initialTiming: base.initialTiming,
+            usesLinearFrequencyTable: base.usesLinearFrequencyTable,
+            xmSampleSlotProvenanceByInstrument: provenance
+        )
+    }
+
+    private func profileEmptyProvenance(
+        sampleIndex: Int,
+        declaredPayloadLength: Int = 0,
+        decodedPayloadLength: Int = 0,
+        sampleHeaderSize: Int = 40,
+        loopStart: Int = 0,
+        loopLength: Int = 0,
+        typeFlags: UInt8 = 0
+    ) -> XMSourceSampleSlotProvenance {
+        XMSourceSampleSlotProvenance(
+            sampleIndex: sampleIndex,
+            decodedPayloadLength: decodedPayloadLength,
+            isCanonicalEmptySlotHeader: false,
+            declaredPayloadLength: declaredPayloadLength,
+            sampleHeaderSize: sampleHeaderSize,
+            loopStart: loopStart,
+            loopLength: loopLength,
+            typeFlags: typeFlags
+        )
+    }
+
+    private func assertSupportedSemanticsPreserved(
+        context: LoadedModuleEditableCopyContext,
+        document: BlankTrackerDocument,
+        message: String = ""
+    ) throws {
+        let source = try XCTUnwrap(context.loadedPlaybackSong, message)
+        let candidate = EditablePlaybackSongBuilder.build(from: document)
+        XCTAssertEqual(candidate.orders, source.orders, message)
+        XCTAssertEqual(candidate.patternsByIndex, source.patternsByIndex, message)
+        XCTAssertEqual(candidate.initialTiming, source.initialTiming, message)
+        XCTAssertEqual(candidate.usesLinearFrequencyTable, source.usesLinearFrequencyTable, message)
+        XCTAssertEqual(candidate.instrumentsByIndex, source.instrumentsByIndex, message)
+        XCTAssertEqual(document.instrumentPalette, source.instrumentsByIndex, message)
+
+        for instrumentIndex in Set(source.instrumentsByIndex.keys).union(candidate.instrumentsByIndex.keys) {
+            for note in UInt8(1)...UInt8(96) {
+                let sourceResolution = source.resolveSample(instrumentIndex: instrumentIndex, note: note)
+                let candidateResolution = candidate.resolveSample(instrumentIndex: instrumentIndex, note: note)
+                XCTAssertEqual(sourceResolution, candidateResolution, "\(message) I\(instrumentIndex) note \(note)")
+            }
+        }
+        XCTAssertNoThrow(try EditableXMWriter().data(from: document), message)
     }
 
     private func sparseSourceDocument(

@@ -194,9 +194,9 @@ Release hardening rejects invalid channel/row dimensions, non-finite PCM,
 out-of-capacity or duplicate sample identities, malformed/out-of-capacity keymaps,
 and existing unsupported payload state before destination replacement. Successful
 writes remain atomic. Make Editable Copy accepts only Linear-frequency-table XM
-whose represented state and any canonical sparse empty identities are losslessly
-covered by the loaded source provenance; arbitrary source zero-length sample
-headers remain outside the represented subset.
+whose represented state passes the planner boundary described below. The PR 1
+compatibility bridge still enables the command only for an exact plan; a safe
+normalized plan is not exposed until a later confirmation UI exists.
 
 One synthetic boundary is intentionally characterized rather than redefined here. If represented samples are supplied
 with a nil map, `EditableXMWriter` currently accepts the value and writes 96 zero note-map bytes (all notes route to
@@ -236,24 +236,61 @@ Validation still finishes before `Data.write(..., .atomic)`. Unsupported
 indices/maps above S16 and all existing typed writer failures preserve an
 existing destination; valid sparse replacement uses the same atomic write.
 
-The normal XM instrument walker now records immutable source-only facts for each
-sample-header index: decoded payload length and whether the declared header is
-exactly 40 zero bytes. Header presence is represented by the indexed provenance
-entry; the raw module and source path are not retained, and empty slots never
-become `PlaybackSample` values.
+The normal XM instrument walker records immutable source-only facts for each
+sample-header index: declared and decoded payload lengths, declared sample-header
+size, loop coordinates and type flags, plus whether the ordinary 40-byte header
+is all zero. Header presence is represented by the indexed provenance entry; the
+raw module, source path, and inert empty-header values are not retained, and an
+empty slot never becomes a `PlaybackSample`.
 
-Before its production-writer dry-run, Make Editable Copy requires every missing
-identity in the exact represented/keymap writer span to have a corresponding
-zero-length canonical entry, in order, with no incomplete or extra source span.
-Dense supported Linear XM remains eligible without needing sparse provenance.
-Interior, trailing mapped, and only-empty mapped placeholders written by VTX now
-recover as sparse untitled editable copies and re-export byte-identically. A
-named sample, nonzero volume/pan/tuning/loop/reserved field, extended header, or
-any other nonzero header byte remains copy-unavailable rather than being silently
-canonicalized. This is a narrow lossless compatibility boundary, not arbitrary-XM
-parity. Clear and the user-facing Move/Swap operations rely on this existing boundary; each changes only canonical
-document state before the unchanged Export XM path. Dense and sparse moved or swapped state therefore uses the
-already-tested reopen/editable-copy/deterministic-re-export contract.
+### Loaded-XM editable-copy plans
+
+One authoritative planner now produces one of three internal outcomes:
+
+- `exact`: the loaded Linear XM is already inside the strict supported boundary,
+  including VTX's canonical sparse empty headers.
+- `normalized`: the candidate preserves supported song and routing semantics but
+  discards only the inert zero-payload source-header state allowed by Profile v1.
+- `unavailable`: the planner cannot prove safe conversion, a represented value is
+  outside the boundary, or current writer preflight fails.
+
+Profile v1 accepts a noncanonical empty header only when both declared and decoded
+payload lengths are zero, its declared size is exactly 40 bytes, loop start and
+length are zero, and its type byte carries no loop, 16-bit, or other flags. For
+such an unrepresented slot, name bytes and padding, volume, panning, finetune,
+relative note, and the reserved byte are inert and may be discarded. A required
+slot inside the represented/keymap sparse span keeps its exact Sxx identity and
+all 96 map references, remains absent from the sample palette, and receives no
+fabricated PCM. An unreferenced zero-payload slot above that span is dropped.
+Either action makes the plan normalized, and the summary counts required slots,
+trailing slots, and affected instruments.
+
+Normalized does not mean lossless, source-byte-identical, or export-byte-identical.
+It means only that the explicitly summarized inert header state is discarded
+while patterns, orders, timing, instrument identities, represented sample PCM and
+controls, active loops, envelopes, autovibrato, the exact 96-note keymap, and
+available/unavailable note routing remain equal in the supported model.
+
+The planner refuses Amiga-frequency XM; missing, short, or out-of-range keymaps;
+ambiguous or incomplete sample provenance; represented state outside S01...S16;
+invalid represented loops; writer-unstable envelope flags or indices; and a
+metadata/palette/pattern instrument-identity mismatch. It then builds the
+untitled value copy, checks source/candidate semantics structurally, and performs
+the existing writer's in-memory preflight. Planning never writes and reopens a
+temporary XM. The shared pure envelope canonicalization helper mirrors the
+writer's masking/index rules so nonstable represented envelope state is rejected
+instead of rewritten.
+
+PR 1 intentionally leaves product behavior unchanged: `File > Make Editable
+Copy` consumes only `exact`. A `normalized` result is mapped to the existing
+unsupported result until explicit confirmation is implemented. The loaded source
+always remains read-only and untouched. This decision is recorded in
+[ADR 014](../decisions/014-loaded-xm-editable-copy-planning.md).
+
+Clear and the user-facing Move/Swap operations rely on the existing canonical
+editable boundary; each changes only document state before the unchanged Export
+XM path. Dense and sparse moved or swapped state therefore uses the already-tested
+reopen/editable-copy/deterministic-re-export contract.
 
 ### Future Native Project Format
 
@@ -318,9 +355,10 @@ Loaded-module editing must stay behind an explicit copy boundary:
 6. The original opened source module remains untouched.
 
 Current behavior: the command is enabled only for stopped loaded read-only XM
-modules that expose representable pattern data through the current metadata
-model. It is disabled for already-editable documents, no loaded document,
-active playback, missing playback-song state, and unsupported loaded modules.
+modules whose planner result is `exact`. A `normalized` plan remains disabled in
+this first planning slice pending explicit user confirmation. It is also disabled
+for already-editable documents, no loaded document, active playback, missing
+playback-song state, and unsupported loaded modules.
 The resulting document is untitled/in-memory, does not claim the opened source
 path, keeps Save and Save As disabled, and can use Export XM when stopped.
 The copy workflow preserves parsed instrument/sample palette data where the

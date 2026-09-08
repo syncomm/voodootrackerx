@@ -81,6 +81,73 @@ enum EditableXMWriterError: Error, Equatable {
     case unsupportedPanningEnvelopePointCount(instrumentIndex: Int, pointCount: Int)
 }
 
+/// Pure mirror of the writer/reader envelope canonicalization used by editable-copy planning.
+/// It predicts value stability without a production export/reopen file-system cycle.
+enum EditableXMWriterEnvelopeCanonicalization {
+    static func typeFlags(pointCount: Int, source: UInt8) -> UInt8 {
+        pointCount == 0 ? 0 : source & 0x07
+    }
+
+    static func pointIndex(_ index: Int?, pointCount: Int) -> UInt8 {
+        guard let index, (0..<pointCount).contains(index) else {
+            return 0
+        }
+        return UInt8(index)
+    }
+
+    static func reopensStably(_ envelope: PlaybackVolumeEnvelope) -> Bool {
+        commonStateReopensStably(
+            enabled: envelope.enabled,
+            points: envelope.points,
+            sustainPointIndex: envelope.sustainPointIndex,
+            loopStartPointIndex: envelope.loopStartPointIndex,
+            loopEndPointIndex: envelope.loopEndPointIndex,
+            typeFlags: envelope.typeFlags
+        ) && envelope.fadeout == min(65_535, max(0, envelope.fadeout))
+    }
+
+    static func reopensStably(_ envelope: PlaybackPanningEnvelope) -> Bool {
+        commonStateReopensStably(
+            enabled: envelope.enabled,
+            points: envelope.points,
+            sustainPointIndex: envelope.sustainPointIndex,
+            loopStartPointIndex: envelope.loopStartPointIndex,
+            loopEndPointIndex: envelope.loopEndPointIndex,
+            typeFlags: envelope.typeFlags
+        )
+    }
+
+    private static func commonStateReopensStably(
+        enabled: Bool,
+        points: [PlaybackEnvelopePoint],
+        sustainPointIndex: Int?,
+        loopStartPointIndex: Int?,
+        loopEndPointIndex: Int?,
+        typeFlags: UInt8
+    ) -> Bool {
+        guard points.count <= 12,
+              points.allSatisfy({ (0...65_535).contains($0.tick) && (0...64).contains($0.value) }) else {
+            return false
+        }
+        let writtenFlags = Self.typeFlags(pointCount: points.count, source: typeFlags)
+        let writtenSustain = Int(Self.pointIndex(sustainPointIndex, pointCount: points.count))
+        let writtenLoopStart = Int(Self.pointIndex(loopStartPointIndex, pointCount: points.count))
+        let writtenLoopEnd = Int(Self.pointIndex(loopEndPointIndex, pointCount: points.count))
+        let reopenedSustain = points.indices.contains(writtenSustain) ? writtenSustain : nil
+        let reopenedLoopStart = points.indices.contains(writtenLoopStart) ? writtenLoopStart : nil
+        let reopenedLoopEnd = points.indices.contains(writtenLoopEnd) && writtenLoopEnd >= writtenLoopStart
+            ? writtenLoopEnd
+            : nil
+        let reopenedEnabled = (writtenFlags & 0x01) != 0 && !points.isEmpty
+
+        return enabled == reopenedEnabled &&
+            typeFlags == writtenFlags &&
+            sustainPointIndex == reopenedSustain &&
+            loopStartPointIndex == reopenedLoopStart &&
+            loopEndPointIndex == reopenedLoopEnd
+    }
+}
+
 struct EditableXMWriter {
     fileprivate static let xmSignature = "Extended Module: "
     fileprivate static let trackerName = "VoodooTrackerX"
@@ -644,14 +711,14 @@ private struct XMByteWriter {
         appendEnvelopePoints(instrument.panningEnvelope.points)
         appendUInt8(UInt8(instrument.volumeEnvelope.points.count))
         appendUInt8(UInt8(instrument.panningEnvelope.points.count))
-        appendUInt8(envelopePointIndex(instrument.volumeEnvelope.sustainPointIndex, points: instrument.volumeEnvelope.points))
-        appendUInt8(envelopePointIndex(instrument.volumeEnvelope.loopStartPointIndex, points: instrument.volumeEnvelope.points))
-        appendUInt8(envelopePointIndex(instrument.volumeEnvelope.loopEndPointIndex, points: instrument.volumeEnvelope.points))
-        appendUInt8(envelopePointIndex(instrument.panningEnvelope.sustainPointIndex, points: instrument.panningEnvelope.points))
-        appendUInt8(envelopePointIndex(instrument.panningEnvelope.loopStartPointIndex, points: instrument.panningEnvelope.points))
-        appendUInt8(envelopePointIndex(instrument.panningEnvelope.loopEndPointIndex, points: instrument.panningEnvelope.points))
-        appendUInt8(instrument.volumeEnvelope.points.isEmpty ? 0 : instrument.volumeEnvelope.typeFlags & 0x07)
-        appendUInt8(instrument.panningEnvelope.points.isEmpty ? 0 : instrument.panningEnvelope.typeFlags & 0x07)
+        appendUInt8(envelopePointIndex(instrument.volumeEnvelope.sustainPointIndex, pointCount: instrument.volumeEnvelope.points.count))
+        appendUInt8(envelopePointIndex(instrument.volumeEnvelope.loopStartPointIndex, pointCount: instrument.volumeEnvelope.points.count))
+        appendUInt8(envelopePointIndex(instrument.volumeEnvelope.loopEndPointIndex, pointCount: instrument.volumeEnvelope.points.count))
+        appendUInt8(envelopePointIndex(instrument.panningEnvelope.sustainPointIndex, pointCount: instrument.panningEnvelope.points.count))
+        appendUInt8(envelopePointIndex(instrument.panningEnvelope.loopStartPointIndex, pointCount: instrument.panningEnvelope.points.count))
+        appendUInt8(envelopePointIndex(instrument.panningEnvelope.loopEndPointIndex, pointCount: instrument.panningEnvelope.points.count))
+        appendUInt8(EditableXMWriterEnvelopeCanonicalization.typeFlags(pointCount: instrument.volumeEnvelope.points.count, source: instrument.volumeEnvelope.typeFlags))
+        appendUInt8(EditableXMWriterEnvelopeCanonicalization.typeFlags(pointCount: instrument.panningEnvelope.points.count, source: instrument.panningEnvelope.typeFlags))
         appendUInt8(instrument.autoVibrato.waveformType)
         appendUInt8(instrument.autoVibrato.sweep)
         appendUInt8(instrument.autoVibrato.depth)
@@ -693,12 +760,8 @@ private struct XMByteWriter {
         appendFixedASCII(sample.name ?? "", length: 22, fallback: "")
     }
 
-    private func envelopePointIndex(_ index: Int?, points: [PlaybackEnvelopePoint]) -> UInt8 {
-        guard let index,
-              points.indices.contains(index) else {
-            return 0
-        }
-        return UInt8(index)
+    private func envelopePointIndex(_ index: Int?, pointCount: Int) -> UInt8 {
+        EditableXMWriterEnvelopeCanonicalization.pointIndex(index, pointCount: pointCount)
     }
 
 }

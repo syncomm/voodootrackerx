@@ -195,7 +195,12 @@ enum PlaybackSongBuilder {
                     sampleIndex: sampleIndex,
                     decodedPayloadLength: header.length,
                     isCanonicalEmptySlotHeader: declaredSampleHeaderSize == 40 &&
-                        data[headerOffset..<headerOffset + 40].allSatisfy { $0 == 0 }
+                        data[headerOffset..<headerOffset + 40].allSatisfy { $0 == 0 },
+                    declaredPayloadLength: header.length,
+                    sampleHeaderSize: declaredSampleHeaderSize,
+                    loopStart: header.loopStart,
+                    loopLength: header.loopLength,
+                    typeFlags: header.type
                 ))
             }
 

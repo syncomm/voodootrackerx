@@ -720,8 +720,44 @@ enum PlaybackEndBehavior: Equatable {
 /// only nonempty `PlaybackSample` values; this metadata exists solely to avoid guessing at copy time.
 struct XMSourceSampleSlotProvenance: Equatable {
     let sampleIndex: Int
+    let declaredPayloadLength: Int
     let decodedPayloadLength: Int
+    let sampleHeaderSize: Int
+    let loopStart: Int
+    let loopLength: Int
+    let typeFlags: UInt8
     let isCanonicalEmptySlotHeader: Bool
+
+    init(
+        sampleIndex: Int,
+        decodedPayloadLength: Int,
+        isCanonicalEmptySlotHeader: Bool,
+        declaredPayloadLength: Int? = nil,
+        sampleHeaderSize: Int = 40,
+        loopStart: Int = 0,
+        loopLength: Int = 0,
+        typeFlags: UInt8 = 0
+    ) {
+        self.sampleIndex = sampleIndex
+        self.declaredPayloadLength = declaredPayloadLength ?? decodedPayloadLength
+        self.decodedPayloadLength = decodedPayloadLength
+        self.sampleHeaderSize = sampleHeaderSize
+        self.loopStart = loopStart
+        self.loopLength = loopLength
+        self.typeFlags = typeFlags
+        self.isCanonicalEmptySlotHeader = isCanonicalEmptySlotHeader
+    }
+
+    /// Profile v1 permits only ordinary 40-byte, zero-length, non-looping, non-16-bit empty headers.
+    /// Remaining fields are inert because this source slot has no represented PCM value.
+    var isProfileV1NormalizableEmptySlotHeader: Bool {
+        declaredPayloadLength == 0 &&
+            decodedPayloadLength == 0 &&
+            sampleHeaderSize == 40 &&
+            loopStart == 0 &&
+            loopLength == 0 &&
+            typeFlags == 0
+    }
 }
 
 enum PlaybackStepResult: Equatable {

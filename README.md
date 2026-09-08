@@ -139,9 +139,13 @@ What works today:
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.
 - Order Ops `INSERT`, `DELETE`, `DUP`, `MOVE UP`, `MOVE DOWN`, and `PTN -/+`
   for stopped editable documents.
-- `File > Make Editable Copy` for stopped supported loaded read-only XM
-  modules. The copy is untitled/in-memory and does not claim the source path;
-  Amiga-frequency-table XM is refused because the editable subset is Linear.
+- `File > Make Editable Copy` for stopped loaded read-only XM modules. Exact
+  plans transition immediately; Profile-v1 safe/inert empty-header normalization
+  also transitions without confirmation; and unavailable plans explain the safe
+  refusal. Amiga-frequency XM remains playable but cannot become an editable copy
+  because current editable documents are Linear. Every copy is untitled/in-memory,
+  leaves the source untouched, and does not claim its path. A later XM export of a
+  normalized copy uses canonical VTX structure and may differ structurally.
 - `File > Export XM...` for stopped editable documents, covering the current
   VTX editable subset and supported existing palette/sample payloads.
 - `File > Export Audio > WAV...` for stopped loaded modules, editable

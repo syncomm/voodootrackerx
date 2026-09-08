@@ -30,11 +30,11 @@ deferrals are summarized below and specified by
 The current sparse sample-slot XM foundation preserves canonical S01...S16
 identity and exact keymap references through Export XM/reopen by projecting missing
 positions to all-zero zero-length headers only at the writer boundary. Dense alpha.1
-bytes remain unchanged. The normal XM load path now classifies each source sample
-header by exact index, decoded payload length, and exact canonical-placeholder bytes.
-That provenance permits only lossless canonical sparse state through Make Editable
-Copy and a byte-identical re-export; arbitrary named or metadata-bearing zero-length
-headers remain outside the supported editable subset.
+bytes remain unchanged. Make Editable Copy now exposes exact plans immediately,
+Profile-v1 safe/inert zero-payload-header normalization immediately without
+confirmation, and typed explanations for unavailable plans. The source remains
+untouched; a normalized later export uses canonical VTX structure and may differ
+structurally.
 
 The canonical interior-empty-slot presentation foundation is complete.
 One shared UI-independent projection now distinguishes represented samples from
@@ -387,13 +387,14 @@ Recently completed:
   state on a small GCD stack. Advanced options remain deferred: PCM16,
   pattern/order ranges, channel/stem export,
   normalization, and diagnostic comparison profiles.
-- `File > Make Editable Copy` now establishes the explicit loaded-module
-  editable-copy boundary for supported stopped loaded read-only XM modules. It
-  creates an untitled in-memory editable copy of represented
-  song/order/pattern/note data plus supported palette/sample payloads, leaves
-  the opened source module read-only and untouched, does not claim source-path
-  ownership, keeps Save/Save As disabled, and leaves Export XM as a
-  user-selected output path. Runtime playback/scheduling,
+- `File > Make Editable Copy` now enables from loaded-XM/stopped/nonconflicting
+  presentation state without using compatibility as a silent menu gate. Exact
+  and Profile-v1 safe/inert normalized planner documents transition immediately;
+  typed unavailable outcomes explain why preservation is unsafe. UUID/context,
+  transport, presentation, and planner result are revalidated before transition.
+  The opened source remains read-only and untouched, normalized export may differ
+  structurally, and future significant normalization requires an approved profile
+  plus explicit explanation and confirmation. Runtime playback/scheduling,
   `RuntimeCMixerAdapterEventPlan`, C mixer DSP, parser architecture, tracker
   viewport/static-highlight behavior, Instrument Editor, and Sample Editor
   behavior did not change.

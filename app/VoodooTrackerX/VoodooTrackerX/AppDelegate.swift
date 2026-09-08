@@ -264,7 +264,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 M4AExportCoordinator.canExport(context: currentWAVExportDocumentContext())
             }
         case ApplicationMenuBuilder.Actions.makeEditableCopy:
-            return LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: currentLoadedModuleEditableCopyContext())
+            return LoadedModuleEditableCopyCoordinator.canInvoke(
+                context: currentLoadedModuleEditableCopyContext(),
+                hasConflictingPresentation: hasConflictingDocumentPresentation
+            )
         case ApplicationMenuBuilder.Actions.undoDocumentEdit:
             menuItem.title = editableDocumentEditCoordinator.undoMenuItemTitle
             return editableDocumentEditCoordinator.canUndo
@@ -524,10 +527,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func makeEditableCopy(_ sender: Any?) {
-        discardHiddenSongOrderEditorController()
-        handleLoadedModuleEditableCopyResult(
-            LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: currentLoadedModuleEditableCopyContext())
-        )
+        LoadedModuleEditableCopyCoordinator().perform(
+            contextProvider: { [weak self] in
+                self?.currentLoadedModuleEditableCopyContext() ?? .none(isPlaybackActive: false)
+            },
+            presentationConflictProvider: { [weak self] in
+                self?.hasConflictingDocumentPresentation ?? true
+            }
+        ) { [weak self] result in
+            self?.discardHiddenSongOrderEditorController()
+            self?.handleLoadedModuleEditableCopyResult(result)
+        }
     }
 
     private func currentExportXMDocumentContext() -> ExportXMDocumentContext {
@@ -716,6 +726,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         if loadedMetadata != nil {
             return .loadedReadOnly(
+                moduleIdentity: loadedModuleIdentity,
                 metadata: loadedMetadata,
                 playbackSong: playbackEngine.song,
                 selection: loadedModuleSelection,
@@ -727,7 +738,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func handleLoadedModuleEditableCopyResult(_ result: LoadedModuleEditableCopyResult) {
-        guard case let .copied(document) = result else {
+        let document: BlankTrackerDocument
+        switch result {
+        case let .copied(copy), let .normalized(copy, _):
+            document = copy
+        case .unavailable:
             presentLoadedModuleEditableCopyMessage(result)
             return
         }
@@ -770,6 +785,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.alertStyle = .informational
         alert.messageText = title
         alert.informativeText = message
+        if let buttonTitle = result.acknowledgementButtonTitle {
+            alert.addButton(withTitle: buttonTitle)
+        }
         presentTopLevelDocumentAlert(alert)
     }
 

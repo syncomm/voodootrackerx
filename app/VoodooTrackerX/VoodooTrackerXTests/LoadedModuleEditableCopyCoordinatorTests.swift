@@ -2,6 +2,335 @@ import CryptoKit
 import XCTest
 
 final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
+    func testCommandEligibilityDependsOnLoadedStoppedPresentationNotPlannerOutcome() throws {
+        let exactContext = identified(supportedLoadedContext(isPlaybackActive: false))
+        let normalizedContext = identified(profileV1NormalizedContext())
+        let unavailableContext = identified(nonLinearFrequencyTableContext())
+
+        guard case .exact = LoadedModuleEditableCopyPlanner.plan(context: exactContext) else {
+            return XCTFail("expected exact plan fixture")
+        }
+        guard case .normalized = LoadedModuleEditableCopyPlanner.plan(context: normalizedContext) else {
+            return XCTFail("expected normalized plan fixture")
+        }
+        XCTAssertEqual(
+            LoadedModuleEditableCopyPlanner.plan(context: unavailableContext),
+            .unavailable(.nonLinearFrequencyTable)
+        )
+
+        for context in [exactContext, normalizedContext, unavailableContext] {
+            XCTAssertTrue(LoadedModuleEditableCopyCoordinator.canInvoke(
+                context: context,
+                hasConflictingPresentation: false
+            ))
+        }
+    }
+
+    func testCommandEligibilityRejectsPlayingEditableMissingNonXMAndConflictingPresentation() throws {
+        let stoppedLoadedXM = identified(supportedLoadedContext(isPlaybackActive: false))
+        let xmMetadata = try XCTUnwrap(stoppedLoadedXM.loadedMetadata)
+        let loadedMOD = LoadedModuleEditableCopyContext.loadedReadOnly(
+            moduleIdentity: stoppedLoadedXM.moduleIdentity,
+            metadata: makeLoadedModuleMetadata(
+                type: "MOD",
+                title: "Loaded MOD",
+                channels: xmMetadata.channels,
+                instruments: xmMetadata.instruments,
+                orderTable: xmMetadata.orderTable,
+                patterns: xmMetadata.xmPatterns
+            ),
+            playbackSong: stoppedLoadedXM.loadedPlaybackSong,
+            selection: stoppedLoadedXM.selection,
+            currentPatternIndex: stoppedLoadedXM.currentPatternIndex,
+            isPlaybackActive: false
+        )
+
+        XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canInvoke(
+            context: identified(supportedLoadedContext(isPlaybackActive: true)),
+            hasConflictingPresentation: false
+        ))
+        XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canInvoke(
+            context: .editable(isPlaybackActive: false),
+            hasConflictingPresentation: false
+        ))
+        XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canInvoke(
+            context: .none(isPlaybackActive: false),
+            hasConflictingPresentation: false
+        ))
+        XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canInvoke(
+            context: stoppedLoadedXM,
+            hasConflictingPresentation: true
+        ))
+        XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canInvoke(
+            context: loadedMOD,
+            hasConflictingPresentation: false
+        ))
+    }
+
+    func testExactActionImmediatelyDispatchesPlannerDocumentWithoutChangingSource() {
+        let context = identified(supportedLoadedContext(isPlaybackActive: false))
+        let originalMetadata = context.loadedMetadata
+        let originalSong = context.loadedPlaybackSong
+        guard case let .exact(expectedDocument) = LoadedModuleEditableCopyPlanner.plan(context: context) else {
+            return XCTFail("expected exact plan")
+        }
+        var returnedFromPerform = false
+        var receivedResult: LoadedModuleEditableCopyResult?
+
+        let didPerform = LoadedModuleEditableCopyCoordinator().perform(
+            contextProvider: { context },
+            presentationConflictProvider: { false }
+        ) { result in
+            XCTAssertFalse(returnedFromPerform, "the stopped exact action should dispatch synchronously")
+            receivedResult = result
+        }
+        returnedFromPerform = true
+
+        XCTAssertTrue(didPerform)
+        XCTAssertEqual(receivedResult, .copied(expectedDocument))
+        XCTAssertEqual(context.loadedMetadata, originalMetadata)
+        XCTAssertEqual(context.loadedPlaybackSong, originalSong)
+    }
+
+    func testNormalizedActionImmediatelyDispatchesPlannerDocumentAndSummaryWithoutConfirmation() throws {
+        let context = identified(profileV1NormalizedContext())
+        let originalMetadata = context.loadedMetadata
+        let originalSong = context.loadedPlaybackSong
+        guard case let .normalized(expectedDocument, expectedSummary) =
+            LoadedModuleEditableCopyPlanner.plan(context: context) else {
+            return XCTFail("expected Profile-v1 normalized plan")
+        }
+        var results = [LoadedModuleEditableCopyResult]()
+
+        let didPerform = LoadedModuleEditableCopyCoordinator().perform(
+            contextProvider: { context },
+            presentationConflictProvider: { false },
+            resultHandler: { results.append($0) }
+        )
+
+        XCTAssertTrue(didPerform)
+        XCTAssertEqual(results, [.normalized(expectedDocument, expectedSummary)])
+        XCTAssertEqual(context.loadedMetadata, originalMetadata)
+        XCTAssertEqual(context.loadedPlaybackSong, originalSong)
+        XCTAssertEqual(expectedSummary.requiredEmptySlotsCanonicalized, 1)
+        XCTAssertEqual(expectedDocument.instrumentPalette[1]?.noteSampleMap?[48], 1)
+        XCTAssertNil(expectedDocument.instrumentPalette[1]?.sample(mappedSampleIndex: 1))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1,
+            note: 49,
+            instrumentsByIndex: expectedDocument.instrumentPalette
+        ))
+        let result = try XCTUnwrap(results.first)
+        XCTAssertEqual(result.userFacingTitle, "Editable Copy Created")
+        let message = try XCTUnwrap(result.userFacingMessage)
+        for expectedText in [
+            "Created an untitled editable copy",
+            "empty sample-slot metadata",
+            "does not affect playback",
+            "original XM remains unchanged",
+            "export this editable copy as XM",
+            "may differ structurally",
+        ] {
+            XCTAssertTrue(message.contains(expectedText), "missing: \(expectedText)")
+        }
+        XCTAssertFalse(message.contains("in-memory"))
+        XCTAssertFalse(message.contains("canonical VTX structure"))
+    }
+
+    func testUnavailableActionDispatchesTypedExplanationWithoutTransitionOrMutation() {
+        let context = identified(nonLinearFrequencyTableContext())
+        let originalContext = context
+        var transitionCount = 0
+        var unavailableReasons = [LoadedModuleEditableCopyPlanUnavailableReason]()
+
+        let didPerform = LoadedModuleEditableCopyCoordinator().perform(
+            contextProvider: { context },
+            presentationConflictProvider: { false }
+        ) { result in
+            switch result {
+            case let .unavailable(reason):
+                unavailableReasons.append(reason)
+            case .copied, .normalized:
+                transitionCount += 1
+            }
+        }
+
+        XCTAssertTrue(didPerform)
+        XCTAssertEqual(unavailableReasons, [.nonLinearFrequencyTable])
+        XCTAssertEqual(transitionCount, 0)
+        XCTAssertEqual(context, originalContext)
+    }
+
+    func testTypedUnavailableReasonsUseActionablePrivateSafeMessages() throws {
+        let context = identified(supportedLoadedContext(isPlaybackActive: false))
+        let cases: [(LoadedModuleEditableCopyPlanUnavailableReason, [String])] = [
+            (.nonLinearFrequencyTable, ["Amiga frequency mode", "Linear frequency mode", "pitch"]),
+            (.unsupportedSampleOrKeymapBoundary, ["sample-slot", "note-mapping", "preserve"]),
+            (.representedLoopStateUnsupported, ["sample loop state", "preserve"]),
+            (.representedInstrumentStateUnstable, ["instrument envelope", "wrote and reopened"]),
+            (.instrumentIdentityUnstable, ["instrument identity", "palette"]),
+            (.writerUnsupported, ["XM writer", "safely represent"]),
+            (.unsupportedLoadedModule, ["some loaded module state", "preserved safely"]),
+        ]
+
+        for (reason, expectedFragments) in cases {
+            var presentedResult: LoadedModuleEditableCopyResult?
+            XCTAssertTrue(LoadedModuleEditableCopyCoordinator(planner: { _ in
+                .unavailable(reason)
+            }).perform(
+                contextProvider: { context },
+                presentationConflictProvider: { false },
+                resultHandler: { presentedResult = $0 }
+            ))
+            let result = try XCTUnwrap(presentedResult)
+            XCTAssertEqual(result, .unavailable(reason))
+            XCTAssertEqual(result.userFacingTitle, "Make Editable Copy Unavailable")
+            let message = try XCTUnwrap(result.userFacingMessage)
+            for fragment in expectedFragments {
+                XCTAssertTrue(message.contains(fragment), "\(reason): missing \(fragment)")
+            }
+            XCTAssertTrue(message.contains("loaded XM remains unchanged"), "\(reason)")
+            XCTAssertFalse(message.contains(String(describing: reason)), "\(reason)")
+            let macOSHomePathPrefix = ["", "Users", ""].joined(separator: "/")
+            XCTAssertFalse(message.contains(macOSHomePathPrefix), "\(reason)")
+            XCTAssertEqual(result.acknowledgementButtonTitle, "OK")
+        }
+    }
+
+    func testExactActionRejectsChangedSourceIdentityBeforeTransition() {
+        let first = identified(supportedLoadedContext(isPlaybackActive: false), identity: UUID())
+        let replacement = identified(first, identity: UUID())
+        var contextReads = 0
+        var receivedResult: LoadedModuleEditableCopyResult?
+
+        let didPerform = LoadedModuleEditableCopyCoordinator().perform(
+            contextProvider: {
+                defer { contextReads += 1 }
+                return contextReads == 0 ? first : replacement
+            },
+            presentationConflictProvider: { false },
+            resultHandler: { receivedResult = $0 }
+        )
+
+        XCTAssertFalse(didPerform)
+        XCTAssertNil(receivedResult)
+    }
+
+    func testNormalizedActionRejectsChangedSourceBeforeTransition() {
+        let first = identified(profileV1NormalizedContext(), identity: UUID())
+        var replacement = first
+        replacement = .loadedReadOnly(
+            moduleIdentity: first.moduleIdentity,
+            metadata: first.loadedMetadata,
+            playbackSong: first.loadedPlaybackSong,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            currentPatternIndex: first.currentPatternIndex,
+            isPlaybackActive: false
+        )
+        var contextReads = 0
+        var receivedResult: LoadedModuleEditableCopyResult?
+
+        let didPerform = LoadedModuleEditableCopyCoordinator().perform(
+            contextProvider: {
+                defer { contextReads += 1 }
+                return contextReads == 0 ? first : replacement
+            },
+            presentationConflictProvider: { false },
+            resultHandler: { receivedResult = $0 }
+        )
+
+        XCTAssertFalse(didPerform)
+        XCTAssertNil(receivedResult)
+    }
+
+    func testActionRejectsPlaybackThatStartsBeforeTransition() {
+        let stopped = identified(supportedLoadedContext(isPlaybackActive: false))
+        let playing = LoadedModuleEditableCopyContext.loadedReadOnly(
+            moduleIdentity: stopped.moduleIdentity,
+            metadata: stopped.loadedMetadata,
+            playbackSong: stopped.loadedPlaybackSong,
+            selection: stopped.selection,
+            currentPatternIndex: stopped.currentPatternIndex,
+            isPlaybackActive: true
+        )
+        var contextReads = 0
+        var receivedResult: LoadedModuleEditableCopyResult?
+
+        let didPerform = LoadedModuleEditableCopyCoordinator().perform(
+            contextProvider: {
+                defer { contextReads += 1 }
+                return contextReads == 0 ? stopped : playing
+            },
+            presentationConflictProvider: { false },
+            resultHandler: { receivedResult = $0 }
+        )
+
+        XCTAssertFalse(didPerform)
+        XCTAssertNil(receivedResult)
+    }
+
+    func testActionRejectsChangedPlannerResultBeforeTransition() {
+        let context = identified(supportedLoadedContext(isPlaybackActive: false))
+        let document = BlankTrackerDocument.makeDefault()
+        var plannerCalls = 0
+        let coordinator = LoadedModuleEditableCopyCoordinator { _ in
+            defer { plannerCalls += 1 }
+            return plannerCalls == 0
+                ? .exact(document)
+                : .unavailable(.writerUnsupported)
+        }
+        var receivedResult: LoadedModuleEditableCopyResult?
+
+        let didPerform = coordinator.perform(
+            contextProvider: { context },
+            presentationConflictProvider: { false },
+            resultHandler: { receivedResult = $0 }
+        )
+
+        XCTAssertFalse(didPerform)
+        XCTAssertEqual(plannerCalls, 2)
+        XCTAssertNil(receivedResult)
+    }
+
+    func testDirectActionDuringConflictingPresentationIsInert() {
+        let context = identified(supportedLoadedContext(isPlaybackActive: false))
+        var plannerCalls = 0
+        let coordinator = LoadedModuleEditableCopyCoordinator { context in
+            plannerCalls += 1
+            return LoadedModuleEditableCopyPlanner.plan(context: context)
+        }
+        var receivedResult: LoadedModuleEditableCopyResult?
+
+        let didPerform = coordinator.perform(
+            contextProvider: { context },
+            presentationConflictProvider: { true },
+            resultHandler: { receivedResult = $0 }
+        )
+
+        XCTAssertFalse(didPerform)
+        XCTAssertEqual(plannerCalls, 0)
+        XCTAssertNil(receivedResult)
+    }
+
+    func testActionRejectsPresentationConflictThatAppearsBeforeTransition() {
+        let context = identified(supportedLoadedContext(isPlaybackActive: false))
+        var presentationChecks = 0
+        var receivedResult: LoadedModuleEditableCopyResult?
+
+        let didPerform = LoadedModuleEditableCopyCoordinator().perform(
+            contextProvider: { context },
+            presentationConflictProvider: {
+                defer { presentationChecks += 1 }
+                return presentationChecks > 0
+            },
+            resultHandler: { receivedResult = $0 }
+        )
+
+        XCTAssertFalse(didPerform)
+        XCTAssertEqual(presentationChecks, 2)
+        XCTAssertNil(receivedResult)
+    }
+
     func testLoadedReadOnlyStoppedXMModuleCanMakeEditableCopyWhenSupported() {
         let context = supportedLoadedContext(isPlaybackActive: false)
 
@@ -70,7 +399,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(
             LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: unsupportedSampleContext),
-            .unavailable(.unsupportedLoadedModule)
+            .unavailable(.unsupportedSampleOrKeymapBoundary)
         )
     }
 
@@ -94,11 +423,11 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(
             LoadedModuleEditableCopyCoordinator.unavailableReason(for: context),
-            .unsupportedLoadedModule
+            .nonLinearFrequencyTable
         )
         XCTAssertEqual(
             LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context),
-            .unavailable(.unsupportedLoadedModule)
+            .unavailable(.nonLinearFrequencyTable)
         )
         XCTAssertEqual(
             LoadedModuleEditableCopyPlanner.plan(context: context),
@@ -858,7 +1187,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(try EditableXMWriter().data(from: document), sourceData)
     }
 
-    func testProfileV1InertRequiredEmptyHeadersPlanNormalizedButRemainUnavailableToCurrentUI() throws {
+    func testProfileV1InertRequiredEmptyHeadersPlanNormalizedAndReachCurrentAction() throws {
         let first = makePlaybackSample(
             name: "Only S01",
             pcm: [-0.5, 0.5],
@@ -916,10 +1245,10 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
                 instrumentsByIndex: document.instrumentPalette
             ), name)
             try assertSupportedSemanticsPreserved(context: context, document: document, message: name)
-            XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context), name)
+            XCTAssertTrue(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context), name)
             XCTAssertEqual(
                 LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context),
-                .unavailable(.unsupportedLoadedModule),
+                .normalized(document, summary),
                 name
             )
             XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData, name)
@@ -950,7 +1279,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(document.instrumentPalette[1]?.samples, [first])
         XCTAssertEqual(document.instrumentPalette[1]?.noteSampleMap, Array(repeating: 0, count: 96))
         try assertSupportedSemanticsPreserved(context: context, document: document)
-        XCTAssertFalse(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context))
+        XCTAssertTrue(LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: context))
     }
 
     func testProfileV1CombinedRequiredAndTrailingNormalizationCountsAndRouting() throws {
@@ -1727,6 +2056,61 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             selection: .default,
             currentPatternIndex: 0,
             isPlaybackActive: isPlaybackActive
+        )
+    }
+
+    private func profileV1NormalizedContext() -> LoadedModuleEditableCopyContext {
+        let first = persistableSample(sampleIndex: 0, name: "S01", pcm: [-0.5, 0.5])
+        var noteSampleMap = Array(repeating: 0, count: 96)
+        noteSampleMap[48] = 1
+        return planningContext(
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [first], noteSampleMap: noteSampleMap),
+            ],
+            provenance: [
+                1: [
+                    .init(
+                        sampleIndex: 0,
+                        decodedPayloadLength: first.pcm.count,
+                        isCanonicalEmptySlotHeader: false
+                    ),
+                    profileEmptyProvenance(sampleIndex: 1),
+                ],
+            ]
+        )
+    }
+
+    private func nonLinearFrequencyTableContext() -> LoadedModuleEditableCopyContext {
+        let context = supportedLoadedContext(isPlaybackActive: false)
+        return .loadedReadOnly(
+            moduleIdentity: context.moduleIdentity,
+            metadata: context.loadedMetadata.map { metadata in
+                makeLoadedModuleMetadata(
+                    channels: metadata.channels,
+                    instruments: metadata.instruments,
+                    xmFlags: 0,
+                    orderTable: metadata.orderTable,
+                    patterns: metadata.xmPatterns
+                )
+            },
+            playbackSong: context.loadedPlaybackSong,
+            selection: context.selection,
+            currentPatternIndex: context.currentPatternIndex,
+            isPlaybackActive: false
+        )
+    }
+
+    private func identified(
+        _ context: LoadedModuleEditableCopyContext,
+        identity: UUID = UUID()
+    ) -> LoadedModuleEditableCopyContext {
+        .loadedReadOnly(
+            moduleIdentity: identity,
+            metadata: context.loadedMetadata,
+            playbackSong: context.loadedPlaybackSong,
+            selection: context.selection,
+            currentPatternIndex: context.currentPatternIndex,
+            isPlaybackActive: context.isPlaybackActive
         )
     }
 

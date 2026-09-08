@@ -38,10 +38,10 @@ VoodooTracker X currently has:
   plus stopped `File > Export Audio > M4A...` sharing export that reuses the
   same product render plan and scaled Float32 PCM before fixed 192 kbps AAC
   encoding,
-  plus explicit `File > Make Editable Copy` for stopped supported loaded
-  read-only XM modules, with public-safe byte-level model tests and
-  temporary-file reload/header smoke tests through existing parser/render
-  paths, plus a reusable `Window > Instrument Editor` shell bound to the
+  plus explicit `File > Make Editable Copy` for stopped loaded read-only XM
+  modules: exact and Profile-v1 safe/inert normalized plans transition
+  immediately while typed unavailable plans explain the refusal, with public-safe
+  tests and stale-source revalidation, plus a reusable `Window > Instrument Editor` shell bound to the
   current palette and selected instrument/sample, with selectable represented
   rows sharing the control-panel selection in loaded/editable and stopped/playing states
   without document mutation or undo, and represented instrument
@@ -324,13 +324,14 @@ Recently completed narrow target:
   large fixed-size C state on the heap so background workers do not initialize
   that state on a small GCD stack. Advanced audio export options remain
   deferred.
-- `File > Make Editable Copy` now creates an explicit untitled in-memory
-  editable copy from a stopped loaded read-only XM module when the current
-  supported editable subset can represent its song/order/pattern/note data and
-  represented instrument/sample palette payloads. Loaded modules remain
-  read-only by default, the opened source path is untouched and not owned by
-  the copy, Save and Save As remain disabled, and Export XM remains a
-  user-selected output path. Runtime playback/scheduling, parser architecture,
+- `File > Make Editable Copy` now separates loaded-XM/stopped/nonconflicting menu
+  eligibility from its authoritative planner. Exact and Profile-v1 safe/inert
+  normalized documents transition immediately without confirmation; typed
+  unavailable results produce an acknowledgement-only explanation. Immediate
+  UUID/context/plan revalidation rejects stale actions. Loaded sources remain
+  read-only and untouched, normalized export may differ structurally, future
+  significant normalization requires approved confirmation UX, and Save/Save As
+  remain disabled. Runtime playback/scheduling, parser architecture,
   C mixer DSP, tracker viewport/static-highlight behavior, Instrument Editor,
   and Sample Editor behavior did not change.
 - Editable XM export now writes existing instrument/sample palette data for

@@ -193,10 +193,11 @@ does not become an owned save path.
 Release hardening rejects invalid channel/row dimensions, non-finite PCM,
 out-of-capacity or duplicate sample identities, malformed/out-of-capacity keymaps,
 and existing unsupported payload state before destination replacement. Successful
-writes remain atomic. Make Editable Copy accepts only Linear-frequency-table XM
-whose represented state passes the planner boundary described below. The PR 1
-compatibility bridge still enables the command only for an exact plan; a safe
-normalized plan is not exposed until a later confirmation UI exists.
+writes remain atomic. Make Editable Copy uses the planner boundary described
+below. Its menu eligibility reflects only loaded/stopped/presentation state;
+compatibility outcomes remain the planner's responsibility. Exact and Profile-v1
+safe/inert normalized plans transition immediately, while unavailable plans remain
+actionable so the UI can explain the typed reason.
 
 One synthetic boundary is intentionally characterized rather than redefined here. If represented samples are supplied
 with a nil map, `EditableXMWriter` currently accepts the value and writes 96 zero note-map bytes (all notes route to
@@ -281,11 +282,22 @@ temporary XM. The shared pure envelope canonicalization helper mirrors the
 writer's masking/index rules so nonstable represented envelope state is rejected
 instead of rewritten.
 
-PR 1 intentionally leaves product behavior unchanged: `File > Make Editable
-Copy` consumes only `exact`. A `normalized` result is mapped to the existing
-unsupported result until explicit confirmation is implemented. The loaded source
-always remains read-only and untouched. This decision is recorded in
-[ADR 014](../decisions/014-loaded-xm-editable-copy-planning.md).
+The product action consumes all three outcomes without reimplementing their
+rules. `exact` uses the existing immediate copy path. Profile-v1 `normalized`
+also transitions immediately with no blocking confirmation because it discards
+only proven inert empty-header structure; the existing completion feedback notes
+that future XM export uses canonical VTX structure and may differ structurally.
+`unavailable` presents a native acknowledgement-only explanation derived from
+the typed reason. Source UUID, full context, stopped transport, presentation
+eligibility, and a fresh equal plan are checked immediately before any transition.
+The loaded source always remains read-only and untouched.
+
+Future normalization that changes represented musical or source state must not
+reuse the silent Profile-v1 path. It requires a separately approved profile and
+explicit user explanation and confirmation before conversion. Represented invalid
+loops, writer-unstable represented envelopes, instrument-identity instability,
+and Amiga-to-Linear conversion remain unavailable today. This decision is
+recorded in [ADR 014](../decisions/014-loaded-xm-editable-copy-planning.md).
 
 Clear and the user-facing Move/Swap operations rely on the existing canonical
 editable boundary; each changes only document state before the unchanged Export
@@ -354,11 +366,13 @@ Loaded-module editing must stay behind an explicit copy boundary:
 5. Save/export writes only to a user-chosen destination.
 6. The original opened source module remains untouched.
 
-Current behavior: the command is enabled only for stopped loaded read-only XM
-modules whose planner result is `exact`. A `normalized` plan remains disabled in
-this first planning slice pending explicit user confirmation. It is also disabled
-for already-editable documents, no loaded document, active playback, missing
-playback-song state, and unsupported loaded modules.
+Current behavior: the command is enabled for a loaded XM when transport is
+stopped and no conflicting top-level presentation is active, independently of
+whether the planner returns `exact`, Profile-v1 `normalized`, or `unavailable`.
+It is disabled for already-editable documents, no loaded document, active
+playback, or a presentation conflict. Exact and safe/inert normalized plans
+transition immediately without conversion confirmation; unavailable plans show
+an acknowledgement-only reason and cause no transition or history.
 The resulting document is untitled/in-memory, does not claim the opened source
 path, keeps Save and Save As disabled, and can use Export XM when stopped.
 The copy workflow preserves parsed instrument/sample palette data where the

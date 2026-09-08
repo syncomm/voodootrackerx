@@ -1,17 +1,216 @@
 # Sample Lifecycle Alpha Release Readiness
 
-Date: 2026-09-05
+Date: 2026-09-08
 
 Final release-candidate status: **NO-GO**
 
-Release blocker: the maintainer reproduced inconsistent editable Song/Order
-navigation in the supported multi-pattern/multi-order composition workflow.
-The main-window POS control did not reliably update its visible position or
-return to order position 0, and selected order, POS presentation, displayed
-pattern, and normal-Play start behavior no longer appeared to agree. This live
-evidence correlates with frozen audit finding VTX-J-003. The already-recorded
-technical, build, automated, hygiene, and machine lifecycle gates still pass,
-but they do not override this supported-workflow failure.
+All current automated, optimized-build, source-preservation, persistence,
+hygiene, agent-driven GUI, and mandatory current-build maintainer
+musician/listening gates pass. During final manual acceptance, however, Gregory
+reproduced a destructive document-replacement defect: File > New / Cmd+N
+immediately replaced a non-pristine editable composition without warning and
+left no Undo recovery. This direct evidence promotes the previously audited
+VTX-G-003 data-loss finding to a release blocker for this candidate.
+
+## Current audited candidate
+
+- Branch: `release/sample-lifecycle-alpha-final-gate`
+- Audited `main`: `4df4258cd61dc7a7b976d2b3febfc7874f70bbb4`
+- Local `main` and `origin/main` were synchronized at `0 0`, with a clean worktree,
+  before this branch was created.
+- The candidate includes the J-003 navigation remediation from PR #399, explicit
+  editable-copy planning from PR #400, and normalized editable-copy UI from
+  PR #401.
+- This gate changes no production source, supported file format, compatibility
+  boundary, runtime backend, or version. It creates no tag or published release.
+- The independent cross-family audit is frozen and unchanged.
+
+## Current gate results
+
+| Area | Result |
+| --- | --- |
+| J-003 empty patterns | Pass. A new document exposed blank allocated P000, P001, and P002 in both the main PTN popup and Pattern Bank before events were added. ORD000/001/002 displayed their respective blank patterns. |
+| J-003 stopped navigation | Pass. POS/PTN traversed `0/000 -> 1/001 -> 2/002 -> 1/001 -> 0/000`, with main presentation and Song/Order selection agreeing. |
+| J-003 view/play separation | Pass. At POS1, viewing P000 kept the order at P001; normal Play started POS1/P001, while Play Current Pattern started P000. A harmless instrument edit and immediate Undo/Redo caused no navigation snap-back. |
+| J-003 live follow | Pass. Distinct P000/P001/P002 content followed live as `00/000 -> 01/001 -> 02/002`; the tracker followed and Stop reconciled once to the final playback position. |
+| Loaded-XM navigation | Pass. The public generated multi-pattern/order fixture traversed and followed live through `0/000`, `1/001`, and `2/002`, then reconciled correctly on Stop. |
+| Exact editable copy | Pass. The stopped command transitioned immediately with no normalization warning, left the source unchanged, and produced a supported export whose reopen/re-export was byte-identical. |
+| Normalized Profile v1 copy | Pass. A deterministic public-safe synthetic Linear XM with one referenced noncanonical zero-payload empty header transitioned immediately without pre-confirmation. The informational disclosure accurately described normalization and did not claim lossless or byte-identical conversion. |
+| Normalized state preservation | Pass. Required empty S02 identity and its 96-note reference were preserved as an unavailable/silent route, no PCM was fabricated, and the original source remained unchanged. Export/reopen/re-export preserved the normalized editable semantics and produced identical canonical exports. |
+| Unavailable reasons | Pass. Amiga frequency mode and an invalid represented loop state each produced a specific explanatory sheet, no editable transition, and no source mutation. Invocation during playback was inert and command behavior returned after Stop. |
+| Sample Lifecycle | Pass. Clear, exact-slot repopulation, Duplicate, Move, both Swap forms, and Undo/Redo retain canonical map/routing semantics in full automated coverage. Agent GUI checks confirmed Clear/Undo/Redo/repopulate/Duplicate/Move focus and refresh behavior. |
+| Clear Song Data | Pass. Both entry points shared confirmation; Cancel was safe, Confirm cleared only patterns/orders, instruments and samples remained, and immediate Undo/Redo was exact. Loaded-source behavior remains unchanged. |
+| Audio-export re-entry | Automated and maintainer pass. All WAV-active/M4A-active cross-command combinations reject re-entry without a second picker, sheet, token, or job, and all terminal paths restore availability. Gregory's long WAV and M4A checks passed. |
+| XM persistence | Pass. A composed lifecycle document retained two patterns/orders, instrument/sample identities, sparse S02, represented S01/S03 PCM and loop metadata, and the full S03 note map after export, reopen, editable copy, and deterministic re-export. |
+| Maintainer musician/UI/listening | Pass. The current-main from-scratch navigation, live follow, lifecycle routing, Clear Song Data, exact/normalized/unavailable editable-copy, normalized export/reopen, long audio-export re-entry, and persistence/listening checks passed. |
+| Document replacement safety | **BLOCKER.** File > New / Cmd+N silently discarded a non-pristine editable composition and its recovery history. VTX-G-003 establishes the same class for a successful File > Open / Cmd+O. |
+
+### Loaded-source and persistence checksums
+
+- The manifest-pinned public multi-order source remained
+  `8438e6074df6d4a6e1ec540121b7adeaf96e199166619a0ae00085c7fafd1ca3`.
+- The exact-copy export and its re-export were identical at
+  `72dcbb7ed377a804bfd0f0128ed77ee073e60fadaad21f40e0e49abd8f7e18b0`.
+- The normalized source remained
+  `a9baa66980a7fd9a6ff2772063c691d0c5b711b813389d26304fa8f9564b0e77`;
+  its canonical export and re-export were identical at
+  `43daeaf6daf50dcb3640ba0605f0fa793f31949454cf17a659af7f9911e86e24`.
+- The composed lifecycle export and re-export were identical at
+  `60aea0ce8530d929e151cba49cb603d8ca4571fb0d5d728beeb9a4fcc9015553`.
+- Original-to-export byte parity is intentionally not claimed for normalized
+  legacy input; the comparison is normalized editable state versus reopened
+  normalized export.
+
+## Current automated and build verification
+
+| Command / gate | Result |
+| --- | --- |
+| `python3 scripts/generate-synthetic-xm-fixtures.py --verify` | Pass; 5 fixtures verified byte-identically. |
+| `swift test --filter ModuleCoreTests` | Pass; 24 tests, 0 failures. |
+| `swift test --filter VTXRenderBoundedXMTests` | Pass; 117 tests, 0 failures. |
+| `swift test` | Pass; 141 tests, 0 failures. |
+| Full Debug `xcodebuild ... test` | Pass; 1,540 tests, 0 failures, 0 skipped. |
+| `./scripts/check-files.sh` | Pass. |
+| `./scripts/scan-tracked-private-leaks.sh` | Pass. |
+| `python3 -m unittest discover -s tools -p '*_tests.py'` | Pass; 222 tests, 0 failures. |
+| `git diff --check` | Pass before the report update; rerun in final hygiene. |
+
+All Xcode test/build commands used exactly `-derivedDataPath build` and ran in
+the required order: Debug tests, host Release, universal Release, then the final
+canonical Debug rebuild. No gate-specific repository build directory was made.
+
+| Build | Result | Executable architecture |
+| --- | --- | --- |
+| Host Release, `platform=macOS` | `BUILD SUCCEEDED` | `x86_64`, confirmed by `file` and `lipo -archs`. |
+| Universal Release, `generic/platform=macOS`, `ARCHS="arm64 x86_64"` | `BUILD SUCCEEDED` | `x86_64 arm64`, confirmed by `file`, `lipo -archs`, and local `lipo <executable> -verify_arch arm64 x86_64`. |
+| Final maintainer-facing Debug | `BUILD SUCCEEDED` | Canonical app rebuilt under `build/Build/Products/Debug/VoodooTrackerX.app`. |
+
+The task prompt's operand-first `lipo -verify_arch arm64 x86_64 <executable>`
+form is not accepted by the installed `lipo`; its equivalent local path-first
+form returned success for both required architectures. Release builds emitted
+only the expected App Intents metadata warning. The Swift 6.3.2
+`@_optimize(none)` workaround remains on `SampleEditorView.buildParams`.
+
+## Current agent-driven GUI evidence
+
+Temporary screenshots and generated fixtures were kept outside the repository.
+They provide non-auditory evidence only and do not replace maintainer listening.
+
+- A fresh editable document showed the three allocated empty patterns, aligned
+  gutter/body geometry, a static highlight row, correct wrap/follow behavior,
+  and no phantom rows. Stopped and live J-003 results matched the matrix above.
+- The exact-copy path used the public generated multi-order fixture. Loaded
+  navigation remained correct before conversion, conversion required no warning,
+  and source bytes remained unchanged.
+- The normalized Profile v1 path displayed S02 as `Empty destination`, retained
+  its mapped ownership segment as unavailable, and showed no represented sample
+  or fabricated PCM. Its post-transition disclosure explicitly warned that an
+  exported file may differ structurally from the original.
+- The unavailable Amiga and represented-loop cases gave actionable, typed
+  reasons while preserving the loaded source and read-only state.
+- Clearing mapped S01 left all 96 references routed to the now-unavailable S01;
+  Undo restored the represented sample, Redo removed it again, and deterministic
+  repopulation restored the same identity. Duplicate selected the new identity;
+  Move selected its destination and remapped note ownership to preserve content.
+- Direct Sample Editor audition targeted the selected represented sample and
+  returned to its stopped UI state. No human-ear quality claim is made.
+- Clear Song Data from both Edit and Song/Order retained the sample palette,
+  reset to one empty P000/ORD000 on Confirm, and restored the prior two-order
+  document on Undo.
+- The composed lifecycle XM reopened with S01 and S03 represented, S02 empty,
+  and the complete 96-note map still targeting S03. Its re-export matched.
+
+## Current maintainer musician/UI/listening evidence
+
+Gregory completed the mandatory checklist in the canonical rebuilt Debug app.
+The following current-main evidence passed:
+
+- From-scratch three-sample mapping, P000/P001/P002 and ORD000/001/002 creation,
+  blank-pattern visibility, stopped navigation, and live POS/PTN/tracker follow.
+- Audible Clear, Undo, exact-slot repopulation, Move or Swap, and Undo/Redo
+  routing semantics with distinguishable sample identities.
+- Clear Song Data Cancel, Confirm, and Undo behavior.
+- Exact, normalized Profile v1, and unavailable editable-copy behavior. The
+  normalized disclosure was accurate, the source stayed untouched, and its
+  export/reopen result remained musically and semantically correct.
+- Long WAV and M4A export re-entry behavior, including cross-command exclusion,
+  no second destination chooser, and restoration after cancellation/completion.
+- Final XM persistence and listening sanity, including export, reopen, editable
+  copy where applicable, and subsequent listening.
+
+These passes close the prior CONDITIONAL GO evidence gap. They do not override
+the separately reproduced destructive document-replacement blocker below.
+
+## Release blocker: VTX-G-003
+
+Gregory reproduced this current-main sequence during final manual acceptance:
+
+```text
+non-pristine editable composition
+-> File > New / Cmd+N
+-> immediate replacement with a new blank document
+-> no warning
+-> no Undo recovery
+```
+
+This is VTX-G-003,
+`G-mutation-defense:new-open-discard-unsaved-document-without-confirmation`,
+which the frozen independent audit already classified as a confirmed supported-
+workflow data-loss defect. The live final-gate reproduction promotes its release
+disposition from scheduled MEDIUM debt to a blocker for this candidate; the
+frozen report itself remains unchanged.
+
+The same audited class applies to File > Open / Cmd+O after a module is selected
+and successfully loaded: the current editable document and its undo history are
+replaced without a dirty-document confirmation. Canceling the file chooser or a
+failed load does not reproduce that successful-open replacement path, but those
+defenses do not protect a completed Open action.
+
+Save and Save As remain intentionally deferred; their absence raises the impact
+because Export XM is the only persistence route, but pulling them forward is not
+the correct release fix. The narrow remediation is a destructive-document-
+replacement confirmation guard, backed by dirty-state handling, for New and
+successful Open, with Cancel preserving the complete document and Undo history.
+
+## Packaging, privacy, and read-only checks
+
+- No custom placeholder app icon is bundled or declared; the built app uses
+  default macOS icon behavior, while the separate VTX logo renders normally.
+- Loaded sources remained read-only. Save and Save As stayed disabled; supported
+  editable copies exposed Export XM without mutating the source.
+- Repository private-leak and file checks pass. No private corpus name/path,
+  generated WAV/M4A/XM, screenshot, trace, log, or new third-party asset is
+  tracked by this gate.
+- All local gate artifacts remained temporary and untracked. Existing unrelated
+  ignored build material was not modified or removed as part of the gate.
+
+## Accepted post-alpha findings
+
+| Finding | Current disposition |
+| --- | --- |
+| VTX-CS-001 | Accepted HIGH: Fxx timing-planner mismatch; focused post-alpha playback work. |
+| VTX-CS-002 | Accepted HIGH: portamento scale mismatch; focused post-alpha playback work. |
+| VTX-D1-001 | Accepted HIGH: CoreAudio callback allocation / real-time-safety debt; focused post-alpha real-time work. |
+
+No current gate evidence changes their accepted post-alpha scope or promotes
+them to Sample Lifecycle release blockers.
+
+## Current verdict and release action
+
+The candidate is **NO-GO** because VTX-G-003 permits routine New and successful
+Open actions to destroy unexported editable work without warning or recovery.
+All other machine and maintainer gates passed. `v0.3.0-alpha.2` is not authorized,
+and no tag or release was created. Remediation belongs in one focused VTX-G-003
+New/Open discard-confirmation PR from synchronized `main`, not in this gate and
+not through an expansion into Save/Save As.
+
+---
+
+## Superseded final-gate evidence (2026-09-05)
+
+The following prior candidate record is retained for chronology. Its NO-GO was
+based on the then-live J-003 reproduction and is superseded by the current
+audited candidate and passing remediation evidence above.
 
 ## Final release-candidate audited base
 

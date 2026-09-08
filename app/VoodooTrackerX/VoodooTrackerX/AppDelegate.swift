@@ -18,6 +18,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         didSet { editableDocumentRevision &+= 1 }
     }
     private var loadedMetadata: ParsedModuleMetadata?
+    private lazy var documentReplacementCoordinator = DocumentReplacementCoordinator(
+        contextProvider: { [weak self] in
+            self?.currentDocumentReplacementContext() ?? DocumentReplacementContext(
+                source: .none,
+                hasConflictingDocumentPresentation: true
+            )
+        },
+        replacementHandler: { [weak self] action in
+            self?.performDocumentReplacement(action)
+        }
+    )
     private lazy var editableDocumentEditCoordinator = EditableDocumentEditCoordinator(
         contextProvider: { [weak self] in self?.currentEditableDocumentEditContext() ?? .none },
         documentApplyHandler: { [weak self] document in self?.applyEditableDocumentSnapshot(document) }
@@ -152,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var debugAutoplayTimer: Timer?
     private weak var audioExportMenu: NSMenu?
     private weak var clearSongDataConfirmationWindow: NSWindow?
+    private weak var documentReplacementConfirmationWindow: NSWindow?
     private var audioExportProgressSheet: AudioExportProgressSheet? {
         didSet {
             audioExportMenu?.update()
@@ -390,6 +402,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func openModuleFile(_ sender: Any?) {
+        beginDocumentReplacement(.openModule)
+    }
+
+    @objc
+    private func newTrackerDocument(_ sender: Any?) {
+        beginDocumentReplacement(.newDocument)
+    }
+
+    private func beginDocumentReplacement(_ action: DocumentReplacementAction) {
+        guard case let .confirmationRequired(request) = documentReplacementCoordinator.begin(action) else {
+            return
+        }
+        let alert = DocumentReplacementAlert.make(request: request)
+        documentReplacementConfirmationWindow = alert.window
+        let completion: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            if DocumentReplacementAlert.isConfirmed(response) {
+                _ = self.documentReplacementCoordinator.confirm(operationToken: request.operationToken)
+            } else {
+                self.documentReplacementCoordinator.cancel(operationToken: request.operationToken)
+            }
+            self.documentReplacementConfirmationWindow = nil
+        }
+        presentDocumentSheet(
+            begin: { hostWindow, restoreAuxiliaryWindow in
+                alert.beginSheetModal(for: hostWindow) { response in
+                    restoreAuxiliaryWindow()
+                    completion(response)
+                }
+            },
+            fallback: { completion(alert.runModal()) }
+        )
+    }
+
+    private func performDocumentReplacement(_ action: DocumentReplacementAction) {
+        switch action {
+        case .newDocument:
+            resetToBlankTrackerDocument()
+        case .openModule:
+            chooseModuleFileAndOpen()
+        }
+    }
+
+    private func chooseModuleFileAndOpen() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -402,11 +458,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         loadModule(from: url)
-    }
-
-    @objc
-    private func newTrackerDocument(_ sender: Any?) {
-        resetToBlankTrackerDocument()
     }
 
     @objc private func undoDocumentEdit(_ sender: Any?) { editableDocumentEditCoordinator.undo() }
@@ -1245,6 +1296,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         refreshInstrumentEditor()
         sampleEditorWindowPresenter.refresh(displayState: currentSampleEditorDisplayState())
+    }
+
+    private func currentDocumentReplacementContext() -> DocumentReplacementContext {
+        let source: DocumentReplacementSource
+        if let document = blankDocument, loadedMetadata == nil {
+            source = .editable(
+                documentIdentity: editableDocumentIdentity,
+                documentRevision: editableDocumentRevision,
+                document: document
+            )
+        } else if blankDocument == nil, loadedMetadata != nil {
+            source = .loadedReadOnly
+        } else {
+            source = .none
+        }
+        return DocumentReplacementContext(
+            source: source,
+            hasConflictingDocumentPresentation: hasConflictingDocumentPresentation(
+                excluding: documentReplacementConfirmationWindow
+            )
+        )
     }
 
     private var hasConflictingDocumentPresentation: Bool {

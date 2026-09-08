@@ -123,14 +123,16 @@ selection remain future work.
 `v0.3.0-alpha.1` is tagged and shipped as the From-Scratch Composition Alpha.
 The current unreleased Sample Lifecycle Alpha implementation, internal gate,
 independent cross-family audit, and accepted pre-alpha remediation are complete.
-The later final release candidate is NO-GO: live maintainer evidence promoted
-VTX-J-003 editable navigation dual authority to a release blocker. The focused
-`fix/editable-song-position-authority` candidate change addresses stopped authority,
-empty represented-pattern projection, and active editable POS/PTN playback follow while
-retaining one-time Stop reconciliation. It remains pending Gregory's exact stopped and
-live three-order rerun, review, merge, and a rerun of the final release gate. Do not begin
-another product milestone from this release-preparation work. Use `docs/roadmap.md` for
-release sequencing and `docs/agent-current-state.md` for current invariants.
+VTX-J-003 editable navigation authority was remediated and merged. The latest
+final release candidate remains NO-GO because final maintainer evidence promoted
+VTX-G-003 destructive New/Open replacement to a release blocker. The focused
+`fix/document-replacement-discard-confirmation` candidate adds content-semantic
+discard confirmation without adding a dirty/Save lifecycle: navigation-only state
+remains pristine, loaded read-only replacement remains source-safe, and Save / Save
+As remain disabled. It awaits maintainer validation, review, merge, and a fresh final
+gate. Do not begin another product milestone from this release-preparation work. Use
+`docs/roadmap.md` for release sequencing and `docs/agent-current-state.md` for current
+invariants.
 
 ## Backend Snapshot
 

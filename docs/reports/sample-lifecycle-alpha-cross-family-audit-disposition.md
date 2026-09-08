@@ -2,6 +2,8 @@
 
 Date: 2026-09-05
 
+Updated: 2026-09-08
+
 ## Audit source
 
 The independent cross-family audit examined commit
@@ -26,7 +28,8 @@ manager-approved release disposition after remediation.
 
 | Finding ID | Disposition | Fix branch / PR / commit | Verification summary |
 | --- | --- | --- | --- |
-| VTX-J-003 | Promoted from a nonblocking audit finding to a release blocker by the maintainer's live three-order workflow; candidate follow-up correction pending maintainer validation | `fix/editable-song-position-authority` (uncommitted for maintainer/manager review) | Stopped editable order and pattern navigation uses `BlankTrackerDocument.currentPosition/currentPatternIndex` as its sole authority. Main POS and Song / Order navigation converge there; pattern viewing remains non-assigning, navigation remains non-undoable, and playback follow remains transient. The missing P001 popup entry was a second editable selector-population defect: content filtering omitted an empty but structurally represented pattern, and the candidate now derives entries from represented patterns. The earlier Make Editable Copy smoke used a pre-existing loaded inventory and did not exercise File > New growth. The final release gate remains NO-GO until maintainer validation, merge, and a full rerun. |
+| VTX-J-003 | Promoted from a nonblocking audit finding to a release blocker by the maintainer's live three-order workflow; remediated and validated | `fix/editable-song-position-authority`, PR #399, `304adb6` | Stopped editable order and pattern navigation uses `BlankTrackerDocument.currentPosition/currentPatternIndex` as its sole authority. Main POS and Song / Order navigation converge there; pattern viewing remains non-assigning, navigation remains non-undoable, and playback follow remains transient. The missing P001 popup entry was a second editable selector-population defect: content filtering omitted an empty but structurally represented pattern, and the correction derives entries from represented patterns. The final gate validated the exact stopped-navigation and active-playback workflows before VTX-G-003 was separately promoted. |
+| VTX-G-003 | Promoted from scheduled audit debt to a release blocker by final maintainer evidence; remediated by the focused New/Open discard-confirmation change pending maintainer validation, review, and merge | `fix/document-replacement-discard-confirmation` (uncommitted for maintainer/manager review) | New and Open now require an explicit native warning before replacing meaningful editable song content. Eligibility is a semantic comparison with canonical File-New content, not a general dirty or Save lifecycle; navigation and selection alone remain pristine, and exporting does not suppress protection. Cancel, picker Cancel, load failure, and stale confirmation preserve the exact editable document, identity, revision, and undo history. Pristine editable documents and loaded read-only sources retain their existing low-friction behavior, and loaded source files remain untouched. Save/Save As remain disabled. The final release gate remains NO-GO until this remediation is validated, merged, and the complete gate is rerun. |
 
 ## Explicitly accepted and deferred
 

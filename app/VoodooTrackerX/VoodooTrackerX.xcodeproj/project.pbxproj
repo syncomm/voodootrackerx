@@ -11,6 +11,9 @@
 		A10000000000000000000011 /* ApplicationMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000021 /* ApplicationMenuBuilder.swift */; };
 		A10000000000000000000012 /* ApplicationMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000021 /* ApplicationMenuBuilder.swift */; };
 		A10000000000000000000013 /* ApplicationMenuBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000022 /* ApplicationMenuBuilderTests.swift */; };
+		D0C300000000000000000101 /* DocumentReplacementCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C300000000000000000103 /* DocumentReplacementCoordinator.swift */; };
+		D0C300000000000000000102 /* DocumentReplacementCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C300000000000000000103 /* DocumentReplacementCoordinator.swift */; };
+		D0C300000000000000000104 /* DocumentReplacementCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C300000000000000000105 /* DocumentReplacementCoordinatorTests.swift */; };
 		F10100000000000000000101 /* AudioExportPresentationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000103 /* AudioExportPresentationGate.swift */; };
 		F10100000000000000000102 /* AudioExportPresentationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000103 /* AudioExportPresentationGate.swift */; };
 		F10100000000000000000104 /* AudioExportPresentationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10100000000000000000105 /* AudioExportPresentationGateTests.swift */; };
@@ -173,6 +176,8 @@
 		A00000000000000000000021 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A10000000000000000000021 /* ApplicationMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationMenuBuilder.swift; sourceTree = "<group>"; };
 		A10000000000000000000022 /* ApplicationMenuBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationMenuBuilderTests.swift; sourceTree = "<group>"; };
+		D0C300000000000000000103 /* DocumentReplacementCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentReplacementCoordinator.swift; sourceTree = "<group>"; };
+		D0C300000000000000000105 /* DocumentReplacementCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentReplacementCoordinatorTests.swift; sourceTree = "<group>"; };
 		F10100000000000000000103 /* AudioExportPresentationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioExportPresentationGate.swift; sourceTree = "<group>"; };
 		F10100000000000000000105 /* AudioExportPresentationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioExportPresentationGateTests.swift; sourceTree = "<group>"; };
 		E2A00000000000000000103 /* ExportXMCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportXMCoordinator.swift; sourceTree = "<group>"; };
@@ -313,6 +318,7 @@
 			children = (
 				A00000000000000000000021 /* AppDelegate.swift */,
 				A10000000000000000000021 /* ApplicationMenuBuilder.swift */,
+				D0C300000000000000000103 /* DocumentReplacementCoordinator.swift */,
 				F10100000000000000000103 /* AudioExportPresentationGate.swift */,
 				E2A00000000000000000103 /* ExportXMCoordinator.swift */,
 				E3D00000000000000000103 /* WAVExportCoordinator.swift */,
@@ -385,6 +391,7 @@
 			children = (
 				T00000000000000000000001 /* TestSupport.swift */,
 				A10000000000000000000022 /* ApplicationMenuBuilderTests.swift */,
+				D0C300000000000000000105 /* DocumentReplacementCoordinatorTests.swift */,
 				F10100000000000000000105 /* AudioExportPresentationGateTests.swift */,
 				E2A00000000000000000105 /* ExportXMCoordinatorTests.swift */,
 				E3D00000000000000000105 /* WAVExportCoordinatorTests.swift */,
@@ -550,6 +557,7 @@
 			files = (
 				A00000000000000000000011 /* AppDelegate.swift in Sources */,
 				A10000000000000000000011 /* ApplicationMenuBuilder.swift in Sources */,
+				D0C300000000000000000101 /* DocumentReplacementCoordinator.swift in Sources */,
 				F10100000000000000000101 /* AudioExportPresentationGate.swift in Sources */,
 				E2A00000000000000000101 /* ExportXMCoordinator.swift in Sources */,
 				E3D00000000000000000101 /* WAVExportCoordinator.swift in Sources */,
@@ -656,6 +664,7 @@
 				F0000000000000000000003E /* RuntimeCMixerBackend.swift in Sources */,
 				C00000000000000000000012 /* SoftwareMixer.swift in Sources */,
 				A10000000000000000000012 /* ApplicationMenuBuilder.swift in Sources */,
+				D0C300000000000000000102 /* DocumentReplacementCoordinator.swift in Sources */,
 				F10100000000000000000102 /* AudioExportPresentationGate.swift in Sources */,
 				E2A00000000000000000102 /* ExportXMCoordinator.swift in Sources */,
 				E3D00000000000000000102 /* WAVExportCoordinator.swift in Sources */,
@@ -682,6 +691,7 @@
 				A00000000000000000000050 /* TrackerEditorView.swift in Sources */,
 				T00000000000000000000101 /* TestSupport.swift in Sources */,
 				A10000000000000000000013 /* ApplicationMenuBuilderTests.swift in Sources */,
+				D0C300000000000000000104 /* DocumentReplacementCoordinatorTests.swift in Sources */,
 				F10100000000000000000104 /* AudioExportPresentationGateTests.swift in Sources */,
 				E2A00000000000000000104 /* ExportXMCoordinatorTests.swift in Sources */,
 				E3D00000000000000000104 /* WAVExportCoordinatorTests.swift in Sources */,

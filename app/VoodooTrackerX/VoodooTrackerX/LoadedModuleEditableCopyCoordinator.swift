@@ -7,6 +7,7 @@ enum LoadedModuleEditableCopyDocumentKind: Equatable {
 }
 
 struct LoadedModuleEditableCopyContext: Equatable {
+    let moduleIdentity: UUID?
     let kind: LoadedModuleEditableCopyDocumentKind
     let loadedMetadata: ParsedModuleMetadata?
     let loadedPlaybackSong: PlaybackSong?
@@ -15,6 +16,7 @@ struct LoadedModuleEditableCopyContext: Equatable {
     let isPlaybackActive: Bool
 
     static func loadedReadOnly(
+        moduleIdentity: UUID? = UUID(),
         metadata: ParsedModuleMetadata?,
         playbackSong: PlaybackSong?,
         selection: TrackerEditorSelection,
@@ -22,6 +24,7 @@ struct LoadedModuleEditableCopyContext: Equatable {
         isPlaybackActive: Bool
     ) -> LoadedModuleEditableCopyContext {
         LoadedModuleEditableCopyContext(
+            moduleIdentity: moduleIdentity,
             kind: .loadedReadOnly,
             loadedMetadata: metadata,
             loadedPlaybackSong: playbackSong,
@@ -33,6 +36,7 @@ struct LoadedModuleEditableCopyContext: Equatable {
 
     static func editable(isPlaybackActive: Bool) -> LoadedModuleEditableCopyContext {
         LoadedModuleEditableCopyContext(
+            moduleIdentity: nil,
             kind: .editable,
             loadedMetadata: nil,
             loadedPlaybackSong: nil,
@@ -44,6 +48,7 @@ struct LoadedModuleEditableCopyContext: Equatable {
 
     static func none(isPlaybackActive: Bool) -> LoadedModuleEditableCopyContext {
         LoadedModuleEditableCopyContext(
+            moduleIdentity: nil,
             kind: .none,
             loadedMetadata: nil,
             loadedPlaybackSong: nil,
@@ -54,26 +59,21 @@ struct LoadedModuleEditableCopyContext: Equatable {
     }
 }
 
-enum LoadedModuleEditableCopyUnavailableReason: Equatable {
-    case noLoadedModule
-    case alreadyEditable
-    case playbackActive
-    case missingPlaybackSong
-    case unsupportedLoadedModule
-}
-
 enum LoadedModuleEditableCopyResult: Equatable {
-    case unavailable(LoadedModuleEditableCopyUnavailableReason)
+    case unavailable(LoadedModuleEditableCopyPlanUnavailableReason)
     case copied(BlankTrackerDocument)
+    case normalized(BlankTrackerDocument, LoadedModuleEditableCopyNormalizationSummary)
 
     var userFacingTitle: String? {
         switch self {
-        case .copied:
+        case .copied, .normalized:
             return "Editable Copy Created"
-        case .unavailable(.unsupportedLoadedModule):
-            return "Make Editable Copy Unavailable"
-        case .unavailable:
+        case .unavailable(.noLoadedModule),
+             .unavailable(.alreadyEditable),
+             .unavailable(.playbackActive):
             return nil
+        case .unavailable:
+            return "Make Editable Copy Unavailable"
         }
     }
 
@@ -81,10 +81,27 @@ enum LoadedModuleEditableCopyResult: Equatable {
         switch self {
         case .copied:
             return "Created an untitled in-memory editable copy of the supported XM subset. The original module remains read-only and untouched."
-        case .unavailable(.unsupportedLoadedModule):
-            return "This module cannot be converted into the current supported editable subset."
-        case .unavailable:
+        case .normalized:
+            return "Created an untitled editable copy. VTX normalized empty sample-slot metadata that does not affect playback. The original XM remains unchanged. If you export this editable copy as XM, the file may differ structurally from the original."
+        case .unavailable(.noLoadedModule),
+             .unavailable(.alreadyEditable),
+             .unavailable(.playbackActive):
             return nil
+        case let .unavailable(reason):
+            return reason.userFacingMessage
+        }
+    }
+
+    var acknowledgementButtonTitle: String? {
+        switch self {
+        case .unavailable(.noLoadedModule),
+             .unavailable(.alreadyEditable),
+             .unavailable(.playbackActive),
+             .copied,
+             .normalized:
+            return nil
+        case .unavailable:
+            return "OK"
         }
     }
 }
@@ -111,6 +128,29 @@ enum LoadedModuleEditableCopyPlanUnavailableReason: Error, Equatable {
     case instrumentIdentityUnstable
     case writerUnsupported
     case unsupportedLoadedModule
+
+    fileprivate var userFacingMessage: String {
+        let explanation: String
+        switch self {
+        case .nonLinearFrequencyTable:
+            explanation = "This XM uses Amiga frequency mode. VTX can play it, but current editable documents use Linear frequency mode. Creating an editable copy would change pitch and frequency semantics, so conversion is not available yet."
+        case .unsupportedSampleOrKeymapBoundary:
+            explanation = "This XM contains sample-slot or note-mapping state that the current editable document model cannot preserve safely. VTX will not silently repair or change it."
+        case .representedLoopStateUnsupported:
+            explanation = "This XM contains represented sample loop state that VTX cannot currently preserve safely in an editable copy and later export."
+        case .representedInstrumentStateUnstable:
+            explanation = "This XM contains represented instrument envelope or state that would change if VTX wrote and reopened an editable copy."
+        case .instrumentIdentityUnstable:
+            explanation = "VTX cannot currently preserve this XM's represented instrument identity and palette exactly enough for a safe editable copy."
+        case .writerUnsupported:
+            explanation = "VTX can play this XM, but the current XM writer cannot safely represent some loaded state in an editable copy."
+        case .missingPlaybackSong:
+            explanation = "VTX loaded this XM, but the playback state needed to create an editable copy is not currently available."
+        case .unsupportedLoadedModule, .noLoadedModule, .alreadyEditable, .playbackActive:
+            explanation = "VTX can play this XM, but some loaded module state cannot currently be preserved safely in an editable copy."
+        }
+        return "\(explanation) The loaded XM remains unchanged."
+    }
 }
 
 enum LoadedModuleEditableCopyPlan: Equatable {
@@ -354,58 +394,93 @@ enum LoadedModuleEditableCopyPlanner {
 }
 
 struct LoadedModuleEditableCopyCoordinator {
-    /// PR 1 compatibility bridge: only exact plans remain visible to the existing action.
+    typealias Planner = (LoadedModuleEditableCopyContext) -> LoadedModuleEditableCopyPlan
+
+    private let planner: Planner
+
+    init(planner: @escaping Planner = LoadedModuleEditableCopyPlanner.plan) {
+        self.planner = planner
+    }
+
+    /// Answers whether the command may be invoked from the current presentation state.
+    /// Compatibility remains exclusively owned by `LoadedModuleEditableCopyPlanner`.
+    static func canInvoke(
+        context: LoadedModuleEditableCopyContext,
+        hasConflictingPresentation: Bool
+    ) -> Bool {
+        context.kind == .loadedReadOnly &&
+            context.moduleIdentity != nil &&
+            context.loadedMetadata?.type == "XM" &&
+            !context.isPlaybackActive &&
+            !hasConflictingPresentation
+    }
+
     static func canMakeEditableCopy(context: LoadedModuleEditableCopyContext) -> Bool {
-        guard case .exact = LoadedModuleEditableCopyPlanner.plan(context: context) else {
+        switch LoadedModuleEditableCopyPlanner.plan(context: context) {
+        case .exact, .normalized:
+            return true
+        case .unavailable:
             return false
         }
-        return true
     }
 
     static func unavailableReason(
         for context: LoadedModuleEditableCopyContext
-    ) -> LoadedModuleEditableCopyUnavailableReason? {
+    ) -> LoadedModuleEditableCopyPlanUnavailableReason? {
         switch LoadedModuleEditableCopyPlanner.plan(context: context) {
-        case .exact:
+        case .exact, .normalized:
             return nil
-        case .normalized:
-            return .unsupportedLoadedModule
         case let .unavailable(reason):
-            return compatibilityUnavailableReason(reason)
+            return reason
         }
     }
 
     func makeEditableCopy(context: LoadedModuleEditableCopyContext) -> LoadedModuleEditableCopyResult {
-        switch LoadedModuleEditableCopyPlanner.plan(context: context) {
-        case let .exact(document):
-            return .copied(document)
-        case .normalized:
-            return .unavailable(.unsupportedLoadedModule)
-        case let .unavailable(reason):
-            return .unavailable(Self.compatibilityUnavailableReason(reason))
-        }
+        result(for: planner(context))
     }
 
-    private static func compatibilityUnavailableReason(
-        _ reason: LoadedModuleEditableCopyPlanUnavailableReason
-    ) -> LoadedModuleEditableCopyUnavailableReason {
-        switch reason {
-        case .noLoadedModule:
-            return .noLoadedModule
-        case .alreadyEditable:
-            return .alreadyEditable
-        case .playbackActive:
-            return .playbackActive
-        case .missingPlaybackSong:
-            return .missingPlaybackSong
-        case .nonLinearFrequencyTable,
-             .unsupportedSampleOrKeymapBoundary,
-             .representedLoopStateUnsupported,
-             .representedInstrumentStateUnstable,
-             .instrumentIdentityUnstable,
-             .writerUnsupported,
-             .unsupportedLoadedModule:
-            return .unsupportedLoadedModule
+    /// Captures, plans, and revalidates one command invocation before dispatch.
+    /// Returning `false` guarantees the result handler was not called.
+    @discardableResult
+    func perform(
+        contextProvider: () -> LoadedModuleEditableCopyContext,
+        presentationConflictProvider: () -> Bool,
+        resultHandler: (LoadedModuleEditableCopyResult) -> Void
+    ) -> Bool {
+        let capturedContext = contextProvider()
+        guard Self.canInvoke(
+            context: capturedContext,
+            hasConflictingPresentation: presentationConflictProvider()
+        ) else {
+            return false
+        }
+        let capturedPlan = planner(capturedContext)
+
+        // Re-run the authoritative planner at the transition/presentation edge.
+        // Full value and UUID equality prevents an identical-looking replacement
+        // module, changed selection, or changed transport state from being used.
+        let currentContext = contextProvider()
+        guard currentContext == capturedContext,
+              Self.canInvoke(
+                  context: currentContext,
+                  hasConflictingPresentation: presentationConflictProvider()
+              ),
+              planner(currentContext) == capturedPlan else {
+            return false
+        }
+
+        resultHandler(result(for: capturedPlan))
+        return true
+    }
+
+    private func result(for plan: LoadedModuleEditableCopyPlan) -> LoadedModuleEditableCopyResult {
+        switch plan {
+        case let .exact(document):
+            return .copied(document)
+        case let .normalized(document, summary):
+            return .normalized(document, summary)
+        case let .unavailable(reason):
+            return .unavailable(reason)
         }
     }
 }

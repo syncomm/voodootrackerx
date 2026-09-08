@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for the first of two pre-alpha compatibility slices. This supersedes
+Accepted and implemented across both pre-alpha compatibility slices. This supersedes
 ADR 012 only where it treated loaded-XM editable-copy admission as exact or
 unavailable; its canonical editable sample/keymap model remains in force.
 
@@ -28,22 +28,30 @@ or keymap state, unstable envelope canonicalization, incomplete instrument
 identities, invalid represented loops, and other writer failures. The planner
 does not write or reopen a temporary file.
 
-PR 1 keeps the existing command strict: only `exact` reaches Make Editable Copy.
-`normalized` remains unavailable until a later UI asks for explicit confirmation.
-The loaded source remains read-only and the resulting document remains an
-untitled value-owned copy.
+`File > Make Editable Copy` is enabled for a loaded XM when transport is
+stopped and no top-level presentation conflicts. The action consumes the planner
+result directly: `exact` and Profile-v1 `normalized` create the planner-provided
+untitled value-owned document immediately, while `unavailable` presents its typed,
+user-facing reason. Profile v1 is proven safe/inert and requires no confirmation.
+The action revalidates source identity, complete context, transport, presentation,
+and a fresh planner result immediately before transition. The loaded source always
+remains read-only and untouched.
 
 ## Rationale
 
 The three-way result makes intentional normalization explicit and countable
 without calling it lossless. It preserves conservative refusal for any source
 state whose supported musical or routing semantics cannot be proven stable and
-gives the confirmation UI a typed plan and reason model to consume.
+gives the UI one typed plan and reason model to consume without duplicating
+compatibility rules.
 
 ## Impact And Tradeoffs
 
 Source sample-slot provenance carries the minimal structural fields needed to
 prove Profile v1. The writer and planner share pure envelope canonicalization
-rules. No file format, parser architecture, runtime/DSP behavior, source
-mutability, Save behavior, or AppKit UI changes in this slice. A second PR is
-required before users can accept a normalized copy.
+rules. A normalized copy may later export canonical VTX XM structure that differs
+structurally from its source; it never overwrites or claims that source. Any future
+normalization that changes represented musical or source state requires its own
+approved profile plus explicit explanation and confirmation before conversion; it
+must not use the silent Profile-v1 path. No file format, parser architecture,
+runtime/DSP behavior, source mutability, Save behavior, or writer semantics change.

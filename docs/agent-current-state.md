@@ -79,18 +79,24 @@ the manual `MAP RANGE…` workflow. Graphical range selection, drag-to-paint,
 automatic mapping, Rename Sample, Move Up/Down convenience commands, and direct
 waveform/PCM editing remain deferred.
 
-Loaded modules remain read-only by default. Supported stopped loaded XM modules
-can be converted only through the explicit `File > Make Editable Copy` command,
-which creates an untitled in-memory editable copy without claiming the opened
-source path. The current editable model is Linear-frequency-table only, so
-Amiga-table XMs are refused rather than silently converted.
+Loaded modules remain read-only by default. `File > Make Editable Copy` is
+actionable for a loaded XM when transport is stopped and no top-level
+presentation conflicts. The authoritative planner alone selects exact immediate
+copy, Profile-v1 safe/inert normalized immediate copy without confirmation, or a
+typed acknowledgement-only unavailable explanation. Source UUID/context, stopped
+transport, presentation state, and a fresh equal plan are revalidated immediately
+before transition. Copies are untitled/in-memory and never claim or modify the
+opened source. The current editable model is Linear-frequency-table only, so an
+Amiga-table XM remains playable but is explained as copy-unavailable rather than
+silently converted.
 The normal XM instrument walker now records source-only provenance for each
 sample-header index: decoded payload length and whether the declared 40-byte
-header is exactly all zero. Make Editable Copy accepts a sparse loaded span only
-when every missing identity has one exact canonical VTX placeholder and the
-production writer dry-run succeeds. Named or metadata-bearing zero-length
-headers, incomplete provenance, Amiga-table XM, and other existing unsupported
-state remain copy-unavailable. VTX sparse export -> reopen -> editable copy ->
+header is exactly all zero. Profile v1 may canonicalize required inert zero-payload
+slots or drop unreferenced trailing inert slots while preserving Sxx/keymap/routing
+semantics; a later export uses canonical VTX structure and may differ structurally.
+Incomplete provenance, represented invalid loops, unstable represented envelope or
+instrument identity, Amiga-table XM, and writer-unsupported state remain
+copy-unavailable with typed explanations. VTX sparse export -> reopen -> editable copy ->
 re-export is byte-identical in the focused interior, trailing-mapped, and
 only-empty cases; no empty `PlaybackSample` is fabricated.
 The shared UI-independent `SampleSlotPresentationProjection` now exposes represented
@@ -554,13 +560,13 @@ Recently completed narrow targets:
   channel/stem export, normalization,
   diagnostic comparison profiles, and user-selectable gain/headroom remain
   future work.
-- `File > Make Editable Copy` now defines the explicit loaded-module editable
-  copy boundary. It is available only for stopped loaded read-only XM modules
-  that can be represented by the current editable subset, creates an untitled
-  in-memory editable copy of supported song/order/pattern/note data plus
-  represented palette/sample payloads, leaves the source module read-only and
-  untouched, does not claim source-path ownership, keeps Save/Save As disabled,
-  and allows stopped Export XM to a user-selected destination. Runtime
+- `File > Make Editable Copy` now separates loaded/stopped/presentation menu
+  eligibility from the authoritative planner. Exact and Profile-v1 safe/inert
+  normalized plans immediately create the planner-provided untitled document
+  without confirmation; unavailable plans show a typed acknowledgement-only
+  explanation. Stale UUID/context/plan/playback/presentation state is rejected,
+  the source remains read-only and untouched, Save/Save As stay disabled, and a
+  normalized later export may differ structurally as canonical VTX XM. Runtime
   playback/scheduling, `RuntimeCMixerAdapterEventPlan`, C mixer DSP, parser
   architecture, and tracker viewport/static-highlight behavior did not change.
 - Export XM v1 release-prep documentation for `v0.2.0-alpha.4` now states the

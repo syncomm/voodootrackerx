@@ -8,10 +8,14 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 
 ## Download
 
+Current release line: [`v0.3.0-alpha.2 — Sample Lifecycle Alpha`](https://github.com/syncomm/voodootrackerx/releases/tag/v0.3.0-alpha.2).
+See the [release notes](docs/release-notes/v0.3.0-alpha.2.md) for the supported
+workflow, validation, and current alpha boundaries.
+
 Tagged releases are published on the
 [GitHub Releases](https://github.com/syncomm/voodootrackerx/releases) page.
 Tagged releases include a versioned downloadable macOS DMG, such as
-`VoodooTrackerX-v0.2.0-alpha.4.dmg`.
+`VoodooTrackerX-v0.3.0-alpha.2.dmg`.
 
 The first public builds are early alpha/demo builds, not 1.0 releases. The
 release workflow builds a macOS 26+ universal app for Apple silicon and Intel
@@ -26,8 +30,11 @@ public XM/MOD tracker modules. Expect an alpha-quality app that can open,
 display, and play supported modules. The current from-scratch workflow can
 create instruments, generate or import samples, assign multisample note ranges,
 compose patterns and orders, export XM, reopen the result, and render WAV/M4A
-audio. Supported loaded XM modules can be converted into an explicit untitled
-in-memory editable copy. Loaded source modules remain read-only.
+audio. It also supports stable sparse sample identities, Clear, exact-slot
+repopulation, Duplicate, Move, and Swap, plus coherent multi-pattern navigation. Supported
+Linear-table XM modules can become exact or Profile-v1 normalized untitled
+editable copies; unavailable conversions explain why they cannot proceed.
+Loaded source modules remain read-only and untouched.
 
 ## Try It With Tracker Modules
 
@@ -60,44 +67,38 @@ Some archives include formats VoodooTracker X does not currently support.
 VoodooTracker X is under active development and should not be treated as
 production-ready.
 
-The released `v0.2.0-alpha.5` is the Rendered Audio Export Alpha. It
-adds app-level whole-song 48 kHz Float32 WAV export with the VTX render profile,
-a 3-second tail, auto-headroom, weighted progress, cancellation, and performance
-diagnostics, plus AAC-encoded M4A export for convenient sharing. Export is
-non-mutating and writes only to a user-selected destination. WAV remains the
-preferred high-quality and export-diagnostic format; M4A is the sharing format.
-Loaded modules remain read-only, Save and Save As remain disabled, Export XM
-remains scoped to the current editable subset, and advanced audio export
-options remain future work.
+Current release line: `v0.3.0-alpha.2 — Sample Lifecycle Alpha`. Its
+implementation is complete and the final release gate is `GO`; the tag and
+GitHub Release artifact follow the documentation merge. See the
+[full release notes](docs/release-notes/v0.3.0-alpha.2.md) and
+[GitHub Releases](https://github.com/syncomm/voodootrackerx/releases).
 
-`v0.3.0-alpha.1`, the From-Scratch Composition Alpha, is tagged and released.
-It supports the public File New-to-export workflow: create instruments, generate
-or import samples, assign note ranges, compose patterns and orders, Export XM,
-reopen the result, and render WAV/M4A audio.
+The release adds stable represented/empty S01...S16 identities, sparse XM
+persistence, exact-destination repopulation, and Clear, Duplicate, Move, and Swap
+with canonical 96-note keymap and Undo/Redo preservation. Empty allocated
+patterns stay selectable, main POS and Song / Order navigation share one
+editable authority, and live POS/PTN follow remains distinct from view-only
+pattern selection and Play Current Pattern.
 
-The current unreleased Sample Lifecycle Alpha implementation is complete and
-release-gated on `main`. Represented samples and canonical empty S01...S16
-destinations share one sparse slot model across the editors and XM persistence.
-SINE or LOAD can populate the exact selected canonical empty destination; Clear
-removes a represented sample in place; Duplicate appends an independent copy;
-and `Edit > Move Sample…` / `Edit > Swap Sample…` preserve sample identity,
-all 96 keymap references, selection, and unavailable routes through one
-transactional Undo/Redo path. Supported sparse exports reopen and can become an
-editable copy without compacting identities. Graphical keymap redesign,
-destructive waveform editing, Rename Sample, and Move Up/Down convenience
-commands remain deferred.
+Loaded modules remain read-only. `File > Make Editable Copy` now reports an
+exact, Profile-v1 normalized, or unavailable plan; normalization may change the
+exported XM structure but leaves the original source untouched. Meaningful
+editable work is protected by confirmation before New or Open replacement,
+audio export rejects re-entry, Save and Save As remain disabled, and Export XM
+remains scoped to the supported VTX editable subset.
 
 What works today:
 
 - Editable blank document startup, `File > New`, and `File > Open...` for
-  supported tracker modules.
+  supported tracker modules, with confirmation before either command replaces
+  meaningful editable work.
 - Read-only open/load flow for XM/MOD-style modules.
 - Runtime playback through the CoreAudio-hosted C mixer backend.
 - Loaded-module TIME display after adapter-plan readiness.
 - Transport Play/Stop, Loop at Play start for the selected/current pattern, and
   `Transport > Play Current Pattern` for focused pattern audition.
-- Song / Order editor floating utility window with order-list navigation and a
-  paginated Pattern Bank.
+- Song / Order editor floating utility window with canonical order-list/POS
+  navigation and a paginated Pattern Bank that retains empty allocated patterns.
 - `Window > Instrument Editor` opens the fixed v1-mockup editor with selectable
   represented instrument/sample rows, stopped-editable metadata controls, read-only
   envelope displays, a committed-ownership strip aligned to the same visible
@@ -153,7 +154,8 @@ What works today:
   a user-selected destination, and uses whole-song 48 kHz 32-bit Float WAV with
   the VTX product render profile and export-boundary auto-headroom. Its progress
   sheet supports safe cancellation and continuous weighted progress after
-  indeterminate preparation.
+  indeterminate preparation. While WAV or M4A export is active, both export
+  commands reject re-entry.
 - `File > Export Audio > M4A...` for the same stopped renderable documents.
   It reuses the WAV product render plan and auto-headroom-scaled Float32 render,
   then encodes AAC at a fixed 192 kbps into a user-selected `.m4a` file. It is
@@ -270,6 +272,7 @@ render timing.
 - [docs/design/parsed-xm-to-c-mixer-adapter.md](docs/design/parsed-xm-to-c-mixer-adapter.md) - bounded parsed-XM-to-C-mixer adapter design and non-goals.
 - [docs/decisions/](docs/decisions) - architecture decision records, including the software mixer transition and C mixer boundary.
 - [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md) - from-scratch instrument, sample, import, mapping, lifecycle, and release contract.
+- [v0.3.0-alpha.2 release notes](docs/release-notes/v0.3.0-alpha.2.md) - current Sample Lifecycle Alpha scope, validation, and limitations.
 - [v0.3.0-alpha.1 release notes](docs/release-notes/v0.3.0-alpha.1.md) - shipped From-Scratch Composition Alpha scope and limitations.
 - [docs/tracker-behavior-spec.md](docs/tracker-behavior-spec.md) - tracker viewport and editor behavior rules.
 - [docs/testing.md](docs/testing.md) - local build/test commands, fixture rules, parser smoke tests, and golden snapshot workflow.

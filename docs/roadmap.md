@@ -8,115 +8,53 @@ For effect status, read `docs/xm-effect-support.md`.
 
 ## Current Release Status
 
-`v0.2.0-alpha.3` is tagged as the Song / Order editor composition alpha.
-`v0.2.0-alpha.4` was the Export XM v1 release for the current VTX editable
-subset.
-`v0.2.0-alpha.5` is released as the Rendered Audio Export Alpha. It adds
-whole-song 48 kHz Float32 WAV export with the VTX render profile, 3-second tail,
-auto-headroom, progress, cancellation, and performance diagnostics, plus
-AAC-encoded M4A export for convenient sharing. Both formats write only to a
-user-selected destination. Loaded modules remain read-only, Save/Save As remain
-disabled, and advanced audio export options remain future work.
+Current release line: `v0.3.0-alpha.2 — Sample Lifecycle Alpha`.
 
-`v0.3.0-alpha.1` is tagged and shipped as the From-Scratch Composition Alpha.
-Its File New-to-export workflow, boundaries, and known alpha limitations are
-recorded in [its release notes](release-notes/v0.3.0-alpha.1.md).
+The implementation is complete and the final release gate verdict is **GO**.
+This documentation change is the final planned release commit; the annotated tag
+is created only after it merges. See the
+[v0.3.0-alpha.2 release notes](release-notes/v0.3.0-alpha.2.md).
 
-The current unreleased milestone is Sample Lifecycle Alpha. Its implementation
-and internal milestone gate are complete; the supported lifecycle and remaining
-deferrals are summarized below and specified by
-[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md).
+Completed release scope:
 
-The current sparse sample-slot XM foundation preserves canonical S01...S16
-identity and exact keymap references through Export XM/reopen by projecting missing
-positions to all-zero zero-length headers only at the writer boundary. Dense alpha.1
-bytes remain unchanged. Make Editable Copy now exposes exact plans immediately,
-Profile-v1 safe/inert zero-payload-header normalization immediately without
-confirmation, and typed explanations for unavailable plans. The source remains
-untouched; a normalized later export uses canonical VTX structure and may differ
-structurally.
+- Stable represented and empty S01...S16 identities persist through supported
+  sparse XM export, reopen, and editable-copy workflows.
+- Clear, exact-destination LOAD/SINE repopulation, Duplicate, Move, and Swap
+  preserve the canonical 96-note keymap, sample meaning, selection, and exact
+  Undo/Redo behavior. Cancelled, stale, invalid, and no-op operations do not
+  mutate state or create history.
+- VTX-J-003 is remediated: empty allocated patterns stay selectable, main POS
+  and Song / Order navigation share canonical editable state, and live POS/PTN
+  follow remains distinct from view-only pattern selection and Play Current
+  Pattern.
+- Loaded Linear XM editable-copy planning has explicit `exact`, Profile-v1
+  `normalized`, and `unavailable` outcomes. Normalization canonicalizes only
+  approved inert zero-payload slot metadata; the read-only source remains
+  untouched and a later export may differ structurally. Amiga-to-Linear
+  conversion is never silent.
+- VTX-G-003 is remediated: New and Open confirm before replacing meaningful
+  editable work, while pristine editable and loaded read-only documents retain
+  their low-friction behavior.
+- Pre-alpha reliability work is merged: confirmed/stopped/undoable Clear Song
+  Data, WAV/M4A export re-entry protection, truthful Clear Sample Undo wording,
+  placeholder app-icon removal, and the targeted viewport test-honesty fix.
 
-The canonical interior-empty-slot presentation foundation is complete.
-One shared UI-independent projection now distinguishes represented samples from
-empty destinations across the main control panel, Instrument Editor, and Sample
-Editor. Editable spans are contiguous and capped at S16; loaded gaps require
-canonical source provenance and do not gain append rows. Editable capacity does
-not advertise a future append row; the occupied LOAD -> Add as New workflow
-creates the next represented identity before it appears. Empty selection is
-non-mutating and does not alter keymap routing, runtime, writer, or Save behavior.
+The independent cross-family audit remains frozen evidence with no blocker
+finding. Accepted playback/effect and real-time work remains post-alpha and does
+not change the Sample Lifecycle release verdict. Save and Save As, loaded-module
+direct editing, native editable Amiga-frequency mode, graphical keymap editing,
+broader waveform mutation, MIDI, XI, broad settings/UI work, and AUv3 remain
+outside this release.
 
-Clear Sample removes the selected represented sample in place while retaining
-its Sxx identity. It is stopped/editable-only, requires exact
-confirmation with mapped-note count when applicable, revalidates stale state,
-and commits one `Clear Sample` edit with exact Undo/Redo. It preserves selection,
-later sample identities, all 96 map bytes, and honest unavailable routing; direct
-Sample Editor preview is released through the existing refresh path. Interior or
-mapped gaps use the existing sparse Export XM/reopen/editable-copy boundary. A
-highest unreferenced selected empty Sxx remains session focus only and is not
-serialized solely because it is selected.
+Next post-release sequencing, after the tag is pushed:
 
-Selected canonical empty-destination population is now complete. In stopped
-editable documents, Sample Editor LOAD and SINE fill the exact selected empty
-S01...S16 identity through one shared mutation and one undoable edit, preserving
-later identities, patterns, selection, and every meaningful map byte. Only the
-neutral zero-sample/nil-map S01 state initializes an all-S01 map. Empty LOAD skips
-the occupied Replace/Add/Cancel choice; represented LOAD remains unchanged, and
-Add continues to append after the highest represented identity rather than fill gaps.
+1. Checkpoint / manager handoff.
+2. Focused diagnostic-tool consolidation.
+3. Playback/effect correctness: Fxx timing, Linear/Amiga portamento scale,
+   residual effect coverage, and related C software-engine correctness.
+4. Later native editable Amiga-frequency-mode work.
 
-Represented-sample duplication is now complete through `Edit > Duplicate Sample`.
-It copies only to the next tail Sxx and preserves sparse holes and all 96 map entries.
-
-The sample-slot transaction foundation is complete. One bounded, bijective
-`SampleSlotPermutation` over S01...S16 feeds one stopped/editable document operation
-for removal/insertion Move and pairwise Swap. It atomically remaps represented sample
-indices, all 96 exact keymap values, and represented or empty selection; then it stores
-represented samples in ascending identity order and commits one `Reorder Samples`
-`applyEdit`. Dense/sparse Move and represented/empty Swap preserve every note's content
-identity or unavailable state through exact Undo/Redo and Export XM/reopen/Make
-Editable Copy/deterministic re-export. `Edit > Move Sample…` now supplies the Move To UI as a thin Sample Editor
-action-context wrapper over this transaction. Its S01...S16 sheet uses insertion/shift semantics, and confirmation
-revalidates the captured source, exact map, document/revision, selection, transport, bounds, and lifecycle state.
-The transaction remaps keymap and shared selection automatically, so audible and unavailable assignments remain
-stable through one Undo/Redo entry. `Edit > Swap Sample…` is the matching thin wrapper: its full-domain sheet
-constructs the pairwise `swap`, supports represented or empty destinations, and uses the same stale-state gate and
-transaction so selection follows source content without changing audible or unavailable routing. Move Up/Down
-convenience controls remain deferred.
-
-The canonical editable keymap-presence prerequisite is also pinned. A zero-sample
-instrument may have no map as the neutral File New/New Instrument state, or may
-retain an exact bounded 96-entry map as explicit unavailable routing. Once samples
-are represented, supported editable workflows and public-fixture Make Editable Copy
-produce or preserve an exact bounded map. Represented samples with a nil map remain
-a shared-model/runtime fallback state, not a canonical editable lifecycle state:
-the writer currently accepts that synthetic value and reopens it with an explicit
-all-S01 map, while first-playable fallback makes slot reordering semantically
-ambiguous. The transaction rejects it before mutation, revision, or history.
-
-The historical Sample Lifecycle Alpha internal gate on `647dbfcc` was a go.
-VTX-J-003 navigation authority was subsequently remediated and merged. The latest
-final release candidate remains NO-GO because final maintainer evidence promoted
-VTX-G-003 destructive New/Open replacement to a release blocker; see the
-[gate report](reports/sample-lifecycle-alpha-release-readiness.md).
-
-The independent cross-family audit of `f0017862` is complete with 0 BLOCKER
-findings. Accepted pre-alpha remediation for VTX-F-001, VTX-G-001, VTX-G-002,
-VTX-A1-002, the targeted contradictory-spec portion of VTX-L-001, and
-VTX-CS-003 is merged. Full viewport-test de-shadowing remains deferred. See the
-[audit disposition](reports/sample-lifecycle-alpha-cross-family-audit-disposition.md).
-
-VTX-CS-001 (Fxx timing-planner disagreement), VTX-CS-002 (portamento scale
-mismatch), and VTX-D1-001 (CoreAudio callback allocation / real-time safety)
-remain accepted HIGH findings for focused post-alpha playback/RT work. They are
-not Sample Lifecycle correctness blockers.
-
-The focused `fix/document-replacement-discard-confirmation` candidate addresses
-VTX-G-003. New and Open explicitly confirm before replacing meaningful editable
-content, using canonical content semantics rather than a general dirty or Save
-lifecycle. Navigation and selection alone stay pristine; Export XM does not remove
-protection. Pristine editable and loaded read-only documents retain existing
-low-friction replacement behavior, loaded source files remain untouched, and Save /
-Save As remain disabled. The candidate awaits maintainer validation, review, merge,
-and a fresh final release gate. Do not start the next feature milestone before that gate.
+Do not begin post-alpha implementation before the tag and checkpoint/handoff.
 
 ## Project Goals
 
@@ -186,8 +124,8 @@ Current expectations:
 
 - preserve classic MOD/XM read-only compatibility
 - keep parser logic isolated from UI and playback behavior
-- keep loaded modules read-only until an explicit editable-copy workflow is
-  designed and implemented
+- keep loaded modules read-only; use the explicit supported editable-copy
+  workflow before mutation
 - add focused parser tests before changing parser behavior
 - do not change on-disk/file-format assumptions without a design note,
   compatibility tests, and migration plan where applicable
@@ -257,14 +195,14 @@ Current comparison policy:
 
 ## Next Backend Targets
 
-The backend is in a temporary foundation freeze so development can return to
-GUI, editor, and product milestones. During the freeze, keep backend work
-docs/tooling-only unless a freeze-exit blocker is promoted.
+The backend remains in a temporary foundation freeze through the alpha.2 tag and
+checkpoint/handoff. During the freeze, keep backend work docs/tooling-only unless
+a freeze-exit blocker is promoted.
 
-Release sequencing takes precedence over backend work: complete the final
-Sample Lifecycle Alpha release gate before promoting another milestone. After
-that release, schedule the accepted playback/RT findings as focused work rather
-than folding them into lifecycle release preparation.
+Release sequencing takes precedence over backend work: merge the release docs,
+push the alpha.2 tag, and complete the checkpoint/manager handoff first. Then
+consolidate diagnostic tooling before scheduling the focused playback/effect and
+real-time correctness work recorded above.
 
 The three-part instrument-rich reference-pack milestone is complete. The
 existing synthetic generator now consumes a validated schema-v2 manifest and can
@@ -293,9 +231,9 @@ fadeout, and autovibrato without production playback or format changes.
    confirmation remains a tracker-window document sheet even when invoked from the editor.
 4. Done: the on-screen Instrument Editor keyboard uses exact pitches, note-map routing,
    pointer drag/release lifecycle, isolated preview, shared visible mouse/computer pressed state,
-   and UI-only octave range navigation across the read-only 96-note map. Follow it with a separately designed compatibility slice for audible sample-header
-   panning, then continue explicit loaded-module copy/import flows before broader
-   loaded-module editing or Save/Save As work.
+   and UI-only octave range navigation across the read-only 96-note map. Audible
+   sample-header panning and explicit loaded-XM editable-copy planning are also
+   complete; broader loaded-module editing and Save/Save As remain deferred.
    Continuous PAN, VOLUME, and FINETUNE controls now update their numeric and
    accessibility values transiently during drag while preserving one `applyEdit`
    mutation at mouse-up; held previews and the persistent stream are unchanged. See
@@ -553,12 +491,12 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Release and post-release order:
 
-- First, run the final Sample Lifecycle Alpha release gate and prepare the next
-  Sample Lifecycle Alpha tag.
-- After release, consolidate the lifecycle coordinator/document-status seams in
-  focused PRs and address VTX-CS-001, VTX-CS-002, and VTX-D1-001 through
-  separately scoped playback/RT work. Do not turn that consolidation into a
-  broad rewrite.
+- Merge the release documentation, push the alpha.2 tag, and complete the
+  checkpoint/manager handoff.
+- Consolidate diagnostic tooling in a focused pass.
+- Address timing, portamento scale, residual effect coverage, and related C
+  software-engine/real-time work through separately scoped PRs. Do not turn
+  consolidation into a broad rewrite.
 
 Recently completed product foundation:
 
@@ -611,8 +549,9 @@ Recently completed product foundation:
 - Song / Order editor DANGER / CLEAR SONG now mutates only stopped editable
   documents, resetting song/order and pattern cell data to one blank order and
   pattern while preserving instruments, samples, palette selection, timing, row
-  count, and channel count. Loaded modules and active playback remain
-  read-only/no-op; modal confirmation remains deferred.
+  count, and channel count. Both entry points share confirmation and playback
+  gating; editable clearing is one exact Undo/Redo edit, and loaded sources
+  remain read-only and untouched.
 - Song / Order editor ORDER OPS PTN -/+ now mutate only the selected stopped
   editable document order slot's pattern reference. The controls step to the
   next lower/higher allocated pattern, skip sparse gaps without allocation,
@@ -787,12 +726,10 @@ Export XM v1 for stopped editable documents was released as
 Rendered audio export was released as `v0.2.0-alpha.5`. VTX 1.0 still needs the
 broader composition surface below.
 
-The tagged `v0.3.0-alpha.1` From-Scratch Composition Alpha shipped the File
-New-to-export instrument/sample workflow without claiming that the remaining
-VTX 1.0 composition scope is complete. The current unreleased Sample Lifecycle
-Alpha implementation adds sparse lifecycle operations while keeping manual
-`MAP RANGE…` as the keymap workflow and leaving graphical mapping and direct
-waveform/PCM editing for later pre-v1.0 milestones.
+The `v0.3.0-alpha.2` Sample Lifecycle Alpha release line completes sparse sample
+lifecycle operations and the associated navigation, editable-copy, persistence,
+and document-safety gate. Manual `MAP RANGE…` remains the keymap workflow;
+graphical mapping and direct waveform/PCM editing remain later pre-v1.0 work.
 
 Current implemented foundation:
 

@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Sequence, TextIO
 
-from . import audio_compare, audio_compare_smoke
+from . import (
+    audio_compare,
+    audio_compare_discontinuities,
+    audio_compare_smoke,
+    audio_compare_stems,
+)
 
 
 class _HelpFormatter(argparse.HelpFormatter):
@@ -49,7 +54,7 @@ COMMAND_REGISTRY: dict[str, CommandSpec] = {
     for spec in (
         CommandSpec(
             name="audio_compare",
-            summary="Compare audio output or run the local comparison smoke workflow.",
+            summary="Compare audio output or run focused audio diagnostic workflows.",
             compatibility_paths=(
                 "scripts/audio-compare.py",
                 "scripts/local-reference-compare-smoke.py",
@@ -96,7 +101,7 @@ COMMAND_REGISTRY: dict[str, CommandSpec] = {
 
 
 def _configure_audio_compare_parser(parser: argparse.ArgumentParser) -> None:
-    """Register the migrated compare and smoke modes on the audio family parser."""
+    """Register the migrated modes on the audio comparison family parser."""
 
     modes = parser.add_subparsers(dest="audio_compare_mode", metavar="MODE", required=True)
     compare_parser = modes.add_parser(
@@ -116,6 +121,24 @@ def _configure_audio_compare_parser(parser: argparse.ArgumentParser) -> None:
     )
     audio_compare_smoke.add_arguments(smoke_parser)
     smoke_parser.set_defaults(command_handler=audio_compare_smoke.run)
+
+    stems_parser = modes.add_parser(
+        "stems",
+        help="Sum and compare reference/candidate WAV stems.",
+        description=audio_compare_stems.STEMS_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    audio_compare_stems.add_arguments(stems_parser)
+    stems_parser.set_defaults(command_handler=audio_compare_stems.run)
+
+    discontinuities_parser = modes.add_parser(
+        "discontinuities",
+        help="Analyze adjacent-sample jumps in a PCM WAV.",
+        description=audio_compare_discontinuities.DISCONTINUITIES_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    audio_compare_discontinuities.add_arguments(discontinuities_parser)
+    discontinuities_parser.set_defaults(command_handler=audio_compare_discontinuities.run)
 
 
 def build_parser() -> argparse.ArgumentParser:

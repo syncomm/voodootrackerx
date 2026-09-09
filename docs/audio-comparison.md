@@ -319,10 +319,12 @@ python3 -m tools.vtx_diag audio_compare compare \
   --markdown /tmp/vtx-audio-compare.md
 ```
 
-The legacy paths `scripts/audio-compare.py` and
-`scripts/local-reference-compare-smoke.py` remain executable compatibility
+The legacy paths `scripts/audio-compare.py`,
+`scripts/local-reference-compare-smoke.py`,
+`scripts/stem-scaling-diagnostics.py`, and
+`scripts/analyze-audio-discontinuities.py` remain executable compatibility
 aliases with the same arguments and behavior. The authoritative implementation
-for both workflows is under `tools/vtx_diag/`.
+for all four workflows is under `tools/vtx_diag/`.
 
 The comparison script supports uncompressed PCM WAV input and IEEE Float32 WAV
 input. It does not resample, normalize, downmix, upmix, or compensate for
@@ -331,13 +333,48 @@ interpreting sample-level metrics.
 
 ## Stem Checks
 
-Use `scripts/stem-scaling-diagnostics.py` for local stem-sum validation under
-`/tmp`. For matched reference/candidate stems, pass one `--candidate-stem` per
-`--stem` plus one or more `--focus-window START:END` values. Ranking is by raw
-RMS difference inside each focus window, and `--alignment-analysis-frames`
-bounds expensive local-shift searches for long windows. Treat stem evidence as
-diagnostic until the relevant stem sums are shown to reconstruct their full
-renders closely enough for the conclusion being drawn.
+Use the unified stem mode for local stem-sum validation under `/tmp`:
+
+```bash
+python3 -m tools.vtx_diag audio_compare stems \
+  --stem /tmp/reference-channel-01.wav \
+  --stem /tmp/reference-channel-02.wav \
+  --candidate-stem /tmp/candidate-channel-01.wav \
+  --candidate-stem /tmp/candidate-channel-02.wav \
+  --sum-output /tmp/reference-stem-sum.wav \
+  --full-render /tmp/reference-full.wav \
+  --focus-window 12.0:12.5 \
+  --alignment-analysis-frames 12000 \
+  --json /tmp/vtx-stem-diagnostics.json
+```
+
+Pass one `--candidate-stem` per `--stem` plus one or more
+`--focus-window START:END` values. Ranking is by raw RMS difference inside each
+focus window, and `--alignment-analysis-frames` bounds expensive local-shift
+searches for long windows. Treat stem evidence as diagnostic until the relevant
+stem sums are shown to reconstruct their full renders closely enough for the
+conclusion being drawn. `scripts/stem-scaling-diagnostics.py` remains the
+legacy compatibility path.
+
+## Discontinuity Checks
+
+Use the unified discontinuity mode to rank adjacent-sample jumps and optionally
+correlate them with bounded-render diagnostics:
+
+```bash
+python3 -m tools.vtx_diag audio_compare discontinuities \
+  --wav /tmp/vtx-ft2-profile-candidate.wav \
+  --diagnostics-json /tmp/vtx-ft2-profile-diagnostics.json \
+  --threshold 12000 \
+  --correlation-frames 128 \
+  --json /tmp/vtx-audio-discontinuities.json \
+  --markdown /tmp/vtx-audio-discontinuities.md
+```
+
+The threshold is expressed in PCM16-equivalent units. Nearby diagnostic events
+are triage evidence, not proof of a root cause.
+`scripts/analyze-audio-discontinuities.py` remains the legacy compatibility
+path.
 
 ## Correlate Worst Windows
 

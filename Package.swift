@@ -119,6 +119,7 @@ let package = Package(
                 "tools/private_xm_corpus_label_map_tests.py",
                 "tools/scan_tracked_private_leaks_tests.py",
                 "tools/synthetic_xm_fixture_generator_tests.py",
+                "tools/vtx_diag",
                 "tools/vtx_render_bounded_xm/main.swift",
                 "tools/xm_residual_effect_scan_tests.py",
             ],

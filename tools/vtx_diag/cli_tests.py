@@ -19,7 +19,7 @@ EXPECTED_COMMANDS = (
     "runtime_trace",
     "corpus_map",
 )
-PENDING_COMMANDS = EXPECTED_COMMANDS[1:]
+PENDING_COMMANDS = EXPECTED_COMMANDS[2:]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -84,6 +84,23 @@ class UnifiedDiagnosticCLITests(unittest.TestCase):
 
     def test_audio_compare_requires_a_mode(self):
         exit_code, stdout, stderr = self.invoke("audio_compare")
+
+        self.assertEqual(exit_code, ExitCode.USAGE_ERROR)
+        self.assertEqual(stdout, "")
+        self.assertIn("the following arguments are required: MODE", stderr)
+
+    def test_reference_triage_help_lists_only_migrated_modes(self):
+        exit_code, stdout, stderr = self.invoke("reference_triage", "--help")
+
+        self.assertEqual(exit_code, ExitCode.SUCCESS)
+        self.assertEqual(stderr, "")
+        for mode in ("correlate", "focused-window"):
+            self.assertIn(f"    {mode}", stdout)
+        self.assertNotIn("focused-channel", stdout)
+        self.assertNotIn("summarize", stdout)
+
+    def test_reference_triage_requires_a_mode(self):
+        exit_code, stdout, stderr = self.invoke("reference_triage")
 
         self.assertEqual(exit_code, ExitCode.USAGE_ERROR)
         self.assertEqual(stdout, "")

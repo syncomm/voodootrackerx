@@ -24,14 +24,10 @@ The focus of the project is:
 
 The **Track Editor** is the core component of the application.
 
-Current implementation state:
-
-- AppKit tracker UI, module open/load, pattern display, keyboard navigation, and stable static-highlight viewport behavior are implemented.
-- First-pass XM playback exists and remains useful for smoke testing, but it is not yet MikMod/OpenMPT accurate.
-- Runtime playback uses the CoreAudio DefaultOutput Audio Unit C mixer backend by default. `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` select the same CoreAudio host; `VTX_AUDIO_BACKEND=av_audio` is a retired legacy value that falls back to the CoreAudio C mixer.
-- ADR 004 introduced the deterministic software mixer transition; the current Swift `SoftwareMixer` remains the reference/spec path, and the C-backed offline mixer now covers synthetic one-shot sample voices, forward/ping-pong loops, volume/panning envelope foundations, absolute-frame scheduling, synthetic row/tick timing, minimal synthetic patterns, and bounded `PlaybackSong` adapter renders with parsed volume-envelope point mapping and a minimal note-to-sample-step foundation.
-- Offline C mixer rendering/export remains authoritative for comparison and separate from runtime smoke checks. Local/private modules must stay uncommitted and must not become fixtures.
-- For local MikMod WAV reference renders, read `docs/audio-comparison.md` first and use one-pass playlist mode such as `--playmode 0`; the default MikMod playlist mode can repeat a single module into a giant WAV when using the disk writer.
+Current product and runtime state lives in `docs/agent-current-state.md`. This
+bootstrap owns tracker-UI and canonical local build/run context; it is not a
+second backend snapshot or sequencing roadmap. For render/reference comparison,
+load `docs/audio-comparison.md`.
 
 ---
 
@@ -236,7 +232,7 @@ Before high-risk UI iteration, create a checkpoint commit or tag so the session 
 
 docs/
     architecture.md
-    dev-roadmap.md
+    roadmap.md
     tracker-behavior-spec.md
     ui-debugging.md
     dev-session-bootstrap.md
@@ -250,18 +246,7 @@ app/
 
 See:
 
-docs/dev-roadmap.md
-
-Major milestones include:
-
-- tracker editor
-- instrument editor
-- sample editor
-- module metadata
-- audio engine
-- scopes / visualizers
-- plugin architecture
-- future AI-assisted composition tools
+docs/roadmap.md
 
 ---
 
@@ -279,7 +264,7 @@ docs/architecture.md
 
 For general project planning:
 
-docs/dev-roadmap.md
+docs/roadmap.md
 
 Load `docs/task-templates.md` only when a task needs extra structure or a reusable execution pattern.
 

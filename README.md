@@ -68,8 +68,8 @@ VoodooTracker X is under active development and should not be treated as
 production-ready.
 
 Current release line: `v0.3.0-alpha.2 — Sample Lifecycle Alpha`. Its
-implementation is complete and the final release gate is `GO`; the tag and
-GitHub Release artifact follow the documentation merge. See the
+implementation is complete, the final release gate is `GO`, and the release is
+shipped. See the
 [full release notes](docs/release-notes/v0.3.0-alpha.2.md) and
 [GitHub Releases](https://github.com/syncomm/voodootrackerx/releases).
 
@@ -262,12 +262,12 @@ render timing.
 ## Documentation Map
 
 - [docs/README.md](docs/README.md) - concise documentation index for humans and agents.
-- [docs/agent-current-state.md](docs/agent-current-state.md) - current backend state, comparison defaults, and context-loading guidance.
+- [docs/agent-current-state.md](docs/agent-current-state.md) - concise present product and runtime snapshot.
 - [docs/audio-comparison.md](docs/audio-comparison.md) - current local-only candidate/reference WAV comparison workflow.
 - [docs/xm-effect-support.md](docs/xm-effect-support.md) - public XM effect support matrix for the runtime/offline C mixer adapter path.
 - [docs/diagnostic-tools.md](docs/diagnostic-tools.md) - diagnostic script inventory and consolidation plan.
 - [docs/roadmap.md](docs/roadmap.md) - current milestone sequencing.
-- [docs/dev-roadmap.md](docs/dev-roadmap.md) - short phase-based roadmap.
+- [docs/dev-roadmap.md](docs/dev-roadmap.md) - temporary compatibility pointer to the canonical roadmap.
 - [docs/playback-trace.md](docs/playback-trace.md) - runtime trace and capture diagnostics.
 - [docs/design/parsed-xm-to-c-mixer-adapter.md](docs/design/parsed-xm-to-c-mixer-adapter.md) - bounded parsed-XM-to-C-mixer adapter design and non-goals.
 - [docs/decisions/](docs/decisions) - architecture decision records, including the software mixer transition and C mixer boundary.

@@ -6,8 +6,8 @@ relevant to the task.
 
 ## Current State
 
-- `docs/agent-current-state.md` - short backend and workflow snapshot for
-  agents and contributors.
+- `docs/agent-current-state.md` - concise present product and runtime snapshot
+  for agents and contributors.
 - `docs/dev-session-bootstrap.md` - minimal session bootstrap, especially for
   tracker UI and local build/run context.
 
@@ -24,7 +24,8 @@ relevant to the task.
 ## Roadmaps
 
 - `docs/roadmap.md` - current milestone sequencing.
-- `docs/dev-roadmap.md` - short phase-based roadmap.
+- `docs/dev-roadmap.md` - temporary compatibility pointer to the canonical
+  roadmap.
 
 ## Product And Editor Design
 

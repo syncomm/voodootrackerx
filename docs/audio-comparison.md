@@ -295,20 +295,20 @@ bounds, silence padding, or offset workarounds in the local report.
 
 ## Compare WAVs
 
-Use the thin smoke wrapper when you want default report paths under `/tmp`:
+Use the unified smoke mode when you want default report paths under `/tmp`:
 
 ```bash
-python3 scripts/local-reference-compare-smoke.py \
+python3 -m tools.vtx_diag audio_compare smoke \
   --candidate /tmp/vtx-ft2-profile-candidate.wav \
   --reference /tmp/ft2-linear-reference.wav \
   --label local-linear-ft2-profile-smoke \
   --metadata "48000 Hz Float32, FT2 mix profile, reference settings recorded locally"
 ```
 
-Use `scripts/audio-compare.py` directly for explicit JSON/Markdown paths:
+Use the unified compare mode for explicit JSON/Markdown paths:
 
 ```bash
-python3 scripts/audio-compare.py \
+python3 -m tools.vtx_diag audio_compare compare \
   --candidate /tmp/vtx-ft2-profile-candidate.wav \
   --reference /tmp/ft2-linear-reference.wav \
   --seconds 240 \
@@ -318,6 +318,11 @@ python3 scripts/audio-compare.py \
   --json /tmp/vtx-audio-compare.json \
   --markdown /tmp/vtx-audio-compare.md
 ```
+
+The legacy paths `scripts/audio-compare.py` and
+`scripts/local-reference-compare-smoke.py` remain executable compatibility
+aliases with the same arguments and behavior. The authoritative implementation
+for both workflows is under `tools/vtx_diag/`.
 
 The comparison script supports uncompressed PCM WAV input and IEEE Float32 WAV
 input. It does not resample, normalize, downmix, upmix, or compensate for
@@ -379,7 +384,8 @@ If runtime/offline mismatch is suspected:
 1. Capture runtime CoreAudio output locally with
    `VTX_C_MIXER_RUNTIME_CAPTURE_PATH`.
 2. Render an offline C mixer candidate at the runtime trace sample rate.
-3. Compare runtime capture vs offline render with `scripts/audio-compare.py`.
+3. Compare runtime capture vs offline render with
+   `python3 -m tools.vtx_diag audio_compare compare`.
 4. Correlate with runtime trace only if the WAV comparison shows a real
    mismatch after bounds and gain are checked.
 
@@ -405,7 +411,7 @@ public-safe committed report under `docs/reports/`.
 
 ## Interpreting Metrics
 
-Useful `scripts/audio-compare.py` evidence includes:
+Useful `vtx_diag audio_compare compare` evidence includes:
 
 - duration and frame-count deltas
 - RMS and peak levels
@@ -454,7 +460,7 @@ Before a comparison PR or report:
 
 - confirm candidate/reference sample rate, channels, bounds, and profile
 - inspect candidate export peak/overrange/clipping diagnostics
-- run `scripts/audio-compare.py` on existing WAVs
+- run `python3 -m tools.vtx_diag audio_compare compare` on existing WAVs
 - correlate worst windows when diagnostics JSON exists
 - confirm generated artifacts are outside git
 - confirm no playback, parser, tracker viewport, or runtime backend behavior

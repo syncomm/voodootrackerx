@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Sequence, TextIO
 
+from . import audio_compare, audio_compare_smoke
+
 
 class _HelpFormatter(argparse.HelpFormatter):
     """Use a fixed width so help output is independent of terminal settings."""
@@ -47,7 +49,7 @@ COMMAND_REGISTRY: dict[str, CommandSpec] = {
     for spec in (
         CommandSpec(
             name="audio_compare",
-            summary="Compare and inspect audio output (migration pending).",
+            summary="Compare audio output or run the local comparison smoke workflow.",
             compatibility_paths=(
                 "scripts/audio-compare.py",
                 "scripts/local-reference-compare-smoke.py",
@@ -93,6 +95,29 @@ COMMAND_REGISTRY: dict[str, CommandSpec] = {
 }
 
 
+def _configure_audio_compare_parser(parser: argparse.ArgumentParser) -> None:
+    """Register the migrated compare and smoke modes on the audio family parser."""
+
+    modes = parser.add_subparsers(dest="audio_compare_mode", metavar="MODE", required=True)
+    compare_parser = modes.add_parser(
+        "compare",
+        help="Compare reference and candidate WAV files.",
+        description=audio_compare.COMPARE_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    audio_compare.add_arguments(compare_parser)
+    compare_parser.set_defaults(command_handler=audio_compare.run)
+
+    smoke_parser = modes.add_parser(
+        "smoke",
+        help="Run a comparison with local-only report defaults.",
+        description=audio_compare_smoke.SMOKE_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    audio_compare_smoke.add_arguments(smoke_parser)
+    smoke_parser.set_defaults(command_handler=audio_compare_smoke.run)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the deterministic top-level parser from the command registry."""
 
@@ -110,12 +135,19 @@ def build_parser() -> argparse.ArgumentParser:
             formatter_class=_HelpFormatter,
         )
         command_parser.set_defaults(command_spec=spec)
+        if spec.name == "audio_compare":
+            _configure_audio_compare_parser(command_parser)
     return parser
 
 
-def dispatch(spec: CommandSpec) -> None:
-    """Dispatch a registered command, currently reporting migration status."""
+def dispatch(arguments: argparse.Namespace) -> int:
+    """Dispatch a migrated command or report the family's migration status."""
 
+    handler = getattr(arguments, "command_handler", None)
+    if handler is not None:
+        return int(handler(arguments))
+
+    spec = arguments.command_spec
     compatibility_paths = ", ".join(spec.compatibility_paths)
     raise DiagnosticError(
         f"{spec.name}: not yet migrated; current authoritative script family: "
@@ -134,8 +166,7 @@ def main(argv: Sequence[str] | None = None, stderr: TextIO | None = None) -> int
         return int(error.code)
 
     try:
-        dispatch(arguments.command_spec)
+        return dispatch(arguments)
     except DiagnosticError as error:
         print(f"vtx_diag: {error}", file=stderr or sys.stderr)
         return int(error.exit_code)
-    return int(ExitCode.SUCCESS)

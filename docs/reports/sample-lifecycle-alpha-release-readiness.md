@@ -2,6 +2,227 @@
 
 Date: 2026-09-08
 
+Final release-candidate status: **CONDITIONAL GO**
+
+The post-G-003 candidate passes every completed machine, optimized-build,
+source-preservation, persistence, privacy, and agent-driven GUI gate. The prior
+destructive New/Open defect is remediated and did not reproduce. Final `GO` is
+not yet available because the gate requires fresh Gregory musician/UI/listening
+evidence on this exact post-remediation `main`, and that evidence has not been
+reported. Evidence from the superseded pre-remediation candidate is not carried
+forward.
+
+## Current audited candidate
+
+- Branch: `release/sample-lifecycle-alpha-final-gate`
+- Audited `main`: `50f4227cef2c7dac483c9077a7a257539e1a9859`
+- Local `main` and `origin/main` were synchronized at `0 0`, with a clean
+  worktree, before this branch was created.
+- The prior final gate recorded VTX-G-003 as a `NO-GO` on
+  `4df4258cd61dc7a7b976d2b3febfc7874f70bbb4` and was merged by PR #402.
+- PR #403 remediated G-003 in `174639c` and was merged by Gregory at the audited
+  SHA. Its focused CI and PR-level manual validation passed; the merged
+  coordinator is covered by 27 dedicated tests.
+- This gate changes only this readiness report. It changes no production code,
+  file format, compatibility boundary, runtime backend, or version, and leaves
+  the independent audit frozen and unchanged.
+- No tag or release was created.
+
+## G-003 document-replacement regression
+
+Agent-driven checks against the canonical rebuilt Debug app passed:
+
+- A meaningful editable document presented `Start a New Song?` before New.
+  Cancel retained the exact content and `Undo Clear Current Pattern`; Confirm
+  created one canonical blank document and cleared the prior Undo history.
+- A meaningful editable document presented `Open Another Module?` before Open.
+  Cancel retained `Undo New Instrument`; Confirm followed by picker Cancel also
+  retained it. A failed invalid load preserved the same document and history,
+  while a successful public XM load transitioned only after parsing succeeded.
+- Pristine New and loaded read-only New/Open bypassed the discard warning, as
+  required. Loaded sources stayed read-only.
+- Cmd+N and Cmd+O use the same guarded actions as the menu items. Save and Save
+  As remained disabled.
+- The 27 coordinator tests cover semantic dirty detection; exact
+  identity/revision/Undo preservation; single New replacement; Open picker
+  cancel, failure, and success; and rejection when revision, snapshot, identity,
+  mode, eligibility, or presentation state becomes stale while confirmation is
+  open. Stale-state mutation was verified by these focused tests rather than by
+  attempting to race the GUI manually.
+
+No G-003 failure reproduced on the audited SHA.
+
+## J-003 navigation regression
+
+- Fresh File > New exposed blank allocated P000, P001, and P002 in the main PTN
+  popup and Pattern Bank before events were entered. ORD000/001/002 mapped to
+  P000/P001/P002 without a phantom blank row.
+- Stopped navigation was exactly
+  `00/000 -> 01/001 -> 02/002 -> 01/001 -> 00/000`.
+- Normal Play followed `00/000 -> 01/001 -> 02/002` across 64-row boundaries;
+  tracker presentation followed, and Stop reconciled coherently.
+- At POS01, view-only P000 retained POS01. Normal Play selected P001, Play
+  Current Pattern selected P000, and a harmless edit with Undo/Redo retained the
+  view-only `01/000` state.
+- The public generated multi-pattern fixture retained healthy stopped and live
+  loaded navigation through P000/P001/P002 and the restart path.
+
+## Loaded-XM editable-copy regression
+
+### Exact-supported
+
+The manifest-pinned public multi-pattern source remained
+`8438e6074df6d4a6e1ec540121b7adeaf96e199166619a0ae00085c7fafd1ca3`.
+Make Editable Copy was enabled while stopped, transitioned immediately with the
+standard source-untouched disclosure, and did not modify the source.
+
+### Normalized Profile v1
+
+A deterministic public-safe Linear XM with represented S01, referenced empty
+S02, and one noncanonical zero-payload header transitioned immediately without
+a pre-conversion confirmation. The post-transition disclosure accurately said
+that empty metadata was normalized and a later export could differ
+structurally. S02 identity, its keymap ownership, and its silent/unavailable
+route were preserved; no S02 PCM was fabricated.
+
+- Source remained
+  `fcccb9c23815d344c9654de63730cc3331d9be3e6f6443902f1e3650440b0158`.
+- Canonical export and reopened re-export both remained
+  `43daeaf6daf50dcb3640ba0605f0fa793f31949454cf17a659af7f9911e86e24`.
+- Original-source byte parity is intentionally not claimed. The required
+  comparison is normalized editable state against the reopened normalized
+  export.
+
+### Unavailable
+
+Public-safe Amiga-frequency and invalid represented-loop fixtures each left
+their source checksum unchanged, produced a specific understandable reason,
+and made no transition. Make Editable Copy was actionable while stopped,
+disabled during playback, and available again after Stop.
+
+## Sample Lifecycle and Clear Song Data
+
+- Agent GUI checks covered mapped Clear, Undo/Redo, exact-slot repopulation,
+  Duplicate, Move, represented-to-represented Swap, represented-to-empty Swap,
+  exact selection focus, and direct-selected-sample audition UI state.
+- The full automated suite remains authoritative for the exact 96-note mapping,
+  routing identity, and no-auto-audition invariants.
+- Clear Song Data was disabled during playback and enabled after Stop through
+  both Edit and Song/Order entry points. Both presented the same warning.
+  Cancel retained orders, samples, and history; Confirm reset only patterns and
+  orders; represented samples remained; one Undo restored the prior two-order
+  song; Redo reapplied the reset.
+
+## Audio-export re-entry and persistence
+
+The automated WAV/M4A cross-command matrix passes: every active-format and
+requested-format pairing rejects re-entry without a second chooser, sheet,
+token, or job, and completion, failure, and cancellation restore both commands.
+
+Agent-driven long-export checks independently observed:
+
+- During a real M4A render, the progress sheet was the only modal presentation,
+  no Save window remained, and both WAV and M4A were disabled. The 494.52-second
+  M4A completed, reported success, and restored both commands.
+- During a longer 32-channel WAV render, the progress sheet was the only modal
+  presentation, no Save window remained, and both commands were disabled.
+  Cancel closed the sheet, removed the partial output, and restored both
+  commands.
+- The completed WAV and M4A sanity artifacts were recognized as 48 kHz stereo
+  Float32 WAVE and 48 kHz stereo AAC/M4A respectively, both with the expected
+  494.52-second duration. This is structural evidence, not a listening claim.
+
+For supported lifecycle persistence, an editable document containing
+represented S01 and duplicated S02 exported, reopened read-only with both sample
+identities and PCM present, made an exact editable copy without source mutation,
+and re-exported deterministically. Export and re-export were identical at
+`48326442feac3a73a1ef219cb4d1229a9637ab3fd92d2afc16591d2585902546`.
+Normalized-copy persistence is recorded separately above.
+
+## Automated and optimized-build verification
+
+| Command / gate | Result |
+| --- | --- |
+| `python3 scripts/generate-synthetic-xm-fixtures.py --verify` | Pass; 5 fixtures verified byte-identically. |
+| `swift test --filter ModuleCoreTests` | Pass; 24 tests, 0 failures. |
+| `swift test --filter VTXRenderBoundedXMTests` | Pass; 117 tests, 0 failures. |
+| `swift test` | Pass; 141 tests, 0 failures. |
+| Full Debug `xcodebuild ... test` | Pass; 1,567 tests, 0 failures, 0 skipped. |
+| `./scripts/check-files.sh` | Pass. |
+| `./scripts/scan-tracked-private-leaks.sh` | Pass. |
+| `python3 -m unittest discover -s tools -p '*_tests.py'` | Pass; 222 tests, 0 failures. |
+| `git diff --check` | Pass after the report update. |
+
+No additional current release-gate script exists under `scripts/`. All required
+Xcode commands used exactly `-derivedDataPath build` in the mandated sequence:
+Debug tests, host Release, universal Release, then canonical Debug rebuild.
+
+| Build | Result | Executable architecture |
+| --- | --- | --- |
+| Host Release, `platform=macOS` | `BUILD SUCCEEDED` | `x86_64` by `file` and `lipo -archs`. |
+| Universal Release, `generic/platform=macOS`, `ARCHS="arm64 x86_64"` | `BUILD SUCCEEDED` | `x86_64 arm64` by `file`, `lipo -archs`, and local path-first `lipo ... -verify_arch arm64 x86_64`. |
+| Canonical maintainer-facing Debug | `BUILD SUCCEEDED` | Rebuilt under `build/Build/Products/Debug/VoodooTrackerX.app`. |
+
+The prompt's option-first `lipo -verify_arch arm64 x86_64 <executable>` syntax
+is rejected by this installed `lipo`; the equivalent executable-first form
+passed. The Swift 6.3.2 `@_optimize(none)` workaround remains on
+`SampleEditorView.buildParams`. Observed warnings were the existing test-only
+Sendable capture and expected App Intents metadata skip.
+
+## Mandatory Gregory evidence
+
+**Outstanding on the audited post-G-003 SHA.** Gregory's merge and focused
+PR #403 validation satisfy the remediation precondition, but the final-gate
+prompt requires a fresh full report from the canonical Debug executable. The
+prior current-main musician/UI/listening evidence below predates the remediation
+and cannot be claimed for this candidate.
+
+The outstanding checklist is: guarded New/Open; blank-pattern and stopped/live
+navigation; audible Sample Lifecycle routing; Clear Song Data; exact,
+normalized, and unavailable editable-copy UX; long WAV/M4A re-entry; and
+representative XM persistence plus WAV/M4A listening sanity.
+
+## Packaging, privacy, and read-only checks
+
+- Private-leak and tracked-file checks pass. No private corpus path, generated
+  media, screenshot, trace, log, or gate fixture is tracked.
+- No gate-specific repository build directory was created. Required build work
+  stayed under `build`; unrelated pre-existing ignored build material was not
+  modified or removed.
+- The Debug bundle contains only the separate VTX logo PNG/SVG resources, with
+  no custom placeholder app icon declaration or resource. The VTX logo rendered
+  normally and default macOS app-icon behavior remains.
+- Loaded source checksums remained unchanged. Save and Save As stayed disabled
+  in loaded and editable-copy states; Export XM remained the explicit
+  persistence action.
+- Gate fixtures, media, logs, and screenshots remained temporary and untracked.
+
+## Accepted post-alpha findings
+
+| Finding | Current disposition |
+| --- | --- |
+| VTX-CS-001 | Accepted HIGH: Fxx timing-planner mismatch; focused post-alpha playback work. |
+| VTX-CS-002 | Accepted HIGH: portamento scale mismatch; focused post-alpha playback work. |
+| VTX-D1-001 | Accepted HIGH: CoreAudio callback allocation / real-time-safety debt; focused post-alpha real-time work. |
+
+No new evidence changes their accepted post-alpha scope.
+
+## Current verdict and release action
+
+The candidate is **CONDITIONAL GO**. No technical blocker reproduced, but the
+mandatory fresh Gregory evidence is incomplete, so `GO` and
+`v0.3.0-alpha.2` remain unauthorized. No tag or release was created.
+
+Recommended next action: Gregory runs the complete final checklist using
+`./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX`
+and reports pass/fail against audited SHA `50f4227`.
+
+---
+
+## Superseded G-003 blocker gate (2026-09-08)
+
+Date: 2026-09-08
+
 Final release-candidate status: **NO-GO**
 
 All current automated, optimized-build, source-preservation, persistence,

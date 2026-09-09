@@ -19,6 +19,7 @@ EXPECTED_COMMANDS = (
     "runtime_trace",
     "corpus_map",
 )
+PENDING_COMMANDS = EXPECTED_COMMANDS[1:]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -58,9 +59,10 @@ class UnifiedDiagnosticCLITests(unittest.TestCase):
         for command_name in EXPECTED_COMMANDS:
             self.assertIn(f"    {command_name}", result.stdout)
 
-    def test_each_command_reports_its_authoritative_compatibility_family(self):
-        for command_name, spec in COMMAND_REGISTRY.items():
+    def test_pending_commands_report_their_authoritative_compatibility_family(self):
+        for command_name in PENDING_COMMANDS:
             with self.subTest(command_name=command_name):
+                spec = COMMAND_REGISTRY[command_name]
                 exit_code, stdout, stderr = self.invoke(command_name)
 
                 self.assertEqual(exit_code, ExitCode.MIGRATION_PENDING)
@@ -71,6 +73,21 @@ class UnifiedDiagnosticCLITests(unittest.TestCase):
                     f"vtx_diag: {command_name}: not yet migrated; "
                     f"current authoritative script family: {compatibility_paths}\n",
                 )
+
+    def test_audio_compare_help_lists_migrated_modes(self):
+        exit_code, stdout, stderr = self.invoke("audio_compare", "--help")
+
+        self.assertEqual(exit_code, ExitCode.SUCCESS)
+        self.assertEqual(stderr, "")
+        self.assertIn("    compare", stdout)
+        self.assertIn("    smoke", stdout)
+
+    def test_audio_compare_requires_a_mode(self):
+        exit_code, stdout, stderr = self.invoke("audio_compare")
+
+        self.assertEqual(exit_code, ExitCode.USAGE_ERROR)
+        self.assertEqual(stdout, "")
+        self.assertIn("the following arguments are required: MODE", stderr)
 
     def test_unknown_command_handling_is_deterministic(self):
         with mock.patch.dict(os.environ, {"COLUMNS": "40"}):
@@ -106,7 +123,7 @@ class UnifiedDiagnosticCLITests(unittest.TestCase):
             previous_directory = Path.cwd()
             try:
                 os.chdir(directory)
-                for command_name in EXPECTED_COMMANDS:
+                for command_name in PENDING_COMMANDS:
                     self.assertEqual(self.invoke(command_name)[0], ExitCode.MIGRATION_PENDING)
             finally:
                 os.chdir(previous_directory)

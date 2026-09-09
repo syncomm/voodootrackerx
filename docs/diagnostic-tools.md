@@ -11,6 +11,8 @@ Inventoried files:
 - 18 files under `scripts/`.
 - 4 Python test helper modules under `tools/`.
 - 1 Python fixture-generator test helper under `tools/`.
+- 1 unified Python diagnostic CLI skeleton and focused test module under
+  `tools/vtx_diag/`.
 - 2 SwiftPM command entrypoints under `tools/`.
 - 1 active Swift command implementation under tool-owned SwiftPM support
   sources.
@@ -71,6 +73,7 @@ Classification terms:
 | `tools/mc_dump/main.c` | Active workflow; SwiftPM C CLI entrypoint | Dumps parsed MOD/XM metadata and optional XM pattern events for tests and diagnostics. | `Package.swift`, `README.md`, `docs/testing.md`, `docs/contributing.md`, ADR 001, `scripts/run-golden.sh`, focused diagnostics. | Can read private modules if manually invoked; private JSON dumps stay local. | Yes for private/local dumps; golden outputs are intentional test artifacts. | Keep. | Leave as a parser CLI unless a broader tool package layout is introduced. |
 | `tools/vtx_render_bounded_xm/main.swift` | Active workflow; SwiftPM CLI entrypoint | Tiny executable entrypoint for the bounded XM render/export tool. | `Package.swift`, `README.md`, `docs/agent-current-state.md`, `docs/audio-comparison.md`, `docs/playback-trace.md`, render tests. | Reads local/private XM modules; WAVs and diagnostics must stay local unless explicitly public-safe. | Yes for local renders and diagnostics. | Keep. | Preserve as the stable CLI entrypoint even if the implementation moves. |
 | `tools/vtx_render_bounded_xm/Support/BoundedXMRenderTool.swift` | Active diagnostic/export tool implementation; M4 source-location refactor complete | Implements the developer-only bounded XM render/export CLI used by `tools/vtx_render_bounded_xm/main.swift`. | `tools/vtx_render_bounded_xm/main.swift`, `Package.swift`, render tests, workflow docs via the CLI name. | Reads local/private XM modules and writes local WAV/diagnostics/coverage artifacts. | Yes for local outputs. | Keep. | Leave behavior unchanged; keep this under tool-owned support sources unless a later tooling module/package design supersedes it. |
+| `tools/vtx_diag/` | Active unified CLI foundation; behavior migration pending | Registers the six planned diagnostic command families behind one module entrypoint and provides shared help, error, and exit conventions. | `docs/roadmap.md`, this inventory, `tools/vtx_diag/cli_tests.py`. | Imports and pending dispatch require no private module, corpus map, or local artifact. | No; the skeleton only prints help or migration status. | Keep. | Migrate one command family at a time while preserving every existing script path as a compatibility wrapper. |
 | `tools/audio_compare_tests.py` | Active test helper | Synthetic unit/CLI tests for audio comparison, reference triage, runtime trace, effect coverage, focused diagnostics, and related scripts. | Direct test target run with `python3 -m unittest tools/audio_compare_tests.py`. | Uses synthetic data and temporary directories. | Test temp dirs only. | Keep. | Split by future CLI subcommand once the script surface is consolidated. |
 | `tools/xm_residual_effect_scan_tests.py` | Active test helper | Unit tests for residual effect scan classification and recommendation logic. | Required when residual/corpus tooling is referenced or touched. | Uses synthetic module structures. | No persistent output. | Keep. | Move beside future `residual_scan` CLI package tests. |
 | `tools/private_xm_corpus_label_map_tests.py` | Active test helper | Tests private corpus label-map update and redacted summary behavior with synthetic XM bytes. | Required when corpus label-map tooling docs or code are touched. | Uses synthetic fixtures in temporary directories and asserts paths/names are redacted. | Test temp dirs only. | Keep. | Move beside future `corpus_map` CLI package tests. |
@@ -198,23 +201,30 @@ avoided scan estimates. Byte-parity tests keep this optimization output-neutral;
 continuation history construction retains its separately counted per-window
 scan. The change does not alter the CLI surface, C mixer DSP, or runtime playback.
 
-## Future Unified CLI Shape
+## Unified CLI Foundation
 
-Do not implement this in the inventory PR. A future CLI can be either a Python
-package with subcommands or a `tools/vtx_diag/` command surface with stable
-compatibility wrappers.
+The stable top-level entrypoint is:
 
-One possible shape:
+```bash
+python3 -m tools.vtx_diag --help
+```
+
+It registers exactly `audio_compare`, `reference_triage`, `effect_coverage`,
+`residual_scan`, `runtime_trace`, and `corpus_map`. Until each family is
+migrated, dispatch exits with status `3`, names its current authoritative
+repository script family, and performs no diagnostic work or file output.
+Existing script paths remain authoritative and unchanged. Shared exit statuses
+are `0` for success, `1` for operational failure, `2` for usage error, and `3`
+for migration pending.
+
+Current package shape:
 
 ```text
 tools/vtx_diag/
+  __init__.py
   __main__.py
-  audio_compare        # compare, smoke defaults, discontinuities, stems
-  reference_triage     # correlate, focused-window, focused-channel, triage summary
-  effect_coverage      # diagnostics/runtime coverage summaries
-  residual_scan        # private corpus residual effect-memory scans
-  runtime_trace        # trace summarize and runtime/offline window correlation
-  corpus_map           # private corpus label-map update and redacted summary
+  cli.py               # registry, parser, dispatch, and shared exit/error contract
+  cli_tests.py         # synthetic help, dispatch, import, and side-effect tests
 ```
 
 The SwiftPM tools should remain separate unless a later design explicitly moves
@@ -289,7 +299,8 @@ Preserved behavior:
    preserving the CLI entrypoint, tests, Package.swift behavior, and Xcode app
    exclusion. Completed in M4.
 3. Add a minimal unified diagnostic CLI/package skeleton with no behavior
-   changes and with compatibility wrappers for existing script paths.
+   changes while leaving existing script paths authoritative. Completed by the
+   `tools/vtx_diag/` foundation.
 4. Move audio comparison and smoke-wrapper behavior behind the unified
    `audio_compare` command; keep existing script wrappers until docs and tests
    are migrated.

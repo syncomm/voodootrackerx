@@ -11,8 +11,8 @@ Inventoried files:
 - 4 Python test helper modules under `tools/`.
 - 1 Python fixture-generator test helper under `tools/`.
 - 1 unified Python diagnostic CLI package under `tools/vtx_diag/`, with core
-  comparison, local smoke, stem, and discontinuity behavior migrated plus
-  focused tests.
+  comparison, local smoke, stem, discontinuity, reference correlation, and
+  focused-window behavior migrated plus focused tests.
 - 2 SwiftPM command entrypoints under `tools/`.
 - 1 active Swift command implementation under tool-owned SwiftPM support
   sources.
@@ -58,14 +58,14 @@ Classification terms:
 | `scripts/generate-synthetic-xm-fixtures.py` | Active test helper; fixture generator | Prints or writes the deterministic source manifest and can explicitly write approved generated XM fixtures under `tests/reference-xm/generated/`, including `basic-instrument-sample.xm` and `multi-pattern-loop-boundary.xm`. | `tests/reference-xm/README.md`, `docs/design/synthetic-xm-reference-fixture-pack.md`, `tools/synthetic_xm_fixture_generator_tests.py`. | No private data; explicitly forbids private modules and private corpus dependencies. | No by default; writes only requested manifest or XM fixture paths when invoked with `--write-manifest` or `--write-xm`; no reference renders. | Keep. | Extend in small reviewed fixture PRs; do not emit reference renders by default. |
 | `scripts/audio-compare.py` | Active compatibility wrapper; diagnostic / local-only | Preserves the legacy comparator CLI and helper-import surface while delegating to `tools/vtx_diag/audio_compare.py`. | `docs/testing.md`, ADR 004, archived reports, `tools/audio_compare_tests.py`, Swift render tests, package-owned stem diagnostics. | Handles WAVs that may be derived from private modules; reports must use public-safe labels. | Yes for JSON/Markdown reports and source WAVs unless using temp test dirs. | Compatibility path. | Keep until all maintained callers and prompts use `vtx_diag audio_compare compare`. |
 | `scripts/local-reference-compare-smoke.py` | Active compatibility wrapper; diagnostic / local-only | Preserves the legacy local smoke CLI while delegating to the package-owned smoke workflow. | Archived reports and `tools/audio_compare_tests.py`. | Handles local candidate/reference WAVs; metadata is printed only and must stay public-safe. | Yes; defaults to `/tmp/vtx-local-reference-comparison`. | Compatibility path. | Keep until all maintained callers and prompts use `vtx_diag audio_compare smoke`. |
-| `scripts/correlate-audio-comparison.py` | Active workflow; diagnostic / local-only; hyper-specific; candidate CLI subcommand | Correlates `audio-compare.py` worst windows with bounded render diagnostics. | `docs/audio-comparison.md`, archived reports, `tools/audio_compare_tests.py`. | Handles diagnostics from local/private modules; labels and metadata must be anonymized. | Yes. | Keep for now. | Fold into `reference_triage` or `audio_compare correlate`; preserve report schema tests before moving. |
-| `scripts/focused-window-voice-timeline.py` | Active workflow; diagnostic / local-only; hyper-specific; candidate CLI subcommand | Summarizes bounded-render voice timelines for explicit time windows. | `docs/audio-comparison.md`, archived reports, `tools/audio_compare_tests.py`. | Reads local diagnostics JSON; output should not expose input paths. | Yes. | Keep for now. | Fold into `reference_triage focused-window`; keep a wrapper until docs migrate. |
+| `scripts/correlate-audio-comparison.py` | Active compatibility wrapper; diagnostic / local-only | Preserves the legacy worst-window correlation CLI and helper-import surface while delegating to `tools/vtx_diag/reference_triage_correlate.py`. | `docs/audio-comparison.md`, archived reports, `tools/audio_compare_tests.py`, `tools/vtx_diag/reference_triage_migration_tests.py`. | Handles diagnostics from local/private modules; labels and metadata must be anonymized. | Yes. | Compatibility path. | Keep until all maintained callers and prompts use `vtx_diag reference_triage correlate`. |
+| `scripts/focused-window-voice-timeline.py` | Active compatibility wrapper; diagnostic / local-only | Preserves the legacy focused-window CLI and helper-import surface while delegating to `tools/vtx_diag/reference_triage_focused_window.py`. | `docs/audio-comparison.md`, archived reports, `tools/audio_compare_tests.py`, `tools/vtx_diag/reference_triage_migration_tests.py`. | Reads local diagnostics JSON; output should not expose input paths. | Yes. | Compatibility path. | Keep until all maintained callers and prompts use `vtx_diag reference_triage focused-window`. |
 | `scripts/analyze-audio-discontinuities.py` | Active compatibility wrapper; diagnostic / local-only | Preserves the legacy adjacent-sample jump/click CLI while delegating to `tools/vtx_diag/audio_compare_discontinuities.py`. | Archived audio history, `tools/audio_compare_tests.py`, unified migration tests. | Handles local WAVs and optional diagnostics derived from private modules. | Yes. | Compatibility path. | Keep until a later explicit archive decision after callers and maintained workflows use `vtx_diag audio_compare discontinuities`. |
 | `scripts/stem-scaling-diagnostics.py` | Active compatibility wrapper; diagnostic / local-only | Preserves the legacy stem sum, reconstruction, and focused matched-stem CLI while delegating to `tools/vtx_diag/audio_compare_stems.py`. | `docs/audio-comparison.md`, archived audio history, `tools/audio_compare_tests.py`, unified migration tests. | Handles local stem WAVs that may be derived from private modules. | Yes. | Compatibility path. | Keep until a later explicit archive decision after callers and maintained workflows use `vtx_diag audio_compare stems`. |
-| `scripts/summarize-reference-render-triage.py` | Diagnostic / local-only; hyper-specific; candidate archive; candidate CLI subcommand | Summarizes anonymized triage manifests that point at local comparison JSONs. | Archived audio history, `tools/audio_compare_tests.py`. | Manifest may describe local/private comparison outputs; committed summaries must stay anonymized. | Yes for manifests and generated summaries. | Keep for now. | Fold into `reference_triage summarize` or archive if the manifest workflow is no longer used. |
+| `scripts/summarize-reference-render-triage.py` | Diagnostic / local-only; active automated tests; archived workflow references only; hyper-specific; candidate archive | Summarizes anonymized triage manifests that point at local comparison JSONs. | `tools/audio_compare_tests.py` imports its helpers and exercises its CLI; the only workflow invocation is in archived audio history. No current workflow doc invokes it. | Manifest may describe local/private comparison outputs; committed summaries must stay anonymized. | Yes for manifests and generated summaries. | Standalone archive candidate. | Candidate for archive after a dedicated removal/reference scan; retain standalone until that scope moves or retires its tests. |
 | `scripts/summarize-xm-effect-coverage.py` | Active workflow; diagnostic / local-only; candidate CLI subcommand | Summarizes XM effect coverage from bounded offline diagnostics or runtime traces; recommendation wording is freeze-aligned with `docs/xm-effect-support.md`. | `docs/audio-comparison.md`, `docs/playback-trace.md`, archived reports, `BoundedXMRenderTool.swift` help text, `tools/audio_compare_tests.py`. | Reads diagnostics/traces that may come from private modules; output should use redacted labels. | Yes. | Keep for now. | Fold into `effect_coverage`; preserve backend-freeze recommendation wording and the compatibility path for existing docs. |
 | `scripts/summarize-xm-residual-effect-scan.py` | Active local planning helper; diagnostic / local-only; candidate CLI subcommand | Scans a private XM corpus label map for residual effect-memory and volume-column gaps; recommendation wording is freeze-aligned with `docs/xm-effect-support.md`. | `tools/xm_residual_effect_scan_tests.py`; archived reports. | Yes; reads a local label map with private paths and emits public-safe labels/counts. | Yes; default label map and outputs are under `/tmp`. | Keep for now. | Fold into `residual_scan`; keep strict redaction tests and freeze-aligned recommendation wording before any move. |
-| `scripts/focused-xm-channel-diagnostics.py` | Diagnostic / local-only; hyper-specific; candidate archive; candidate CLI subcommand | Builds a focused row/channel report from `mc_dump` JSON and bounded render diagnostics. | Archived audio history, `tools/audio_compare_tests.py`; mentions `mc_dump` and `vtx_render_bounded_xm`. | Reads local artifacts, not module files; report should not echo input paths. | Yes. | Keep for now. | Fold into `reference_triage focused-channel` or archive after checking active workflow references. |
+| `scripts/focused-xm-channel-diagnostics.py` | Diagnostic / local-only; active automated tests; archived workflow references only; hyper-specific; candidate archive | Builds a focused row/channel report from `mc_dump` JSON and bounded render diagnostics. | `tools/audio_compare_tests.py` imports and unit-tests its summary and Markdown helpers; workflow references are confined to archived audio history. No current workflow doc invokes it. | Reads local artifacts, not module files; report should not echo input paths. | Yes. | Standalone archive candidate. | Candidate for archive after a dedicated removal/reference scan and confirmation of maintained local use; retain standalone for now. |
 | `scripts/summarize-runtime-c-mixer-trace.py` | Active workflow; diagnostic / local-only; candidate CLI subcommand | Summarizes runtime C mixer JSONL traces, callback health, output-copy, and route diagnostics. | `docs/playback-trace.md`, archived reports, `tools/audio_compare_tests.py`. | Reads runtime traces from local/private smoke runs; listening notes must stay local. | Yes. | Keep for now. | Fold into `runtime_trace summarize`; preserve deterministic summary tests. |
 | `scripts/correlate-runtime-offline-window.py` | Active workflow; diagnostic / local-only; hyper-specific; candidate CLI subcommand | Correlates runtime/offline mismatch windows across WAVs, runtime traces, and optional offline diagnostics. | `docs/playback-trace.md`, archived reports, `tools/audio_compare_tests.py`. | Handles local runtime captures, offline WAVs, traces, and diagnostics. | Yes. | Keep for now. | Fold into `runtime_trace correlate-window`; keep current script until docs and tests migrate. |
 | `scripts/run-local-corpus-runtime-metrics.py` | Active local planning helper; diagnostic / local-only; candidate CLI subcommand | Runs disabled load/play timing and runtime mixer metrics diagnostics for selected anonymized private corpus labels, including first Play adapter-plan preparation and second Play cached reuse unless `--single-play` is used. | `docs/testing.md`, `tools/local_corpus_runtime_metrics_tests.py`. | Reads a maintainer-supplied local label map and redacts captured stdout/stderr; output filenames and summaries use `xm-corpus-###` labels only. | Yes; defaults to a timestamped `/tmp` directory and refuses repository output by default. | Keep. | Fold into `runtime_trace corpus-metrics` or a future corpus diagnostics subcommand; preserve redaction and output-confinement tests. |
@@ -73,7 +73,7 @@ Classification terms:
 | `tools/mc_dump/main.c` | Active workflow; SwiftPM C CLI entrypoint | Dumps parsed MOD/XM metadata and optional XM pattern events for tests and diagnostics. | `Package.swift`, `README.md`, `docs/testing.md`, `docs/contributing.md`, ADR 001, `scripts/run-golden.sh`, focused diagnostics. | Can read private modules if manually invoked; private JSON dumps stay local. | Yes for private/local dumps; golden outputs are intentional test artifacts. | Keep. | Leave as a parser CLI unless a broader tool package layout is introduced. |
 | `tools/vtx_render_bounded_xm/main.swift` | Active workflow; SwiftPM CLI entrypoint | Tiny executable entrypoint for the bounded XM render/export tool. | `Package.swift`, `README.md`, `docs/agent-current-state.md`, `docs/audio-comparison.md`, `docs/playback-trace.md`, render tests. | Reads local/private XM modules; WAVs and diagnostics must stay local unless explicitly public-safe. | Yes for local renders and diagnostics. | Keep. | Preserve as the stable CLI entrypoint even if the implementation moves. |
 | `tools/vtx_render_bounded_xm/Support/BoundedXMRenderTool.swift` | Active diagnostic/export tool implementation; M4 source-location refactor complete | Implements the developer-only bounded XM render/export CLI used by `tools/vtx_render_bounded_xm/main.swift`. | `tools/vtx_render_bounded_xm/main.swift`, `Package.swift`, render tests, workflow docs via the CLI name. | Reads local/private XM modules and writes local WAV/diagnostics/coverage artifacts. | Yes for local outputs. | Keep. | Leave behavior unchanged; keep this under tool-owned support sources unless a later tooling module/package design supersedes it. |
-| `tools/vtx_diag/` | Active unified CLI; `audio_compare` fully migrated | Registers the six planned diagnostic command families. `audio_compare compare`, `smoke`, `stems`, and `discontinuities` own the complete audio-comparison family; other families still report migration pending. | `docs/roadmap.md`, `docs/audio-comparison.md`, this inventory, `tools/vtx_diag/cli_tests.py`, `tools/vtx_diag/audio_compare_migration_tests.py`. | Imports and dispatch require no private module, corpus map, or local artifact. Audio reports retain basename-only input identity. | Yes for caller-selected comparison output and the smoke workflow's `/tmp` default; pending commands write nothing. | Keep. | Migrate one remaining command family at a time while preserving required compatibility wrappers. |
+| `tools/vtx_diag/` | Active unified CLI; `audio_compare` fully migrated; active `reference_triage` core migrated | Registers the six planned diagnostic command families. `audio_compare` owns all four comparison modes; `reference_triage correlate` and `focused-window` own the active triage core. The four remaining families report migration pending. | `docs/roadmap.md`, `docs/audio-comparison.md`, this inventory, `tools/vtx_diag/cli_tests.py`, `tools/vtx_diag/audio_compare_migration_tests.py`, `tools/vtx_diag/reference_triage_migration_tests.py`. | Imports and dispatch require no private module, corpus map, or local artifact. Existing report identity and basename-only fields remain unchanged. | Yes for caller-selected outputs and the smoke workflow's `/tmp` default; pending commands write nothing. | Keep. | Migrate one remaining command family at a time while preserving required compatibility wrappers. |
 | `tools/audio_compare_tests.py` | Active test helper | Synthetic unit/CLI tests for audio comparison, reference triage, runtime trace, effect coverage, focused diagnostics, and related scripts. | Direct test target run with `python3 -m unittest tools/audio_compare_tests.py`. | Uses synthetic data and temporary directories. | Test temp dirs only. | Keep. | Split by future CLI subcommand once the script surface is consolidated. |
 | `tools/xm_residual_effect_scan_tests.py` | Active test helper | Unit tests for residual effect scan classification and recommendation logic. | Required when residual/corpus tooling is referenced or touched. | Uses synthetic module structures. | No persistent output. | Keep. | Move beside future `residual_scan` CLI package tests. |
 | `tools/private_xm_corpus_label_map_tests.py` | Active test helper | Tests private corpus label-map update and redacted summary behavior with synthetic XM bytes. | Required when corpus label-map tooling docs or code are touched. | Uses synthetic fixtures in temporary directories and asserts paths/names are redacted. | Test temp dirs only. | Keep. | Move beside future `corpus_map` CLI package tests. |
@@ -220,6 +220,13 @@ python3 -m tools.vtx_diag audio_compare stems --help
 python3 -m tools.vtx_diag audio_compare discontinuities --help
 ```
 
+The active reference-triage core is authoritative at:
+
+```bash
+python3 -m tools.vtx_diag reference_triage correlate --help
+python3 -m tools.vtx_diag reference_triage focused-window --help
+```
+
 The modes own the existing WAV comparator, local smoke defaults, stem
 reconstruction and matched-stem analysis, and discontinuity analysis. All four
 legacy paths remain executable compatibility wrappers with their existing
@@ -234,7 +241,19 @@ Package-owned stem diagnostics imports comparator helpers directly from
 `tools.vtx_diag.audio_compare`; the legacy comparator re-export remains for
 external compatibility callers.
 
-Unmigrated command families exit with status `3`, name their current
+The active reference-triage implementations live under `tools/vtx_diag/`.
+These legacy paths remain executable compatibility wrappers with their existing
+arguments, report schemas, output, helper imports, and exit behavior:
+
+- `scripts/correlate-audio-comparison.py`
+- `scripts/focused-window-voice-timeline.py`
+
+The audited `scripts/focused-xm-channel-diagnostics.py` and
+`scripts/summarize-reference-render-triage.py` helpers remain standalone archive
+candidates. They are not exposed as speculative unified modes.
+
+The unmigrated `effect_coverage`, `residual_scan`, `runtime_trace`, and
+`corpus_map` command families exit with status `3`, name their current
 authoritative repository script family, and perform no diagnostic work or file
 output. Shared exit statuses are `0` for success, `1` for operational failure,
 `2` for usage error, and `3` for migration pending.
@@ -250,8 +269,11 @@ tools/vtx_diag/
   audio_compare_smoke.py # authoritative local smoke defaults and confinement
   audio_compare_stems.py # authoritative stem sum and matched-stem diagnostics
   audio_compare_discontinuities.py # authoritative jump analysis and correlation
+  reference_triage_correlate.py # authoritative worst-window correlation
+  reference_triage_focused_window.py # authoritative focused voice timelines
   cli_tests.py         # registry, help, pending dispatch, and import tests
   audio_compare_migration_tests.py # legacy/unified parity and confinement tests
+  reference_triage_migration_tests.py # triage parity, confinement, and audit tests
 ```
 
 The SwiftPM tools should remain separate unless a later design explicitly moves
@@ -275,8 +297,8 @@ No files should be archived in this PR.
 | --- | --- | --- |
 | `scripts/stem-scaling-diagnostics.py` | It is now a narrow compatibility wrapper for the migrated stem workflow. | Keep until a later explicit archive decision verifies every caller, prompt, and maintained local workflow uses the unified command. |
 | `scripts/analyze-audio-discontinuities.py` | It is now a narrow compatibility wrapper for the migrated discontinuity workflow. | Keep until a later explicit archive decision verifies every caller, prompt, and maintained local workflow uses the unified command. |
-| `scripts/summarize-reference-render-triage.py` | It summarizes a narrow manifest format from earlier reference-render triage work. | Confirm the manifest workflow is inactive or represented in `reference_triage`; keep anonymization tests. |
-| `scripts/focused-xm-channel-diagnostics.py` | It is a narrow row/channel artifact combiner and is not in the current short workflow docs. | Check archived-report-only status again, ask whether maintainers still use it locally, and migrate tests if needed. |
+| `scripts/summarize-reference-render-triage.py` | Current references are active automated tests plus archived workflow history; no current workflow doc invokes it. | Candidate for archive after a dedicated removal/reference scan; decide whether to retire or relocate its active tests in that scope. |
+| `scripts/focused-xm-channel-diagnostics.py` | Current references are active automated tests plus archived workflow history; no current workflow doc invokes it. | Candidate for archive after a dedicated removal/reference scan and confirmation that no maintained local workflow still needs it. |
 
 Not archive candidates:
 
@@ -334,7 +356,8 @@ Preserved behavior:
 5. Move effect coverage, residual scan, and corpus map tooling behind
    `effect_coverage`, `residual_scan`, and `corpus_map`, preserving redaction
    tests.
-6. Move runtime trace and reference-triage helpers behind `runtime_trace` and
-   `reference_triage`, preserving report schemas and focused-window tests.
+6. Move runtime trace helpers behind `runtime_trace`; the active correlation and
+   focused-window reference-triage core is already package-owned, while its two
+   archive candidates remain standalone pending a dedicated decision.
 7. Archive or delete only the scripts proven unused after compatibility
    wrappers, docs, tests, prompts, and local workflows have migrated.

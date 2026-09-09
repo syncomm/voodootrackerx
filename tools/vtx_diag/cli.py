@@ -13,6 +13,8 @@ from . import (
     audio_compare_discontinuities,
     audio_compare_smoke,
     audio_compare_stems,
+    reference_triage_correlate,
+    reference_triage_focused_window,
 )
 
 
@@ -64,12 +66,10 @@ COMMAND_REGISTRY: dict[str, CommandSpec] = {
         ),
         CommandSpec(
             name="reference_triage",
-            summary="Triage reference-render mismatches (migration pending).",
+            summary="Correlate and inspect focused reference-render mismatches.",
             compatibility_paths=(
                 "scripts/correlate-audio-comparison.py",
                 "scripts/focused-window-voice-timeline.py",
-                "scripts/focused-xm-channel-diagnostics.py",
-                "scripts/summarize-reference-render-triage.py",
             ),
         ),
         CommandSpec(
@@ -141,6 +141,29 @@ def _configure_audio_compare_parser(parser: argparse.ArgumentParser) -> None:
     discontinuities_parser.set_defaults(command_handler=audio_compare_discontinuities.run)
 
 
+def _configure_reference_triage_parser(parser: argparse.ArgumentParser) -> None:
+    """Register the migrated modes on the reference-triage family parser."""
+
+    modes = parser.add_subparsers(dest="reference_triage_mode", metavar="MODE", required=True)
+    correlate_parser = modes.add_parser(
+        "correlate",
+        help="Correlate worst comparison windows with bounded-render diagnostics.",
+        description=reference_triage_correlate.CORRELATE_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    reference_triage_correlate.add_arguments(correlate_parser)
+    correlate_parser.set_defaults(command_handler=reference_triage_correlate.run)
+
+    focused_window_parser = modes.add_parser(
+        "focused-window",
+        help="Summarize voice timelines for explicit or worst comparison windows.",
+        description=reference_triage_focused_window.FOCUSED_WINDOW_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    reference_triage_focused_window.add_arguments(focused_window_parser)
+    focused_window_parser.set_defaults(command_handler=reference_triage_focused_window.run)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the deterministic top-level parser from the command registry."""
 
@@ -160,6 +183,8 @@ def build_parser() -> argparse.ArgumentParser:
         command_parser.set_defaults(command_spec=spec)
         if spec.name == "audio_compare":
             _configure_audio_compare_parser(command_parser)
+        elif spec.name == "reference_triage":
+            _configure_reference_triage_parser(command_parser)
     return parser
 
 

@@ -382,7 +382,7 @@ When candidate diagnostics JSON is available, correlate comparison windows with
 adapter/render events:
 
 ```bash
-python3 scripts/correlate-audio-comparison.py \
+python3 -m tools.vtx_diag reference_triage correlate \
   --comparison-json /tmp/vtx-audio-compare.json \
   --diagnostics-json /tmp/vtx-ft2-profile-diagnostics.json \
   --output-markdown /tmp/vtx-audio-correlation.md \
@@ -394,11 +394,17 @@ For known timestamps, use focused windows instead of relying only on top
 ranked comparison windows:
 
 ```bash
-python3 scripts/focused-window-voice-timeline.py \
+python3 -m tools.vtx_diag reference_triage focused-window \
   --diagnostics-json /tmp/vtx-ft2-profile-diagnostics.json \
   --window 75.5:75.7 \
-  --markdown /tmp/vtx-focused-window.md
+  --format markdown \
+  --output /tmp/vtx-focused-window.md
 ```
+
+The package implementation is authoritative for both workflows. The legacy
+paths `scripts/correlate-audio-comparison.py` and
+`scripts/focused-window-voice-timeline.py` remain executable compatibility
+wrappers with their existing arguments and output behavior.
 
 Use these reports to classify the likely mismatch family: timing, traversal,
 pitch/sample-step, gain/headroom, panning/stereo, envelope/fadeout, loop,

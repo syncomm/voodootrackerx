@@ -74,13 +74,13 @@ class UnifiedDiagnosticCLITests(unittest.TestCase):
                     f"current authoritative script family: {compatibility_paths}\n",
                 )
 
-    def test_audio_compare_help_lists_migrated_modes(self):
+    def test_audio_compare_help_lists_all_migrated_modes(self):
         exit_code, stdout, stderr = self.invoke("audio_compare", "--help")
 
         self.assertEqual(exit_code, ExitCode.SUCCESS)
         self.assertEqual(stderr, "")
-        self.assertIn("    compare", stdout)
-        self.assertIn("    smoke", stdout)
+        for mode in ("compare", "smoke", "stems", "discontinuities"):
+            self.assertIn(f"    {mode}", stdout)
 
     def test_audio_compare_requires_a_mode(self):
         exit_code, stdout, stderr = self.invoke("audio_compare")

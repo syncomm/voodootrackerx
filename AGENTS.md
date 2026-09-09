@@ -1,330 +1,291 @@
-# AGENTS.md — Guidance & non-negotiables for autonomous agents (Codex, bots) working on this repo
+# AGENTS.md — Repository guidance and non-negotiable contracts
 
-## Purpose
-This document defines the rules and expectations for any automated agent (Codex or similar) and human contributors. It exists so agentic systems can operate safely, predictably, and constructively in small PR increments.
+## Purpose and authority
 
----
+This file contains durable repository and agent rules. Keep milestone status and
+sequencing out of it.
 
-## High-level principles (non-negotiable)
+Active documentation authority is divided as follows:
 
-1. **Small, verifiable changes.** Prefer small PRs that are easy to review and test. Target ≤ 500 lines changed per PR.
-2. **Tests-first mindset.** Any change that affects behavior must include tests (unit, integration, or golden tests).
-3. **Never change file formats silently.** Any change to the on-disk file format or module compatibility must be accompanied by:
-   - Explicit design note in `/docs/format-changes.md`
-   - Compatibility tests and migration tools
-4. **Protect supported module compatibility.** The app should remain compatible with supported classic MOD/XM files, with read-only compatibility as the baseline. Do not remove supported format compatibility without a documented plan.
-5. **No secrets.** Never commit credentials, tokens, or private keys.
+- `AGENTS.md`: permanent repository, compatibility, and agent rules.
+- `docs/agent-current-state.md`: concise present-tense product and runtime
+  snapshot.
+- `docs/roadmap.md`: the single canonical sequencing roadmap.
+- `docs/dev-roadmap.md`: compatibility pointer only; do not add a second roadmap.
+- Accepted ADRs and specialized docs: authority for the decision or domain they
+  explicitly own.
+- Release notes, reports, and git history: historical evidence, not active agent
+  chronology.
 
----
+When these layers appear to disagree, do not silently choose the most convenient
+text. Preserve accepted ADR boundaries, verify current behavior where necessary,
+and correct the active authority in a focused documentation change.
 
-## Tracker UI Rules
+## Development principles
 
-- For tracker viewport work, read:
-  - docs/dev-session-bootstrap.md
-  - docs/tracker-behavior-spec.md
-  - docs/ui-debugging.md
-  - docs/visual-verification.md
-  - docs/architecture.md
-- For visual bugs, do manual GUI verification early.
-- If model tests pass but UI is wrong, inspect rendered geometry immediately.
-- Use screenshots for tracker UI regressions whenever possible.
-- Do not rely only on unit tests for viewport/alignment bugs.
-- Gutter and pattern body must share one slot model and one rendered geometry path whenever possible.
-- Prefer architectural simplification over adding offset corrections.
-- Do not commit debugging artifacts, screenshots, or local copyrighted test modules.
-- For tracker viewport changes, verify: anchor row, gutter alignment, wraparound, and no phantom rows.
-- Keep tracker UI PRs narrowly scoped and visually verified before commit.
-- Use the repo's canonical local build/run workflow before inventing alternate launch methods.
-- When permissions allow, reproduce the issue, capture screenshots, and iterate independently before asking for repeated manual checks.
-- Create a checkpoint commit or tag before risky UI refactors or multi-step viewport changes.
+1. Use one dedicated branch and one behavioral contract per PR.
+2. Prefer small, verifiable changes; target no more than 500 changed lines when
+   the task itself does not require a larger deletion or consolidation.
+3. Add focused tests for every behavior change. Documentation-only changes use
+   the documentation and hygiene gates relevant to their scope.
+4. Never silently change an on-disk format or module-compatibility boundary. Add
+   a design note to `docs/format-changes.md`, compatibility tests, and migration
+   tooling when a migration is required.
+5. Preserve supported classic MOD/XM read-only compatibility. Do not remove it
+   without an explicit documented plan.
+6. Never commit credentials, tokens, private keys, private modules, or generated
+   local diagnostic artifacts.
 
----
+## Session and context loading
 
-## Branching & PR rules
+Begin every development session by reading:
 
-- Default branch: `main`
-- Feature branches: `feature/<short-description>`
-- PR titles: `<scope>: <short description>`  
-  Example: `core: add xm loader smoke test`
+- `docs/agent-current-state.md`
+- `docs/dev-session-bootstrap.md`
 
-PR descriptions must include:
-- One-sentence summary
-- List of files changed
-- Tests added/updated
-- Local verification steps
+Read `docs/roadmap.md` when choosing or sequencing work. Load specialized docs
+only for the task they own:
 
-Suggested labels:
-- `pr:ci-needed`
-- `pr:testing`
-- `pr:docs`
+- Tracker viewport/UI: `docs/tracker-behavior-spec.md`, `docs/architecture.md`,
+  `docs/ui-debugging.md`, and `docs/visual-verification.md`.
+- Effects: `docs/xm-effect-support.md`.
+- Render/reference comparison: `docs/audio-comparison.md`.
+- Runtime trace or diagnostics: `docs/playback-trace.md` and
+  `docs/diagnostic-tools.md`.
+- Editable instrument/sample ownership: [ADR 012](docs/decisions/012-from-scratch-instrument-sample-composition-model.md),
+  [ADR 013](docs/decisions/013-visible-keymap-ownership-projection.md),
+  [ADR 014](docs/decisions/014-loaded-xm-editable-copy-planning.md), and the
+  relevant editor design note.
 
----
+Load `docs/task-templates.md` only when it materially helps. Do not load reports
+as general current context; use them only when investigating their historical
+thread.
 
-## CI & Quality Gates
+## Branch, commit, and PR workflow
 
-- CI must run on macOS runners (`macos-latest`) for build-related PRs.
-- PRs must pass:
-  - Build (if relevant)
-  - Tests
-  - `scripts/check-files.sh`
-- If CI fails, do not merge.
-- Non-trivial failures should result in an issue.
+- Never make a non-trivial change directly on `main`.
+- Start from a clean, synchronized `main`, then create a concise task branch such
+  as `feature/<topic>`, `fix/<topic>`, or `docs/<topic>`.
+- Keep unrelated user changes intact. If unrelated changes make the intended
+  diff ambiguous, stop and report the state.
+- Codex leaves work uncommitted by default. Commit, push, or open a PR only when
+  the user explicitly requests it.
+- Before opening a PR, run the full local verification suite applicable to its
+  scope. For a documentation-only PR, the required documentation/hygiene checks
+  are the applicable suite unless the task calls for more.
+- Commit messages use imperative present tense and a concise scope, for example
+  `core: add xm reader`.
+- Never merge your own PR. Request review from the primary maintainer before
+  merge.
 
----
+PR titles use `<scope>: <short description>`. PR descriptions include:
 
-## Coding Style & Architecture
+- a one-sentence summary;
+- files changed;
+- tests added or updated;
+- exact local verification steps;
+- build, test, and manual-validation checklist items.
 
-### App Layer
-- Prefer **Swift + AppKit** for initial macOS UI.
-- Keep UI components testable and modular.
-- Avoid embedding core audio logic directly inside view controllers.
+When asked to submit or open a PR, and the branch and diff contain only intended
+work:
 
-### Core Engine
-- C or C++ permitted for DSP/performance.
-- Provide a small Swift wrapper layer for interop.
-- Avoid unnecessary abstraction in early milestones.
-
-### Formatting
-- Swift: `swiftformat` (to be added later)
-- C/C++: `clang-format` (to be added later)
-
-### Documentation
-- Public functions must include doc comments.
-- Complex logic must include inline explanation comments.
-
-### Documentation rules
-- Update `docs/roadmap.md` when milestone scope, sequencing, or verification expectations change.
-- For major architectural choices, add a short decision note under `docs/decisions/` (ADR-style, lightweight).
-- Any architectural change PR must include or update a decision note in `docs/decisions/`.
-
----
-
-## Commit Style
-
-- Imperative present tense.
-  - Good: `core: add xm reader`
-  - Bad: `added xm reader`
-- Keep commit messages concise but meaningful.
-- Include short rationale in body when necessary.
-
----
-
-## Agent Operational Rules (Codex behavior)
-
-When operating autonomously, an agent MUST:
-
-1. Create a dedicated branch for each task.
-2. Run the full local test suite before opening any PR.
-3. Keep changes scoped and minimal.
-4. Include tests and update docs when necessary.
-5. Include a PR checklist with:
-   - Build verification
-   - Test verification
-   - Manual validation steps
-6. NEVER merge its own PRs.
-7. Read `docs/agent-current-state.md` first for current backend state and context-loading guidance.
-8. Read `docs/roadmap.md` at the start of work (when present) to maintain continuity.
-9. Begin all development sessions by loading `docs/dev-session-bootstrap.md`.
-
----
-
-## Agent PR Submission Protocol
-
-When the user says "submit a PR", "open a PR", or equivalent, an agent should proceed without asking for extra confirmation if the current work is on a scoped feature branch and the worktree contains only intended changes.
-
-Use this flow:
-
-1. Check `git status --short --branch` and review the staged/unstaged file list.
-2. Stage only the intended files.
+1. Review `git status --short --branch` and the complete diff.
+2. Stage only intended files.
 3. Commit with an imperative scoped message.
-4. Push the branch to origin.
-5. Create the PR with `gh pr create`.
-6. Write the PR body to a temporary file under `/tmp` and pass it with `--body-file` instead of embedding a long multi-line body in the shell command.
-7. After creation, run `gh pr view` or equivalent to confirm the PR URL, base branch, head branch, title, and open state.
+4. Push the branch to `origin`.
+5. Write the PR body to a file under `/tmp` and use `gh pr create --body-file`.
+6. Confirm URL, base, head, title, and open state with `gh pr view`.
 
-Do not merge the PR. Do not ask for confirmation unless the branch, diff, or uncommitted changes are ambiguous, unrelated changes are mixed in, or the action would be destructive. If command approval is needed, request a narrow persistent prefix such as `git push` or `gh pr create`; do not ask the user to approve one very long inline PR creation command.
+Do not ask for redundant confirmation in that clean, explicitly requested flow.
+Do not merge the PR.
 
----
+## Canonical Xcode build and provenance
 
-## Context Loading Guidelines
+Run normal Xcode work from the repository root and use the shared repo-root
+Derived Data directory:
 
-Future agents should load only the documents needed for the current task.
-
-All development sessions should begin by loading:
-- `docs/agent-current-state.md`
-- `docs/dev-session-bootstrap.md`
-
-For tracker UI work:
-- `docs/agent-current-state.md`
-- `docs/dev-session-bootstrap.md`
-- `docs/tracker-behavior-spec.md`
-- `docs/architecture.md`
-- `docs/ui-debugging.md`
-- `docs/visual-verification.md`
-
-For effect work:
-- `docs/agent-current-state.md`
-- `docs/xm-effect-support.md`
-
-For render/reference comparison work:
-- `docs/agent-current-state.md`
-- `docs/audio-comparison.md`
-
-For runtime trace or diagnostic work:
-- `docs/agent-current-state.md`
-- `docs/playback-trace.md`
-
-For general development:
-- `docs/agent-current-state.md`
-- `docs/dev-roadmap.md`
-
-Load `docs/task-templates.md` only when it helps structure a new task or clarify expected deliverables. Do not load it by default for every session.
-
-Avoid loading unnecessary documentation when it does not help the task, to reduce token usage and preserve focus.
-
-Do not append long investigation reports to `docs/roadmap.md`,
-`docs/dev-roadmap.md`, `docs/audio-comparison.md`, or
-`docs/playback-trace.md`. Put public-safe long reports under `docs/reports/`
-only when explicitly requested. Put private/local reports and generated
-artifacts under `/tmp` or another untracked local path.
-
----
-
-## UI Debugging Protocol
-
-When debugging UI alignment issues, always distinguish between:
-- data/model correctness
-- rendered geometry correctness
-
-If a UI bug persists after model tests pass:
-- inspect rendered geometry immediately
-- log or compare actual draw Y positions
-- do not assume model correctness implies visual correctness
-
-Screenshots are strongly recommended for visual regressions.
-
-When tooling permissions allow it, agents should capture their own screenshots during UI debugging instead of relying only on textual reports.
-
-When debugging tracker UI, prefer manual GUI verification early instead of repeated speculative code changes.
-
-When debugging app behavior, use the project's canonical local build/run path first.
-
-For manual macOS app smoke/debug runs launched through LaunchServices, use the
-Debug app built under `build/Build/Products/Debug/` and set app environment with
-`launchctl setenv` before `open`, for example:
-
-```sh
-launchctl setenv VTX_OPEN_PATH /path/to/local-reference-module.xm
-launchctl setenv VTX_AUDIO_BACKEND c_mixer
-launchctl setenv VTX_C_MIXER_RUNTIME_TRACE_PATH /tmp/vtx-runtime-trace.jsonl
-launchctl setenv VTX_DEBUG_AUTOPLAY 1
-launchctl setenv VTX_DEBUG_STOP_AFTER_SECONDS 10
-open build/Build/Products/Debug/VoodooTrackerX.app
+```bash
+xcodebuild \
+  -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
+  -scheme VoodooTrackerX \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  -derivedDataPath build \
+  CODE_SIGNING_ALLOWED=NO \
+  build
 ```
 
-Use private/local reference modules for manual audio listening or comparison
-smoke checks when available; do not substitute tiny synthetic fixtures for those
-checks. The 10-second debug stop window gives autoplay time to cross a typical
-pattern boundary; increase it for modules or start positions that need a later
-transition. Keep private module names, local absolute paths, and generated
-traces or captures out of committed files. After the smoke run, quit the app and
-clear any LaunchServices environment overrides with `launchctl unsetenv`.
+The canonical maintainer Debug executable is:
 
-When reproduction can be automated, agents should:
-- launch the app themselves
-- drive the UI with keyboard or mouse automation when possible
-- compare before/after screenshots for the same scenario
+```text
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
 
-Before risky UI iteration, create a checkpoint commit or tag so the session can safely return to the last known-good state.
+- Use the same `-derivedDataPath build` for normal Xcode test actions.
+- Do not create task-specific build directories inside the repository and do
+  not expand `.gitignore` to accommodate them. Use `/tmp` or an external scratch
+  location only when a genuinely isolated build is required.
+- Treat stale-build provenance as a first-class failure mode. Before evaluating
+  app behavior or screenshots, rebuild the intended branch/diff and confirm the
+  process being launched is the canonical product above.
+- Use the canonical executable directly for maintainer smoke runs. If a
+  LaunchServices run is required, use the same Debug app, set environment with
+  `launchctl setenv` before `open`, then quit the app and clear every override
+  with `launchctl unsetenv`.
+- Do not invent alternate launch paths before ruling out a stale or wrong build.
 
-Acceptable debugging artifacts:
-- screenshots
-- local fixture files
-- temporary logging
+## Protected architecture and compatibility boundaries
 
-Debugging artifacts must not be committed into the repository.
+### Parser and loaded documents
 
-When working on tracker viewport logic, verify these invariants manually:
-- gutter rows align with pattern rows
-- highlight row remains static
-- wrap behavior works at the top and bottom
-- no phantom blank rows appear early
+- Keep parsing isolated from UI, playback, and editable-document mutation.
+- Loaded MOD/XM modules remain read-only. Audition and export availability do
+  not grant mutation rights or source-path ownership.
+- Changes to parser behavior require focused fixtures and compatibility tests.
+- Use only project-generated, redistribution-safe fixtures in git.
 
----
+### Runtime and rendering
 
-## Large Change Protocol
+- Keep the macOS app in Swift + AppKit with modular, testable UI components.
+  Performance/DSP code may use C or C++ behind a narrow Swift boundary; do not
+  embed core audio logic in view controllers.
+- Runtime playback authority is the CoreAudio DefaultOutput Audio Unit host
+  driving the C mixer render core.
+- `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` are
+  aliases for that path. The retired `av_audio` value may report a fallback but
+  must not restore an AVAudio runtime backend.
+- The Swift playback/adapter layer plans events; the C mixer owns the runtime and
+  bounded-offline render core. Offline render/export is the deterministic audio
+  comparison path; runtime smoke checks validate host delivery.
+- Keep effect semantics, C-mixer DSP, parser behavior, runtime-host work, and
+  real-time callback-safety work in separately scoped PRs unless an approved
+  design explicitly joins them.
 
-For architectural or large-scale changes:
+### Editable documents and Undo
 
-1. Open an issue labeled `proposal`.
-2. Include design notes in `/docs/`.
-3. Create a minimal Proof-of-Concept branch.
-4. Open PR titled: `proposal: <short title>`.
+- Route every editable-content mutation through
+  `EditableDocumentEditCoordinator.applyEdit`.
+- One user action creates at most one labeled Undo edit. Cancelled, invalid,
+  stale, read-only, playing, conflicting, same-target, and no-op paths create no
+  mutation, revision, or history.
+- Keep source URLs and loaded-source ownership out of editable value snapshots.
+- Save and source replacement must never be inferred from Export or Make
+  Editable Copy behavior.
 
-No large refactors without prior discussion.
+### Canonical sample and keymap semantics
 
-## Decision Log (Lightweight ADRs)
+- When instrument routing is present, the document owns one exact 96-entry XM
+  keymap: C-0 is index `0`, B-7 is index `95`, and entries retain exact sample
+  identity. An absent map is honest routing absence, not an implicit S01 map.
+- Preserve stable S01...S16 identities, including canonical empty identities and
+  sparse routes. Never compact, fabricate, or silently redirect a missing mapped
+  sample to S01 or to the first playable sample.
+- Selected sample is editing focus only. Tracker entry/audition, Instrument
+  Editor audition, song playback, and product audio export resolve instrument +
+  note through the keymap. Sample Editor audition alone resolves the represented
+  selected sample directly.
+- Keymap assignment is explicit document mutation through the existing edit
+  path. Visible-range projection, selection, and pressed-note UI are not a second
+  map or write path.
+- Only the established neutral first-S01 population may initialize an absent map
+  to all S01. Later population, replacement, clearing, and duplication preserve
+  the exact existing map; Move and Swap remap it atomically with sample identity.
 
-- Store short architecture decision notes in `docs/decisions/`.
-- Keep each note concise (problem, decision, rationale, impact/tradeoffs).
-- Use this for major choices such as UI toolkit, audio engine approach, parser/file format strategy, and persistence/compatibility decisions.
-- If a later PR changes a prior decision, add a new note that supersedes the old one rather than rewriting history.
+### Loaded-XM editable-copy planning
 
----
+- [ADR 014](docs/decisions/014-loaded-xm-editable-copy-planning.md) owns the
+  planner and its `exact`, Profile-v1 `normalized`, and
+  `unavailable` outcomes.
+- Exact and approved normalized results create untitled value-owned editable
+  documents; unavailable results remain actionable refusals. The loaded source
+  stays read-only and untouched.
+- Profile v1 may normalize only its approved inert zero-payload sample-slot
+  metadata. Never silently convert Amiga frequency mode to Linear or broaden the
+  profile without a new approved compatibility decision and explicit UX.
 
-When modifying the tracker editor or viewport behavior, always follow:
+### Sample import and preview
 
-docs/tracker-behavior-spec.md
+- Preserve the shared sample-import validation, decode, normalization, and
+  stale-result revalidation path. Imported PCM becomes document-owned canonical
+  mono 16-bit data through one edit; source paths, metadata, and unsupported loop
+  state are not retained.
+- Do not add a parallel format-specific mutation path or weaken container,
+  bounds, destination, document-identity, revision, selection, occupancy, or
+  transport checks.
+- Persistent editor preview is isolated from song transport and runtime playback.
+  Reuse its existing resolver, generation/cancellation, and audio stream rather
+  than creating a second audition engine. Preview never mutates the document or
+  creates Undo history.
 
----
+### Song/order and tracker viewport
 
-## Automation Hooks
+- For stopped editable documents, `BlankTrackerDocument.currentPosition` and
+  `currentPatternIndex` are the canonical song/order navigation authority. Main
+  POS and Song / Order controls must converge on it; view-only pattern browsing
+  must not silently assign an order slot.
+- Playback follow is transient. Normal Play follows the selected order; Play
+  Current Pattern follows the viewed pattern without reassigning it.
+- The tracker highlight row remains static while pattern rows scroll behind it.
+  Gutter and pattern body must share one slot model and, wherever possible, one
+  rendered geometry path.
+- Tracker viewport changes must verify anchor row, gutter/body alignment,
+  top/bottom wraparound, and absence of early phantom rows. If model tests pass
+  but the UI is wrong, inspect actual rendered geometry immediately.
 
-- Scripts in `/scripts/` must be idempotent.
-- Do not add new one-off root or diagnostic scripts without documenting them in
-  `docs/diagnostic-tools.md`.
-- Prefer extending existing diagnostic tooling over adding hyper-specific
-  scripts.
-- Keep private diagnostic inputs and generated outputs under `/tmp` or another
-  ignored local path.
-- CI must remain green on `main`.
-- Agents should prefer adding tests before modifying production code.
+## UI debugging and manual verification
 
----
+- Reproduce visual issues through the canonical local build/run path and inspect
+  screenshots early.
+- Compare expected and actual draw positions before adding offsets.
+- Prefer architectural simplification over accumulating correction constants.
+- Automate the same before/after UI scenario when practical.
+- Create a checkpoint commit or tag before risky multi-step viewport refactors.
+- Never commit screenshots, logs, local fixture modules, or temporary debugging
+  output.
 
-## Emergency Policy
+## Private corpus and artifact hygiene
 
-If an agent introduces breaking changes:
+- Keep private modules, local corpus label maps, and artifacts derived from them
+  outside the repository.
+- Never hardcode a maintainer-local corpus-map path or default. Accept an explicit
+  local input and keep the map itself untracked.
+- Do not publish private filenames, module identities, corpus counts, local
+  absolute paths, or machine-specific notes. Use stable anonymized labels when a
+  public-safe example is necessary.
+- Put WAVs, traces, captures, JSON, generated Markdown, screenshots, logs,
+  benchmarks, and private reports under `/tmp` or another ignored external path.
+- Add public reports under `docs/reports/` only when explicitly requested and
+  reviewed for redistribution and privacy.
+- Run `scripts/scan-tracked-private-leaks.sh` before handoff for diagnostic,
+  corpus, release, or broad documentation work.
 
-- Revert the PR.
-- Open an `incident` labeled issue.
-- Temporarily disable automation if necessary.
+## Documentation, automation, and large changes
 
----
+- Update `docs/roadmap.md` only when milestone scope, order, or verification
+  expectations change. Do not append investigation chronology to active docs.
+- Put major architectural decisions under `docs/decisions/`; if a later decision
+  changes one, add a superseding note rather than rewriting accepted history.
+- Public functions require doc comments. Complex logic requires concise inline
+  rationale.
+- Scripts under `scripts/` must be idempotent. Extend documented diagnostic
+  tooling instead of adding untracked one-off repository scripts.
+- Architectural or large-scale changes require prior discussion, a proposal
+  issue, a concise design note, and a minimal proof-of-concept branch. Use a PR
+  title of `proposal: <short title>`.
+- CI for build-related PRs runs on `macos-latest` and must pass the applicable
+  build, tests, and `scripts/check-files.sh`. Do not merge failed CI; record
+  non-trivial failures as issues.
 
-## Branch Safety Rules
+## Emergency and regression safety
 
-- Never work directly on `main`.
-- For any non-trivial change, create or switch to a feature branch before editing files.
-- Branch names should be concise and task-specific, e.g.:
-  - `feature/control-panel-layout`
-  - `feature/tracker-gutter-pin`
-  - `fix/track-editor-regression`
-- If currently on `main`, stop and create a feature branch before making changes.
-- Do not ask the user to name the branch unless the task is ambiguous.
-
----
-
-## Regression Safety
-
-- Before changing tracker UI, identify the last known-good commit or PR for that area.
-- If a new task introduces a regression, restore known-good behavior first before continuing feature work.
-- Never leave tracker viewport behavior regressed while working on unrelated UI polish.
-
----
+- If a change introduces a breaking regression, restore the last known-good
+  behavior first, revert the PR when appropriate, and open an `incident`-labeled
+  issue for a material failure.
+- Before tracker UI work, identify the last known-good commit or PR for that
+  area. Never leave viewport behavior regressed while polishing unrelated UI.
+- Do not disable automation except as a temporary, documented incident response.
 
 ## Maintainer
 
-Primary maintainer: Gregory Hayes (`syncomm`)
-
-Agents must request review from the primary maintainer before merge.
+Primary maintainer: Gregory Hayes (`syncomm`). Request maintainer review before
+merge.

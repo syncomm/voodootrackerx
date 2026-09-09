@@ -8,7 +8,6 @@ For current state, read:
 
 - `docs/agent-current-state.md`
 - `docs/roadmap.md`
-- `docs/dev-roadmap.md`
 
 ---
 

@@ -1,507 +1,146 @@
 # Agent Current State
 
-Read this first when starting backend, audio, parser, effect, or tooling work.
-It is the short current-state snapshot; load longer docs only when the task
-needs them.
+This is the concise present-tense snapshot for a new development session. Read
+`AGENTS.md` for permanent rules and `docs/roadmap.md` for sequencing. Load
+specialized docs only for the domain being changed.
 
-The historical VoodooTracker source is no longer vendored as a submodule.
-Current implementation decisions come from VTX ADRs, designs, tests, and public
-fixtures. External tracker implementations are optional comparison material,
-not repository dependencies or canonical implementation authorities.
+The historical VoodooTracker source is not a repository dependency or canonical
+implementation authority. Current decisions come from accepted VTX ADRs,
+current design documents, tests, and redistribution-safe project fixtures.
 
-## Product Scope Pointer
+## Shipped baseline
 
-VTX 1.0 is scoped as a self-contained XM-style sample/instrument tracker that
-can create complete sample-based songs from scratch. It is not only a playback,
-display, or pattern-entry milestone, and it is not a DAW/plugin-host milestone.
+The shipped baseline is `v0.3.0-alpha.2 — Sample Lifecycle Alpha`. Its scope and
+verification are closed; do not reopen the release or reconstruct its PR
+history in active context. See the
+[release notes](release-notes/v0.3.0-alpha.2.md) for historical release detail.
 
-Current release line: `v0.3.0-alpha.2 — Sample Lifecycle Alpha`. The
-implementation is complete and the final release gate verdict is **GO**.
+VTX remains an alpha-quality, native AppKit XM-style tracker. The VTX 1.0 goal is
+a self-contained sample/instrument composition workflow, not a DAW or plug-in
+host.
 
-Current release invariants:
+## Runtime and audio
 
-- Sample identity uses stable represented/empty S01...S16 slots. Sparse slots
-  persist through supported XM export, reopen, and editable-copy workflows
-  without compacting later identities or fabricating samples.
-- Clear removes one represented sample in place; LOAD/SINE can repopulate that
-  exact empty destination; Duplicate appends at the next tail identity; Move and
-  Swap transform samples, all 96 keymap references, and selection together.
-  Each successful operation is one exact Undo/Redo edit. Cancelled, stale,
-  invalid, read-only, playing, same-slot, and no-op paths create no mutation or
-  history.
-- The canonical route is instrument + note -> exact 96-note XM keymap ->
-  represented sample. Selected sample remains editing focus. Instrument/tracker
-  audition and playback use the keymap; Sample Editor audition is direct.
-  Explicit assignment remains the manual `MAP RANGE…` workflow.
-- Loaded modules remain read-only. `File > Make Editable Copy` returns an exact
-  copy, a Profile-v1 normalized copy for approved inert zero-payload sample-slot
-  metadata, or an actionable unavailable reason. Copies are untitled and never
-  own or modify the source. Normalized export may differ structurally; Amiga
-  frequency mode is never silently converted to Linear.
-- Empty allocated patterns remain visible and selectable. Stopped main POS and
-  Song / Order navigation share canonical editable-document authority; live POS
-  and PTN follow together. Normal Play follows the selected order, while Play
-  Current Pattern follows the viewed pattern without silently reassigning it.
-- Meaningful editable work is protected by confirmation before New or Open
-  replacement. Clear Song Data is stopped-only, confirmed, and undoable. WAV and
-  M4A export share one re-entry gate.
-- Save and Save As remain disabled. Export XM is the current persistence
-  boundary for the supported editable subset.
+- Runtime playback uses the CoreAudio DefaultOutput Audio Unit host and the C
+  mixer render core. `VTX_AUDIO_BACKEND=c_mixer` and
+  `VTX_AUDIO_BACKEND=c_mixer_coreaudio` name the same path.
+- The retired `av_audio` value falls back to the CoreAudio C mixer with a
+  diagnostic reason; retired AVAudio runtime paths are not supported.
+- Swift playback/adapter code plans module events. The C mixer renders runtime
+  playback and bounded offline work.
+- Offline C-mixer render/export is the deterministic comparison context. Runtime
+  capture and smoke checks validate the app host and delivery path; they do not
+  create a second playback authority.
+- Editor audition uses the existing persistent preview stream, isolated from
+  song transport and normal runtime playback.
 
-[ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md),
-[ADR 014](decisions/014-loaded-xm-editable-copy-planning.md), and the active
-design notes hold the detailed ownership, lifecycle, and compatibility rules.
-Future plugin or audio-input bridges remain later sample/import experiments, not
-live plugin playback inside classic XM compatibility.
+Use `docs/audio-comparison.md` for reference-render work,
+`docs/playback-trace.md` for runtime traces/captures, and
+`docs/xm-effect-support.md` for the canonical effect-support table.
 
-The post-v1 priority is VTX as an AUv3 tracker instrument before a general
-Audio Unit host: native macOS AUv3 first, then iPadOS AUv3 after the headless
-engine and contained UI are proven. AUv3 is the only approved format in this
-direction; it does not expand v1, add a target, or change the runtime. See
-`docs/decisions/011-post-v1-auv3-tracker-instrument-direction.md`.
+## Document and persistence boundary
 
-## Release Status And Next Action
+- Opened modules remain loaded, read-only sources. Audition and audio export do
+  not make them editable or grant source ownership.
+- Blank documents and editable copies are value-owned. Editable content changes
+  flow through `EditableDocumentEditCoordinator.applyEdit`; one user action
+  creates at most one labeled Undo edit, while cancelled, stale, invalid,
+  read-only, playing, conflicting, and no-op paths create none.
+- [ADR 014](decisions/014-loaded-xm-editable-copy-planning.md) owns loaded-XM
+  editable-copy planning. Its results are `exact`,
+  Profile-v1 `normalized`, or `unavailable`. Exact and approved normalized plans
+  create untitled documents; the loaded source remains read-only and untouched.
+  A normalized later export may differ structurally. Amiga frequency mode is
+  never silently converted to Linear.
+- Save and Save As are disabled. `File > Export XM...` is the persistence
+  boundary for the supported editable subset; exported files reopen as loaded,
+  read-only modules.
+- `File > Export Audio` provides non-mutating whole-song 48 kHz Float32 WAV and
+  fixed 192 kbps AAC/M4A export for stopped loaded or editable documents. WAV is
+  the high-quality/diagnostic format; M4A is the sharing format. Export uses the
+  windowed offline C-mixer path, writes only to the selected destination, and
+  keeps source ownership and Save state unchanged.
 
-Release target: `v0.3.0-alpha.2 — Sample Lifecycle Alpha`.
+See [ADR 012](decisions/012-from-scratch-instrument-sample-composition-model.md)
+for the editable composition model and
+[ADR 014](decisions/014-loaded-xm-editable-copy-planning.md) for copy admission
+and normalization details.
 
-The final gate is **GO**. The release/tag is the immediate operational step; see
-the [release notes](release-notes/v0.3.0-alpha.2.md). No post-alpha
-implementation should begin before this documentation change is reviewed and
-merged and the annotated tag is pushed.
+## Sample and keymap lifecycle
 
-After the tag: complete a checkpoint/manager handoff, then follow the focused
-post-release sequence in `docs/roadmap.md`. Diagnostic-tool consolidation comes
-before playback/effect and related real-time correctness work. Native editable
-Amiga-frequency mode remains later work.
+- When an instrument has routing, its canonical XM keymap is exactly 96 notes
+  from C-0 at index `0` through B-7 at index `95`, and every entry retains its
+  exact Sxx identity. A nil map is honest routing absence, not implicit S01.
+- Represented and canonical empty S01...S16 identities are stable. Sparse
+  identity and routing survive the supported Export XM/reopen and editable-copy
+  paths without compaction, fabricated PCM, or fallback redirection.
+- Clear removes the exact represented selection in place; SINE or LOAD can
+  repopulate that destination. Duplicate appends at the next tail identity.
+  Move and Swap transform sample identity, all keymap references, and selection
+  together. Successful operations are exact single-edit Undo/Redo transactions.
+- Only neutral first-S01 population establishes an all-S01 map when routing was
+  absent. Other population, replacement, clear, and duplicate operations
+  preserve the existing map.
+- The Instrument Editor's manual `MAP RANGE…` action is the current explicit
+  assignment surface. The visible ownership strip is only a projection of the
+  canonical map; graphical selection/painting is not implemented.
+- Instrument Editor, tracker audition/entry, song playback, and product audio
+  export resolve instrument + note through the keymap. Selected sample remains
+  editing focus and cannot redirect those routes. Sample Editor audition alone
+  resolves the represented selected sample directly.
+- Sample import accepts the currently supported WAV/WAVE, AIFF/AIF, AIFC, and
+  native FLAC subset through one validation/decode/normalization path. A
+  successful import owns canonical mono 16-bit PCM in the document, retains no
+  source path, revalidates asynchronous state, and commits once through
+  `applyEdit`.
+- Current stopped-editable metadata includes instrument name and selected-sample
+  panning, volume, relative note, and finetune. Preserved envelope/autovibrato
+  fields remain read-only or runtime-inert where the specialized design docs say
+  so.
 
-Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
-`File > Export Audio` for stopped loaded modules, editable documents, and
-editable copies. Export is non-mutating, writes only to the selected
-destination, does not claim source-path ownership, keeps Save/Save As disabled,
-does not use the diagnostic bounded-render cap, renders through the same
-64-row windowed offline path used by the proven render tool mode, and applies
-export-boundary auto-headroom without a second full mixer render. The app
-product render default is 48 kHz Float32; M4A encodes the completed scaled PCM
-as 192 kbps AAC for convenient sharing. Export can be cancelled cooperatively at
-safe preparation, render-window, headroom-chunk, and final-write boundaries;
-temporary output is removed, cancellation is non-mutating, and determinate
-progress is continuous and weighted across the remaining phases. WAV remains
-the preferred high-quality and export-diagnostic format; M4A is intended for
-convenient sharing. Export XM remains scoped to the current editable subset,
-not an arbitrary-XM round-trip guarantee or full FT2/OpenMPT/MilkyTracker
-parity claim. `Window > Instrument Editor` follows the v1 mockup hierarchy for
-the current palette selection, represented sample metadata, read-only VOL/PAN envelope
-preview, and note-map ranges. Represented instrument NAME plus selected-sample
-PAN, VOLUME, REL NOTE, and FINETUNE are editable only in stopped editable documents or
-editable copies; all use labeled whole-document `applyEdit` undo/redo. Sample panning is the first
-editable sample metadata field and preserves the exact XM `0...255` byte
-through snapshots and Export XM. Loaded modules, playing documents, missing or
-empty sample slots, and all unimplemented mutation controls remain read-only/inert.
-Instrument/sample rows, including eligible canonical empty destinations, share the main control-panel selection in loaded or editable
-documents, including during playback. Row selection is non-mutating, creates no undo, cancels stale
-preview before switching context, and drives metadata; sample selection drives only direct Sample
-Editor audition when a represented sample exists, while instrument-note audition ignores it. Empty rows clear
-sample metadata, disable sample mutators and `MAP RANGE…`, and never redirect the keymap. Transport gates mutation only.
-The floating Instrument Editor closes through its red close button or Command-W without
-closing the main app window, and `Window > Instrument Editor` recreates one clean
-controller/router afterward. Its computer-key audition router inspects only keyDown/keyUp events;
-the local on-screen keyboard handles only primary-pointer presses on its rendered keys. Editable-copy feedback
-remains a document-level sheet on the main tracker window; when invoked from the key Instrument
-Editor, that floating panel is temporarily ordered behind the sheet and restored after dismissal.
-Open/reopen starts on the non-editing content responder rather than selecting NAME; NAME
-enters normal AppKit text editing only after explicit focus, temporarily suppressing audition.
-When the Instrument Editor is the key window, unmodified tracker note keys outside text
-responders use the shared note map, current octave/selection, availability resolver, and
-preview sink. This window-scoped path is audition-only and its active preview is not transport
-playback: supported controls remain editable while previewing, edits apply to the next trigger,
-and closing the window cancels its preview and detaches its handlers. The on-screen keyboard keeps a
-three-octave window that defaults to C-2...B-4 and shifts by octave across the 96-note map without
-document or undo mutation. Its ownership strip follows that exact visible range
-and shared piano geometry in editable and read-only documents; range navigation
-changes only session UI projection state. Focused computer-key and mouse audition share one generation-token
-pressed visual when the active note is visible; both remain monophonic. Dragging crosses with
-release/press semantics.
-Mouse-up, outside drag, selection/document transitions, deactivation, and close clear its voice and pressed state. XM note maps select the clicked note's sample without changing editor selection.
-Loaded modules stay read-only; audition creates no document or undo mutation.
-`Window > Sample Editor` now opens one active fixed utility window at a time,
-aligned to
-`assets/mockups/sample-editor-v1.html`, which is authoritative over prose for
-visual hierarchy and geometry. It shares the canonical instrument/sample
-selection with the main control panel and Instrument Editor. Its compact
-instrument popup changes that shared UI state without document mutation or undo,
-reuses the canonical sample-normalization policy, and stays selectable for
-loaded/editable documents during playback. The selected sample row and Sxx
-identity derive from the shared slot projection; exact metadata, bounded read-only
-min/max waveform, and display-only no/forward/ping-pong loop region derive only
-from a represented sample.
-Unnamed represented samples show `(unnamed sample)`; absent samples clear every
-sample surface and are labeled as empty destinations. Empty rows remain selectable
-during playback, but direct AUDITION is unavailable; SINE/LOAD become eligible only
-for the exact selected canonical empty row in a stopped editable document. FORMAT reports represented bit depth and mono without treating
-playback-policy `baseSampleRate` as source metadata.
-SINE, audio LOAD, represented-sample CLEAR, and the Edit-menu Duplicate/Move/Swap
-commands are the current sample mutations. LOAD is available
-only for a stopped editable selected canonical empty Sxx or represented selected sample and is
-disabled during an active import. Its single-file panel accepts WAV/WAVE,
-AIFF/AIF, AIFC, and native FLAC; container identity is authoritative and
-recognized extension/container mismatches are rejected. Native FLAC accepts
-only mono/stereo 16-bit and 24-bit sources. It rejects 8-bit and untested
-depths, Ogg-FLAC, invalid STREAMINFO, unsafe dimensions, and decoder/preflight
-disagreement; metadata and loops are ignored. Mono skips channel choice, while
-stereo offers Mix/Left/Right. Decode/normalization runs in the background with
-exact document identity/revision/selection/occupancy revalidation. Empty LOAD
-installs directly without an occupied-target choice; represented LOAD still offers
-Replace/Add as New/Cancel, and Add appends after the highest represented identity.
-One `Import Audio Sample` or `Replace Audio Sample` edit owns canonical mono 16-bit PCM;
-only neutral zero-sample/nil-map S01 import establishes the all-S01 map, while
-other population and replacement preserve the exact map, slot, and unrelated instrument data. Commit cancels stale preview
-once, refreshes every editor, and does not auto-audition; the next trigger uses
-imported PCM, pan, gain, and tuning. Undo/redo restores exact prior/imported
-state, and no source path is retained. CLEAR uses the stopped-editable exact-target
-confirmation and one-edit contract summarized above. Rename Sample, Move Up/Down
-convenience, and direct loop/PCM/waveform editing remain deferred.
-Separately, stopped editable documents can map a nonempty represented sample in
-the selected instrument through the Instrument Editor's `MAP RANGE…` sheet over
-the canonical C-0...B-7 domain. The read-only ownership strip projects only the
-same visible 36 notes as the piano from the canonical map, using the piano's
-horizontal note boundaries. It has no pointer selection, transient overlay,
-selection readout, or sheet-prefill state. Deterministic manual defaults use a focused audition note,
-then the selected octave, then C-4...B-4; confirmation reads the current From/To
-selectors.
-One `Map Sample to Note Range` edit preserves selection and notes outside the
-range; failures and no-ops create no revision/history, and undo/redo is exact.
-Exact boundary coverage pins C-0=0, C-4=48, C-5=60, B-5=71, C-6=72, and
-B-7=95; mapping S02 to C-5...B-5 changes exactly indices 60...71 while B-4
-and C-6 stay S01. Instrument Editor computer/on-screen audition, pattern-entry audition, and editable
-playback consume the map without consulting selected-sample UI state. Sample Editor
-audition stays direct-selected-sample. Distinct S01/S02 tests cover the former
-alpha.1 blocker; there is no automatic/drag mapping or auto-audition.
-Sample Editor AUDITION now toggles the represented selected slot directly at
-C-4 through the persistent preview stream for loaded/read-only and editable
-sources, preserving existing PCM/loop/volume/pan/tuning planning without keymap
-lookup or mutation. Instrument Editor remains keymap-driven. Note selection and
-natural-completion UI notification remain future work; no polling is used.
-Selected-sample volume now likewise preserves exact XM `0...64` values through
-`applyEdit`, undo/redo, and Export XM; subsequent playback uses the existing
-adapter gain mapping without runtime engine, DSP, or scheduling changes.
-Selected-sample relative note preserves the exact XM signed byte `-128...127`
-through the same paths; later playback uses the existing pitch adaptation.
-Selected-sample finetune preserves the exact XM signed byte `-128...127` through
-the same paths; later playback uses the existing pitch adaptation with no pitch
-formula, runtime engine, DSP, or scheduling architecture change.
-PAN, VOLUME, and FINETUNE numeric and accessibility values now update transiently
-during drag. Intermediate values do not mutate the document or preview voice;
-mouse-up creates at most one existing labeled `applyEdit` undo action, lifecycle
-cancellation restores canonical state, and the persistent preview stream is unchanged.
-Sample-header panning now initializes preview, runtime, and product-export
-voices from the resolved sample. Its monotonic mapping is exact at byte `0`
-(`-1`), `128` (`0`), and `255` (`+1`); existing volume/effect panning then
-keeps its established mapping and precedence. Edits affect the next trigger,
-not a held voice, with no backend or C mixer DSP change. XM instrument
-autovibrato type/sweep/depth/rate bytes are likewise preserved through editable
-copy, snapshots, and Export XM, shown on disabled VIBRATO controls, and remain
-runtime/audition-inert. XM instrument panning-envelope points, counts, sustain/
-loop indices, and supported flags are now preserved through the same loaded,
-editable-copy, snapshot, and Export XM paths. The local display-only VOL/PAN
-selector exposes their graph, point count, enabled, sustain, and loop state;
-they remain runtime-inert and create no document or undo mutation. These
-metadata slices add no loop, PCM, envelope, waveform, vibrato, or XI mutation.
-Save/Save As, loaded-module direct editing, broader Instrument Editor editing,
-Rename Sample, Move Up/Down convenience, direct loop/PCM/waveform editing, PCM16 product export,
-pattern/order ranges, channel/stem export, diagnostic comparison
-profile UI, and user-selectable gain/headroom remain future work.
+## Editor and transport boundaries
 
-The public synthetic XM corpus now includes deterministic sustained 16-bit,
-five-instrument metadata-matrix, and two-sample envelopes/keymap fixtures. A schema-v2 reviewable
-manifest pins PCM/XM hashes and byte counts; the existing generator validates,
-generates one or all approved fixtures, and verifies committed bytes without
-rewriting. Tests cover the C loader, playback model, editable-copy, current
-metadata edits/undo/redo, 8/16-bit PCM, no/forward/ping-pong loops,
-exact panning preservation/planning, and Export XM/reopen. The three-part
-instrument fixture series is complete. The pack is original MIT-licensed project data and adds no
-XI, imported audio, runtime, parser, writer, mixer, DSP, scheduling, or UI
-behavior.
+- The tracker highlight row is static; the gutter and pattern body share the
+  viewport slot model and rendered row geometry.
+- For stopped editable documents, `BlankTrackerDocument.currentPosition` and
+  `currentPatternIndex` are the song/order navigation authority shared by the
+  main window and Song / Order editor. Empty allocated patterns remain visible
+  and selectable.
+- Pattern-bank viewing is distinct from order assignment. Normal Play follows
+  the selected order, Play Current Pattern follows the viewed pattern, and live
+  POS/PTN follow is transient rather than an editable document mutation.
+- Meaningful editable work is confirmed before New or Open replacement. Clear
+  Song Data is stopped-only, confirmed, and undoable. WAV and M4A export share a
+  re-entry gate.
 
-## Backend Architecture
+## Accepted post-alpha debt
 
-- Runtime playback defaults to the CoreAudio DefaultOutput Audio Unit host
-  driving the C mixer render core.
-- `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` are
-  explicit aliases for the same CoreAudio C mixer path.
-- `VTX_AUDIO_BACKEND=av_audio` is retired. It must not be reintroduced as a
-  runtime backend; it falls back to the CoreAudio C mixer and reports a
-  diagnostic fallback reason.
-- The retired AVAudioPlayerNode / AVAudioUnitVarispeed path and the retired
-  AVAudioSourceNode C mixer host must not return.
-- The Swift playback/adapter layer plans module events; the C mixer owns the
-  render core used by runtime playback and bounded offline renders.
-- Offline render/export remains the reference workflow for deterministic audio
-  comparison. Runtime smoke checks validate the app host path and delivery.
-- Product WAV export uses the existing bounded offline C mixer render path with
-  VTX mix profile, whole-song 48 kHz Float32 WAV output, explicit
-  user-initiated long-render planning, 64-row windowed scheduling, and
-  export-boundary auto-headroom. The app path renders the mixer once, records
-  peak diagnostics while writing an unscaled Float32 temp WAV, then applies the
-  shared auto-headroom gain through a streamed Float32 WAV post-process; it
-  does not change runtime playback, scheduling, or C mixer DSP.
-- Product M4A export reuses the same WAV plan and completed scaled Float32 temp
-  output, then encodes fixed 192 kbps AAC through AVFoundation. The encoder is
-  an app-level boundary and does not change WAV output, render PCM, runtime
-  playback, scheduling, or C mixer DSP.
-- `CSoftwareMixer` owns the large `VTXCMixerState` on the heap so background
-  offline export/render workers do not initialize that fixed-size C state on a
-  smaller GCD worker stack.
+These confirmed items are unresolved and remain separate focused work:
 
-## Current Runtime Default
+- `VTX-CS-001` — Fxx timing: the frame-domain planner applies speed/BPM one
+  synthetic row late and disagrees with current-row timing semantics.
+- `VTX-CS-002` — Linear/Amiga portamento scaling: the two frequency-table paths
+  use inconsistent slide scales, including incorrect fine versus extra-fine
+  relationships.
+- `VTX-D1-001` — CoreAudio callback real-time safety: the render callback still
+  performs allocation/copy and other work that must move outside the real-time
+  boundary.
 
-Unset `VTX_AUDIO_BACKEND` means CoreAudio C mixer. Unknown backend names fall
-back to that default and should remain diagnostics, not alternate behavior.
+These are post-alpha correctness debts, not reasons to reopen alpha.2. The
+immediate sequence is documentation authority consolidation, diagnostic-tool
+consolidation, focused Fxx correction, focused Linear/Amiga portamento
+correction, residual effect/C-engine correctness, focused callback RT safety,
+and later native editable Amiga-frequency mode. `docs/roadmap.md` is the sole
+sequencing authority.
 
-Runtime-only diagnostics may use:
+## Focused context pointers
 
-- `VTX_C_MIXER_RUNTIME_TRACE_PATH` for local JSONL trace output.
-- `VTX_C_MIXER_RUNTIME_CAPTURE_PATH` for local runtime CoreAudio capture.
-- `VTX_RUNTIME_MIXER_METRICS_TRACE` for sanitized runtime mixer stop summaries.
-- `VTX_DEBUG_AUTOPLAY` and `VTX_DEBUG_STOP_AFTER_SECONDS` for bounded manual
-  smoke runs.
-
-Generated traces, captures, logs, reports, screenshots, and listening notes
-stay under `/tmp` or another untracked local path.
-
-Xcode 16.4 CI has crashed the Swift frontend when new diagnostics were wired
-through compiler-sensitive default `PlaybackEngine()` stored-property
-initialization from `AppDelegate`. For diagnostic PRs, keep new recorder/sink
-objects disabled by default and prefer explicit AppDelegate/factory injection
-or small value types over adding diagnostic object creation to PlaybackEngine
-default initializer paths. Treat the macOS CI Xcode build as the verification
-gate even when local SwiftPM and newer local Xcode builds pass.
-
-## Offline Render / Export Workflow
-
-Use `swift run -c release vtx_render_bounded_xm` for local candidate renders.
-Plain `swift run` builds Debug by default and is not valid for render/export
-performance comparisons. The render tool loads XM through the repo
-parser/builders and renders through the bounded offline C mixer path.
-
-For product-comparable local render timing, prefer `./scripts/bench-render.sh`.
-Generated WAVs, diagnostics, reports, and timing notes stay under `/tmp` or
-another ignored local path.
-
-For FT2-style reference comparisons, prefer:
-
-```bash
-LOCAL_XM="path-to-untracked-local-module.xm"
-
-swift run -c release vtx_render_bounded_xm \
-  --input "$LOCAL_XM" \
-  --output /tmp/vtx-ft2-profile-candidate.wav \
-  --diagnostics-json /tmp/vtx-ft2-profile-diagnostics.json \
-  --sample-rate 48000 \
-  --until-song-end \
-  --tail-seconds 3 \
-  --window-rows 64 \
-  --allow-long-render \
-  --wav-format float32 \
-  --mix-profile ft2
-```
-
-Use `--mix-profile vtx` when you are validating the project default export
-policy. Use `--mix-profile ft2` when comparing against the ft2-clone Linear
-reference policy.
-
-Use `--wav-format float32` for reference comparison and overrange/headroom
-diagnostics. Use default PCM16 only for quick listening smoke checks or when a
-target tool requires PCM.
-
-## ft2-clone Reference Policy
-
-ft2-clone Linear is the primary FT2-style XM reference when a matching local
-export is available. Record the local reference settings in any local report:
-
-- sample rate
-- Float32 or PCM export format
-- Linear interpolation
-- Linear frequency slides
-- amplification and master volume
-- volume ramping setting
-- precise BPM setting
-- whether stems or individual tracks were exported
-
-MikMod, OpenMPT/libopenmpt, Renoise, and other tools can be useful secondary
-references, but reference correlation alone is not a correctness proof.
-
-## Runtime / Offline Equivalence
-
-For tested modules, runtime CoreAudio capture and offline C mixer render have
-been shown equivalent at the render-core/output-capture level. Treat new
-runtime/offline mismatch evidence as a diagnostic task: confirm capture bounds,
-sample rate, gain/headroom, trace health, and comparison settings before
-proposing playback behavior changes.
-
-## Private Corpus Rules
-
-- Do not commit private modules or artifacts derived from them.
-- Do not publish private filenames, local absolute paths, or machine-specific
-  notes.
-- Use anonymized labels only when examples are necessary.
-- Keep local label maps outside the repository.
-- Put local/private reports under `/tmp` unless the maintainer explicitly asks
-  for a public-safe committed report.
-
-## Effect Support Pointer
-
-`docs/xm-effect-support.md` is the canonical current effect support table.
-Read it before effect work and update it when an effect PR changes support.
-It uses Implemented / Implemented, parity-watch / Deferred terminology to
-separate current VTX support from tracked parity gaps and unimplemented
-commands.
-
-## Diagnostic Tooling Pointer
-
-For diagnostic script inventory and consolidation planning, see
-`docs/diagnostic-tools.md`.
-
-## Backend Freeze Posture
-
-The XM backend is under a temporary foundation freeze. Do not promote
-behavior-changing effect, C mixer DSP, parser architecture, runtime backend, or
-tracker viewport work by default.
-
-Backend PRs should be promoted only for release-blocking crashes,
-deterministic runtime/offline mismatches, severe open-time/performance
-regressions, or maintainer-promoted compatibility blockers.
-
-Parked parity-watch items:
-
-- Broader Amiga-table follow-up for the remaining late looped-sample phase
-  residual; use reference-stem/per-voice diagnostics before changing VTX loop,
-  ramp, timing, or sample-step behavior.
-- `R00` memory refinement as a later parity-watch cleanup unless the maintainer
-  promotes it under a freeze-exit criterion.
-
-Recently completed narrow targets:
-
-- The deterministic public XM reference pack now has its sustained foundation,
-  five-instrument metadata matrix, and two-sample envelopes/keymap fixture,
-  backed by a schema-v2 source manifest,
-  pinned PCM/XM hashes, byte-identical regeneration, loader/model/editable-copy/
-  current-edit/Export XM round trips, and tracked-file hygiene. The pack pins
-  panning, volume, signed tuning, 8/16-bit PCM, all XM loop modes, split note
-  mapping, both envelope headers, fadeout, and autovibrato. Production playback
-  and format code are unchanged; named empty/sample-less cases remain deferred.
-- The selected represented sample's exact XM signed relative-note and finetune
-  bytes (`-128...127`) now edit only in stopped editable documents/copies through
-  labeled `applyEdit` actions with undo/redo. Export XM/reopen preserves each
-  exact byte, and subsequent playback uses the existing pitch/sample-step adaptation;
-  pitch formulas, scheduling, runtime engine behavior, C mixer DSP, and all
-  neighboring sample/instrument data are unchanged.
-- The selected represented sample's exact XM panning byte is the first editable
-  sample metadata field. Its Instrument Editor PAN control is enabled only for
-  stopped editable documents/copies, commits one `Change Sample Panning`
-  `applyEdit` action with undo/redo, and remains disabled for loaded modules,
-  playback, or empty slots. Export XM/reopen preserves the edited byte while
-  adapter plans, voice pan, render PCM, and audition remain unchanged.
-  `PlaybackInstrumentAutoVibrato` provides
-  same exact preservation for the four XM autovibrato bytes and read-only
-  VIBRATO display. `PlaybackPanningEnvelope` preserves up to 12 XM panning-
-  envelope points plus count, sustain/loop indices, and supported type flags
-  through the same value paths and writer; the Instrument Editor displays them
-  read-only through its local VOL/PAN selector. Playback/audition behavior, scheduling, render PCM, C
-  mixer DSP, parser architecture, and loaded-module read-only rules are
-  unchanged.
-- `EditableDocumentEditCoordinator` now applies labeled whole-document value
-  snapshots with a 20-level `UndoManager`, refreshes the existing tracker,
-  control-panel, Song / Order, and Instrument Editor state paths, and rejects
-  loaded read-only or playback-active contexts. Clear Current Pattern proves
-  undo/redo; source paths are absent from the edit context, Save/Save As stay
-  disabled, and the explicitly deferred instrument/sample work above remains future work.
-- `Window > Instrument Editor` now opens one reusable fixed 920 × 638 utility
-  window aligned to `assets/mockups/instrument-editor-v1.html`, bound to the current document and selection.
-  Supported stopped-editable metadata routes through undo, and computer/graphical keys use isolated preview.
-  Its committed-ownership strip projects the exact visible 36-note piano range
-  through the shared `InstrumentKeyboardVisibleRange` and piano geometry, while
-  the document retains the canonical 96-note map and the explicit selected-sample
-  range sheet wires the existing one-edit keymap foundation. Range navigation and
-  read-only projection are non-mutating. XI, envelope editing, graphical mapping, and waveform controls
-  stay disabled. Loaded modules stay read-only,
-  and no parser, runtime transport, or broad writer/export behavior changed.
-- `File > Export Audio > M4A...` now reuses the stopped product WAV plan and
-  scaled Float32 temp output for loaded modules, editable documents, and
-  editable copies, then encodes fixed 192 kbps AAC through a narrow
-  AVFoundation boundary. It writes only to the selected `.m4a` destination,
-  reports render/headroom/encoding/write progress, cancels cooperatively,
-  cleans temporary/partial output, leaves documents and source ownership
-  untouched, and keeps Save/Save As plus loaded-module editing disabled. WAV
-  output, render PCM, runtime playback/scheduling, C mixer DSP, parser,
-  tracker viewport, and XM writer behavior are unchanged.
-- `File > Export Audio > WAV...` now renders the current stopped loaded module,
-  editable document, or editable copy to a user-selected 32-bit Float WAV via
-  the existing bounded offline C mixer path. The app uses the VTX mix profile,
-  an explicit user-initiated whole-song long-render policy, default song-end
-  tail, 48 kHz output, 64-row windowed scheduling, and export-boundary
-  auto-headroom instead of the diagnostic bounded-render cap. It performs one
-  expensive mixer render, writes an unscaled Float32 temp WAV while computing
-  peak diagnostics, applies the shared auto-headroom gain through a streamed
-  Float32 WAV post-process, keeps preparation/indexing indeterminate, then
-  shows continuous weighted whole-export progress across rendering, headroom,
-  and final writing while rendering on a background queue,
-  writes through temporary files before replacing the selected destination,
-  supports cooperative cancellation at safe phase boundaries, removes
-  temporary output on cancellation or failure, leaves source modules/documents
-  untouched, does not claim source-path ownership, keeps Save/Save As disabled,
-  and leaves loaded modules read-only. PCM16, pattern or order ranges,
-  channel/stem export, normalization,
-  diagnostic comparison profiles, and user-selectable gain/headroom remain
-  future work.
-- `File > Make Editable Copy` now separates loaded/stopped/presentation menu
-  eligibility from the authoritative planner. Exact and Profile-v1 safe/inert
-  normalized plans immediately create the planner-provided untitled document
-  without confirmation; unavailable plans show a typed acknowledgement-only
-  explanation. Stale UUID/context/plan/playback/presentation state is rejected,
-  the source remains read-only and untouched, Save/Save As stay disabled, and a
-  normalized later export may differ structurally as canonical VTX XM. Runtime
-  playback/scheduling, `RuntimeCMixerAdapterEventPlan`, C mixer DSP, parser
-  architecture, and tracker viewport/static-highlight behavior did not change.
-- Export XM v1 release-prep documentation for `v0.2.0-alpha.4` now states the
-  scoped release claim, manual smoke checklist, and maintainer-only post-merge
-  tag instructions. No tag should be created by the PR.
-- XM diagnostic and residual-scan recommendation wording aligned with the
-  backend freeze and `docs/xm-effect-support.md`; no playback behavior changed.
-- Amiga frequency-table foundation for note period/frequency/sample-step
-  calculation, sample finetune metadata, Amiga-table `2xx` portamento down,
-  and effect-column `3xx` tone portamento in the shared runtime/offline C
-  mixer adapter path.
-- `Lxx` set envelope position foundation.
-- Volume-column `F0...FF` tone portamento foundation.
-- Final expanded-corpus linear-XM effect coverage before Amiga; no deferred
-  linear command was promoted ahead of Amiga frequency-table work.
-
-Retired AVAudio backend cleanup belongs to docs/tooling or deletion tasks only;
-do not reintroduce retired playback paths.
-
-## Required Verification Command Groups
-
-For docs/tooling hygiene PRs:
-
-```bash
-./scripts/check-files.sh
-git diff --check
-```
-
-Also run the private-name/local-path scan requested by the task or PR checklist.
-Do not copy private names or local absolute path patterns into committed docs.
-
-For effect/backend behavior PRs, also run focused Swift tests for the touched
-adapter/mixer area and update `docs/xm-effect-support.md` when support changes.
-
-For tracker viewport work, use the tracker UI docs and manual screenshot
-verification. Do not treat backend docs as viewport guidance.
-
-## Long-Doc Loading Rules
-
-- Read `docs/audio-comparison.md` only for render/reference comparison work.
-- Read `docs/playback-trace.md` only for runtime trace or diagnostic work.
-- Read `docs/roadmap.md` for current milestone sequencing.
-- Read `docs/dev-roadmap.md` for the short phase summary.
-- Read reports under `docs/reports/` only when investigating that historical
-  thread.
+- Diagnostic inventory and planned command surface:
+  `docs/diagnostic-tools.md`.
+- Effect status and frequency-table coverage: `docs/xm-effect-support.md`.
+- Editable-copy outcomes:
+  [ADR 014](decisions/014-loaded-xm-editable-copy-planning.md).
+- Tracker viewport behavior: `docs/tracker-behavior-spec.md`.
+- Build, fixture, and verification commands: `docs/testing.md`.
+- Historical audits and release gates: `docs/reports/`; consult only for the
+  specific evidence thread being investigated.

@@ -113,12 +113,26 @@ and normalization details.
   Song Data is stopped-only, confirmed, and undoable. WAV and M4A export share a
   re-entry gate.
 
+## Diagnostic tooling
+
+- Diagnostic-tool consolidation is complete. The package-authoritative
+  `tools/vtx_diag` surface has exactly six command families: `audio_compare`,
+  `reference_triage`, `effect_coverage`, `residual_scan`, `runtime_trace`, and
+  `corpus_map`.
+- Migrated script paths remain compatibility wrappers. Tested reference-triage
+  archive candidates remain standalone, as do cross-family local corpus
+  orchestration, `mc_dump`, `vtx_render_bounded_xm`, fixture generation,
+  benchmarking, hygiene, privacy, golden, and release-packaging helpers.
+- `docs/diagnostic-tools.md` owns detailed command and helper boundaries. No
+  archive or deletion work is required for consolidation to remain complete.
+
 ## Accepted post-alpha debt
 
 These confirmed items are unresolved and remain separate focused work:
 
-- `VTX-CS-001` — Fxx timing: the frame-domain planner applies speed/BPM one
-  synthetic row late and disagrees with current-row timing semantics.
+- `VTX-CS-001` — Fxx timing (accepted HIGH): the frame-domain planner applies
+  speed/BPM one synthetic row late and disagrees with current-row timing
+  semantics.
 - `VTX-CS-002` — Linear/Amiga portamento scaling: the two frequency-table paths
   use inconsistent slide scales, including incorrect fine versus extra-fine
   relationships.
@@ -126,16 +140,17 @@ These confirmed items are unresolved and remain separate focused work:
   performs allocation/copy and other work that must move outside the real-time
   boundary.
 
-These are post-alpha correctness debts, not reasons to reopen alpha.2. The
-immediate sequence is documentation authority consolidation, diagnostic-tool
-consolidation, focused Fxx correction, focused Linear/Amiga portamento
-correction, residual effect/C-engine correctness, focused callback RT safety,
-and later native editable Amiga-frequency mode. `docs/roadmap.md` is the sole
-sequencing authority.
+These are post-alpha correctness debts, not reasons to reopen alpha.2.
+Documentation/context authority and diagnostic-tool consolidation are complete.
+The immediate next behavioral PR is focused Fxx timing correction, followed by
+separate Linear/Amiga portamento scaling correction, fixture-backed FT2/XM
+effect closure and C-engine correctness, focused callback RT safety, and later
+native editable Amiga-frequency mode. `docs/roadmap.md` is the sole sequencing
+authority.
 
 ## Focused context pointers
 
-- Diagnostic inventory and planned command surface:
+- Diagnostic inventory and authoritative command surface:
   `docs/diagnostic-tools.md`.
 - Effect status and frequency-table coverage: `docs/xm-effect-support.md`.
 - Editable-copy outcomes:

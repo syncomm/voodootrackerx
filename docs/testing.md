@@ -144,21 +144,27 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
 - Launch the app.
 - Load the XM file.
 - Press Play and confirm audio plays while the tracker follows rows.
-- Confirm modules with `Fxx` speed/tempo commands visibly change playback pace when those rows are reached.
+- Confirm modules with `Fxx` speed/tempo commands visibly change playback pace.
+  This is a smoke check only and does not clear the accepted current-row timing
+  correction `VTX-CS-001`.
 - Confirm modules with `Bxx` position jumps or `Dxx` pattern breaks continue safely without crashes or corrupted tracker state.
 - Confirm modules with `0xy` arpeggio commands produce audible tick-cycled pitch changes.
-- Confirm modules with `1xx` or `2xx` portamento commands produce smooth first-pass pitch slides without destabilizing playback.
+- Confirm modules with `1xx` or `2xx` portamento commands produce smooth
+  first-pass pitch slides without destabilizing playback. This is a smoke check
+  only and does not establish Linear/Amiga scaling parity for `VTX-CS-002`.
 - Confirm modules with `3xx` tone portamento commands slide active notes toward target notes without doubled retriggers.
 - Confirm modules with `4xy` vibrato commands produce audible pitch modulation.
 - Confirm modules with `5xy` or `6xy` combined volume-slide commands keep the pitch effect active while changing volume.
-- Confirm modules with `7xy` tremolo commands produce audible volume modulation.
+- Treat `7xy` tremolo and `E7x` tremolo control as a deferred effect family per
+  `docs/xm-effect-support.md`; they are not a current playback pass criterion.
 - Confirm modules with `9xx` sample offset commands start sample playback later in the sample without crashing on out-of-range offsets.
 - Confirm modules with `Gxx` global volume commands safely change overall playback volume without breaking per-channel volume behavior.
 - Confirm modules with `Hxy` global volume slide commands change overall playback volume progressively across ticks.
 - Confirm modules with `E9x` retrigger commands repeat active notes at the configured tick interval without runaway stacked audio.
 - Confirm modules with `ECx` note cut commands stop active notes cleanly on the configured tick.
 - Confirm modules with `EDx` note delay commands trigger notes later in the row, and invalid delay values fail safely.
-- Confirm modules with `EEx` pattern delay commands hold tracker follow on the current row for the configured additional row durations.
+- Treat `EEx` pattern delay as deferred per `docs/xm-effect-support.md`; it is
+  not a current playback pass criterion.
 - Confirm modules with `Axy` volume slide commands change volume progressively across ticks.
 - Press Play again while already playing and confirm playback does not stack, restart unexpectedly, or create doubled audio.
 - Press Stop and confirm tracker progression stops and audio stops immediately.

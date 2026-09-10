@@ -13,6 +13,7 @@ from . import (
     audio_compare_discontinuities,
     audio_compare_smoke,
     audio_compare_stems,
+    corpus_map,
     effect_coverage,
     reference_triage_correlate,
     reference_triage_focused_window,
@@ -96,7 +97,7 @@ COMMAND_REGISTRY: dict[str, CommandSpec] = {
         ),
         CommandSpec(
             name="corpus_map",
-            summary="Maintain redacted local corpus maps (migration pending).",
+            summary="Maintain private local corpus maps and public-safe summaries.",
             compatibility_paths=("scripts/update-private-xm-corpus-label-map.py",),
         ),
     )
@@ -218,6 +219,20 @@ def _configure_runtime_trace_parser(parser: argparse.ArgumentParser) -> None:
     correlate_window_parser.set_defaults(command_handler=runtime_trace_correlate_window.run)
 
 
+def _configure_corpus_map_parser(parser: argparse.ArgumentParser) -> None:
+    """Register the migrated corpus-map update mode."""
+
+    modes = parser.add_subparsers(dest="corpus_map_mode", metavar="MODE", required=True)
+    update_parser = modes.add_parser(
+        "update",
+        help="Update a private local corpus map and public-safe summaries.",
+        description=corpus_map.CORPUS_MAP_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    corpus_map.add_arguments(update_parser)
+    update_parser.set_defaults(command_handler=corpus_map.run)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the deterministic top-level parser from the command registry."""
 
@@ -245,6 +260,8 @@ def build_parser() -> argparse.ArgumentParser:
             _configure_residual_scan_parser(command_parser)
         elif spec.name == "runtime_trace":
             _configure_runtime_trace_parser(command_parser)
+        elif spec.name == "corpus_map":
+            _configure_corpus_map_parser(command_parser)
     return parser
 
 

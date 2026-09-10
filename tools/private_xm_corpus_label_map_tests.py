@@ -1,21 +1,13 @@
-import importlib.util
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "update-private-xm-corpus-label-map.py"
+from tools.vtx_diag import corpus_map
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("private_xm_corpus_label_map", SCRIPT_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return corpus_map
 
 
 class PrivateXMCorpusLabelMapTests(unittest.TestCase):

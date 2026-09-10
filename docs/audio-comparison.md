@@ -429,8 +429,9 @@ If runtime/offline mismatch is suspected:
 2. Render an offline C mixer candidate at the runtime trace sample rate.
 3. Compare runtime capture vs offline render with
    `python3 -m tools.vtx_diag audio_compare compare`.
-4. Correlate with runtime trace only if the WAV comparison shows a real
-   mismatch after bounds and gain are checked.
+4. Correlate with
+   `python3 -m tools.vtx_diag runtime_trace correlate-window` only if the WAV
+   comparison shows a real mismatch after bounds and gain are checked.
 
 Tested runtime CoreAudio captures have matched offline render behavior at the
 render-core/output-capture level. Treat a new mismatch as a diagnostic lead,

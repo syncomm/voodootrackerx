@@ -391,7 +391,7 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 Summarize each route locally:
 
 ```bash
-python3 scripts/summarize-runtime-c-mixer-trace.py \
+python3 -m tools.vtx_diag runtime_trace summarize \
   /tmp/vtx-c-route-bluetooth.jsonl \
   --live-artifact-reported unknown \
   --json /tmp/vtx-c-route-bluetooth-summary.json \
@@ -832,15 +832,17 @@ modules.
 Use the local summary helper when a trace is too large to inspect directly:
 
 ```bash
-python3 scripts/summarize-runtime-c-mixer-trace.py \
+python3 -m tools.vtx_diag runtime_trace summarize \
   /tmp/vtx-c-runtime-trace.jsonl \
   --json /tmp/vtx-c-runtime-summary.json \
   --markdown /tmp/vtx-c-runtime-summary.md
 ```
 
-The helper reads runtime JSONL traces and emits deterministic JSON and Markdown
-summaries. It is local/offline tooling only and is tested with synthetic traces,
-not private modules.
+The package-owned helper reads runtime JSONL traces and emits deterministic JSON
+and Markdown summaries. It is local/offline tooling only and is tested with
+synthetic traces, not private modules. The legacy
+`scripts/summarize-runtime-c-mixer-trace.py` path remains an executable
+compatibility wrapper with the same arguments and output behavior.
 
 To audit effect coverage across runtime traces and bounded offline diagnostics
 with one local-only table, use the package-owned summary command:
@@ -871,11 +873,11 @@ counts, invalid/out-of-range targets, missing loop starts, and loop-limit hits.
 It does not change runtime playback or offline rendering behavior.
 
 When a full or near-full runtime live-output capture is compared with a full
-offline C mixer WAV, use the window correlation helper to connect the
-whole-song `scripts/audio-compare.py` worst windows back to runtime trace rows:
+offline C mixer WAV, use the window correlation helper to connect whole-song
+`vtx_diag audio_compare compare` worst windows back to runtime trace rows:
 
 ```bash
-python3 scripts/correlate-runtime-offline-window.py \
+python3 -m tools.vtx_diag runtime_trace correlate-window \
   --runtime-wav /tmp/vtx-c-runtime-capture.wav \
   --offline-wav /tmp/vtx-offline-c-mixer.wav \
   --runtime-trace /tmp/vtx-c-runtime-capture-trace.jsonl \
@@ -896,6 +898,8 @@ voice ranges, optional offline diagnostics counts, and a conservative runtime
 follow-up recommendation. It is diagnostic-only and does not change playback or
 rendering behavior. Keep captures, traces, WAVs, JSON reports, and Markdown
 reports from private/local modules under `/tmp` or another ignored local path.
+The legacy `scripts/correlate-runtime-offline-window.py` path remains an
+executable compatibility wrapper with the same arguments and output behavior.
 
 The summary focuses on runtime-only artifact evidence:
 

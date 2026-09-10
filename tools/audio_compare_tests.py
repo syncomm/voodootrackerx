@@ -9,7 +9,7 @@ import unittest
 import wave
 from pathlib import Path
 
-from tools.vtx_diag import effect_coverage
+from tools.vtx_diag import effect_coverage, runtime_trace_correlate_window, runtime_trace_summary
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "audio-compare.py"
@@ -66,24 +66,6 @@ def load_reference_triage_module():
     return module
 
 
-def load_runtime_trace_summary_module():
-    spec = importlib.util.spec_from_file_location("runtime_trace_summary", RUNTIME_TRACE_SUMMARY_SCRIPT_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def load_runtime_offline_window_module():
-    spec = importlib.util.spec_from_file_location("runtime_offline_window", RUNTIME_OFFLINE_WINDOW_SCRIPT_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def load_focused_xm_channel_module():
     spec = importlib.util.spec_from_file_location("focused_xm_channel", FOCUSED_XM_CHANNEL_SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
@@ -114,8 +96,7 @@ def load_stem_scaling_module():
 audio_compare = load_audio_compare_module()
 audio_discontinuities = load_audio_discontinuities_module()
 reference_triage = load_reference_triage_module()
-runtime_trace_summary = load_runtime_trace_summary_module()
-runtime_offline_window = load_runtime_offline_window_module()
+runtime_offline_window = runtime_trace_correlate_window
 focused_xm_channel = load_focused_xm_channel_module()
 focused_window_timeline = load_focused_window_timeline_module()
 stem_scaling = load_stem_scaling_module()

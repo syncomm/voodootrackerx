@@ -19,7 +19,6 @@ EXPECTED_COMMANDS = (
     "runtime_trace",
     "corpus_map",
 )
-PENDING_COMMANDS = ("corpus_map",)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -59,20 +58,20 @@ class UnifiedDiagnosticCLITests(unittest.TestCase):
         for command_name in EXPECTED_COMMANDS:
             self.assertIn(f"    {command_name}", result.stdout)
 
-    def test_pending_commands_report_their_authoritative_compatibility_family(self):
-        for command_name in PENDING_COMMANDS:
-            with self.subTest(command_name=command_name):
-                spec = COMMAND_REGISTRY[command_name]
-                exit_code, stdout, stderr = self.invoke(command_name)
+    def test_corpus_map_help_lists_only_update_mode(self):
+        exit_code, stdout, stderr = self.invoke("corpus_map", "--help")
 
-                self.assertEqual(exit_code, ExitCode.MIGRATION_PENDING)
-                self.assertEqual(stdout, "")
-                compatibility_paths = ", ".join(spec.compatibility_paths)
-                self.assertEqual(
-                    stderr,
-                    f"vtx_diag: {command_name}: not yet migrated; "
-                    f"current authoritative script family: {compatibility_paths}\n",
-                )
+        self.assertEqual(exit_code, ExitCode.SUCCESS)
+        self.assertEqual(stderr, "")
+        self.assertIn("    update", stdout)
+        self.assertNotIn("runtime-metrics", stdout)
+
+    def test_corpus_map_requires_a_mode(self):
+        exit_code, stdout, stderr = self.invoke("corpus_map")
+
+        self.assertEqual(exit_code, ExitCode.USAGE_ERROR)
+        self.assertEqual(stdout, "")
+        self.assertIn("the following arguments are required: MODE", stderr)
 
     def test_audio_compare_help_lists_all_migrated_modes(self):
         exit_code, stdout, stderr = self.invoke("audio_compare", "--help")
@@ -178,19 +177,6 @@ class UnifiedDiagnosticCLITests(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertEqual(result.stderr, "")
             self.assertEqual(list(Path(directory).iterdir()), [])
-
-    def test_pending_dispatch_does_not_write_output_files(self):
-        with tempfile.TemporaryDirectory() as directory:
-            previous_directory = Path.cwd()
-            try:
-                os.chdir(directory)
-                for command_name in PENDING_COMMANDS:
-                    self.assertEqual(self.invoke(command_name)[0], ExitCode.MIGRATION_PENDING)
-            finally:
-                os.chdir(previous_directory)
-
-            self.assertEqual(list(Path(directory).iterdir()), [])
-
 
 if __name__ == "__main__":
     unittest.main()

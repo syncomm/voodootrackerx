@@ -13,7 +13,8 @@ Inventoried files:
 - 1 unified Python diagnostic CLI package under `tools/vtx_diag/`, with core
   comparison, local smoke, stem, discontinuity, reference correlation, and
   focused-window behavior plus effect-coverage, residual-scan, runtime-trace
-  summary, and runtime/offline-window correlation migrated with focused tests.
+  summary, runtime/offline-window correlation, and corpus-map management
+  migrated with focused tests.
 - 2 SwiftPM command entrypoints under `tools/`.
 - 1 active Swift command implementation under tool-owned SwiftPM support
   sources.
@@ -70,14 +71,14 @@ Classification terms:
 | `scripts/summarize-runtime-c-mixer-trace.py` | Active compatibility wrapper; diagnostic / local-only | Preserves the legacy runtime C mixer trace-summary CLI and helper-import surface while delegating to `tools/vtx_diag/runtime_trace_summary.py`. | `docs/playback-trace.md`, archived reports, `tools/audio_compare_tests.py`, `tools/vtx_diag/runtime_trace_migration_tests.py`. | Reads runtime traces from local/private smoke runs; listening notes must stay local. | Yes. | Compatibility path. | Keep until maintained callers and prompts use `vtx_diag runtime_trace summarize`. |
 | `scripts/correlate-runtime-offline-window.py` | Active compatibility wrapper; diagnostic / local-only; hyper-specific | Preserves the legacy runtime/offline mismatch-window CLI and helper-import surface while delegating to `tools/vtx_diag/runtime_trace_correlate_window.py`. | `docs/playback-trace.md`, archived reports, `tools/audio_compare_tests.py`, `tools/vtx_diag/runtime_trace_migration_tests.py`. | Handles local runtime captures, offline WAVs, traces, and diagnostics. | Yes. | Compatibility path. | Keep until maintained callers and prompts use `vtx_diag runtime_trace correlate-window`. |
 | `scripts/run-local-corpus-runtime-metrics.py` | Active standalone cross-family orchestration; diagnostic / local-only | Selects anonymized map entries, launches the Debug app, produces runtime traces, captures playback timing, adapter-plan profiles, and runtime mixer metrics, redacts logs, and writes per-label plus aggregate summaries. | `docs/testing.md`, `tools/local_corpus_runtime_metrics_tests.py`; no other active caller or importer. | Reads a maintainer-supplied local label map and redacts captured stdout/stderr; output filenames and summaries use `xm-corpus-###` labels only. | Yes; defaults to a timestamped `/tmp` directory and refuses repository output by default. | Keep standalone. | Do not place under `runtime_trace` or `corpus_map`: it orchestrates producers and several diagnostic families but neither analyzes trace contents nor manages maps. Preserve its current path until a separately designed cross-family orchestration surface exists. |
-| `scripts/update-private-xm-corpus-label-map.py` | Active local planning helper; diagnostic / local-only; candidate CLI subcommand | Updates a private XM corpus label map and writes a redacted summary. | Archived reports, `tools/private_xm_corpus_label_map_tests.py`. | Yes; source modules and full label map stay local, defaulting to `/tmp`. | Yes for map and summaries. | Keep for now. | Fold into `corpus_map update`; preserve redaction behavior and tests. |
+| `scripts/update-private-xm-corpus-label-map.py` | Active compatibility wrapper; diagnostic / local-only | Preserves the legacy corpus-map updater CLI and helper-import surface while delegating to `tools/vtx_diag/corpus_map.py`. | Archived reports, `tools/private_xm_corpus_label_map_tests.py`, `tools/vtx_diag/corpus_map_migration_tests.py`. | Yes; source modules and full label map stay local, defaulting to `/tmp`. | Yes for map and summaries. | Compatibility path. | Keep until maintained callers and local workflows use `vtx_diag corpus_map update`. |
 | `tools/mc_dump/main.c` | Active workflow; SwiftPM C CLI entrypoint | Dumps parsed MOD/XM metadata and optional XM pattern events for tests and diagnostics. | `Package.swift`, `README.md`, `docs/testing.md`, `docs/contributing.md`, ADR 001, `scripts/run-golden.sh`, focused diagnostics. | Can read private modules if manually invoked; private JSON dumps stay local. | Yes for private/local dumps; golden outputs are intentional test artifacts. | Keep. | Leave as a parser CLI unless a broader tool package layout is introduced. |
 | `tools/vtx_render_bounded_xm/main.swift` | Active workflow; SwiftPM CLI entrypoint | Tiny executable entrypoint for the bounded XM render/export tool. | `Package.swift`, `README.md`, `docs/agent-current-state.md`, `docs/audio-comparison.md`, `docs/playback-trace.md`, render tests. | Reads local/private XM modules; WAVs and diagnostics must stay local unless explicitly public-safe. | Yes for local renders and diagnostics. | Keep. | Preserve as the stable CLI entrypoint even if the implementation moves. |
 | `tools/vtx_render_bounded_xm/Support/BoundedXMRenderTool.swift` | Active diagnostic/export tool implementation; M4 source-location refactor complete | Implements the developer-only bounded XM render/export CLI used by `tools/vtx_render_bounded_xm/main.swift`. | `tools/vtx_render_bounded_xm/main.swift`, `Package.swift`, render tests, workflow docs via the CLI name. | Reads local/private XM modules and writes local WAV/diagnostics/coverage artifacts. | Yes for local outputs. | Keep. | Leave behavior unchanged; keep this under tool-owned support sources unless a later tooling module/package design supersedes it. |
-| `tools/vtx_diag/` | Active unified CLI; `audio_compare`, `effect_coverage`, `residual_scan`, `runtime_trace`, and the active `reference_triage` core migrated | Registers the six planned diagnostic command families. `audio_compare` owns all four comparison modes; `reference_triage correlate` and `focused-window` own the active triage core; `effect_coverage summarize` owns runtime/offline effect-coverage analysis; `residual_scan summarize` owns residual effect-memory and volume-column scans; `runtime_trace summarize` and `correlate-window` own runtime artifact analysis. Only `corpus_map` reports migration pending. | `docs/roadmap.md`, `docs/audio-comparison.md`, `docs/playback-trace.md`, this inventory, and the package CLI/migration tests. | Imports and dispatch require no private module, corpus map, or local artifact. Existing report identity, redaction, basename-only fields, and caller-selected output behavior remain unchanged. | Yes for caller-selected outputs and the smoke workflow's `/tmp` default; the pending command writes nothing. | Keep. | Migrate `corpus_map` separately while preserving its compatibility wrapper and local-data boundary. |
+| `tools/vtx_diag/` | Active unified CLI; all six planned command families migrated, with the active `reference_triage` core intentionally narrower than its archive candidates | Registers the six planned diagnostic command families. `audio_compare` owns all four comparison modes; `reference_triage correlate` and `focused-window` own the active triage core; `effect_coverage summarize` owns runtime/offline effect-coverage analysis; `residual_scan summarize` owns residual effect-memory and volume-column scans; `runtime_trace summarize` and `correlate-window` own runtime artifact analysis; `corpus_map update` owns private local map updates and public-safe summaries. | `docs/roadmap.md`, `docs/audio-comparison.md`, `docs/playback-trace.md`, this inventory, and the package CLI/migration tests. | Imports and help require no private module, corpus map, or local artifact. Existing report identity, redaction, basename-only fields, dynamic local-map inputs, and caller-selected output behavior remain unchanged. | Yes for caller-selected outputs, corpus-map `/tmp` defaults, and the smoke workflow's `/tmp` default. | Keep. | Preserve package authority, compatibility wrappers, and each command family's existing local-data boundary. |
 | `tools/audio_compare_tests.py` | Active test helper | Synthetic unit/CLI tests for audio comparison, reference triage, runtime trace, effect coverage, focused diagnostics, and related scripts. | Direct test target run with `python3 -m unittest tools/audio_compare_tests.py`. | Uses synthetic data and temporary directories. | Test temp dirs only. | Keep. | Split by future CLI subcommand once the script surface is consolidated. |
 | `tools/xm_residual_effect_scan_tests.py` | Active test helper | Unit tests for package-owned residual effect scan classification and recommendation logic. | Required with `tools/vtx_diag/residual_scan_migration_tests.py` when residual tooling is touched. | Uses synthetic module structures. | No persistent output. | Keep. | Keep focused classification coverage separate from CLI migration parity tests. |
-| `tools/private_xm_corpus_label_map_tests.py` | Active test helper | Tests private corpus label-map update and redacted summary behavior with synthetic XM bytes. | Required when corpus label-map tooling docs or code are touched. | Uses synthetic fixtures in temporary directories and asserts paths/names are redacted. | Test temp dirs only. | Keep. | Move beside future `corpus_map` CLI package tests. |
+| `tools/private_xm_corpus_label_map_tests.py` | Active test helper | Tests package-owned private corpus label-map metadata and redacted-summary behavior with synthetic XM bytes. | Required with `tools/vtx_diag/corpus_map_migration_tests.py` when corpus label-map tooling docs or code are touched. | Uses synthetic fixtures in temporary directories and asserts paths/names are redacted. | Test temp dirs only. | Keep. | Keep focused implementation coverage separate from legacy/unified migration parity tests. |
 | `tools/local_corpus_runtime_metrics_tests.py` | Active test helper | Tests local corpus runtime metrics selection, dry-run behavior, output confinement, label-based filenames, and stdout/stderr redaction. | Required when `scripts/run-local-corpus-runtime-metrics.py` changes. | Uses synthetic temporary label maps, fake module paths, and a fake app runner. | Test temp dirs only. | Keep. | Move beside future corpus runtime diagnostics CLI tests. |
 | `tools/synthetic_xm_fixture_generator_tests.py` | Active test helper | Tests the deterministic synthetic XM fixture manifest skeleton and output-path confinement. | Required when `scripts/generate-synthetic-xm-fixtures.py` or `tests/reference-xm/` generator contracts change. | Uses synthetic manifest data and temporary directories only. | Test temp dirs only. | Keep. | Extend alongside future public fixture-generation behavior. |
 | `tests/vtx_render_bounded_xm/VTXRenderBoundedXMTests.swift` | Active test reference | Swift render/export tests include a helper that invokes `scripts/audio-compare.py` for Float32 comparison checks. | SwiftPM test target `VTXRenderBoundedXMTests`. | Uses generated test files and temp directories. | Test temp dirs only. | Keep. | Update helper path only if `audio-compare.py` gains a compatibility wrapper or unified CLI replacement. |
@@ -139,6 +140,7 @@ Release render benchmarking:
 Corpus label-map management:
 
 - `scripts/update-private-xm-corpus-label-map.py`
+- `tools/vtx_diag/corpus_map.py`
 
 Golden/test helpers:
 
@@ -255,6 +257,16 @@ python3 -m tools.vtx_diag runtime_trace summarize --help
 python3 -m tools.vtx_diag runtime_trace correlate-window --help
 ```
 
+Private local corpus-map management is authoritative at:
+
+```bash
+python3 -m tools.vtx_diag corpus_map update \
+  --source-dir <path> \
+  --map <path> \
+  --summary-json <path> \
+  --summary-markdown <path>
+```
+
 The `audio_compare` modes own the existing WAV comparator, local smoke defaults,
 stem reconstruction and matched-stem analysis, and discontinuity analysis. All
 four legacy paths remain executable compatibility wrappers with their existing
@@ -295,8 +307,8 @@ caller-selected output behavior. The map remains optional maintainer-local input
 and is neither hardcoded nor required by automated tests.
 `scripts/summarize-xm-residual-effect-scan.py` remains an executable
 compatibility wrapper with its existing arguments, outputs, helper imports, and
-exit behavior. Corpus-map creation and updates remain owned separately by
-`scripts/update-private-xm-corpus-label-map.py`.
+exit behavior. Corpus-map creation and updates remain a separate command family
+owned by `corpus_map update`.
 
 The package-owned `runtime_trace summarize` and `runtime_trace correlate-window`
 modes preserve the existing JSONL/WAV inputs, CLI defaults, JSON and Markdown
@@ -314,10 +326,17 @@ interpret their JSONL contents. Its primary responsibility is cross-family
 orchestration of app launch, playback timing, adapter-plan profiling, mixer
 metrics, trace production, redaction, confinement, and aggregate reporting.
 
-The unmigrated `corpus_map` command family exits with status `3`, names its
-current authoritative repository script, and performs no diagnostic work or
-file output. Shared exit statuses are `0` for success, `1` for operational
-failure, `2` for usage error, and `3` for migration pending.
+The package-owned `corpus_map update` mode preserves the existing `--source-dir`,
+`--map`, `--summary-json`, and `--summary-markdown` arguments, the dynamic
+`VTX_PRIVATE_XM_CORPUS_LABEL_MAP` map default, stable label assignment, map and
+summary schemas, redaction, ordering, validation, output destinations, output
+streams, and exit behavior. The source modules and full map remain
+maintainer-local; public-safe summaries contain anonymized labels and approved
+aggregate metadata only. `scripts/update-private-xm-corpus-label-map.py` remains
+an executable compatibility wrapper with the same arguments and helper imports.
+It does not absorb residual-effect classification or the standalone runtime
+corpus orchestration helper. Shared exit statuses remain `0` for success, `1`
+for operational failure, `2` for usage error, and `3` for migration pending.
 
 Current package shape:
 
@@ -336,12 +355,14 @@ tools/vtx_diag/
   residual_scan.py     # authoritative residual effect-memory/volume-column scan
   runtime_trace_summary.py # authoritative runtime C mixer trace summary
   runtime_trace_correlate_window.py # authoritative runtime/offline window correlation
-  cli_tests.py         # registry, help, pending dispatch, and import tests
+  corpus_map.py        # authoritative private local map update/redacted summaries
+  cli_tests.py         # registry, help, dispatch, and import tests
   audio_compare_migration_tests.py # legacy/unified parity and confinement tests
   reference_triage_migration_tests.py # triage parity, confinement, and audit tests
   effect_coverage_migration_tests.py # legacy/unified report and failure parity
   residual_scan_migration_tests.py # residual parity, redaction, and confinement tests
   runtime_trace_migration_tests.py # runtime summary/window parity and confinement tests
+  corpus_map_migration_tests.py # corpus-map parity, redaction, and confinement tests
 ```
 
 The SwiftPM tools should remain separate unless a later design explicitly moves
@@ -429,6 +450,6 @@ Preserved behavior:
    wrappers and leaving corpus metrics orchestration standalone. Completed at
    `runtime_trace summarize` and `runtime_trace correlate-window`.
 7. Move label-map management behind `corpus_map`, preserving its separate local
-   input/update boundary and redaction tests.
+   input/update boundary and redaction tests. Completed at `corpus_map update`.
 8. Archive or delete only the scripts proven unused after compatibility
    wrappers, docs, tests, prompts, and local workflows have migrated.

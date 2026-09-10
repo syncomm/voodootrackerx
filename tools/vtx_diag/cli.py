@@ -17,6 +17,8 @@ from . import (
     reference_triage_correlate,
     reference_triage_focused_window,
     residual_scan,
+    runtime_trace_correlate_window,
+    runtime_trace_summary,
 )
 
 
@@ -86,11 +88,10 @@ COMMAND_REGISTRY: dict[str, CommandSpec] = {
         ),
         CommandSpec(
             name="runtime_trace",
-            summary="Summarize and correlate runtime traces (migration pending).",
+            summary="Summarize runtime traces and correlate runtime/offline windows.",
             compatibility_paths=(
                 "scripts/summarize-runtime-c-mixer-trace.py",
                 "scripts/correlate-runtime-offline-window.py",
-                "scripts/run-local-corpus-runtime-metrics.py",
             ),
         ),
         CommandSpec(
@@ -194,6 +195,29 @@ def _configure_residual_scan_parser(parser: argparse.ArgumentParser) -> None:
     summarize_parser.set_defaults(command_handler=residual_scan.run)
 
 
+def _configure_runtime_trace_parser(parser: argparse.ArgumentParser) -> None:
+    """Register the migrated runtime-trace analysis modes."""
+
+    modes = parser.add_subparsers(dest="runtime_trace_mode", metavar="MODE", required=True)
+    summarize_parser = modes.add_parser(
+        "summarize",
+        help="Summarize a runtime C mixer JSONL trace.",
+        description=runtime_trace_summary.RUNTIME_TRACE_SUMMARY_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    runtime_trace_summary.add_arguments(summarize_parser)
+    summarize_parser.set_defaults(command_handler=runtime_trace_summary.run)
+
+    correlate_window_parser = modes.add_parser(
+        "correlate-window",
+        help="Correlate runtime/offline WAV windows with runtime trace events.",
+        description=runtime_trace_correlate_window.CORRELATE_WINDOW_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    runtime_trace_correlate_window.add_arguments(correlate_window_parser)
+    correlate_window_parser.set_defaults(command_handler=runtime_trace_correlate_window.run)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the deterministic top-level parser from the command registry."""
 
@@ -219,6 +243,8 @@ def build_parser() -> argparse.ArgumentParser:
             _configure_effect_coverage_parser(command_parser)
         elif spec.name == "residual_scan":
             _configure_residual_scan_parser(command_parser)
+        elif spec.name == "runtime_trace":
+            _configure_runtime_trace_parser(command_parser)
     return parser
 
 

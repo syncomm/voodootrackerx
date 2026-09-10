@@ -1,9 +1,10 @@
 # Synthetic XM Reference Fixture Pack Plan
 
 This plan governs the public-safe XM fixture pack for parser, editor,
-instrument/sample, preview, and later audio-comparison tests. The completed
-three-fixture instrument series adds deterministic fixture assets and generator/test tooling only;
-it does not change backend, parser, writer, mixer, DSP, or editor behavior.
+instrument/sample, preview, and fixture-backed FT2/XM effect-closure tests. The
+completed three-fixture instrument series adds deterministic fixture assets and
+generator/test tooling only; it does not change backend, parser, writer, mixer,
+DSP, or editor behavior.
 
 ## Purpose
 
@@ -13,10 +14,32 @@ but they are intentionally too small to cover meaningful instrument/sample
 payload, positive editor preview availability, loop behavior, envelopes, or
 focused FT2-style comparison cases.
 
-The future pack should provide small, reproducible XM modules that can live in
-the repository and CI without depending on private modules, local absolute
-paths, or generated local reports. Fixtures should isolate one behavior family
-at a time instead of becoming one large all-effects module.
+The pack provides small, reproducible XM modules that can live in the repository
+and CI without depending on private modules, local absolute paths, or generated
+local reports. Fixtures isolate one behavior family at a time instead of
+becoming one large all-effects module.
+
+## Effect-Closure Fixture Contract
+
+The fixture-backed FT2/XM effect-closure milestone follows the separate Fxx
+timing and Linear/Amiga portamento-scaling corrections. It is delivered through
+narrow effect-family PRs, using this model:
+
+```text
+small focused fixture
+→ one behavior family
+→ deterministic generator/manifest
+→ committed public-safe XM
+→ automated regression
+```
+
+Build the fixture set incrementally, never as one giant all-effects module.
+Each later effect-family PR adds or extends only the smallest public fixture
+needed when existing fixtures are insufficient. Planned families remain
+`pitch-effects.xm`, `volume-effects.xm`, `traversal-effects.xm`,
+`retrigger-cut-delay.xm`, `effect-memory.xm`, and
+`volume-column-effects.xm`; a focused slice may use an existing fixture instead
+of creating another one.
 
 ## Proposed Structure
 
@@ -163,12 +186,32 @@ asset change.
 
 ## Reference Render Policy
 
-Future reference WAVs may be useful for backend work after the temporary XM
-backend foundation freeze, but this plan does not reopen backend work.
+Effect-family work uses this evidence stack when the corresponding layer is
+useful:
+
+```text
+public synthetic XM fixture
+→ deterministic automated regression
+
+ft2-clone WAV from that same fixture
+→ primary FT2-style reference comparison
+
+secondary renderer when useful
+→ triangulation only
+
+optional anonymized maintainer-local corpus
+→ real-world coverage / residual discovery
+
+focused diagnostics
+→ root-cause confirmation
+```
 
 Policy:
 
-- ft2-clone can be used locally to generate FT2-style reference WAVs.
+- Match sample rate, channels, bounds, and renderer settings before comparing.
+- Do not mix reference families without labeling the comparison.
+- ft2-clone is the primary FT2-style reference for a public fixture; secondary
+  renderers provide triangulation rather than replacement authority.
 - Generated WAV, JSON, Markdown, trace, log, and screenshot artifacts should
   stay under `/tmp` or another ignored local path unless a future PR explicitly
   approves committing them.
@@ -177,9 +220,22 @@ Policy:
 - Do not commit reference WAVs unless they are small, redistributable, valuable
   for CI, and reviewed in a dedicated PR.
 
-Reference renders are diagnostic evidence. They do not by themselves justify
-C mixer DSP, runtime backend, parser architecture, playback planning, or
-tracker viewport changes during the freeze.
+Reference renders are diagnostic evidence, not automatic proof of semantic
+correctness. They do not by themselves justify C mixer DSP, runtime backend,
+parser architecture, playback planning, or tracker viewport changes.
+
+Private corpus use is optional and dynamic, for example
+`--label-map <path>`. Never publish a real local path, filename, title, module
+identity, or corpus count. Promotion follows this rule:
+
+```text
+private corpus evidence
+→ discover/promote suspected gap
+→ reproduce independently with public/synthetic evidence before committed regression coverage
+```
+
+The private corpus is never required by CI or release gates, and no committed
+fixture may be derived from it.
 
 ## Generation Strategy
 
@@ -187,7 +243,7 @@ Hand-authored XMs are acceptable when the provenance is clear, the file is
 small, and the source notes are reviewable. Generator scripts are preferable
 where practical because they make binary XM contents reproducible.
 
-Future generator rules:
+Generator rules:
 
 - Keep scripts deterministic and tested.
 - Document generator inputs, sample formulas, and expected output paths.
@@ -214,11 +270,10 @@ Expected future coverage:
 Blank documents may still remain preview-unavailable until import, sample
 loading, or editor-created payload exists.
 
-## Backend Support After Freeze
+## Effect-Closure Validation
 
-After a documented freeze-exit criterion is met, these fixtures can support
-backend validation by isolating effect families and sample behaviors without
-private-corpus dependence:
+These fixtures support effect and C-engine validation by isolating behavior
+families without private-corpus dependence:
 
 - ft2-clone comparison with documented local renderer settings.
 - bounded render comparison through the existing offline render/export path.
@@ -248,8 +303,9 @@ viewport math, editor note entry, note audition audio, or file save/export.
    PR, preserving unsupported empty/sample-less states honestly. Done.
 8. Add preview, isolated loop, and envelope fixtures where the three landed
    instrument modules do not already cover the focused test need.
-9. Add effect-family fixtures after expected behavior is documented and the
-   backend freeze posture allows the relevant validation work.
+9. Add or extend only the smallest needed effect-family fixture in each focused
+   effect PR after expected behavior is documented; do not create a combined
+   all-effects fixture.
 10. Decide separately whether compact metrics or reference WAVs belong in git.
 
 ## Acceptance Checklist For Future Fixture PRs

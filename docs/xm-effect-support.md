@@ -30,6 +30,48 @@ Implemented means supported by VTX's current runtime/offline C mixer path. It
 does not claim bit-perfect parity with every FT2 clone, tracker quirk, or
 hardware configuration.
 
+## Fixture-Backed FT2/XM Effect Closure
+
+After the separate Fxx timing and Linear/Amiga portamento-scaling corrections,
+the next playback milestone is fixture-backed FT2/XM effect closure and
+C-engine correctness. It is a sequence of narrow effect-family PRs, not one PR.
+Its exit criterion is:
+
+> Every FT2/XM command in the chosen VTX v1 compatibility scope is implemented
+> and tested, or explicitly deferred with an evidence-backed technical or
+> product reason.
+
+The target is the chosen FT2/XM v1 scope, not OpenMPT/ModPlug extensions or
+every historical tracker quirk. Known candidates for later focused slices
+include:
+
+- `7xy` tremolo and `E7x` tremolo control, likely as one effect family;
+- `Pxy` panning slide, `Txy` tremor, and `EEx` pattern delay;
+- remaining relevant E-command gaps;
+- volume-column vibrato and effect-memory gaps; and
+- broader Amiga-table pitch parity where it remains in v1 scope.
+
+Keeping a candidate visible does not promise that it must ship. The command
+tables below remain authoritative, and this planning definition changes none of
+their support statuses.
+
+Each effect-family slice uses the smallest sufficient project-generated public
+XM fixture and a deterministic automated regression. An ft2-clone WAV rendered
+from that same fixture is the primary FT2-style comparison; a secondary
+renderer may triangulate, and focused diagnostics may confirm the root cause.
+Optional anonymized maintainer-local corpus evidence may discover or prioritize
+a suspected gap, but the gap must be reproduced independently with public or
+synthetic evidence before it becomes committed regression coverage. The private
+corpus is never a CI or release dependency.
+
+Match sample rate, channels, bounds, and renderer settings before comparing.
+Keep generated WAVs, JSON, Markdown, and traces under `/tmp` or another ignored
+local path, and treat reference renders as evidence rather than automatic proof
+of semantic correctness. Historical retired-backend behavior may inform an
+investigation, but the current CoreAudio/C-mixer architecture remains
+authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
+`docs/audio-comparison.md` for the fixture and comparison contracts.
+
 ## Effect Column Commands
 
 | Command | Name | Status | Effect memory | Runtime support | Offline support | Notes |
@@ -127,6 +169,6 @@ Update this page whenever an XM effect PR lands. Corpus coverage reports are
 private/local evidence; public docs and PR summaries should use anonymized
 labels only and should never include private module filenames or local paths.
 
-A future "XM Synthetic Reference Fixture Pack" should provide small
-redistribution-safe XM fixtures and ft2-clone Linear reference renders/metrics
-for effect-family parity testing.
+The synthetic XM reference-fixture plan supplies the incremental public-fixture
+contract for effect-family parity work; reference renders and generated metrics
+remain local unless a separately reviewed change explicitly approves them.

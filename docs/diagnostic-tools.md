@@ -1,6 +1,6 @@
 # Diagnostic Tools Inventory
 
-This inventory records the current organization and migration plan for
+This inventory records the current organization and ownership boundaries for
 diagnostic, comparison, coverage, and helper tooling.
 
 ## Current Inventory Summary
@@ -23,6 +23,27 @@ The Swift test suite also invokes `scripts/audio-compare.py` from
 `tests/vtx_render_bounded_xm/VTXRenderBoundedXMTests.swift`; that test file is
 tracked below as a reference, not as a standalone diagnostic tool.
 
+## Consolidation Status
+
+Diagnostic-tool consolidation is complete. The stable
+`python3 -m tools.vtx_diag` entrypoint owns exactly six command families:
+
+- `audio_compare` is package-authoritative.
+- The active `reference_triage` core is package-authoritative; its two tested
+  archive candidates remain standalone.
+- `effect_coverage` analysis is package-authoritative;
+  `vtx_render_bounded_xm --effect-coverage-json` remains the separate producer.
+- `residual_scan` is package-authoritative.
+- The active `runtime_trace` analyzers are package-authoritative.
+- `corpus_map` is package-authoritative.
+
+Migrated legacy paths remain compatibility wrappers.
+`run-local-corpus-runtime-metrics.py` remains standalone cross-family
+orchestration, while `mc_dump` and `vtx_render_bounded_xm` remain separate tool
+surfaces. Benchmark, fixture-generation, hygiene, privacy, golden, and
+release-packaging helpers retain distinct ownership. No archive or deletion
+work is required for diagnostic consolidation to remain complete.
+
 Classification terms:
 
 - Active workflow: documented and expected for current development.
@@ -33,8 +54,6 @@ Classification terms:
   investigation and still potentially useful.
 - Legacy / candidate archive: likely archiveable after references and tests are
   moved or retired.
-- Candidate for unified CLI subcommand: should be folded into a future
-  diagnostic command surface.
 - Unknown / needs follow-up: usage could not be confidently classified.
 
 ## Local-Only And Private Artifact Rules
@@ -212,7 +231,7 @@ avoided scan estimates. Byte-parity tests keep this optimization output-neutral;
 continuation history construction retains its separately counted per-window
 scan. The change does not alter the CLI surface, C mixer DSP, or runtime playback.
 
-## Unified CLI Foundation
+## Unified CLI Surface
 
 The stable top-level entrypoint is:
 
@@ -372,15 +391,16 @@ them:
 - `vtx_render_bounded_xm` remains the bounded render/export CLI entrypoint.
 - `BoundedXMRenderTool.swift` now lives under
   `tools/vtx_render_bounded_xm/Support/`; keep that implementation separate
-  from future Python diagnostic consolidation unless a later Swift tooling
+  from the Python diagnostic package unless a later Swift tooling
   module design explicitly supersedes it.
 
-Compatibility rule for consolidation PRs: keep existing script paths as
-wrappers until all docs, tests, prompts, and local workflows have migrated.
+Compatibility rule: keep existing script paths as wrappers until all docs,
+tests, prompts, and local workflows have migrated.
 
 ## Candidate Archive List
 
-No files should be archived in this PR.
+No archive or deletion work is required for consolidation. These candidates
+remain in place pending separately scoped decisions:
 
 | Path | Why it may be safe later | Required check before moving |
 | --- | --- | --- |
@@ -431,25 +451,11 @@ Preserved behavior:
 - Do not pair source-location maintenance with playback, parser, or diagnostic
   behavior changes.
 
-## Future PR Sequence
+## Consolidation Closeout
 
-1. Land this inventory and consolidation plan without script behavior changes.
-2. Move or split `BoundedXMRenderTool.swift` into a tool-owned location while
-   preserving the CLI entrypoint, tests, Package.swift behavior, and Xcode app
-   exclusion. Completed in M4.
-3. Add a minimal unified diagnostic CLI/package skeleton with no behavior
-   changes while leaving existing script paths authoritative. Completed by the
-   `tools/vtx_diag/` foundation.
-4. Move core audio comparison and local smoke behavior behind the unified
-   `audio_compare` command while keeping existing script wrappers. Completed,
-   including the stem and discontinuity helpers.
-5. Move residual scan behind `residual_scan`, preserving dynamic label-map,
-   redaction, report, and recommendation behavior. Completed at
-   `residual_scan summarize`; corpus-map management remains separate.
-6. Move runtime trace analysis behind `runtime_trace`, preserving the two legacy
-   wrappers and leaving corpus metrics orchestration standalone. Completed at
-   `runtime_trace summarize` and `runtime_trace correlate-window`.
-7. Move label-map management behind `corpus_map`, preserving its separate local
-   input/update boundary and redaction tests. Completed at `corpus_map update`.
-8. Archive or delete only the scripts proven unused after compatibility
-   wrappers, docs, tests, prompts, and local workflows have migrated.
+All six planned command families are migrated behind the unified package with
+their focused compatibility and confinement tests. Remaining wrappers and
+standalone helpers preserve deliberate compatibility or ownership boundaries;
+they do not leave the milestone open. Any later archive or deletion is a
+separate hygiene contract that first verifies callers, docs, prompts, tests,
+and maintained local workflows.

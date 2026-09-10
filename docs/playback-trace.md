@@ -843,15 +843,20 @@ summaries. It is local/offline tooling only and is tested with synthetic traces,
 not private modules.
 
 To audit effect coverage across runtime traces and bounded offline diagnostics
-with one local-only table, use `scripts/summarize-xm-effect-coverage.py`:
+with one local-only table, use the package-owned summary command:
 
 ```bash
-python3 scripts/summarize-xm-effect-coverage.py \
+python3 -m tools.vtx_diag effect_coverage summarize \
   /tmp/vtx-c-runtime-trace.jsonl \
   /tmp/vtx-offline-c-mixer-diagnostics.json \
   --json /tmp/vtx-effect-coverage-summary.json \
   --markdown /tmp/vtx-effect-coverage-summary.md
 ```
+
+`scripts/summarize-xm-effect-coverage.py` remains an executable compatibility
+wrapper with the same arguments and output behavior. The Python command
+analyzes runtime traces and bounded diagnostics; it does not replace the
+separate `vtx_render_bounded_xm --effect-coverage-json` producer option.
 
 The effect coverage summary reports detected, applied, deferred, unsupported,
 and no-op/effect-memory command counts, first source coordinates, runtime versus

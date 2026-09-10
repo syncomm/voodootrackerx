@@ -9,6 +9,8 @@ import unittest
 import wave
 from pathlib import Path
 
+from tools.vtx_diag import effect_coverage
+
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "audio-compare.py"
 SMOKE_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "local-reference-compare-smoke.py"
@@ -82,15 +84,6 @@ def load_runtime_offline_window_module():
     return module
 
 
-def load_effect_coverage_module():
-    spec = importlib.util.spec_from_file_location("effect_coverage", EFFECT_COVERAGE_SCRIPT_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def load_focused_xm_channel_module():
     spec = importlib.util.spec_from_file_location("focused_xm_channel", FOCUSED_XM_CHANNEL_SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
@@ -123,7 +116,6 @@ audio_discontinuities = load_audio_discontinuities_module()
 reference_triage = load_reference_triage_module()
 runtime_trace_summary = load_runtime_trace_summary_module()
 runtime_offline_window = load_runtime_offline_window_module()
-effect_coverage = load_effect_coverage_module()
 focused_xm_channel = load_focused_xm_channel_module()
 focused_window_timeline = load_focused_window_timeline_module()
 stem_scaling = load_stem_scaling_module()

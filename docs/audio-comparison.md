@@ -444,10 +444,17 @@ the canonical support table.
 Local coverage summaries can use:
 
 ```bash
-python3 scripts/summarize-xm-effect-coverage.py \
-  --diagnostics-json /tmp/vtx-ft2-profile-diagnostics.json \
+python3 -m tools.vtx_diag effect_coverage summarize \
+  /tmp/vtx-ft2-profile-diagnostics.json \
   --markdown /tmp/vtx-effect-coverage.md
 ```
+
+The package command is authoritative.
+`scripts/summarize-xm-effect-coverage.py` remains an executable compatibility
+wrapper with the same arguments and output behavior. The summary command
+consumes diagnostics; the separate
+`vtx_render_bounded_xm --effect-coverage-json` option produces compact bounded
+offline coverage input.
 
 Keep generated reports local unless the maintainer explicitly requests a
 public-safe committed report under `docs/reports/`.

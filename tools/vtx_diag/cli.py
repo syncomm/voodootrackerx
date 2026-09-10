@@ -13,6 +13,7 @@ from . import (
     audio_compare_discontinuities,
     audio_compare_smoke,
     audio_compare_stems,
+    effect_coverage,
     reference_triage_correlate,
     reference_triage_focused_window,
 )
@@ -74,7 +75,7 @@ COMMAND_REGISTRY: dict[str, CommandSpec] = {
         ),
         CommandSpec(
             name="effect_coverage",
-            summary="Summarize XM effect coverage (migration pending).",
+            summary="Summarize XM effect coverage from runtime or offline diagnostics.",
             compatibility_paths=("scripts/summarize-xm-effect-coverage.py",),
         ),
         CommandSpec(
@@ -164,6 +165,20 @@ def _configure_reference_triage_parser(parser: argparse.ArgumentParser) -> None:
     focused_window_parser.set_defaults(command_handler=reference_triage_focused_window.run)
 
 
+def _configure_effect_coverage_parser(parser: argparse.ArgumentParser) -> None:
+    """Register the migrated effect-coverage summary mode."""
+
+    modes = parser.add_subparsers(dest="effect_coverage_mode", metavar="MODE", required=True)
+    summarize_parser = modes.add_parser(
+        "summarize",
+        help="Summarize runtime traces and bounded offline effect diagnostics.",
+        description=effect_coverage.EFFECT_COVERAGE_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    effect_coverage.add_arguments(summarize_parser)
+    summarize_parser.set_defaults(command_handler=effect_coverage.run)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the deterministic top-level parser from the command registry."""
 
@@ -185,6 +200,8 @@ def build_parser() -> argparse.ArgumentParser:
             _configure_audio_compare_parser(command_parser)
         elif spec.name == "reference_triage":
             _configure_reference_triage_parser(command_parser)
+        elif spec.name == "effect_coverage":
+            _configure_effect_coverage_parser(command_parser)
     return parser
 
 

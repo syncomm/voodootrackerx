@@ -16,6 +16,7 @@ from . import (
     effect_coverage,
     reference_triage_correlate,
     reference_triage_focused_window,
+    residual_scan,
 )
 
 
@@ -80,7 +81,7 @@ COMMAND_REGISTRY: dict[str, CommandSpec] = {
         ),
         CommandSpec(
             name="residual_scan",
-            summary="Scan residual effect behavior (migration pending).",
+            summary="Scan residual effect-memory and volume-column gaps.",
             compatibility_paths=("scripts/summarize-xm-residual-effect-scan.py",),
         ),
         CommandSpec(
@@ -179,6 +180,20 @@ def _configure_effect_coverage_parser(parser: argparse.ArgumentParser) -> None:
     summarize_parser.set_defaults(command_handler=effect_coverage.run)
 
 
+def _configure_residual_scan_parser(parser: argparse.ArgumentParser) -> None:
+    """Register the migrated residual-scan summary mode."""
+
+    modes = parser.add_subparsers(dest="residual_scan_mode", metavar="MODE", required=True)
+    summarize_parser = modes.add_parser(
+        "summarize",
+        help="Summarize residual effect-memory and volume-column gaps.",
+        description=residual_scan.RESIDUAL_SCAN_DESCRIPTION,
+        formatter_class=_HelpFormatter,
+    )
+    residual_scan.add_arguments(summarize_parser)
+    summarize_parser.set_defaults(command_handler=residual_scan.run)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the deterministic top-level parser from the command registry."""
 
@@ -202,6 +217,8 @@ def build_parser() -> argparse.ArgumentParser:
             _configure_reference_triage_parser(command_parser)
         elif spec.name == "effect_coverage":
             _configure_effect_coverage_parser(command_parser)
+        elif spec.name == "residual_scan":
+            _configure_residual_scan_parser(command_parser)
     return parser
 
 

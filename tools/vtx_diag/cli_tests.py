@@ -19,7 +19,7 @@ EXPECTED_COMMANDS = (
     "runtime_trace",
     "corpus_map",
 )
-PENDING_COMMANDS = EXPECTED_COMMANDS[3:]
+PENDING_COMMANDS = EXPECTED_COMMANDS[4:]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -115,6 +115,20 @@ class UnifiedDiagnosticCLITests(unittest.TestCase):
 
     def test_effect_coverage_requires_a_mode(self):
         exit_code, stdout, stderr = self.invoke("effect_coverage")
+
+        self.assertEqual(exit_code, ExitCode.USAGE_ERROR)
+        self.assertEqual(stdout, "")
+        self.assertIn("the following arguments are required: MODE", stderr)
+
+    def test_residual_scan_help_lists_summarize_mode(self):
+        exit_code, stdout, stderr = self.invoke("residual_scan", "--help")
+
+        self.assertEqual(exit_code, ExitCode.SUCCESS)
+        self.assertEqual(stderr, "")
+        self.assertIn("    summarize", stdout)
+
+    def test_residual_scan_requires_a_mode(self):
+        exit_code, stdout, stderr = self.invoke("residual_scan")
 
         self.assertEqual(exit_code, ExitCode.USAGE_ERROR)
         self.assertEqual(stdout, "")

@@ -2834,14 +2834,86 @@ final class RuntimeCMixerTests: XCTestCase {
         let plan = try XCTUnwrap(RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100).plan)
         let resolver = PlaybackSongSampleTimePositionResolver(plan: plan)
 
-        let changedSpeedTick = try XCTUnwrap(resolver.position(atFrame: 20))
-        let followingRow = try XCTUnwrap(resolver.position(atFrame: 30))
+        let changedSpeedTick = try XCTUnwrap(resolver.position(atFrame: 10))
+        let followingRow = try XCTUnwrap(resolver.position(atFrame: 20))
 
-        XCTAssertEqual(changedSpeedTick.source.rowIndex, 1)
+        XCTAssertEqual(changedSpeedTick.source.rowIndex, 0)
         XCTAssertEqual(changedSpeedTick.tickInRow, 1)
         XCTAssertEqual(changedSpeedTick.effectiveSpeed, 2)
-        XCTAssertEqual(followingRow.source.rowIndex, 2)
+        XCTAssertEqual(followingRow.source.rowIndex, 1)
         XCTAssertEqual(followingRow.tickInRow, 0)
+    }
+
+    @MainActor
+    func testFxxFixtureRuntimeAppliesOfflineFramesAndFollowsSampleTimeWithoutTimerAdvances() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/fxx-timing.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let offlinePlan = PlaybackSongSyntheticAdapter.adapt(
+            song, startOrderIndex: 0, orderCount: song.orders.count, sampleRate: 48_000
+        )
+        let runtimePlan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        let expectedFrames = [
+            0, 5_760, 8_640, 11_520, 13_920, 16_320, 21_120, 26_880,
+            56_640, 172_890, 187_478, 190_301, 196_061, 198_461, 200_861, 205_661,
+        ]
+        XCTAssertEqual(offlinePlan.diagnostics.rowTiming.map(\.rowStartFrame), expectedFrames)
+        XCTAssertEqual(runtimePlan.plan?.diagnostics.rowTiming, offlinePlan.diagnostics.rowTiming)
+        let scheduler = SyntheticTrackerScheduler(config: offlinePlan.timingConfig)
+        XCTAssertEqual(offlinePlan.pattern.events.map { scheduler.frame(for: $0) }, expectedFrames)
+        let runtimeNotes = runtimePlan.events.filter {
+            if case .noteTrigger = $0.action { return true }
+            return false
+        }
+        XCTAssertEqual(runtimeNotes.map(\.scheduledFrame), expectedFrames)
+        XCTAssertEqual(runtimePlan.plannedSongEndFrame, 210_461)
+        let resolver = PlaybackSongSampleTimePositionResolver(plan: offlinePlan)
+        for row in offlinePlan.diagnostics.rowTiming {
+            for tick in 0..<row.effectiveSpeed {
+                let context = AudioRuntimeTraceContext(
+                    orderIndex: row.source.orderIndex, patternIndex: row.source.patternIndex,
+                    rowIndex: row.source.rowIndex, tickInRow: tick
+                )
+                let frame = try XCTUnwrap(runtimePlan.plannedFrame(matching: context))
+                XCTAssertEqual(resolver.position(atFrame: frame)?.source, row.source)
+                XCTAssertEqual(resolver.position(atFrame: frame)?.tickInRow, tick)
+            }
+        }
+
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 48_000)
+        harness.engine.load(song: song)
+        harness.engine.play(from: nil)
+        defer { harness.engine.stop() }
+        let timerPosition = try XCTUnwrap(harness.engine.currentPosition)
+        var renderedFrames = 0
+        for (rowIndex, frame) in expectedFrames.enumerated() {
+            // Cross each row boundary inside a callback while the main-loop timer stays idle.
+            while renderedFrames <= frame {
+                let count = min(4_093, frame + 1 - renderedFrames)
+                _ = harness.audioEngine.renderForTesting(frameCount: count)
+                renderedFrames += count
+            }
+            let follow = try XCTUnwrap(harness.audioEngine.playbackFollowPosition(
+                timerPosition: timerPosition, timerTickInRow: 0
+            ))
+            XCTAssertEqual(follow.source, .cMixerSampleTime)
+            XCTAssertEqual(follow.position.rowIndex, rowIndex)
+            XCTAssertEqual(follow.tickInRow, 0)
+            XCTAssertEqual(follow.sampleTimeFrame, frame + 1)
+        }
+        XCTAssertEqual(harness.engine.currentPosition, timerPosition)
+        let appliedNotes = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }
+        XCTAssertEqual(appliedNotes.count, expectedFrames.count)
+        for (rowIndex, pair) in zip(appliedNotes, expectedFrames).enumerated() {
+            let (event, frame) = pair
+            XCTAssertEqual(event.plannedEventFrame, frame)
+            XCTAssertEqual(event.plannedRuntimeFrame, frame)
+            XCTAssertEqual(event.eventAppliedFrame, UInt64(frame))
+            XCTAssertEqual(event.plannedVsAppliedDelta, 0)
+            XCTAssertEqual(event.cMixerSampleTimeRowIndex, rowIndex)
+            XCTAssertEqual(event.cMixerSampleTimeTickInRow, 0)
+            XCTAssertEqual(event.eventApplicationTiming, "exact_frame")
+        }
     }
 
     func testSampleTimePositionResolverHandlesEndOfRangeSafely() throws {

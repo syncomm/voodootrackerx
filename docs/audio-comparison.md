@@ -266,6 +266,20 @@ labeling the report as a mix-profile experiment.
 
 ## Reference Renderers
 
+For focused Fxx comparison, use
+`tests/reference-xm/generated/fxx-timing.xm`, order 0, order count 1, 16 rows,
+48 kHz stereo Float32, and the FT2 mix profile. In ft2-clone select Linear
+interpolation, volume ramping on, amplification 10, master volume 256, and
+**Precise BPM on**. Precise BPM retains fractional tick frames like VTX;
+disabling it rounds each tick and can accumulate a separate quantization
+difference at `FFF`. The one-pass VTX plan ends at frame 210461 before any tail.
+Compare row/note boundaries as well as waveform metrics; Fxx changes both
+command-row duration and all subsequent absolute event frames.
+The reference rule follows ft2-clone's
+[tick-zero speed/BPM handler](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L801-L814)
+and [WAV tick scheduling](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_wav_renderer.c#L369-L381),
+which reads tick duration after processing the row's commands.
+
 When ft2-clone is used as the primary reference, export outside the repository
 and record the full profile. Prefer Float32 for direct comparison with VTX
 Float32 candidates.

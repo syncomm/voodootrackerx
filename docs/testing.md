@@ -145,8 +145,11 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
 - Load the XM file.
 - Press Play and confirm audio plays while the tracker follows rows.
 - Confirm modules with `Fxx` speed/tempo commands visibly change playback pace.
-  This is a smoke check only and does not clear the accepted current-row timing
-  correction `VTX-CS-001`.
+  Use `tests/reference-xm/generated/fxx-timing.xm` for the focused case; its
+  command rows use the new timing immediately. Run `swift test --filter
+  FxxTimingTests` for exact row/tick/frame and bounded/windowed regression
+  coverage. `RuntimeCMixerTests` also pins exact callback application and
+  sample-time follow without advancing the PlaybackEngine timer.
 - Confirm modules with `Bxx` position jumps or `Dxx` pattern breaks continue safely without crashes or corrupted tracker state.
 - Confirm modules with `0xy` arpeggio commands produce audible tick-cycled pitch changes.
 - Confirm modules with `1xx` or `2xx` portamento commands produce smooth

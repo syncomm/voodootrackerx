@@ -141,8 +141,14 @@ deferred diagnostics.
 
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing
-commands. This captures header timing from the loaded local XM and
-`bpm=183` before a row `Fxx` command changes speed or BPM.
+commands. It describes incoming timing, not the effective duration of an Fxx
+row. Nonzero Fxx takes effect at tick 0 of that same row in the shared adapter
+plan used by offline rendering, runtime event frames, and sample-time follow.
+The bounded diagnostic JSON key `applies_to_synthetic_row_after` retains its
+legacy spelling for compatibility; its value is the effective synthetic row
+after processing the command, now the command row itself. `row_timing` gives
+that row's effective speed/BPM and absolute boundaries. The runtime trace
+schema and C-mixer sample-time authority are unchanged.
 
 ## Inspecting A Trace
 

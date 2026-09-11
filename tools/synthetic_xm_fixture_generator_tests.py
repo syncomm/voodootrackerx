@@ -16,6 +16,7 @@ ALL_FIXTURES = [
     "instrument-sustained-defaults.xm",
     "instrument-metadata-matrix.xm",
     "instrument-envelopes-keymap.xm",
+    "fxx-timing.xm",
 ]
 
 
@@ -233,6 +234,43 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         for sample in instrument["samples"]:
             self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(), sample["pcm_sha256"])
 
+    def test_fxx_fixture_pins_timing_cells_plain_rows_and_sustained_pcm(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        fixture = next(item for item in manifest["fixtures"] if item["name"] == "fxx-timing.xm")
+        module = fixture["module"]
+        payload = generator.fixture_xm_bytes(manifest, fixture["name"])
+        self.assertEqual(len(payload), 1_252)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), "b91cf6454787f8494b7b7579e00cd59cac8dc7fea2a4b831af043a8190273c1b")
+        self.assertEqual((module["channels"], module["speed"], module["bpm"]), (2, 6, 125))
+        self.assertEqual(module["orders"], [0])
+        self.assertEqual(len(module["patterns"]), 1)
+        self.assertEqual(module["patterns"][0]["rows"], 16)
+        events = module["patterns"][0]["events"]
+        self.assertEqual(
+            [(event["row"], event["note"]) for event in events if event["channel"] == 0],
+            [(row, "C-4" if row % 2 == 0 else "E-4") for row in range(16)],
+        )
+        self.assertEqual(
+            [(event["row"], event["channel"], event["effect_type"], event["effect_parameter"])
+             for event in events if "effect_type" in event],
+            [(1, 0, 15, 3), (3, 0, 15, 150), (5, 0, 15, 6), (6, 0, 15, 125),
+             (7, 0, 15, 31), (8, 0, 15, 32), (9, 0, 15, 255), (10, 0, 15, 3),
+             (10, 1, 15, 6), (11, 0, 15, 32), (11, 1, 15, 125), (12, 0, 15, 3),
+             (12, 1, 15, 150), (14, 0, 15, 6)],
+        )
+        self.assertEqual([event["row"] for event in events if "effect_type" not in event], [0, 2, 4, 13, 15])
+        self.assertEqual(generator._packed_pattern({"rows": 1, "events": [events[0]]}, 2), bytes([0x83, 49, 1, 0x80]))
+        effect_only = dict(next(event for event in events if event["channel"] == 1), row=0)
+        self.assertEqual(generator._packed_pattern({"rows": 1, "events": [effect_only]}, 2), bytes([0x80, 0x98, 15, 6]))
+        self.assertEqual(len(module["instruments"]), 1)
+        instrument = module["instruments"][0]
+        self.assertEqual(len(instrument["samples"]), 1)
+        sample = instrument["samples"][0]
+        self.assertEqual(sample["loop"], {"length_frames": 256, "mode": "forward", "start_frame": 0})
+        self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(), "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8")
+        self.assertFalse(instrument["volume_envelope"]["enabled"])
+
     def test_advanced_instrument_validation_rejects_invalid_indices_keymaps_and_partial_fields(self):
         generator = load_module()
         manifest = generator.fixture_manifest()
@@ -325,12 +363,14 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "instrument-sustained-defaults.xm").resolve(),
                     (output_dir / "generated" / "instrument-metadata-matrix.xm").resolve(),
                     (output_dir / "generated" / "instrument-envelopes-keymap.xm").resolve(),
+                    (output_dir / "generated" / "fxx-timing.xm").resolve(),
                 ],
             )
             self.assertEqual(
                 files,
                 [
                     "generated/basic-instrument-sample.xm",
+                    "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-sustained-defaults.xm",
@@ -371,6 +411,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertFalse((output_dir / "generated" / "instrument-sustained-defaults.xm").exists())
             self.assertFalse((output_dir / "generated" / "instrument-metadata-matrix.xm").exists())
             self.assertFalse((output_dir / "generated" / "instrument-envelopes-keymap.xm").exists())
+            self.assertFalse((output_dir / "generated" / "fxx-timing.xm").exists())
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
 
@@ -387,6 +428,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 files,
                 [
                     "generated/basic-instrument-sample.xm",
+                    "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-sustained-defaults.xm",
@@ -445,6 +487,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:instrument-sustained-defaults.xm": "generated/instrument-sustained-defaults.xm",
                     "xm:instrument-metadata-matrix.xm": "generated/instrument-metadata-matrix.xm",
                     "xm:instrument-envelopes-keymap.xm": "generated/instrument-envelopes-keymap.xm",
+                    "xm:fxx-timing.xm": "generated/fxx-timing.xm",
                 },
             )
 

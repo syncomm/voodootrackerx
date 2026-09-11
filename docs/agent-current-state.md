@@ -28,6 +28,8 @@ host.
   diagnostic reason; retired AVAudio runtime paths are not supported.
 - Swift playback/adapter code plans module events. The C mixer renders runtime
   playback and bounded offline work.
+- Nonzero Fxx speed/BPM commands govern their own row from tick 0 through the
+  shared frame plan, including runtime event application and sample-time follow.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.
@@ -130,9 +132,6 @@ and normalization details.
 
 These confirmed items are unresolved and remain separate focused work:
 
-- `VTX-CS-001` — Fxx timing (accepted HIGH): the frame-domain planner applies
-  speed/BPM one synthetic row late and disagrees with current-row timing
-  semantics.
 - `VTX-CS-002` — Linear/Amiga portamento scaling: the two frequency-table paths
   use inconsistent slide scales, including incorrect fine versus extra-fine
   relationships.
@@ -142,8 +141,8 @@ These confirmed items are unresolved and remain separate focused work:
 
 These are post-alpha correctness debts, not reasons to reopen alpha.2.
 Documentation/context authority and diagnostic-tool consolidation are complete.
-The immediate next behavioral PR is focused Fxx timing correction, followed by
-separate Linear/Amiga portamento scaling correction, fixture-backed FT2/XM
+The immediate next behavioral PR is focused Linear/Amiga portamento scaling
+correction, followed by fixture-backed FT2/XM
 effect closure and C-engine correctness, focused callback RT safety, and later
 native editable Amiga-frequency mode. `docs/roadmap.md` is the sole sequencing
 authority.

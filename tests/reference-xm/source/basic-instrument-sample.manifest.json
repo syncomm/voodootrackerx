@@ -732,6 +732,221 @@
       "xm_output": "generated/instrument-envelopes-keymap.xm",
       "xm_sha256": "02c195c97ea64b0be56f75c86e4b2a5e565690cff39500f09dadc3441eeeee09",
       "xm_size_bytes": 6870
+    },
+    {
+      "id": "fxx-timing",
+      "intended_tests": [
+        "current-row speed and BPM timing",
+        "runtime/offline planned-frame parity",
+        "same-row channel precedence"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "name": "FXX TIMING SINE",
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "FXX SINE 16",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 12000,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 1
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 2
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 150,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 3
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 4
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 5
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 125,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 6
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 31,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 7
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 8
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 255,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 9
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 10
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "note": 0,
+                "row": 10
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 11
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 125,
+                "effect_type": 15,
+                "note": 0,
+                "row": 11
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 12
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 150,
+                "effect_type": 15,
+                "note": 0,
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 13
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 14
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 15
+              }
+            ],
+            "rows": 16
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX FXX TIMING",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "fxx-timing.xm",
+      "purpose": "Isolated Fxx current-row timing with an audible note on every row and effect-only second-channel precedence cells.",
+      "significant_rows": [
+        "row 1 F03, row 2 ordinary, row 3 F96, row 4 ordinary",
+        "rows 5...9 F06, F7D, F1F, F20, FFF",
+        "row 10 channel 0 F03 then channel 1 F06; row 11 channel 0 F20 then channel 1 F7D",
+        "row 12 channel 0 F03 then channel 1 F96; row 13 ordinary; row 14 F06; row 15 ordinary",
+        "every row retriggers alternating C-4/E-4 on channel 0"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "F00 and other effect families are intentionally absent."
+      ],
+      "xm_output": "generated/fxx-timing.xm",
+      "xm_sha256": "b91cf6454787f8494b7b7579e00cd59cac8dc7fea2a4b831af043a8190273c1b",
+      "xm_size_bytes": 1252
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

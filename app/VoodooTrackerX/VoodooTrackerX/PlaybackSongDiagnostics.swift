@@ -405,6 +405,8 @@ struct PlaybackSongSyntheticTimingChangeDiagnostic: Equatable {
     let effectType: UInt8
     let effectParam: UInt8
     let rowStartFrame: Int
+    // Legacy diagnostic name retained for JSON compatibility: the effective row
+    // after processing the command, now the command's own synthetic row.
     let appliesToSyntheticRowAfter: Int
     let kind: Kind
     let applied: Bool

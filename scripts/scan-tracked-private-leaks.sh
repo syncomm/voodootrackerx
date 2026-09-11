@@ -32,6 +32,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/instrument-sustained-defaults.xm | \
     tests/reference-xm/generated/instrument-metadata-matrix.xm | \
     tests/reference-xm/generated/instrument-envelopes-keymap.xm | \
+    tests/reference-xm/generated/fxx-timing.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

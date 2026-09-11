@@ -131,6 +131,12 @@ Start with focused fixtures that each prove one behavior class:
   matrix with waveforms, both bit depths, and all three XM loop modes.
 - `instrument-envelopes-keymap.xm`: landed multi-sample map with volume/panning
   envelopes, fadeout, and autovibrato preservation.
+- `fxx-timing.xm`: isolated current-row speed/BPM timing, mixed transitions,
+  and same-row channel precedence. One 16-row pattern retriggers alternating
+  C-4/E-4 around F03/F06/F1F/F20/F7D/F96/FFF commands with a sustained looped
+  sine; a second channel supplies timing-only conflict and mixed-category cells.
+  The manifest pins its 1,252-byte XM and deterministic PCM hashes. It supports
+  runtime/offline timing regression and local ft2-clone comparison only.
 - `note-entry-preview.xm`: tiny loaded-module payload for selected
   instrument/sample display and future preview availability tests.
 - `looped-sample.xm`: forward loop metadata and a steady loop segment.

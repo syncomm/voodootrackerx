@@ -71,7 +71,8 @@ def _require_ascii(value: Any, maximum_bytes: int, label: str) -> str:
 
 def _note_byte(note: Any) -> int:
     if isinstance(note, int) and not isinstance(note, bool):
-        return _require_int(note, 1, 97, "event note")
+        # Zero preserves an effect-only XM cell without synthesizing a note.
+        return _require_int(note, 0, 97, "event note")
     if note == "key-off":
         return 97
     if isinstance(note, str):

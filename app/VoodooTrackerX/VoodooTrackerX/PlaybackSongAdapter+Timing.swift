@@ -148,21 +148,10 @@ enum PlaybackSongFxxTimingPlanner {
             let syntheticRow = traversalRow.syntheticRow
             let source = traversalRow.source
             let rowStartExactFrame = currentExactFrame
-            let rowEndExactFrame = currentExactFrame + rowDuration(
-                speed: currentSpeed,
-                bpm: currentBPM,
-                sampleRate: initialConfig.sampleRate
-            )
-            let rowTiming = PlaybackSongFxxRowTiming(
-                source: source,
-                syntheticRow: syntheticRow,
-                rowStartExactFrame: rowStartExactFrame,
-                rowEndExactFrame: rowEndExactFrame,
-                effectiveSpeed: currentSpeed,
-                effectiveBPM: currentBPM
-            )
-            rowTimings.append(rowTiming)
+            let rowStartFrame = rowTimings.last?.rowEndFrame ?? 0
 
+            // FT2 processes channels at tick 0 before timing that tick. The last
+            // speed and BPM commands each win, and both govern this entire row.
             var nextSpeed = currentSpeed
             var nextBPM = currentBPM
             for (channelIndex, cell) in row.cells.enumerated() where isFxxTimingEffect(cell) {
@@ -188,8 +177,8 @@ enum PlaybackSongFxxTimingPlanner {
                     channelIndex: channelIndex,
                     effectType: cell.effectType,
                     effectParam: cell.effectParam,
-                    rowStartFrame: rowTiming.rowStartFrame,
-                    appliesToSyntheticRowAfter: syntheticRow + 1,
+                    rowStartFrame: rowStartFrame,
+                    appliesToSyntheticRowAfter: syntheticRow,
                     kind: kind,
                     applied: applied,
                     speedBefore: speedBefore,
@@ -199,9 +188,21 @@ enum PlaybackSongFxxTimingPlanner {
                 ))
             }
 
-            currentExactFrame = rowEndExactFrame
             currentSpeed = nextSpeed
             currentBPM = nextBPM
+            currentExactFrame += rowDuration(
+                speed: currentSpeed,
+                bpm: currentBPM,
+                sampleRate: initialConfig.sampleRate
+            )
+            rowTimings.append(PlaybackSongFxxRowTiming(
+                source: source,
+                syntheticRow: syntheticRow,
+                rowStartExactFrame: rowStartExactFrame,
+                rowEndExactFrame: currentExactFrame,
+                effectiveSpeed: currentSpeed,
+                effectiveBPM: currentBPM
+            ))
         }
 
         return PlaybackSongFxxTimingPlan(
@@ -224,4 +225,3 @@ enum PlaybackSongFxxTimingPlanner {
         sampleRate * 2.5 / Double(max(1, bpm)) * Double(max(1, speed))
     }
 }
-

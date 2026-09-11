@@ -920,7 +920,7 @@ final class OfflineRenderTests: XCTestCase {
         let firstEvent = try XCTUnwrap(windowed.diagnostics.eventMappings.first)
 
         XCTAssertEqual(windowed.block, nonWindowed.block)
-        XCTAssertEqual(windowed.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6, 12, 18, 21])
+        XCTAssertEqual(windowed.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6, 12, 15, 18])
         XCTAssertEqual(firstEvent.effectiveVolumeValue, 16)
         XCTAssertEqual(firstEvent.effectivePan, 1)
     }
@@ -1037,9 +1037,9 @@ final class OfflineRenderTests: XCTestCase {
 
         let result = PlaybackSongOfflineRenderer().render(request)
 
-        XCTAssertEqual(result.requestedFrameCount, 12)
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6, 9])
-        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 9) + [1, 0, 0])
+        XCTAssertEqual(result.requestedFrameCount, 9)
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 3, 6])
+        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [1, 0, 0])
     }
 
     func testPlaybackSongOfflineRendererSplitRendersMatchOneLargerRender() {
@@ -1465,14 +1465,15 @@ final class OfflineRenderTests: XCTestCase {
 
         XCTAssertEqual(result.renderedFrameCount, 9)
         XCTAssertEqual(result.diagnostics.emittedEventCount, 1)
-        XCTAssertEqual(result.plan.pattern.events.first?.scheduledStartFrame, 6)
+        XCTAssertEqual(result.plan.pattern.events.first?.scheduledStartFrame, 3)
         XCTAssertEqual(wav.sampleRate, 100)
         XCTAssertEqual(wav.channelCount, 2)
         XCTAssertEqual(wav.bitsPerSample, 16)
         XCTAssertEqual(wav.dataSize, 36)
         XCTAssertEqual(
             Array(wav.samples.prefix(18)),
-            Array(repeating: Int16(0), count: 14) + [16_384, 16_384, -16_384, -16_384]
+            Array(repeating: Int16(0), count: 8)
+                + [16_384, 16_384, -16_384, -16_384, 32_767, 32_767, 0, 0, 0, 0]
         )
     }
 

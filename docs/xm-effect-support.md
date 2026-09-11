@@ -106,7 +106,7 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 | `EDx` | Note delay | Implemented | Not applicable | Yes | Yes | Delays same-cell normal note triggers; no-note residuals are diagnostic. |
 | `EEx` | Pattern delay | Deferred | Deferred | No | No | Recognized as a traversal/timing hazard. |
 | `EFx` | Invert loop / funk repeat | Deferred | Deferred | No | No | Not a current playback target. |
-| `Fxx` | Speed / BPM | Implemented | Not applicable | Yes | Yes | Adapter timing supports XM speed/BPM changes. |
+| `Fxx` | Speed / BPM | Implemented | Not applicable | Yes | Yes | `F01...F1F` sets the command row's tick count; `F20...FFF` sets its tick duration starting at tick 0. Channels are processed left to right; the last speed and last BPM commands each win. `F00` remains an ignored no-op. |
 | `Gxx` | Global volume | Implemented | Not applicable | Yes | Yes | Clamped `0...64` global-volume state. |
 | `Hxy` | Global volume slide | Implemented, parity-watch | `H00` no-op | Yes | Yes | Both-nibble parameters use diagnosed up-nibble precedence. |
 | `Kxx` | Key off | Implemented | Not applicable | Yes | Yes | Schedules the existing key-off/release path; `K00` releases at row start. |

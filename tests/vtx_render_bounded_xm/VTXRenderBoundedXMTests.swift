@@ -490,8 +490,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1)
         )
 
-        XCTAssertEqual(duration.calculatedSongEndFrames, 9)
-        XCTAssertEqual(duration.effectiveFrameCap, 9)
+        XCTAssertEqual(duration.calculatedSongEndFrames, 6)
+        XCTAssertEqual(duration.effectiveFrameCap, 6)
     }
 
     func testTailSecondsAddsExpectedFramesToUntilSongEnd() throws {

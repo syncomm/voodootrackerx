@@ -171,5 +171,29 @@ honestly. Later focused fixtures cover isolated loops, preview, traversal,
 pitch/volume effects, retrigger/cut/delay/key-off, effect memory, and
 volume-column effects only after their expected semantics are documented.
 
+`generated/fxx-timing.xm` isolates current-row Fxx speed/BPM application and
+runtime/offline planned-frame parity. It is 1,252 bytes with XM SHA-256
+`b91cf6454787f8494b7b7579e00cd59cac8dc7fea2a4b831af043a8190273c1b`.
+The Linear XM starts at speed 6/BPM 125, with one 16-row pattern, two channels,
+and one neutral, envelope-free instrument containing a forward-looped 256-frame
+16-bit sine. Channel 0 retriggers alternating C-4/E-4 on every row so timing
+boundaries are audible; channel 1 contains only timing commands.
+
+| Row | Channel 0 | Channel 1 |
+| ---: | --- | --- |
+| 0, 2, 4, 13, 15 | Ordinary note | Empty |
+| 1 | F03 | Empty |
+| 3 | F96 | Empty |
+| 5, 6, 7, 8, 9 | F06, F7D, F1F, F20, FFF respectively | Empty |
+| 10 | F03 | F06 |
+| 11 | F20 | F7D |
+| 12 | F03 | F96 |
+| 14 | F06 | Empty |
+
+The paired commands cover later-channel speed/BPM precedence and independent
+speed/BPM updates on one row. F00 and other effect families are absent.
+Reference renders of this fixture remain local under the existing comparison
+workflow in `docs/audio-comparison.md`.
+
 Binary XM fixture commits must remain explicit, small, deterministic, and
 reviewed as test asset changes.

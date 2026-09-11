@@ -736,7 +736,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 12) + [1, 0])
     }
 
-    func testPlaybackSongAdapterFxxSpeedChangeAffectsFollowingRowStartFrames() throws {
+    func testPlaybackSongAdapterFxxSpeedChangeAffectsCurrentRowTiming() throws {
         let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -760,20 +760,21 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let change = try XCTUnwrap(result.diagnostics.timingChanges.first)
         let event = try XCTUnwrap(result.plan.pattern.events.first)
 
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6, 9])
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [6, 3, 3])
+        // At 100 Hz/BPM 250 each tick is one frame; F03 gives row 0 three ticks.
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 3, 6])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [3, 3, 3])
         XCTAssertEqual(change.kind, .speed)
         XCTAssertTrue(change.applied)
         XCTAssertEqual(change.speedBefore, 6)
         XCTAssertEqual(change.speedAfter, 3)
         XCTAssertEqual(change.bpmAfter, 250)
         XCTAssertEqual(change.rowStartFrame, 0)
-        XCTAssertEqual(change.appliesToSyntheticRowAfter, 1)
-        XCTAssertEqual(event.scheduledStartFrame, 9)
-        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 9) + [1, 0])
+        XCTAssertEqual(change.appliesToSyntheticRowAfter, 0)
+        XCTAssertEqual(event.scheduledStartFrame, 6)
+        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [1, 0, 0, 0, 0])
     }
 
-    func testPlaybackSongAdapterFxxBPMChangeAffectsFollowingRowStartFrames() throws {
+    func testPlaybackSongAdapterFxxBPMChangeAffectsCurrentRowTiming() throws {
         let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -792,22 +793,23 @@ final class PlaybackSongAdapterTests: XCTestCase {
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 8
+            frames: 10
         ))
         let change = try XCTUnwrap(result.diagnostics.timingChanges.first)
         let event = try XCTUnwrap(result.plan.pattern.events.first)
 
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 2, 6])
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveBPM), [250, 125, 125])
+        // F7D makes every tick two frames, including row 0's two ticks.
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 4, 8])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveBPM), [125, 125, 125])
         XCTAssertEqual(change.kind, .bpm)
         XCTAssertEqual(change.bpmBefore, 250)
         XCTAssertEqual(change.bpmAfter, 125)
         XCTAssertEqual(change.speedAfter, 2)
-        XCTAssertEqual(event.scheduledStartFrame, 6)
-        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [1, 0])
+        XCTAssertEqual(event.scheduledStartFrame, 8)
+        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 8) + [1, 0])
     }
 
-    func testPlaybackSongAdapterFxxSpeedAndBPMChangesUseChannelOrderForFollowingRows() throws {
+    func testPlaybackSongAdapterFxxSpeedAndBPMChangesUseChannelOrderForCurrentRow() throws {
         let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
         let timingRow = PlaybackRow(index: 0, cells: [
             PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0F, effectParam: 0x03),
@@ -840,8 +842,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.diagnostics.timingChanges[1].speedAfter, 3)
         XCTAssertEqual(result.diagnostics.timingChanges[1].bpmAfter, 125)
         XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6])
-        XCTAssertEqual(result.diagnostics.rowTiming[1].effectiveSpeed, 3)
-        XCTAssertEqual(result.diagnostics.rowTiming[1].effectiveBPM, 125)
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [3, 3])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveBPM), [125, 125])
         XCTAssertEqual(event.scheduledStartFrame, 6)
     }
 
@@ -903,12 +905,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
             frames: 8
         ))
 
-        XCTAssertEqual(result.plan.pattern.events.map(\.scheduledStartFrame), [6, 6])
+        XCTAssertEqual(result.plan.pattern.events.map(\.scheduledStartFrame), [3, 3])
         XCTAssertEqual(result.diagnostics.eventMappings.map(\.volumeColumn.command), [
             .setVolume(value: 32),
             .setPanning(value: 255)
         ])
-        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 12) + [0.5, 1.5, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [0.5, 1.5] + Array(repeating: Float(0), count: 8))
     }
 
     func testPlaybackSongAdapterParsedVolumeEnvelopeUsesEventTimingWithFxxBPM() throws {
@@ -935,7 +937,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 4
+            frames: 5
         ))
         let event = try XCTUnwrap(result.plan.pattern.events.first)
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
@@ -946,7 +948,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ]))
         XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
         XCTAssertEqual(result.diagnostics.rowTiming[1].effectiveBPM, 125)
-        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 0.75, 0.5])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 1, 0.75, 0.5])
     }
 
     func testPlaybackSongAdapterPitchStepSplitAndResetRemainDeterministicWithFxxTiming() throws {
@@ -981,9 +983,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let mapping = try XCTUnwrap(single.diagnostics.eventMappings.first)
         let event = try XCTUnwrap(single.plan.pattern.events.first)
 
-        XCTAssertEqual(event.scheduledStartFrame, 6)
+        XCTAssertEqual(event.scheduledStartFrame, 3)
         XCTAssertEqual(mapping.playbackStep, 2, accuracy: 0.000000001)
-        XCTAssertEqual(single.block.interleavedPCM, Array(repeating: Float(0), count: 7) + [2, 4, 6])
+        XCTAssertEqual(single.block.interleavedPCM, [0, 0, 0, 0, 2, 4, 6, 0, 0, 0])
         XCTAssertEqual(repeated.block, single.block)
         XCTAssertEqual(split.block, single.block)
         XCTAssertEqual(resetFirst, resetSecond)
@@ -2296,15 +2298,15 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let event = try XCTUnwrap(result.plan.pattern.events.first)
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(event.scheduledStartFrame, 6)
+        XCTAssertEqual(event.scheduledStartFrame, 3)
         XCTAssertEqual(event.gain, 0.125)
         XCTAssertEqual(mapping.sampleIndex, 1)
         XCTAssertEqual(mapping.sampleSelectionMethod, .sampleMap)
         XCTAssertEqual(mapping.volumeColumn.command, .setVolume(value: 16))
         XCTAssertEqual(mapping.effectiveVolumeValue, 16)
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 3])
         XCTAssertEqual(result.diagnostics.timingChanges.first?.kind, .speed)
-        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [0.125, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 0.125, 0, 0, 0, 0])
     }
 
     func testPlaybackSongAdapterSampleOffset9xxCombinesWithPitchStep() throws {
@@ -2773,7 +2775,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
 
         XCTAssertEqual(diagnostic.rowSpeed, 3)
-        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [10, 11])
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [7, 8])
     }
 
     func testPlaybackSongAdapterTonePortamento3xxWindowedCarryoverMatchesDefaultRender() throws {
@@ -3335,7 +3337,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.portamentoSlideEffects.first)
 
         XCTAssertEqual(diagnostic.rowSpeed, 3)
-        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [10, 11])
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [7, 8])
     }
 
     func testPlaybackSongAdapterPortamentoSlideWindowedCarryoverMatchesDefaultRender() throws {
@@ -4904,11 +4906,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
         let delay = try XCTUnwrap(result.diagnostics.noteDelayEffects.first)
 
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6, 12])
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [6, 6, 3])
-        XCTAssertEqual(event.scheduledStartFrame, 14)
-        XCTAssertEqual(delay.originalFrame, 12)
-        XCTAssertEqual(delay.delayedFrame, 14)
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6, 9])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [6, 3, 3])
+        XCTAssertEqual(event.scheduledStartFrame, 11)
+        XCTAssertEqual(delay.originalFrame, 9)
+        XCTAssertEqual(delay.delayedFrame, 11)
         XCTAssertEqual(delay.rowSpeed, 3)
         XCTAssertEqual(delay.rowBPM, 250)
         XCTAssertEqual(mapping.sampleIndex, 1)
@@ -5035,11 +5037,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let cut = try XCTUnwrap(result.diagnostics.noteCutEffects.first)
 
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6])
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [6, 3])
-        XCTAssertEqual(cut.scheduledFrame, 8)
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 3])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [3, 3])
+        XCTAssertEqual(cut.scheduledFrame, 5)
         XCTAssertEqual(cut.rowSpeed, 3)
-        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [1, 1, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 1, 1, 0, 0, 0, 0, 0])
     }
 
     func testPlaybackSongAdapterNoteCutECxNoActiveVoiceIsDiagnosed() throws {
@@ -5203,14 +5205,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let retrigger = try XCTUnwrap(result.diagnostics.retriggerEffects.first)
 
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6])
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [6, 3])
-        XCTAssertEqual(result.plan.pattern.events.map(\.scheduledStartFrame), [6, 8])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 3])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [3, 3])
+        XCTAssertEqual(result.plan.pattern.events.map(\.scheduledStartFrame), [3, 5])
         XCTAssertEqual(retrigger.rowSpeed, 3)
         XCTAssertEqual(retrigger.rowBPM, 250)
         XCTAssertEqual(retrigger.retriggerTicks, [2])
-        XCTAssertEqual(retrigger.retriggerFrames, [8])
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0, 0, 0, 0, 0, 1, 0.5, 1, 0.5])
+        XCTAssertEqual(retrigger.retriggerFrames, [5])
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0, 0, 1, 0.5, 1, 0.5, 0.25, 0, 0])
     }
 
     func testPlaybackSongAdapterRetriggerE9xAtOrBeyondSpeedDiagnosesNoOp() throws {
@@ -6810,14 +6812,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 3])
         XCTAssertEqual(result.diagnostics.timingChanges.first?.kind, .speed)
         XCTAssertEqual(mapping.volumeColumn.command, .volumeSlideDown(amount: 4))
         XCTAssertEqual(mapping.volumeColumn.effectiveVolumeBefore, 32)
         XCTAssertEqual(mapping.volumeColumn.effectiveVolumeAfter, 28)
         XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
         XCTAssertEqual(mapping.playbackStep, 2, accuracy: 0.000000001)
-        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [0.21875, 0.21875])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 0.21875, 0.21875, 0, 0, 0])
     }
 
     func testPlaybackSongAdapterLxxIsDetectedAndDiagnosesNoActiveVoice() throws {

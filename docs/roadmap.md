@@ -14,8 +14,8 @@ The baseline is closed. Current work proceeds in this order:
 ```text
 COMPLETE  documentation authority/context consolidation
 COMPLETE  diagnostic-tool consolidation
-NOW       focused Fxx timing correction
-NEXT      focused Linear/Amiga portamento scaling correction
+COMPLETE  focused Fxx timing correction
+NOW       focused Linear/Amiga portamento scaling correction
 THEN      fixture-backed FT2/XM effect closure and C-engine correctness
           focused CoreAudio callback RT safety
 LATER     native editable Amiga-frequency mode
@@ -73,21 +73,12 @@ membership, compatibility boundaries, and later archive prerequisites.
 
 ## NOW — Focused playback and engine correctness
 
-### 1. Fxx timing (`VTX-CS-001`)
+### 1. COMPLETE — Fxx timing (`VTX-CS-001`)
 
-Correct the frame-domain Fxx planner so speed/BPM takes effect on the Fxx row
-and agrees with the intended current-row timing model. This remains the accepted
-HIGH correction. Keep it a focused behavioral PR with reference-derived timing
-tests and updates to `docs/xm-effect-support.md`.
-
-The immediate next behavioral PR is:
-
-```text
-playback: correct Fxx timing application
-```
-
-Do not include portamento, unrelated effect memory, C-mixer DSP, callback
-architecture, parser, editor, or viewport changes.
+The shared frame-domain planner applies nonzero speed/BPM changes on the Fxx
+row from tick 0. Public fixture tests cover exact timing, runtime/offline parity,
+and sample-time follow; ft2-clone comparison uses matching Precise BPM settings.
+See `docs/xm-effect-support.md` and `docs/audio-comparison.md`.
 
 ### 2. Linear/Amiga portamento scaling (`VTX-CS-002`)
 

@@ -38,38 +38,38 @@ extension PlaybackSongSyntheticAdapter {
     ) -> PlaybackSongSyntheticVolumeColumnDiagnostic {
         switch volumeColumn.command {
         case let .setVolume(value):
-            let before = state.volumeValue
-            state.volumeValue = clampedVolumeValue(value)
+            let before = state
+            state.baseChannelVolume = clampedVolumeValue(value)
             state.volumeValueZeroedByAxy = false
             return volumeColumn.withAppliedState(
-                appliedVolumeValue: state.volumeValue,
-                appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
-                effectiveVolumeBefore: before,
-                effectiveVolumeAfter: state.volumeValue,
+                appliedVolumeValue: state.outputChannelVolume,
+                appliedGainMultiplier: volumeMultiplier(for: state.outputChannelVolume),
+                effectiveVolumeBefore: before.outputChannelVolume,
+                effectiveVolumeAfter: state.outputChannelVolume,
                 behavior: .rowLevelApproximation
             )
         case let .volumeSlideDown(amount),
              let .fineVolumeSlideDown(amount):
-            let before = state.volumeValue
-            state.volumeValue = clampedVolumeValue(before - amount)
+            let before = state
+            state.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume - amount)
             state.volumeValueZeroedByAxy = false
             return volumeColumn.withAppliedState(
-                appliedVolumeValue: state.volumeValue,
-                appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
-                effectiveVolumeBefore: before,
-                effectiveVolumeAfter: state.volumeValue,
+                appliedVolumeValue: state.outputChannelVolume,
+                appliedGainMultiplier: volumeMultiplier(for: state.outputChannelVolume),
+                effectiveVolumeBefore: before.outputChannelVolume,
+                effectiveVolumeAfter: state.outputChannelVolume,
                 behavior: .rowLevelApproximation
             )
         case let .volumeSlideUp(amount),
              let .fineVolumeSlideUp(amount):
-            let before = state.volumeValue
-            state.volumeValue = clampedVolumeValue(before + amount)
+            let before = state
+            state.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume + amount)
             state.volumeValueZeroedByAxy = false
             return volumeColumn.withAppliedState(
-                appliedVolumeValue: state.volumeValue,
-                appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
-                effectiveVolumeBefore: before,
-                effectiveVolumeAfter: state.volumeValue,
+                appliedVolumeValue: state.outputChannelVolume,
+                appliedGainMultiplier: volumeMultiplier(for: state.outputChannelVolume),
+                effectiveVolumeBefore: before.outputChannelVolume,
+                effectiveVolumeAfter: state.outputChannelVolume,
                 behavior: .rowLevelApproximation
             )
         case let .setPanning(value):

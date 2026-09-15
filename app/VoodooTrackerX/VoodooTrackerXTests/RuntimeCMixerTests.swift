@@ -2917,6 +2917,67 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testVolumeOwnershipKeepsQuietSampleGainUpdatesAndEnvelopeRuntimeOfflineIdentical() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 256), volume: 0.25, baseSampleRate: 100)
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 64),
+            PlaybackEnvelopePoint(tick: 6, value: 32),
+            PlaybackEnvelopePoint(tick: 18, value: 16),
+        ], fadeout: 8_192)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x0C, effectParam: 0x10),
+                makePlaybackRow(index: 2, volumeColumn: 0x30),
+                makePlaybackRow(index: 3, effectType: 0x0A, effectParam: 0x02),
+                makePlaybackRow(index: 4, effectType: 0x10, effectParam: 0x20),
+                makePlaybackRow(index: 5, note: 97),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 25)
+        )
+        let offline = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song, config: MixerRenderConfig(sampleRate: 100, channelCount: 1), frames: 180
+        ))
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        XCTAssertEqual(runtime.plan, offline.plan)
+        XCTAssertEqual(offline.plan.pattern.events.first?.gain, 0.25)
+        let planned = runtime.events.filter { if case .gainPanUpdate = $0.action { return true }; return false }
+        let expectedGains: [Float] = [16 / 256, 32 / 256, 30 / 256, 28 / 256, 28 / 512]
+        XCTAssertEqual(planned.map(\.scheduledFrame), [30, 60, 100, 110, 120])
+        XCTAssertEqual(planned.map(\.syntheticTick), [0, 0, 1, 2, 0])
+        for (event, gain) in zip(planned, expectedGains) {
+            guard case let .gainPanUpdate(_, actualGain, _) = event.action else { return XCTFail("Expected gain update") }
+            XCTAssertEqual(actualGain, gain)
+        }
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 100)
+        harness.engine.load(song: song)
+        harness.engine.play(from: nil)
+        defer { harness.engine.stop() }
+        var pcm = [Float]()
+        while pcm.count < 180 {
+            // Cross effect ticks within callbacks, including envelope progression and key-off fadeout.
+            pcm += harness.audioEngine.renderForTesting(frameCount: min(17, 180 - pcm.count))
+        }
+        XCTAssertEqual(pcm, offline.block.interleavedPCM)
+        XCTAssertGreaterThan(pcm[20], 0)
+        XCTAssertLessThan(pcm[179], pcm[149])
+        let applied = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_update_gain_pan_applied" }
+        XCTAssertEqual(applied.count, expectedGains.count)
+        for (actual, pair) in zip(applied, zip(planned, expectedGains)) {
+            let (event, gain) = pair
+            XCTAssertEqual(actual.plannedSourceRowIndex, event.source.rowIndex)
+            XCTAssertEqual(actual.plannedSourceTickInRow, event.syntheticTick)
+            XCTAssertEqual(actual.plannedEventFrame, event.scheduledFrame)
+            XCTAssertEqual(actual.eventAppliedFrame, UInt64(event.scheduledFrame))
+            XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
+            XCTAssertEqual(actual.eventApplicationTiming, "exact_frame")
+            XCTAssertEqual(try XCTUnwrap(actual.gainAfter), gain)
+        }
+    }
+
+    @MainActor
     func testPortamentoFixturesApplyOfflinePitchUpdatesAtPlannedRuntimeFrames() throws {
         for name in ["portamento-scaling-linear", "portamento-scaling-amiga"] {
             let fixtureURL = try referenceXMFixtureURL("generated/\(name).xm")

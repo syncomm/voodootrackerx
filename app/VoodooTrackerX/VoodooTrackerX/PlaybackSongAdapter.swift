@@ -27,7 +27,12 @@ enum PlaybackSongSyntheticAdapter {
     static let xmAmigaMaximumSafePeriod = 438_272.0
 
     struct ChannelState: Equatable {
-        var volumeValue = 64
+        // Existing tracker-volume writers change base and output together. There is no
+        // row-boundary reset: a later transient effect may retain output independently.
+        var baseChannelVolume = 64 {
+            didSet { outputChannelVolume = baseChannelVolume }
+        }
+        var outputChannelVolume = 64
         var volumeValueZeroedByAxy = false
         var panningValue = 127.5
         var pan: Float = 0
@@ -711,7 +716,7 @@ enum PlaybackSongSyntheticAdapter {
                 cell.volumeColumn == 0 &&
                 channelState.volumeValueZeroedByAxy
             if resetsInstrumentVolumeBeforeTrigger {
-                channelState.volumeValue = 64
+                channelState.baseChannelVolume = 64
                 channelState.volumeValueZeroedByAxy = false
             }
             let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && handlesTonePortamento
@@ -1427,7 +1432,7 @@ enum PlaybackSongSyntheticAdapter {
             var tonePortamentoInstrumentDefaultVolumeApplied = false
             if delaysInstrumentVolumeState {
                 let instrumentStateBefore = channelState
-                channelState.volumeValue = 64
+                channelState.baseChannelVolume = 64
                 channelState.volumeValueZeroedByAxy = false
                 if handlesTonePortamento {
                     channelState.activeInstrumentIndex = instrumentIndex
@@ -1441,12 +1446,12 @@ enum PlaybackSongSyntheticAdapter {
                 tonePortamentoInstrumentStateBefore = instrumentStateBefore
                 tonePortamentoInstrumentStateAfter = channelState
                 let instrumentGainBefore = instrumentStateBefore.activeSampleVolume.map {
-                    adaptedGain(sampleVolume: $0, channelVolume: instrumentStateBefore.volumeValue)
+                    adaptedGain(sampleVolume: $0, channelVolume: instrumentStateBefore.outputChannelVolume)
                 }
                 let instrumentGainAfter = channelState.activeSampleVolume.map {
-                    adaptedGain(sampleVolume: $0, channelVolume: channelState.volumeValue)
+                    adaptedGain(sampleVolume: $0, channelVolume: channelState.outputChannelVolume)
                 }
-                tonePortamentoInstrumentDefaultVolumeApplied = instrumentStateBefore.volumeValue != channelState.volumeValue ||
+                tonePortamentoInstrumentDefaultVolumeApplied = instrumentStateBefore.baseChannelVolume != channelState.baseChannelVolume ||
                     instrumentStateBefore.activeSampleVolume != channelState.activeSampleVolume
                 if handlesTonePortamento {
                     context.voiceStateUpdates.append(voiceStateUpdateDiagnostic(
@@ -1456,7 +1461,7 @@ enum PlaybackSongSyntheticAdapter {
                         scheduledFrame: scheduledStartFrame,
                         cell: cell,
                         commandSource: .instrumentState,
-                        command: .instrumentDefaultVolume(value: channelState.volumeValue),
+                        command: .instrumentDefaultVolume(value: channelState.baseChannelVolume),
                         rawVolumeColumn: nil,
                         effectType: cell.effectType,
                         effectParam: cell.effectParam,
@@ -1727,7 +1732,7 @@ enum PlaybackSongSyntheticAdapter {
             }
             let gain = adaptedGain(
                 sampleVolume: sample.volume,
-                channelVolume: channelState.volumeValue,
+                channelVolume: channelState.outputChannelVolume,
                 globalVolume: context.globalVolumeState.volumeValue
             )
             let pan = channelState.pan
@@ -1797,7 +1802,7 @@ enum PlaybackSongSyntheticAdapter {
                 sampleOffset: sampleOffset,
                 hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                 hasIgnoredEffect: hasDeferredEffectCell,
-                effectiveVolumeValue: channelState.volumeValue,
+                effectiveVolumeValue: channelState.outputChannelVolume,
                 effectiveGlobalVolumeValue: context.globalVolumeState.volumeValue,
                 effectiveGlobalVolumeMultiplier: context.globalVolumeState.multiplier,
                 effectivePan: pan,

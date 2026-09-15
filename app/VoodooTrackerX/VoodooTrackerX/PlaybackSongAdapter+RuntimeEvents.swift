@@ -189,16 +189,17 @@ extension PlaybackSongSyntheticAdapter {
         let effectiveFinetune: Int
     }
 
+    /// Converts tracker output to planned gain; sample/global scaling and final clamping stay downstream.
     static func adaptedGain(
         sampleVolume: Float,
-        channelVolume: Int,
+        channelVolume outputChannelVolume: Int,
         globalVolume: Int = GlobalVolumeState.defaultValue
     ) -> Float {
         let baseGain = sampleVolume.isFinite ? sampleVolume : 0
-        let volumeMultiplier = volumeMultiplier(for: channelVolume)
+        let volumeMultiplier = volumeMultiplier(for: outputChannelVolume)
         let globalMultiplier = globalVolumeMultiplier(for: globalVolume)
         // The bounded adapter treats supported XM volume-column volume commands as row-level
-        // channel-volume updates: final event gain = sample volume * (channel volume / 64).
+        // output-volume updates: final event gain = sample volume * (tracker output / 64).
         // Hxy global-volume slides are another Swift-side row-level multiplier.
         // Parsed volume envelopes remain separate C mixer envelopes and multiply this gain at render time.
         return clampedGain(baseGain * volumeMultiplier * globalMultiplier)

@@ -2408,18 +2408,18 @@ extension PlaybackSongSyntheticAdapter {
         let targetNoteFromCell = (1...96).contains(cell.note) ? cell.note : nil
         let sameCellNote = targetNoteFromCell != nil
         let instrumentStateUpdated = instrumentStateAfter != nil
-        let channelVolumeBefore = instrumentStateBefore?.volumeValue
-        let channelVolumeAfter = instrumentStateAfter?.volumeValue
+        let channelVolumeBefore = instrumentStateBefore?.baseChannelVolume
+        let channelVolumeAfter = instrumentStateAfter?.baseChannelVolume
         let gainBefore = instrumentStateBefore?.activeSampleVolume.map {
             adaptedGain(
                 sampleVolume: $0,
-                channelVolume: instrumentStateBefore?.volumeValue ?? 64
+                channelVolume: instrumentStateBefore?.outputChannelVolume ?? 64
             )
         }
         let gainAfter = instrumentStateAfter?.activeSampleVolume.map {
             adaptedGain(
                 sampleVolume: $0,
-                channelVolume: instrumentStateAfter?.volumeValue ?? 64
+                channelVolume: instrumentStateAfter?.outputChannelVolume ?? 64
             )
         }
 

@@ -311,7 +311,7 @@ extension PlaybackSongSyntheticAdapter {
         let sourceEvent = events[activeEventIndex]
         let sourceMapping = eventMappings[activeMappingIndex]
         let pan = channelState.pan
-        var currentVolumeValue = channelState.volumeValue
+        var retriggerState = channelState
         var ticks = [Int]()
         var frames = [Int]()
         var eventIndices = [Int]()
@@ -324,16 +324,16 @@ extension PlaybackSongSyntheticAdapter {
         var tick = interval
         while tick < rowSpeed {
             let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
-            let volumeBefore = currentVolumeValue
+            let volumeBefore = retriggerState.baseChannelVolume
             if isRxyMultiRetriggerEffect(cell) {
-                currentVolumeValue = retriggerVolumeAdjustment(
+                retriggerState.baseChannelVolume = retriggerVolumeAdjustment(
                     modeNibble: volumeModeNibble,
-                    currentVolume: currentVolumeValue
+                    currentVolume: retriggerState.baseChannelVolume
                 ).volumeAfter
             }
             let gain = adaptedGain(
                 sampleVolume: activeSampleVolume,
-                channelVolume: currentVolumeValue,
+                channelVolume: retriggerState.outputChannelVolume,
                 globalVolume: globalVolumeState.volumeValue
             )
             let eventIndex = events.count
@@ -360,7 +360,7 @@ extension PlaybackSongSyntheticAdapter {
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
                 volumeColumn: volumeColumn,
-                effectiveVolumeValue: currentVolumeValue,
+                effectiveVolumeValue: retriggerState.outputChannelVolume,
                 effectiveGlobalVolumeValue: globalVolumeState.volumeValue,
                 effectiveGlobalVolumeMultiplier: globalVolumeState.multiplier,
                 effectivePan: pan
@@ -375,7 +375,7 @@ extension PlaybackSongSyntheticAdapter {
             eventIndices.append(eventIndex)
             replacedEventIndices.append(previousEventIndex)
             volumeValuesBefore.append(volumeBefore)
-            volumeValuesAfter.append(currentVolumeValue)
+            volumeValuesAfter.append(retriggerState.baseChannelVolume)
             retriggerGains.append(gain)
             previousEventIndex = eventIndex
             tick += interval
@@ -384,8 +384,8 @@ extension PlaybackSongSyntheticAdapter {
         channelState.activeEventIndex = previousEventIndex
         channelState.activeEventMappingIndex = eventMappings.count - 1
         channelState.activeSampleVolume = activeSampleVolume
-        channelState.volumeValue = currentVolumeValue
-        channelState.volumeValueZeroedByAxy = currentVolumeValue == 0
+        channelState.baseChannelVolume = retriggerState.baseChannelVolume
+        channelState.volumeValueZeroedByAxy = retriggerState.baseChannelVolume == 0
 
         let result = diagnostic(
             status: .applied,

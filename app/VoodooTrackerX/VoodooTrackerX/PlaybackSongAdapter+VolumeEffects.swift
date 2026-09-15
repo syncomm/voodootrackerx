@@ -203,7 +203,7 @@ extension PlaybackSongSyntheticAdapter {
         switch cell.effectType {
         case 0x0C:
             let before = channelState
-            channelState.volumeValue = clampedVolumeValue(Int(cell.effectParam))
+            channelState.baseChannelVolume = clampedVolumeValue(Int(cell.effectParam))
             channelState.volumeValueZeroedByAxy = false
             return voiceStateUpdateDiagnostic(
                 source: source,
@@ -212,7 +212,7 @@ extension PlaybackSongSyntheticAdapter {
                 scheduledFrame: scheduledFrame,
                 cell: cell,
                 commandSource: .effectColumn,
-                command: .cxxSetVolume(value: channelState.volumeValue),
+                command: .cxxSetVolume(value: channelState.baseChannelVolume),
                 rawVolumeColumn: nil,
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
@@ -269,9 +269,9 @@ extension PlaybackSongSyntheticAdapter {
                 )
             }
             if slide.up > 0 {
-                channelState.volumeValue = clampedVolumeValue(before.volumeValue + slide.up)
+                channelState.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume + slide.up)
             } else {
-                channelState.volumeValue = clampedVolumeValue(before.volumeValue - slide.down)
+                channelState.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume - slide.down)
             }
             channelState.volumeValueZeroedByAxy = false
             return voiceStateUpdateDiagnostic(
@@ -320,9 +320,9 @@ extension PlaybackSongSyntheticAdapter {
                 )
             }
             if isSlideUp {
-                channelState.volumeValue = clampedVolumeValue(before.volumeValue + amount)
+                channelState.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume + amount)
             } else {
-                channelState.volumeValue = clampedVolumeValue(before.volumeValue - amount)
+                channelState.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume - amount)
             }
             channelState.volumeValueZeroedByAxy = false
             return voiceStateUpdateDiagnostic(
@@ -443,10 +443,10 @@ extension PlaybackSongSyntheticAdapter {
         updates.reserveCapacity(rowSpeed - 1)
         for tick in 1..<rowSpeed {
             let before = channelState
-            let unclampedAfter = before.volumeValue + slide.up - slide.down
-            channelState.volumeValue = clampedVolumeValue(unclampedAfter)
-            channelState.volumeValueZeroedByAxy = channelState.volumeValue == 0
-            let clamped = channelState.volumeValue != unclampedAfter
+            let unclampedAfter = before.baseChannelVolume + slide.up - slide.down
+            channelState.baseChannelVolume = clampedVolumeValue(unclampedAfter)
+            channelState.volumeValueZeroedByAxy = channelState.baseChannelVolume == 0
+            let clamped = channelState.baseChannelVolume != unclampedAfter
             let activeVoiceAvailable = before.activeEventIndex != nil && before.activeSampleVolume != nil
             updates.append(voiceStateUpdateDiagnostic(
                 source: source,
@@ -556,14 +556,14 @@ extension PlaybackSongSyntheticAdapter {
             let gainBefore = targetState.activeSampleVolume.map {
                 adaptedGain(
                     sampleVolume: $0,
-                    channelVolume: targetState.volumeValue,
+                    channelVolume: targetState.outputChannelVolume,
                     globalVolume: beforeGlobalVolume
                 )
             }
             let gainAfter = targetState.activeSampleVolume.map {
                 adaptedGain(
                     sampleVolume: $0,
-                    channelVolume: targetState.volumeValue,
+                    channelVolume: targetState.outputChannelVolume,
                     globalVolume: afterGlobalVolume
                 )
             }
@@ -689,14 +689,14 @@ extension PlaybackSongSyntheticAdapter {
             let gainBefore = targetState.activeSampleVolume.map {
                 adaptedGain(
                     sampleVolume: $0,
-                    channelVolume: targetState.volumeValue,
+                    channelVolume: targetState.outputChannelVolume,
                     globalVolume: beforeGlobalVolume
                 )
             }
             let gainAfter = targetState.activeSampleVolume.map {
                 adaptedGain(
                     sampleVolume: $0,
-                    channelVolume: targetState.volumeValue,
+                    channelVolume: targetState.outputChannelVolume,
                     globalVolume: afterGlobalVolume
                 )
             }
@@ -922,14 +922,14 @@ extension PlaybackSongSyntheticAdapter {
         let gainBefore = activeSampleVolumeBefore.map {
             adaptedGain(
                 sampleVolume: $0,
-                channelVolume: channelStateBefore.volumeValue,
+                channelVolume: channelStateBefore.outputChannelVolume,
                 globalVolume: globalVolumeBefore
             )
         }
         let gainAfter = activeSampleVolumeAfter.map {
             adaptedGain(
                 sampleVolume: $0,
-                channelVolume: channelStateAfter.volumeValue,
+                channelVolume: channelStateAfter.outputChannelVolume,
                 globalVolume: globalVolumeAfter
             )
         }
@@ -961,8 +961,8 @@ extension PlaybackSongSyntheticAdapter {
             targetChannelIndex: targetChannelIndex,
             activeVoiceUpdated: canUpdateActiveVoice,
             activeEventIndex: canUpdateActiveVoice ? channelStateBefore.activeEventIndex : nil,
-            effectiveVolumeBefore: channelStateBefore.volumeValue,
-            effectiveVolumeAfter: channelStateAfter.volumeValue,
+            effectiveVolumeBefore: channelStateBefore.outputChannelVolume,
+            effectiveVolumeAfter: channelStateAfter.outputChannelVolume,
             effectivePanBefore: channelStateBefore.pan,
             effectivePanAfter: channelStateAfter.pan,
             globalVolumeBefore: includeGlobalVolumeFields ? globalVolumeBefore : nil,

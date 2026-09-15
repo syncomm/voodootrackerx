@@ -280,6 +280,46 @@ The reference rule follows ft2-clone's
 and [WAV tick scheduling](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_wav_renderer.c#L369-L381),
 which reads tick duration after processing the row's commands.
 
+For portamento scaling, use `portamento-scaling-linear.xm` (56 rows, 6.72 s)
+and `portamento-scaling-amiga.xm` (16 rows, 1.92 s) from
+`tests/reference-xm/generated/`. The [fixture row map](../tests/reference-xm/README.md)
+identifies isolated cases. Render at 48000 Hz, stereo Float32, Linear (FT2)
+interpolation, amplification 10x, master volume 256, volume ramping on, and
+**Precise BPM off**. These fixtures use speed 6/BPM 125 throughout, so every
+tick is exactly 960 frames and this setting introduces no rounding ambiguity.
+
+Load each XM before checking Frequency Slides: **Linear** for the Linear
+fixture, **Amiga** for the Amiga fixture. The
+[XM loader reads header flag bit 0](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/modloaders/ft2_load_xm.c#L85)
+and the [module loader selects that table](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_module_loader.c#L490).
+The Frequency Slides buttons can override the loaded choice; Linear
+interpolation does not require Linear frequency slides.
+
+Build the canonical Debug app using `docs/testing.md`, then launch
+`./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX`.
+Open each fixture, play through its isolated cases, and compare with its
+matching ft2-clone export. Automated period/plan/render checks do not establish
+maintainer listening evidence.
+
+For a bounded Linear candidate (use `amiga`, 16 rows and 92160 frames for the
+other fixture):
+
+```bash
+swift run -c release vtx_render_bounded_xm \
+  --input tests/reference-xm/generated/portamento-scaling-linear.xm \
+  --output /tmp/vtx-portamento-linear.wav \
+  --diagnostics-json /tmp/vtx-portamento-linear.json \
+  --order 0 --order-count 1 --rows 56 --max-frames 322560 \
+  --sample-rate 48000 --wav-format float32 --mix-profile ft2
+```
+
+Use the unified compare/correlate/coverage commands below with those outputs
+and the corresponding reference. Compare 20 ms tick windows around command
+rows, allowing for FT2's native fixed-point step quantization versus VTX's
+analytic frequency conversion. Exact period trajectories, normalized by four
+for VTX Amiga state, are the numeric scale authority; WAV residual alone is
+not a reason to change pitch conversion or mixer DSP.
+
 When ft2-clone is used as the primary reference, export outside the repository
 and record the full profile. Prefer Float32 for direct comparison with VTX
 Float32 candidates.

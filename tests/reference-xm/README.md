@@ -197,3 +197,32 @@ workflow in `docs/audio-comparison.md`.
 
 Binary XM fixture commits must remain explicit, small, deterministic, and
 reviewed as test asset changes.
+
+`generated/portamento-scaling-linear.xm` (1,270 bytes) and
+`generated/portamento-scaling-amiga.xm` (1,191 bytes) isolate supported pitch
+trajectories for ModuleCore, runtime/offline adapter, and rendered-audio tests.
+Both use one channel, speed 6/BPM 125, and the same neutral, envelope-free,
+forward-looped 256-frame 16-bit sine as the timing fixture. Each eight-row case
+starts C-4/I01 with explicit volume-column `50` at its first row, applies commands
+at offsets +2/+4, mutes with C00 at +6, and holds on remaining rows. The explicit
+volume restores 64 after each mute so cases are independently audible.
+Row numbers below are decimal.
+
+| Fixture | Case start | First command (+2) | Second command (+4) |
+| --- | ---: | --- | --- |
+| Linear | 0 | 110 | 100 |
+| Linear | 8 | 210 | 200 |
+| Linear | 16 | G-4 310 | 300 |
+| Linear | 24 | G-4 310 | 501 |
+| Linear | 32 | G-4, volume F1 | Volume F0 |
+| Linear | 40 | E1F | E2F |
+| Linear | 48 | X1F | X2F |
+| Amiga | 0 | 210 | 200 |
+| Amiga | 8 | G-4 310 | 300 |
+
+Linear contains 56 rows (6.72 seconds); Amiga contains 16 (1.92 seconds).
+The manifest pins XM and PCM hashes. Blank rows deliberately hold pitch between
+motion rows; target notes carry no instrument. Amiga coverage is restricted to
+existing `2xx` and effect-column `3xx`; its other pitch families remain deferred.
+Compare each fixture with an ft2-clone render in its own frequency mode using
+the local comparison workflow in `docs/audio-comparison.md`.

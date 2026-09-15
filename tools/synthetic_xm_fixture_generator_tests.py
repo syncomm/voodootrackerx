@@ -17,6 +17,8 @@ ALL_FIXTURES = [
     "instrument-metadata-matrix.xm",
     "instrument-envelopes-keymap.xm",
     "fxx-timing.xm",
+    "portamento-scaling-linear.xm",
+    "portamento-scaling-amiga.xm",
 ]
 
 
@@ -271,6 +273,40 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(), "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8")
         self.assertFalse(instrument["volume_envelope"]["enabled"])
 
+    def test_portamento_pair_pins_supported_cells_frequency_modes_and_sustained_pcm(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        for mode, rows, commands in [
+            ("linear", 56, [(2, 1, 16), (4, 1, 0), (10, 2, 16), (12, 2, 0),
+                            (18, 3, 16), (20, 3, 0), (26, 3, 16), (28, 5, 1),
+                            (42, 14, 31), (44, 14, 47), (50, 33, 31), (52, 33, 47)]),
+            ("amiga", 16, [(2, 2, 16), (4, 2, 0), (10, 3, 16), (12, 3, 0)]),
+        ]:
+            fixture = next(item for item in manifest["fixtures"] if item["name"] == f"portamento-scaling-{mode}.xm")
+            module = fixture["module"]
+            self.assertEqual((module["flags"], module["channels"], module["speed"], module["bpm"]),
+                             (int(mode == "linear"), 1, 6, 125))
+            self.assertEqual(module["orders"], [0])
+            self.assertEqual(len(module["patterns"]), 1)
+            self.assertEqual(module["patterns"][0]["rows"], rows)
+            events = module["patterns"][0]["events"]
+            self.assertEqual([(e["row"], e["effect_type"], e["effect_parameter"])
+                              for e in events if e.get("effect_type", 12) != 12], commands)
+            self.assertEqual([(e["row"], e["volume_column"]) for e in events if e.get("volume_column", 0) >= 0xF0],
+                             [(34, 0xF1), (36, 0xF0)] if mode == "linear" else [])
+            self.assertEqual([(e["row"], e["volume_column"]) for e in events if e.get("instrument") == 1],
+                             [(row, 0x50) for row in range(0, rows, 8)])
+            self.assertEqual([e["row"] for e in events if e.get("instrument") == 1], list(range(0, rows, 8)))
+            self.assertEqual([e["row"] for e in events if e["note"] == "G-4"],
+                             [18, 26, 34] if mode == "linear" else [10])
+            self.assertEqual([e["row"] for e in events if e.get("effect_type") == 12], list(range(6, rows, 8)))
+            instrument = module["instruments"][0]
+            sample = instrument["samples"][0]
+            self.assertFalse(instrument["volume_envelope"]["enabled"])
+            self.assertEqual(sample["loop"], {"length_frames": 256, "mode": "forward", "start_frame": 0})
+            self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(),
+                             "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8")
+
     def test_advanced_instrument_validation_rejects_invalid_indices_keymaps_and_partial_fields(self):
         generator = load_module()
         manifest = generator.fixture_manifest()
@@ -364,6 +400,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "instrument-metadata-matrix.xm").resolve(),
                     (output_dir / "generated" / "instrument-envelopes-keymap.xm").resolve(),
                     (output_dir / "generated" / "fxx-timing.xm").resolve(),
+                    (output_dir / "generated" / "portamento-scaling-linear.xm").resolve(),
+                    (output_dir / "generated" / "portamento-scaling-amiga.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -375,6 +413,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
+                    "generated/portamento-scaling-amiga.xm",
+                    "generated/portamento-scaling-linear.xm",
                 ],
             )
             self.assertEqual(
@@ -412,6 +452,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertFalse((output_dir / "generated" / "instrument-metadata-matrix.xm").exists())
             self.assertFalse((output_dir / "generated" / "instrument-envelopes-keymap.xm").exists())
             self.assertFalse((output_dir / "generated" / "fxx-timing.xm").exists())
+            self.assertFalse((output_dir / "generated" / "portamento-scaling-linear.xm").exists())
+            self.assertFalse((output_dir / "generated" / "portamento-scaling-amiga.xm").exists())
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
 
@@ -433,6 +475,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
+                    "generated/portamento-scaling-amiga.xm",
+                    "generated/portamento-scaling-linear.xm",
                     "source/basic-instrument-sample.manifest.json",
                 ],
             )
@@ -488,6 +532,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:instrument-metadata-matrix.xm": "generated/instrument-metadata-matrix.xm",
                     "xm:instrument-envelopes-keymap.xm": "generated/instrument-envelopes-keymap.xm",
                     "xm:fxx-timing.xm": "generated/fxx-timing.xm",
+                    "xm:portamento-scaling-linear.xm": "generated/portamento-scaling-linear.xm",
+                    "xm:portamento-scaling-amiga.xm": "generated/portamento-scaling-amiga.xm",
                 },
             )
 

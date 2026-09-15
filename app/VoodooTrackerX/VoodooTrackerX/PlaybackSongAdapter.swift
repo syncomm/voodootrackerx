@@ -12,6 +12,8 @@ enum PlaybackSongSyntheticAdapter {
     static let xmLinearC4Period = 4_608.0
     static let xmLinearPeriodUnitsPerSemitone = 64.0
     static let xmLinearPeriodUnitsPerOctave = 768.0
+    // FT2 regular/tone slides and E1x/E2x use param << 2; X1x/X2x use param.
+    static let xmLinearPortamentoUnitsPerParam = 4.0
     static let xmLinearMaximumRealNoteIndex = 118
     static let xmLinearMaximumEffectiveNoteValue = xmLinearMaximumRealNoteIndex + 1
     static let xmLinearMinimumSafePeriod = xmLinearPeriodBase
@@ -19,7 +21,8 @@ enum PlaybackSongSyntheticAdapter {
         - (127.0 / 2.0)
     static let xmLinearMaximumSafePeriod = xmLinearPeriodBase + 64.0
     static let xmAmigaC4Period = 6_848.0
-    static let xmAmigaPortamentoUnitsPerParam = 16.0
+    // Amiga state and its frequency numerator are both 4x the FT2 table domain.
+    static let xmAmigaPortamentoUnitsPerParam = 4.0 * xmAmigaPeriodLookupScale
     static let xmAmigaMinimumSafePeriod = 107.0
     static let xmAmigaMaximumSafePeriod = 438_272.0
 

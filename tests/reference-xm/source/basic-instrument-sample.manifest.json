@@ -947,6 +947,402 @@
       "xm_output": "generated/fxx-timing.xm",
       "xm_sha256": "b91cf6454787f8494b7b7579e00cd59cac8dc7fea2a4b831af043a8190273c1b",
       "xm_size_bytes": 1252
+    },
+    {
+      "id": "portamento-scaling-linear",
+      "intended_tests": [
+        "numeric pitch scaling and unchanged memory/trigger behavior",
+        "runtime/offline plan parity and local FT2-style comparison"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 1,
+        "instruments": [
+          {
+            "name": "PORTAMENTO SINE",
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PORTA SINE 16",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 12000,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 0,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 1,
+                "note": 0,
+                "row": 2
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 1,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 6
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 8,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 2,
+                "note": 0,
+                "row": 10
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 2,
+                "note": 0,
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 14
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 16,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 3,
+                "note": "G-4",
+                "row": 18
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 3,
+                "note": 0,
+                "row": 20
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 22
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 24,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 3,
+                "note": "G-4",
+                "row": 26
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 5,
+                "note": 0,
+                "row": 28
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 30
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 32,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "note": "G-4",
+                "row": 34,
+                "volume_column": 241
+              },
+              {
+                "channel": 0,
+                "note": 0,
+                "row": 36,
+                "volume_column": 240
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 38
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 40,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 31,
+                "effect_type": 14,
+                "note": 0,
+                "row": 42
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 47,
+                "effect_type": 14,
+                "note": 0,
+                "row": 44
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 46
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 48,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 31,
+                "effect_type": 33,
+                "note": 0,
+                "row": 50
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 47,
+                "effect_type": 33,
+                "note": 0,
+                "row": 52
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 54
+              }
+            ],
+            "rows": 56
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX PORTA LINEAR",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "portamento-scaling-linear.xm",
+      "purpose": "Isolated supported portamento trajectories with neutral sustained PCM and silent case boundaries.",
+      "significant_rows": [
+        "Every 8-row case starts C-4/I01/volume50, acts at +2/+4, and mutes with C00 at +6; remaining rows hold.",
+        "rows 2/4: 110/100; rows 10/12: 210/200; rows 18/20: G-4 310/300",
+        "rows 26/28: G-4 310/501; rows 34/36: G-4 volume F1/F0",
+        "rows 42/44: E1F/E2F; rows 50/52: X1F/X2F"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Amiga 1xx, fine/extra-fine, 5xy and volume-column tone portamento remain deferred."
+      ],
+      "xm_output": "generated/portamento-scaling-linear.xm",
+      "xm_sha256": "f456a0cd00118d61850344fc6f52818a858f0c098c29a302aa10c358687b0380",
+      "xm_size_bytes": 1270
+    },
+    {
+      "id": "portamento-scaling-amiga",
+      "intended_tests": [
+        "numeric pitch scaling and unchanged memory/trigger behavior",
+        "runtime/offline plan parity and local FT2-style comparison"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 0,
+        "instruments": [
+          {
+            "name": "PORTAMENTO SINE",
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PORTA SINE 16",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 12000,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 0,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 2,
+                "note": 0,
+                "row": 2
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 2,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 6
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 8,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 3,
+                "note": "G-4",
+                "row": 10
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 3,
+                "note": 0,
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 14
+              }
+            ],
+            "rows": 16
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX PORTA AMIGA",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "portamento-scaling-amiga.xm",
+      "purpose": "Isolated supported portamento trajectories with neutral sustained PCM and silent case boundaries.",
+      "significant_rows": [
+        "Every 8-row case starts C-4/I01/volume50, acts at +2/+4, and mutes with C00 at +6; remaining rows hold.",
+        "rows 2/4: 210/200; rows 10/12: G-4 310/300"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Amiga 1xx, fine/extra-fine, 5xy and volume-column tone portamento remain deferred."
+      ],
+      "xm_output": "generated/portamento-scaling-amiga.xm",
+      "xm_sha256": "3d9d2e51fdf03e59d3ee0fc64d716bee39977a47fbfe7e9773a951eaa7185088",
+      "xm_size_bytes": 1191
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

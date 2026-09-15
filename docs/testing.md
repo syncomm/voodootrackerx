@@ -153,8 +153,12 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
 - Confirm modules with `Bxx` position jumps or `Dxx` pattern breaks continue safely without crashes or corrupted tracker state.
 - Confirm modules with `0xy` arpeggio commands produce audible tick-cycled pitch changes.
 - Confirm modules with `1xx` or `2xx` portamento commands produce smooth
-  first-pass pitch slides without destabilizing playback. This is a smoke check
-  only and does not establish Linear/Amiga scaling parity for `VTX-CS-002`.
+  pitch slides without destabilizing playback. Use the public
+  `portamento-scaling-linear.xm` and `portamento-scaling-amiga.xm` fixtures;
+  `swift test --filter PortamentoScalingTests` pins exact periods, sample steps,
+  memory, target arrival, and bounded/windowed rendering. `RuntimeCMixerTests`
+  pins runtime plan/application parity. See `docs/audio-comparison.md` for the
+  matching ft2-clone profile; listening remains a separate maintainer check.
 - Confirm modules with `3xx` tone portamento commands slide active notes toward target notes without doubled retriggers.
 - Confirm modules with `4xy` vibrato commands produce audible pitch modulation.
 - Confirm modules with `5xy` or `6xy` combined volume-slide commands keep the pitch effect active while changing volume.

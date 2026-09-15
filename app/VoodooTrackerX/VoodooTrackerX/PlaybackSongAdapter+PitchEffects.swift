@@ -248,8 +248,8 @@ extension PlaybackSongSyntheticAdapter {
             let beforePeriod = currentLinearPeriod
             let beforeStep = currentPlaybackStep
             let rawAfter = direction == .up
-                ? currentLinearPeriod - Double(slideAmount)
-                : currentLinearPeriod + Double(slideAmount)
+                ? currentLinearPeriod - Double(slideAmount) * xmLinearPortamentoUnitsPerParam
+                : currentLinearPeriod + Double(slideAmount) * xmLinearPortamentoUnitsPerParam
             let afterPeriod = clampedLinearPeriod(rawAfter)
             let didClamp = abs(afterPeriod - rawAfter) > 0.000000001
             clamped = clamped || didClamp
@@ -493,7 +493,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        let rawAfter = currentLinearPeriod - Double(amount)
+        let rawAfter = currentLinearPeriod - Double(amount) * xmLinearPortamentoUnitsPerParam
         let afterPeriod = clampedLinearPeriod(rawAfter)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = playbackStep(
@@ -631,7 +631,7 @@ extension PlaybackSongSyntheticAdapter {
             ))
         }
 
-        let rawAfter = linearPeriod - Double(amount)
+        let rawAfter = linearPeriod - Double(amount) * xmLinearPortamentoUnitsPerParam
         let afterPeriod = clampedLinearPeriod(rawAfter)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = playbackStep(
@@ -850,7 +850,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        let rawAfter = currentLinearPeriod + Double(amount)
+        let rawAfter = currentLinearPeriod + Double(amount) * xmLinearPortamentoUnitsPerParam
         let afterPeriod = clampedLinearPeriod(rawAfter)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = playbackStep(
@@ -988,7 +988,7 @@ extension PlaybackSongSyntheticAdapter {
             ))
         }
 
-        let rawAfter = linearPeriod + Double(amount)
+        let rawAfter = linearPeriod + Double(amount) * xmLinearPortamentoUnitsPerParam
         let afterPeriod = clampedLinearPeriod(rawAfter)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = playbackStep(
@@ -2429,7 +2429,11 @@ extension PlaybackSongSyntheticAdapter {
         if cell.effectType != 0x03,
            let volumeColumnTonePortamentoAmount,
            volumeColumnTonePortamentoAmount > 0 {
-            channelState.tonePortamentoSpeed = volumeColumnTonePortamentoAmount
+            // Store Linear Fx in the same raw-3xx parameter units as effect-column memory.
+            // Fx is equivalent to 3x0 (x << 4), then the period update applies << 2.
+            // Broader Amiga volume-column behavior remains outside this scaling correction.
+            channelState.tonePortamentoSpeed = volumeColumnTonePortamentoAmount *
+                (activeUsesAmigaFrequencyTable ? 1 : 16)
         }
 
         guard hasActiveVoice else {
@@ -2905,9 +2909,9 @@ extension PlaybackSongSyntheticAdapter {
             let beforePeriod = currentLinearPeriod
             let beforeStep = currentPlaybackStep
             if targetLinearPeriod < currentLinearPeriod {
-                currentLinearPeriod = max(targetLinearPeriod, currentLinearPeriod - Double(speed))
+                currentLinearPeriod = max(targetLinearPeriod, currentLinearPeriod - Double(speed) * xmLinearPortamentoUnitsPerParam)
             } else {
-                currentLinearPeriod = min(targetLinearPeriod, currentLinearPeriod + Double(speed))
+                currentLinearPeriod = min(targetLinearPeriod, currentLinearPeriod + Double(speed) * xmLinearPortamentoUnitsPerParam)
             }
             guard let nextStep = playbackStep(
                 linearPeriod: currentLinearPeriod,

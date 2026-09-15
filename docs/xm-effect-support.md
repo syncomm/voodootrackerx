@@ -77,11 +77,11 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 | Command | Name | Status | Effect memory | Runtime support | Offline support | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | `0xy` | Arpeggio | Implemented, parity-watch | Deferred for broad memory | Yes | Yes | Deterministic tick-cycle sample-step updates; `000` is a no-op. |
-| `1xx` | Portamento up | Implemented, parity-watch | `100` memory supported | Yes | Yes | Linear-frequency sample-step updates only; Amiga-table `1xx` remains deferred. |
-| `2xx` | Portamento down | Implemented, parity-watch | `200` memory supported | Yes | Yes | Linear-frequency sample-step updates plus a narrow Amiga-table period/sample-step path for `2xx` down. |
-| `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and sample-step updates for linear and effect-column Amiga-table `3xx`; Amiga targets use the FT2-compatible quantized period lookup. No-active/no-target/no-speed/missing-memory residuals remain parity-watch. |
+| `1xx` | Portamento up | Implemented, parity-watch | `100` memory supported | Yes | Yes | Linear slides subtract `4 * xx` period units per tick after tick 0; Amiga-table `1xx` remains deferred. |
+| `2xx` | Portamento down | Implemented, parity-watch | `200` memory supported | Yes | Yes | Linear slides add `4 * xx` period units per tick after tick 0; the existing narrow Amiga-table period/sample-step path is preserved. |
+| `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and target-clamped updates after tick 0 (Linear `4 * xx` period units); Amiga targets use the FT2-compatible quantized period lookup. No-active/no-target/no-speed/missing-memory residuals remain parity-watch. |
 | `4xy` | Vibrato | Implemented | `400` / zero-nibble memory supported | Yes | Yes | Uses supported `E4x` waveform state where available. |
-| `5xy` | Tone portamento + volume slide | Implemented, parity-watch | Uses existing `3xx` tone target/speed; `500` reuses shared Axy-style volume-slide memory when available | Yes | Yes | Reuses `3xx` sample-step updates and `Axy` tick-level volume-slide policy; missing `500` volume-slide memory remains no-op/deferred. |
+| `5xy` | Tone portamento + volume slide | Implemented, parity-watch | Uses existing `3xx` tone target/speed; `500` reuses shared Axy-style volume-slide memory when available | Yes | Yes | Reuses Linear `3xx` speed in `4 * xx` period units and the independent `Axy` tick-level volume-slide policy; missing `500` volume-slide memory remains no-op/deferred. |
 | `6xy` | Vibrato + volume slide | Implemented | Vibrato memory supported | Yes | Yes | Reuses vibrato memory plus current volume-slide gain path. |
 | `7xy` | Tremolo | Deferred | Deferred | No | No | Legacy handler has decoder logic; default C mixer adapter support is not implemented. |
 | `8xx` | Set panning | Implemented | Not applicable | Yes | Yes | Row-level panning state update. |
@@ -91,8 +91,8 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 | `Cxx` | Set volume | Implemented | Not applicable | Yes | Yes | Row-level channel-volume state update. |
 | `Dxx` | Pattern break | Implemented, parity-watch | Not applicable | Yes | Yes | XM-style BCD row target with safe diagnostics; broader traversal quirks remain tracked. |
 | `E0x` | Filter toggle | Deferred | Deferred | No | No | Limited usefulness for v1 compatibility. |
-| `E1x` | Fine portamento up | Implemented, parity-watch | `E10` deferred/no-op | Yes | Yes | One row-level linear-period adjustment. |
-| `E2x` | Fine portamento down | Implemented, parity-watch | `E20` deferred/no-op | Yes | Yes | One row-level linear-period adjustment. |
+| `E1x` | Fine portamento up | Implemented, parity-watch | `E10` deferred/no-op | Yes | Yes | One tick-0 Linear adjustment of `4 * x` period units (including same-cell note triggers). |
+| `E2x` | Fine portamento down | Implemented, parity-watch | `E20` deferred/no-op | Yes | Yes | One tick-0 Linear adjustment of `4 * x` period units (including same-cell note triggers). |
 | `E3x` | Glissando control | Deferred | Deferred | No | No | No current C mixer adapter behavior. |
 | `E4x` | Vibrato control | Implemented, parity-watch | State stored for later vibrato | Yes | Yes | `E40...E43` are implemented; unsupported waveform/control values stay deferred. |
 | `E5x` | Set finetune | Implemented, parity-watch | No-note memory deferred | Yes | Yes | Same-cell note triggers only; non-linear table behavior deferred. |
@@ -134,7 +134,7 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
 | Vibrato depth (`B0...BF`) | Deferred | No | No | Decoded for diagnostics only. |
 | Set panning (`C0...CF`) | Implemented | Yes | Yes | Maps XM panning to the C mixer pan range. |
 | Panning slide left/right (`D0...EF`) | Implemented, parity-watch | Yes | Yes | Row-level approximation in the adapter path. |
-| Tone portamento (`F0...FF`) | Implemented, parity-watch | Yes | Yes | Reuses the existing `3xx` target and sample-step update path; no-retrigger same-cell note handling uses current linear-frequency behavior. Amiga-table volume-column tone portamento remains deferred. |
+| Tone portamento (`F0...FF`) | Implemented, parity-watch | Yes | Yes | Linear `Fx` uses `3x0`-equivalent speed (`64 * x` period units per tick after tick 0); `F0` retains existing speed memory and no-retrigger target handling. Amiga-table volume-column tone portamento remains deferred. |
 | Unsupported / unknown volume-column bytes | Classification-only | No | No | Kept visible in diagnostics when encountered. |
 
 ## Frequency Table Support
@@ -151,6 +151,30 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
   tone portamento are not broadened by the Amiga foundation.
 - Private Amiga-table coverage is tracked locally; do not publish private
   filenames, local paths, or corpus details.
+
+## Portamento Units
+
+Linear periods use 64 units per semitone: a decrease of `d` units multiplies
+frequency/sample step by `2^(d/768)`. Regular/tone and fine commands use
+`4 * parameter` units; extra-fine remains `parameter`, preserving the 4:1 ratio
+with fine slides. Fine and extra-fine apply once at tick 0; regular/tone slides
+apply on ticks `1...(speed - 1)`. Volume-column `Fx` stores `x << 4` in the same
+raw-parameter speed memory as `3xx`, then uses that shared period conversion.
+
+Amiga state uses **four times FT2's table period**, including quantized targets
+and the frequency numerator: C-4 is 6848 in VTX versus 1712 in FT2. Its existing
+`16 * xx` delta for supported `2xx`/`3xx` equals FT2's `4 * xx`; reducing it to
+4 would introduce a regression. The historical VTX-CS-002 audit omitted that
+additional representation scale. For `210`, FT2's 1712 → 1776 and VTX's
+6848 → 7104 both give `8363 * 1712 / 1776` Hz before mixer quantization.
+
+These units follow the pinned ft2-clone
+[regular/tone handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1891-L1949),
+[fine handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L620-L648),
+[extra-fine handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1182-L1219),
+and [volume-column decoding](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1397-L1415).
+The public `portamento-scaling-linear.xm` and `portamento-scaling-amiga.xm`
+fixtures pin these supported paths; no deferred effect family is promoted.
 
 ## Explicitly Deferred / Not V1
 

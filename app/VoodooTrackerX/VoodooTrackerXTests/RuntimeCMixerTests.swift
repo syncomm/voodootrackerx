@@ -317,7 +317,7 @@ final class RuntimeCMixerTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
-                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 1, note: 73, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x02),
             ]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
@@ -349,7 +349,7 @@ final class RuntimeCMixerTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
-                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 1, note: 73, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, volumeColumn: 0xF4),
             ]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
@@ -2913,6 +2913,70 @@ final class RuntimeCMixerTests: XCTestCase {
             XCTAssertEqual(event.cMixerSampleTimeRowIndex, rowIndex)
             XCTAssertEqual(event.cMixerSampleTimeTickInRow, 0)
             XCTAssertEqual(event.eventApplicationTiming, "exact_frame")
+        }
+    }
+
+    @MainActor
+    func testPortamentoFixturesApplyOfflinePitchUpdatesAtPlannedRuntimeFrames() throws {
+        for name in ["portamento-scaling-linear", "portamento-scaling-amiga"] {
+            let fixtureURL = try referenceXMFixtureURL("generated/\(name).xm")
+            let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+            let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+            let offline = PlaybackSongSyntheticAdapter.adapt(
+                song, startOrderIndex: 0, orderCount: song.orders.count, sampleRate: 48_000
+            )
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+            XCTAssertEqual(runtime.plan, offline, name)
+            let diagnostics = offline.diagnostics
+            let semanticUpdates = (
+                diagnostics.portamentoSlideEffects.flatMap(\.stepUpdates) +
+                diagnostics.tonePortamentoEffects.flatMap(\.stepUpdates) +
+                diagnostics.finePortamentoUpEffects.flatMap(\.stepUpdates) +
+                diagnostics.finePortamentoDownEffects.flatMap(\.stepUpdates) +
+                diagnostics.extraFinePortamentoEffects.flatMap(\.stepUpdates)
+            ).sorted { $0.scheduledFrame < $1.scheduledFrame }
+            let planned = runtime.events.filter {
+                if case .stepUpdate = $0.action { return true }
+                return false
+            }
+            XCTAssertFalse(semanticUpdates.isEmpty, name)
+            XCTAssertEqual(planned.count, semanticUpdates.count, name)
+            for (event, update) in zip(planned, semanticUpdates) {
+                XCTAssertEqual(event.syntheticTick, update.syntheticTick, name)
+                XCTAssertEqual(event.scheduledFrame, update.scheduledFrame, name)
+                XCTAssertEqual(event.scheduledFrame, event.source.rowIndex * 5_760 + event.syntheticTick * 960, name)
+                if case let .stepUpdate(_, step) = event.action {
+                    XCTAssertEqual(step, update.playbackStepAfter, name)
+                }
+            }
+
+            let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 48_000)
+            harness.engine.load(song: song)
+            harness.engine.play(from: nil)
+            defer { harness.engine.stop() }
+            var rendered = 0
+            let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+            while rendered < end {
+                // Incommensurate callback boundaries exercise exact in-callback event application.
+                let count = min(4_093, end - rendered)
+                _ = harness.audioEngine.renderForTesting(frameCount: count)
+                rendered += count
+            }
+            let applied = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_update_step_applied" }
+            XCTAssertEqual(applied.count, planned.count, name)
+            for (actual, pair) in zip(applied, zip(planned, semanticUpdates)) {
+                let (event, update) = pair
+                XCTAssertEqual(actual.plannedSourceRowIndex, event.source.rowIndex, name)
+                XCTAssertEqual(actual.plannedSourceTickInRow, event.syntheticTick, name)
+                XCTAssertEqual(actual.plannedEventFrame, event.scheduledFrame, name)
+                XCTAssertEqual(actual.eventAppliedFrame, UInt64(event.scheduledFrame), name)
+                XCTAssertEqual(actual.plannedVsAppliedDelta, 0, name)
+                XCTAssertEqual(actual.eventApplicationTiming, "exact_frame", name)
+                XCTAssertEqual(try XCTUnwrap(actual.sampleStepBefore), update.playbackStepBefore, accuracy: 1e-12, name)
+                XCTAssertEqual(try XCTUnwrap(actual.sampleStepAfter), update.playbackStepAfter, accuracy: 1e-12, name)
+            }
+            let appliedNotes = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }
+            XCTAssertEqual(appliedNotes.count, offline.pattern.events.count, name)
         }
     }
 

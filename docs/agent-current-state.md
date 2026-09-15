@@ -130,11 +130,12 @@ and normalization details.
 
 ## Accepted post-alpha debt
 
-These confirmed items are unresolved and remain separate focused work:
+These accepted items retain separate focused contracts:
 
-- `VTX-CS-002` — Linear/Amiga portamento scaling: the two frequency-table paths
-  use inconsistent slide scales, including incorrect fine versus extra-fine
-  relationships.
+- `VTX-CS-002` — portamento units: Linear regular/fine/tone slides use FT2
+  `4 * parameter` period units; volume-column tone uses `64 * nibble`.
+  Extra-fine remains `parameter`. Existing Amiga `16 * parameter` deltas are
+  consistent with its additional 4x table representation and remain unchanged.
 - `VTX-D1-001` — CoreAudio callback real-time safety: the render callback still
   performs allocation/copy and other work that must move outside the real-time
   boundary.

@@ -137,6 +137,11 @@ Start with focused fixtures that each prove one behavior class:
   sine; a second channel supplies timing-only conflict and mixed-category cells.
   The manifest pins its 1,252-byte XM and deterministic PCM hashes. It supports
   runtime/offline timing regression and local ft2-clone comparison only.
+- `portamento-scaling-linear.xm` and `portamento-scaling-amiga.xm`: isolated
+  supported pitch-scaling cases with a shared neutral sustained sine. Linear
+  covers `1xx`/`2xx`/`3xx`/`5xy`, fine/extra-fine and volume-column tone
+  portamento; Amiga covers only existing `2xx` and effect-column `3xx`.
+  The fixture README owns the exact row map; the manifest pins bytes and hashes.
 - `note-entry-preview.xm`: tiny loaded-module payload for selected
   instrument/sample display and future preview availability tests.
 - `looped-sample.xm`: forward loop metadata and a steady loop segment.

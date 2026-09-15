@@ -2544,6 +2544,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(slowDiagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7])
         XCTAssertEqual(slowFirst.playbackStepBefore, 1, accuracy: 0.000_001)
+        XCTAssertEqual(slowDiagnostic.stepUpdates.map(\.linearPeriodAfter), [4_352, 4_096, 3_840])
+        XCTAssertEqual(fastDiagnostic.stepUpdates.map(\.linearPeriodAfter), [4_096, 3_840])
         XCTAssertGreaterThan(slowFirst.playbackStepAfter, slowFirst.playbackStepBefore)
         XCTAssertGreaterThan(fastFirst.playbackStepAfter, slowFirst.playbackStepAfter)
         XCTAssertEqual(slowDiagnostic.portamentoSpeed, 0x40)
@@ -2688,7 +2690,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
-                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 1, note: 73, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x03, effectParam: 0x00),
             ]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
@@ -2699,7 +2701,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(diagnostics.count, 2)
         XCTAssertTrue(diagnostics.allSatisfy(\.applied))
-        XCTAssertEqual(diagnostics[1].targetNote, 61)
+        XCTAssertEqual(diagnostics[1].targetNote, 73)
         XCTAssertEqual(diagnostics[1].portamentoSpeed, 0x40)
         XCTAssertGreaterThan(diagnostics[1].currentPlaybackStepAfter ?? 0, diagnostics[0].currentPlaybackStepAfter ?? 0)
     }
@@ -2927,8 +2929,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let slowUpdate = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(slow, orderIndex: 0, sampleRate: 100).diagnostics.portamentoSlideEffects.first?.stepUpdates.first)
         let fastUpdate = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(fast, orderIndex: 0, sampleRate: 100).diagnostics.portamentoSlideEffects.first?.stepUpdates.first)
 
-        XCTAssertEqual(slowUpdate.linearPeriodBefore - slowUpdate.linearPeriodAfter, 0x10, accuracy: 0.000_001)
-        XCTAssertEqual(fastUpdate.linearPeriodBefore - fastUpdate.linearPeriodAfter, 0x40, accuracy: 0.000_001)
+        XCTAssertEqual(slowUpdate.linearPeriodBefore - slowUpdate.linearPeriodAfter, 0x10 * 4, accuracy: 0.000_001)
+        XCTAssertEqual(fastUpdate.linearPeriodBefore - fastUpdate.linearPeriodAfter, 0x40 * 4, accuracy: 0.000_001)
         XCTAssertGreaterThan(fastUpdate.playbackStepAfter, slowUpdate.playbackStepAfter)
     }
 
@@ -3319,7 +3321,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(try XCTUnwrap(diagnostic.currentLinearPeriodBefore), expectedPeriod, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(diagnostic.currentPlaybackStepBefore), expectedStep, accuracy: 0.000_001)
-        XCTAssertEqual(try XCTUnwrap(diagnostic.currentLinearPeriodAfter), expectedPeriod - Double(3 * 0x10), accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(diagnostic.currentLinearPeriodAfter), expectedPeriod - Double(3 * 0x10 * 4), accuracy: 0.000_001)
     }
 
     func testPlaybackSongAdapterPortamentoSlideUsesFxxTiming() throws {
@@ -3416,7 +3418,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.stepUpdates.count, 1)
         XCTAssertEqual(update.syntheticTick, 0)
         XCTAssertEqual(update.scheduledFrame, 4)
-        XCTAssertEqual(update.linearPeriodBefore - update.linearPeriodAfter, 2, accuracy: 0.000_001)
+        XCTAssertEqual(update.linearPeriodBefore - update.linearPeriodAfter, 8, accuracy: 0.000_001)
         XCTAssertLessThan(try XCTUnwrap(diagnostic.currentLinearPeriodAfter), try XCTUnwrap(diagnostic.currentLinearPeriodBefore))
         XCTAssertGreaterThan(try XCTUnwrap(diagnostic.currentPlaybackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore))
         XCTAssertEqual(command.status, .applied)
@@ -3438,8 +3440,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let e11 = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song(amount: 0x01), orderIndex: 0, sampleRate: 100).diagnostics.finePortamentoUpEffects.first?.stepUpdates.first)
         let e1f = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song(amount: 0x0F), orderIndex: 0, sampleRate: 100).diagnostics.finePortamentoUpEffects.first?.stepUpdates.first)
 
-        XCTAssertEqual(e11.linearPeriodBefore - e11.linearPeriodAfter, 1, accuracy: 0.000_001)
-        XCTAssertEqual(e1f.linearPeriodBefore - e1f.linearPeriodAfter, 15, accuracy: 0.000_001)
+        XCTAssertEqual(e11.linearPeriodBefore - e11.linearPeriodAfter, 4, accuracy: 0.000_001)
+        XCTAssertEqual(e1f.linearPeriodBefore - e1f.linearPeriodAfter, 60, accuracy: 0.000_001)
         XCTAssertGreaterThan(e1f.playbackStepAfter, e11.playbackStepAfter)
     }
 
@@ -3528,7 +3530,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertGreaterThan(event.playbackStep, try XCTUnwrap(baselinePlan.pattern.events.first?.playbackStep))
         let periodAfter = try XCTUnwrap(diagnostic.currentLinearPeriodAfter)
         let periodBefore = try XCTUnwrap(diagnostic.currentLinearPeriodBefore)
-        XCTAssertEqual(periodBefore - periodAfter, 15, accuracy: 0.000_001)
+        XCTAssertEqual(periodBefore - periodAfter, 60, accuracy: 0.000_001)
     }
 
     func testPlaybackSongAdapterE1xWindowedCarryoverMatchesDefaultRender() throws {
@@ -3586,7 +3588,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.stepUpdates.count, 1)
         XCTAssertEqual(update.syntheticTick, 0)
         XCTAssertEqual(update.scheduledFrame, 4)
-        XCTAssertEqual(update.linearPeriodAfter - update.linearPeriodBefore, 2, accuracy: 0.000_001)
+        XCTAssertEqual(update.linearPeriodAfter - update.linearPeriodBefore, 8, accuracy: 0.000_001)
         XCTAssertGreaterThan(try XCTUnwrap(diagnostic.currentLinearPeriodAfter), try XCTUnwrap(diagnostic.currentLinearPeriodBefore))
         XCTAssertLessThan(try XCTUnwrap(diagnostic.currentPlaybackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore))
         XCTAssertEqual(command.status, .applied)
@@ -3608,8 +3610,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let e21 = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song(amount: 0x01), orderIndex: 0, sampleRate: 100).diagnostics.finePortamentoDownEffects.first?.stepUpdates.first)
         let e2f = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song(amount: 0x0F), orderIndex: 0, sampleRate: 100).diagnostics.finePortamentoDownEffects.first?.stepUpdates.first)
 
-        XCTAssertEqual(e21.linearPeriodAfter - e21.linearPeriodBefore, 1, accuracy: 0.000_001)
-        XCTAssertEqual(e2f.linearPeriodAfter - e2f.linearPeriodBefore, 15, accuracy: 0.000_001)
+        XCTAssertEqual(e21.linearPeriodAfter - e21.linearPeriodBefore, 4, accuracy: 0.000_001)
+        XCTAssertEqual(e2f.linearPeriodAfter - e2f.linearPeriodBefore, 60, accuracy: 0.000_001)
         XCTAssertLessThan(e2f.playbackStepAfter, e21.playbackStepAfter)
     }
 
@@ -3698,7 +3700,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertLessThan(event.playbackStep, try XCTUnwrap(baselinePlan.pattern.events.first?.playbackStep))
         let periodAfter = try XCTUnwrap(diagnostic.currentLinearPeriodAfter)
         let periodBefore = try XCTUnwrap(diagnostic.currentLinearPeriodBefore)
-        XCTAssertEqual(periodAfter - periodBefore, 15, accuracy: 0.000_001)
+        XCTAssertEqual(periodAfter - periodBefore, 60, accuracy: 0.000_001)
     }
 
     func testPlaybackSongAdapterE2xWindowedCarryoverMatchesDefaultRender() throws {
@@ -4268,7 +4270,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
-                makePlaybackRow(index: 1, note: 61, instrument: 1, volumeColumn: 0x30, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 1, note: 73, instrument: 1, volumeColumn: 0x30, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x02),
             ]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
@@ -4285,7 +4287,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         })
 
         XCTAssertEqual(five.status, .applied)
-        XCTAssertEqual(five.targetNote, 61)
+        XCTAssertEqual(five.targetNote, 73)
         XCTAssertEqual(five.portamentoSpeed, 0x40)
         XCTAssertEqual(five.stepUpdates.map(\.scheduledFrame), [9, 10, 11])
         XCTAssertEqual(update.syntheticTick, 1)
@@ -4478,7 +4480,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
-                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 1, note: 73, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, volumeColumn: 0xF4),
             ]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
@@ -4494,8 +4496,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertFalse(volumeColumn.deferred)
         XCTAssertEqual(tone.status, .applied)
         XCTAssertEqual(tone.rawVolumeColumn, 0xF4)
-        XCTAssertEqual(tone.targetNote, 61)
-        XCTAssertEqual(tone.portamentoSpeed, 4)
+        XCTAssertEqual(tone.targetNote, 73)
+        XCTAssertEqual(tone.portamentoSpeed, 0x40)
         XCTAssertEqual(tone.stepUpdates.map(\.scheduledFrame), [9, 10, 11])
     }
 
@@ -4577,7 +4579,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             .first { $0.commandSource == .volumeColumn })
 
         XCTAssertEqual(noTarget.status, .noTarget)
-        XCTAssertEqual(noTarget.portamentoSpeed, 4)
+        XCTAssertEqual(noTarget.portamentoSpeed, 0x40)
         XCTAssertEqual(noTarget.stepUpdates, [])
         XCTAssertEqual(noSpeed.status, .noSpeed)
         XCTAssertEqual(noSpeed.targetNote, 61)

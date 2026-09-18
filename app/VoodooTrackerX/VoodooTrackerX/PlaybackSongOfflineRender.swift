@@ -387,6 +387,8 @@ struct PlaybackSongWindowSchedulingUpdateCandidate: Equatable {
 struct PlaybackSongWindowContinuation: Equatable {
     let eventIndex: Int
     let event: SyntheticTrackerEvent
+    // Current step is independent of the original positive-step trigger.
+    let playbackStep: Double
     let runtimeState: CSoftwareMixerVoiceRuntimeState
     let keyOffFrame: Int?
     let carriedTonePortamentoActive: Bool
@@ -2458,11 +2460,11 @@ final class PlaybackSongOfflineRenderer {
             )
             let carriedEvent = event
                 .withGainPan(gain: gainPanState.gain, pan: gainPanState.pan)
-                .withPlaybackStep(stepState.playbackStep)
             return continuation(
                 eventIndex: eventIndex,
                 event: carriedEvent,
                 sourceEvent: event,
+                playbackStep: stepState.playbackStep,
                 eventStartFrame: eventStartFrame,
                 boundaryFrame: windowStartFrame,
                 plan: plan,
@@ -2864,6 +2866,7 @@ final class PlaybackSongOfflineRenderer {
         eventIndex: Int,
         event: SyntheticTrackerEvent,
         sourceEvent: SyntheticTrackerEvent,
+        playbackStep: Double,
         eventStartFrame: Int,
         boundaryFrame: Int,
         plan: PlaybackSongSyntheticPlan,
@@ -2922,6 +2925,7 @@ final class PlaybackSongOfflineRenderer {
         return PlaybackSongWindowContinuation(
             eventIndex: eventIndex,
             event: event,
+            playbackStep: playbackStep,
             runtimeState: CSoftwareMixerVoiceRuntimeState(
                 samplePosition: sourceState.samplePosition,
                 pingPongDirection: sourceState.pingPongDirection,
@@ -2937,7 +2941,8 @@ final class PlaybackSongOfflineRenderer {
         )
     }
 
-    private static func scheduleContinuation(
+    /// Restores an existing voice at an offline window boundary, including an explicit hold.
+    static func scheduleContinuation(
         _ continuation: PlaybackSongWindowContinuation,
         on mixer: CSoftwareMixer
     ) -> CSoftwareMixerScheduledVoiceResult {
@@ -2947,7 +2952,7 @@ final class PlaybackSongOfflineRenderer {
             scheduledStartFrame: 0,
             gain: event.gain,
             pan: event.pan,
-            playbackStep: event.playbackStep,
+            playbackStep: continuation.playbackStep == 0 ? event.playbackStep : continuation.playbackStep,
             loop: event.loop,
             initialSourceFrame: Int(continuation.runtimeState.samplePosition.rounded(.down)),
             volumeEnvelope: event.volumeEnvelope,
@@ -2957,6 +2962,10 @@ final class PlaybackSongOfflineRenderer {
         )
         if let voiceIndex = result.voiceIndex {
             mixer.setRuntimeState(continuation.runtimeState, forVoiceAt: voiceIndex)
+            if continuation.playbackStep == 0 {
+                // Continuation is not a new zero-step trigger: restore hold before rendering.
+                mixer.scheduleVoicePlaybackStepUpdate(voiceIndex: voiceIndex, scheduledFrame: 0, playbackStep: 0)
+            }
         }
         return result
     }

@@ -797,6 +797,7 @@ final class CSoftwareMixer {
     ///
     /// Higher-level adapters own musical pitch semantics; the C mixer receives only frame-stamped source-step
     /// changes for deterministic offline rendering.
+    /// Explicit finite zero holds the source cursor; a later positive update resumes it.
     @discardableResult
     func scheduleVoicePlaybackStepUpdate(
         voiceIndex: Int,
@@ -806,7 +807,7 @@ final class CSoftwareMixer {
         guard voiceIndex >= 0,
               scheduledFrame >= 0,
               playbackStep.isFinite,
-              playbackStep > 0 else {
+              playbackStep >= 0 else {
             return CSoftwareMixerVoiceStateUpdateResult(
                 wasAccepted: false,
                 rejectionReason: .invalidVoiceStateUpdate
@@ -876,7 +877,7 @@ final class CSoftwareMixer {
               scheduledFrame >= 0,
               gain != nil || pan != nil,
               playbackStep.isFinite,
-              playbackStep > 0 else {
+              playbackStep >= 0 else {
             return CSoftwareMixerVoiceStateUpdateResult(
                 wasAccepted: false,
                 rejectionReason: .invalidVoiceStateUpdate

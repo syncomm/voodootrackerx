@@ -1282,6 +1282,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         )
     }
 
+    /// Reads the actual C voice outside rendering for cursor-continuity tests.
+    func adapterVoiceDiagnosticForTesting(eventIndex: Int) -> CSoftwareMixerVoiceDiagnostic? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let voice = adapterVoiceStateByEventIndex[eventIndex] else { return nil }
+        return mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex)
+    }
+
     private func appendQueuedAdapterEvents(
         _ events: [RuntimeCMixerAdapterEvent],
         runtimeFrameOffset: Int,
@@ -2335,7 +2343,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             )
         }
         guard playbackStep.isFinite,
-              playbackStep > 0,
+              playbackStep >= 0,
               mixer.currentFrame <= UInt64(Int.max) else {
             return RuntimeCMixerUpdateResult(
                 channel: channel,
@@ -2358,7 +2366,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 reason: "runtime_c_mixer_adapter_plan_invalid_step_update"
             )
         }
-        let stepDecision = updateDecision(previous: voiceState.sampleStep, requested: playbackStep)
+        // Crossing zero is a hold/resume boundary even below the ordinary pitch epsilon.
+        let crossesHold = (voiceState.sampleStep == 0) != (playbackStep == 0)
+        let stepDecision = crossesHold ? RuntimeCMixerFieldUpdateDecision(
+            previous: voiceState.sampleStep, requested: playbackStep,
+            delta: abs(playbackStep - voiceState.sampleStep), shouldApply: true, suppressedByEpsilon: false
+        ) : updateDecision(previous: voiceState.sampleStep, requested: playbackStep)
         guard stepDecision.shouldApply else {
             return RuntimeCMixerUpdateResult(
                 channel: channel,

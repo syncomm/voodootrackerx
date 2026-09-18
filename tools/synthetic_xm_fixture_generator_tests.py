@@ -19,6 +19,7 @@ ALL_FIXTURES = [
     "fxx-timing.xm",
     "portamento-scaling-linear.xm",
     "portamento-scaling-amiga.xm",
+    "tremolo-effects.xm",
 ]
 
 
@@ -307,6 +308,50 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(),
                              "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8")
 
+    def test_tremolo_fixture_pins_memory_controls_note_identity_and_quiet_derivative(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        fixture = next(item for item in manifest["fixtures"] if item["name"] == "tremolo-effects.xm")
+        module = fixture["module"]
+        payload = generator.fixture_xm_bytes(manifest, fixture["name"])
+        self.assertEqual(len(payload), 1_350)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(),
+                         "9786b13560ec9d6360fa519d7abcdf0263a6c2f36491d6dd67ce2b0c67d814ca")
+        self.assertEqual((module["flags"], module["channels"], module["speed"], module["bpm"]), (1, 1, 6, 125))
+        self.assertEqual(module["orders"], [0])
+        self.assertEqual(len(module["patterns"]), 1)
+        self.assertEqual(module["patterns"][0]["rows"], 56)
+        events = module["patterns"][0]["events"]
+        expected = [(1, 7, 0x48), (2, 7, 0), (4, 7, 4), (5, 7, 0x30), (6, 7, 0)]
+        for control in range(8):
+            start = 8 + 6 * control
+            expected += [(start, 14, 0x70 + control), (start + 1, 7, 0x48),
+                         (start + 2, 7, 0), (start + 3, 7, 0), (start + 4, 7, 0)]
+        self.assertEqual([(e["row"], e["effect_type"], e["effect_parameter"])
+                          for e in events if "effect_type" in e], expected)
+        self.assertEqual([e["row"] for e in events if e["note"] == "C-4" and not e.get("instrument")],
+                         [10 + 6 * control for control in range(8)])
+        self.assertTrue(all(e["volume_column"] == 0x30 for e in events if "volume_column" in e))
+        self.assertTrue(all(e.get("volume_column") == 0x30 for e in events if e.get("instrument")))
+        self.assertEqual(sorted(set(range(56)) - {e["row"] for e in events}),
+                         [3, 7] + [13 + 6 * control for control in range(8)])
+        self.assertEqual(len(module["instruments"]), 1)
+        instrument = module["instruments"][0]
+        self.assertFalse(instrument["volume_envelope"]["enabled"])
+        self.assertEqual(len(instrument["samples"]), 1)
+        sample = instrument["samples"][0]
+        self.assertEqual(sample["volume"], 64)
+        self.assertEqual(sample["loop"], {"length_frames": 256, "mode": "forward", "start_frame": 0})
+        self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(),
+                         "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8")
+        # The quiet reference changes one header byte, preserving the exact public PCM and commands.
+        quiet = copy.deepcopy(manifest)
+        next(item for item in quiet["fixtures"] if item["name"] == fixture["name"])["module"]["instruments"][0]["samples"][0]["volume"] = 16
+        quiet_payload = generator.fixture_xm_bytes(quiet, fixture["name"])
+        self.assertEqual(len(quiet_payload), len(payload))
+        self.assertEqual([(index, full, low) for index, (full, low) in enumerate(zip(payload, quiet_payload)) if full != low],
+                         [(810, 64, 16)])
+
     def test_advanced_instrument_validation_rejects_invalid_indices_keymaps_and_partial_fields(self):
         generator = load_module()
         manifest = generator.fixture_manifest()
@@ -402,6 +447,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "fxx-timing.xm").resolve(),
                     (output_dir / "generated" / "portamento-scaling-linear.xm").resolve(),
                     (output_dir / "generated" / "portamento-scaling-amiga.xm").resolve(),
+                    (output_dir / "generated" / "tremolo-effects.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -415,6 +461,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
+                    "generated/tremolo-effects.xm",
                 ],
             )
             self.assertEqual(
@@ -454,6 +501,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertFalse((output_dir / "generated" / "fxx-timing.xm").exists())
             self.assertFalse((output_dir / "generated" / "portamento-scaling-linear.xm").exists())
             self.assertFalse((output_dir / "generated" / "portamento-scaling-amiga.xm").exists())
+            self.assertFalse((output_dir / "generated" / "tremolo-effects.xm").exists())
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
 
@@ -477,6 +525,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
+                    "generated/tremolo-effects.xm",
                     "source/basic-instrument-sample.manifest.json",
                 ],
             )
@@ -534,6 +583,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:fxx-timing.xm": "generated/fxx-timing.xm",
                     "xm:portamento-scaling-linear.xm": "generated/portamento-scaling-linear.xm",
                     "xm:portamento-scaling-amiga.xm": "generated/portamento-scaling-amiga.xm",
+                    "xm:tremolo-effects.xm": "generated/tremolo-effects.xm",
                 },
             )
 

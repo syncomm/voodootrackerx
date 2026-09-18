@@ -226,3 +226,33 @@ motion rows; target notes carry no instrument. Amiga coverage is restricted to
 existing `2xx` and effect-column `3xx`; its other pitch families remain deferred.
 Compare each fixture with an ft2-clone render in its own frequency mode using
 the local comparison workflow in `docs/audio-comparison.md`.
+
+`generated/tremolo-effects.xm` (1,350 bytes) isolates `7xy`/`E7x` with one
+channel, speed 6/BPM 125, Linear frequencies, and 56 rows (6.72 seconds). Its
+single envelope-free instrument uses the same forward-looped 256-frame 16-bit
+sine as the timing fixture, with header volume 64. Explicit volume-column `30`
+sets tracker base volume 32, leaving room for both modulation signs. The
+manifest pins XM SHA-256
+`9786b13560ec9d6360fa519d7abcdf0263a6c2f36491d6dd67ce2b0c67d814ca`.
+
+| Rows (decimal) | Case |
+| --- | --- |
+| 0, 1, 2, 3 | C-4/I01/volume `30`; no-note `748`; `700` continuation; empty row retaining output |
+| 4, 5, 6, 7 | C-4/I01/volume `30` + `704`; `730`; `700`; empty row retaining output |
+| `8 + 6*x`, for `x = 0...7` | `E7x` + volume `30` establishes each waveform/reset control |
+| Each control row +1 | C-4/I01/volume `30` + `748`, with instrument-driven phase reset or retention |
+| Each control row +2 | C-4 without instrument + `700`, retaining phase |
+| Each control row +3, +4, +5 | C-4/I01/volume `30` + `700`; no-note `700`; empty row retaining output |
+
+`E70/E74` select sine, `E71/E75` ramp, and `E72/E73/E76/E77` square;
+bit 2 suppresses instrument-driven phase reset. `E78...E7F` aliases are pinned
+by numeric tests. Empty rows deliberately retain the last output; explicit
+volume writes establish the next base/output baseline. No unrelated effect
+commands occur.
+
+Quiet-sample characterization derives the same fixture in memory with its sole
+sample header changed from 64 to 16. Generator tests prove only byte 810 changes;
+PCM, commands, and tracker-volume trajectories stay comparable. Any local quiet
+XM or WAV derivative stays outside the repository. The known downstream sample
+scaling compatibility gap is separate from tracker-domain tremolo correctness;
+see [volume ownership](../../docs/design/xm-volume-ownership.md).

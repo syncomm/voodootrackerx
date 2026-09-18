@@ -3384,10 +3384,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let sixxyEffects = try XCTUnwrap(object["vibrato_volume_slide_6xy_effects"] as? [[String: Any]])
 
         [
-            "total_tremolo_count",
             "total_volume_column_vibrato_speed_count",
             "total_volume_column_vibrato_count",
         ].forEach { XCTAssertEqual(summary[$0] as? Int, 1) }
+        XCTAssertEqual(summary["total_tremolo_count"] as? Int, 0)
         XCTAssertEqual(summary["total_volume_column_tone_portamento_count"] as? Int, 0)
         XCTAssertEqual(summary["total_tone_portamento_volume_slide_count"] as? Int, 0)
         XCTAssertEqual(summary["total_arpeggio_count"] as? Int, 0)
@@ -3396,8 +3396,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(summary["total_portamento_up_count"] as? Int, 0)
         XCTAssertEqual(summary["total_portamento_down_count"] as? Int, 0)
         XCTAssertEqual(summary["total_tone_portamento_count"] as? Int, 0)
-        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 3)
-        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 3)
+        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 2)
+        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 2)
         XCTAssertEqual(render["arpeggio_0xy_effect_count"] as? Int, 1)
         XCTAssertEqual(render["arpeggio_0xy_applied_count"] as? Int, 1)
         XCTAssertEqual(render["arpeggio_0xy_no_active_voice_count"] as? Int, 0)
@@ -3425,7 +3425,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["portamento_2xx_applied_count"] as? Int, 1)
         XCTAssertEqual(render["portamento_slide_effect_count"] as? Int, 2)
         XCTAssertEqual(render["portamento_slide_applied_count"] as? Int, 2)
-        XCTAssertEqual(coordinates.count, 3)
+        XCTAssertEqual(coordinates.count, 2)
         XCTAssertEqual(arpeggioEffects.count, 1)
         XCTAssertEqual(arpeggioEffects.first?["current_status"] as? String, "applied")
         XCTAssertEqual(arpeggioEffects.first?["x_semitone_offset"] as? Int, 3)
@@ -3450,10 +3450,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual((first["source"] as? [String: Any])?["order"] as? Int, 0)
         XCTAssertEqual((first["source"] as? [String: Any])?["pattern"] as? Int, 2)
         XCTAssertEqual((first["source"] as? [String: Any])?["row"] as? Int, 0)
-        XCTAssertEqual(first["channel_index"] as? Int, 7)
-        XCTAssertEqual(first["effect_type"] as? Int, 7)
-        XCTAssertEqual(first["effect_param"] as? Int, 0x48)
-        XCTAssertEqual(first["effect_label"] as? String, "7xy tremolo")
+        XCTAssertEqual(first["channel_index"] as? Int, 8)
+        XCTAssertEqual(first["effect_type"] as? String, "volume_column")
+        XCTAssertEqual(first["effect_param"] as? Int, 0xA4)
+        XCTAssertEqual(first["raw_volume_column"] as? Int, 0xA4)
+        XCTAssertEqual(first["effect_label"] as? String, "volume-column vibrato speed")
         XCTAssertEqual(first["current_status"] as? String, "deferred/unsupported")
         XCTAssertEqual(volumeTonePortamento["command_source"] as? String, "volume_column")
         XCTAssertEqual(volumeTonePortamento["raw_volume_column"] as? Int, 0xF6)
@@ -3467,7 +3468,21 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "0xy arpeggio" })
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "5xy tone portamento + volume slide" })
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" })
-        XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "7xy tremolo" })
+        XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "7xy tremolo" })
+        let updates = try XCTUnwrap(object["volume_panning_state_updates"] as? [[String: Any]])
+        let tremolo = updates.filter { $0["command_name"] as? String == "tremolo" }
+        XCTAssertEqual(tremolo.count, 5)
+        let tick = try XCTUnwrap(tremolo.first { $0["synthetic_tick"] as? Int == 2 })
+        let commandData = try JSONSerialization.data(withJSONObject: try XCTUnwrap(tick["command"]))
+        let command = try XCTUnwrap(try JSONSerialization.jsonObject(with: commandData) as? [String: Any])
+        XCTAssertEqual(tick["effect_param"] as? Int, 0x48)
+        XCTAssertEqual(command["base_volume"] as? Int, 64)
+        XCTAssertEqual(command["output_volume"] as? Int, 64)
+        XCTAssertEqual(command["sample_volume"] as? Double, 1)
+        XCTAssertEqual(command["phase_before"] as? Int, 16)
+        XCTAssertEqual(command["phase_after"] as? Int, 32)
+        XCTAssertEqual(command["delta"] as? Int, 12)
+        XCTAssertEqual(command["clamped"] as? Bool, true)
     }
 
     func testDiagnosticsJSONUsesTrackerNoteTextAndClassifiesAxyMixedNibble() throws {

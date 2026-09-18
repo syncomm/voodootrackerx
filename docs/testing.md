@@ -162,8 +162,13 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
 - Confirm modules with `3xx` tone portamento commands slide active notes toward target notes without doubled retriggers.
 - Confirm modules with `4xy` vibrato commands produce audible pitch modulation.
 - Confirm modules with `5xy` or `6xy` combined volume-slide commands keep the pitch effect active while changing volume.
-- Treat `7xy` tremolo and `E7x` tremolo control as a deferred effect family per
-  `docs/xm-effect-support.md`; they are not a current playback pass criterion.
+- Use `tremolo-effects.xm` for `7xy`/`E7x`: check modulation, zero-nibble
+  memory, waveform/reset controls, and held output across empty rows.
+  `swift test --filter TremoloTests` pins tracker-volume semantics;
+  `RuntimeCMixerTests` pins the shared plan and exact applied gain frames.
+  Compare with ft2-clone using [volume ownership](design/xm-volume-ownership.md#reference-coverage-and-retained-boundaries)
+  for the retained sample-scaling, routing, and ramp differences. Listening
+  remains a separate maintainer check.
 - Confirm modules with `9xx` sample offset commands start sample playback later in the sample without crashing on out-of-range offsets.
 - Confirm modules with `Gxx` global volume commands safely change overall playback volume without breaking per-channel volume behavior.
 - Confirm modules with `Hxy` global volume slide commands change overall playback volume progressively across ticks.

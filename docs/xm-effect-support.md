@@ -45,7 +45,6 @@ The target is the chosen FT2/XM v1 scope, not OpenMPT/ModPlug extensions or
 every historical tracker quirk. Known candidates for later focused slices
 include:
 
-- `7xy` tremolo and `E7x` tremolo control, likely as one effect family;
 - `Pxy` panning slide, `Txy` tremor, and `EEx` pattern delay;
 - remaining relevant E-command gaps;
 - volume-column vibrato and effect-memory gaps; and
@@ -83,7 +82,7 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 | `4xy` | Vibrato | Implemented | `400` / zero-nibble memory supported | Yes | Yes | Uses supported `E4x` waveform state where available. |
 | `5xy` | Tone portamento + volume slide | Implemented, parity-watch | Uses existing `3xx` tone target/speed; `500` reuses shared Axy-style volume-slide memory when available | Yes | Yes | Reuses Linear `3xx` speed in `4 * xx` period units and the independent `Axy` tick-level volume-slide policy; missing `500` volume-slide memory remains no-op/deferred. |
 | `6xy` | Vibrato + volume slide | Implemented | Vibrato memory supported | Yes | Yes | Reuses vibrato memory plus current volume-slide gain path. |
-| `7xy` | Tremolo | Deferred | Deferred | No | No | Legacy handler has decoder logic; default C mixer adapter support is not implemented. |
+| `7xy` | Tremolo | Implemented, parity-watch | Independent speed/depth nibble memory, initially zero; `700`, `70y`, and `7x0` supported | Yes | Yes | Exact integer output-volume modulation after tick 0; phase and output persist across empty rows. Existing sample scaling, gain ramps, and trigger/other-effect boundaries remain; see [volume ownership](design/xm-volume-ownership.md#tremolo-output-memory-and-controls). |
 | `8xx` | Set panning | Implemented | Not applicable | Yes | Yes | Row-level panning state update. |
 | `9xx` | Sample offset | Implemented | `900` memory supported | Yes | Yes | Same-cell note/sample starts; out-of-range offsets are skipped safely. |
 | `Axy` | Volume slide | Implemented, parity-watch | `A00` reuses prior same-channel Axy-style volume-slide memory | Yes | Yes | Tick-level gain updates after tick 0; missing memory remains no-op/deferred. |
@@ -97,7 +96,7 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 | `E4x` | Vibrato control | Implemented, parity-watch | State stored for later vibrato | Yes | Yes | `E40...E43` are implemented; unsupported waveform/control values stay deferred. |
 | `E5x` | Set finetune | Implemented, parity-watch | No-note memory deferred | Yes | Yes | Same-cell note triggers only; non-linear table behavior deferred. |
 | `E6x` | Pattern loop | Implemented, parity-watch | Loop state supported for focused traversal | Yes | Yes | Missing loop starts are diagnosed without inventing playback; broader traversal quirks remain tracked. |
-| `E7x` | Tremolo control | Deferred | Deferred | No | No | Deferred with `7xy`. |
+| `E7x` | Tremolo control | Implemented, parity-watch | Channel-local control stored for later tremolo | Yes | Yes | All nibble values follow FT2: low two bits select sine/ramp/square/square, bit 2 suppresses phase reset, bit 3 is ignored. Ramp reproduces the vibrato-phase sign quirk without changing vibrato playback. |
 | `E8x` | Set panning | Deferred | Deferred | No | No | `8xx` is the currently supported panning command. |
 | `E9x` | Retrigger note | Implemented, parity-watch | `E90` deferred | Yes | Yes | Retrigger volume-change variants remain deferred. |
 | `EAx` | Fine volume slide up | Implemented, parity-watch | `EA0` deferred/no-op | Yes | Yes | Row-level channel-volume adjustment. |
@@ -181,8 +180,8 @@ fixtures pin these supported paths; no deferred effect family is promoted.
 - `E0x` filter toggle.
 - Broader Amiga frequency-table pitch parity beyond the narrow note,
   `2xx` down, and effect-column `3xx` foundation.
-- `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Pxy`, and
-  `Txy` in the default C mixer adapter path.
+- `E3x`, `E8x`, `EEx`, `EFx`, `Pxy`, and `Txy` in the default
+  C mixer adapter path.
 - `X` subcommands other than `X1x` and `X2x`.
 - OpenMPT / ModPlug hacks and non-v1 extensions unless explicitly promoted by
   a future compatibility decision.

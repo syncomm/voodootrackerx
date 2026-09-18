@@ -385,6 +385,12 @@ extension PlaybackSongSyntheticAdapter {
         channelState.activeEventMappingIndex = eventMappings.count - 1
         channelState.activeSampleVolume = activeSampleVolume
         channelState.baseChannelVolume = retriggerState.baseChannelVolume
+        // E9 retriggers the sample/envelopes without replacing FT2's held outVol.
+        // Rxy has already written its adjusted base/output above.
+        channelState.outputChannelVolume = retriggerState.outputChannelVolume
+        if !isRxyMultiRetriggerEffect(cell), !ticks.isEmpty {
+            resetTremoloTriggerPhases(state: &channelState)
+        }
         channelState.volumeValueZeroedByAxy = retriggerState.baseChannelVolume == 0
 
         let result = diagnostic(

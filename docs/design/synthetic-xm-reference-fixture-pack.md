@@ -142,6 +142,12 @@ Start with focused fixtures that each prove one behavior class:
   covers `1xx`/`2xx`/`3xx`/`5xy`, fine/extra-fine and volume-column tone
   portamento; Amiga covers only existing `2xx` and effect-column `3xx`.
   The fixture README owns the exact row map; the manifest pins bytes and hashes.
+- `tremolo-effects.xm`: one 56-row Linear pattern with a neutral sustained sine
+  isolates `7xy` speed/depth memory, `E70...E77` waveform/reset controls,
+  instrument versus note-only triggers, continuation, and empty-row output
+  retention. The README owns the row map. Quiet-header characterization derives
+  the same single-sample fixture in memory; numeric tests cover `E78...E7F`
+  aliases. This does not correct the separate sample-volume compatibility gap.
 - `note-entry-preview.xm`: tiny loaded-module payload for selected
   instrument/sample display and future preview availability tests.
 - `looped-sample.xm`: forward loop metadata and a steady loop segment.
@@ -151,7 +157,7 @@ Start with focused fixtures that each prove one behavior class:
 - `panning-envelope.xm`: deferred until panning-envelope editor and playback
   expectations are ready.
 - `pitch-effects.xm`: focused pitch commands such as portamento and vibrato.
-- `volume-effects.xm`: focused volume slides, tremolo, global volume, and
+- `volume-effects.xm`: focused volume slides, global volume, and
   related volume behavior.
 - `traversal-effects.xm`: position jump, pattern break, pattern delay, and
   loop traversal cases.

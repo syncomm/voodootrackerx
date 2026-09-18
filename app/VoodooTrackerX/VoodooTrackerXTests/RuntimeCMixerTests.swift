@@ -2978,6 +2978,64 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testTremoloPlansAndAppliesIdenticalGainAtEveryRuntimeFrame() throws {
+        let fixture = try referenceXMFixtureURL("generated/tremolo-effects.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixture.path)
+        let publicSong = try PlaybackSongBuilder.build(from: metadata, modulePath: fixture.path)
+        XCTAssertEqual(RuntimeCMixerAdapterEventPlan.make(song: publicSong, sampleRate: 48_000).plan,
+                       PlaybackSongSyntheticAdapter.adapt(publicSong, startOrderIndex: 0, orderCount: 1, sampleRate: 48_000))
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 256), volume: 0.25, baseSampleRate: 100)
+        let song = makePlaybackSong(orderPatternIndices: [2], patternRowsByIndex: [2: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 7, effectParam: 0x48),
+            makePlaybackRow(index: 1),
+            makePlaybackRow(index: 2, effectType: 7, effectParam: 0),
+            makePlaybackRow(index: 3, effectType: 0x0C, effectParam: 0x20),
+        ]], instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 25))
+        let offline = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song, config: MixerRenderConfig(sampleRate: 100, channelCount: 1), frames: 240))
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        XCTAssertEqual(runtime.plan, offline.plan)
+        let semantic = offline.diagnostics.voiceStateUpdates.filter { if case .tremolo = $0.command { return true }; return false }
+        XCTAssertEqual(semantic.map(\.effectParam), [0x48, 0x48, 0x48, 0x48, 0x48, 0, 0, 0, 0, 0])
+        for update in semantic {
+            guard case let .tremolo(tick) = update.command else { return XCTFail("Missing tremolo semantics") }
+            XCTAssertEqual(tick.baseVolume, 32)
+            XCTAssertEqual(tick.sampleVolume, 0.25)
+            XCTAssertEqual(update.gainAfter, Float(tick.outputVolume) / 256)
+            XCTAssertEqual(tick.phaseAfter, (tick.phaseBefore + 4 * tick.speed) & 255)
+        }
+        let planned = runtime.events.filter { if case .gainPanUpdate = $0.action { return true }; return false }
+        let volumes = [44, 54, 61, 63, 61, 54, 44, 32, 20, 32]
+        XCTAssertEqual(planned.map(\.scheduledFrame), [20, 30, 40, 50, 130, 140, 150, 160, 170, 180])
+        XCTAssertEqual(planned.map(\.syntheticTick), [2, 3, 4, 5, 1, 2, 3, 4, 5, 0])
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 100)
+        harness.engine.load(song: song)
+        harness.engine.play(from: nil)
+        defer { harness.engine.stop() }
+        var pcm = [Float]()
+        while pcm.count < 240 { pcm += harness.audioEngine.renderForTesting(frameCount: min(17, 240 - pcm.count)) }
+        XCTAssertEqual(pcm, offline.block.interleavedPCM)
+        XCTAssertEqual(pcm[119], 63 / 256) // The complete empty row retains the last output.
+        let applied = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_update_gain_pan_applied" }
+        XCTAssertEqual(applied.count, planned.count)
+        for (actual, pair) in zip(applied, zip(planned, volumes)) {
+            let (event, output) = pair
+            let gain = Float(output) / 256
+            guard case let .gainPanUpdate(_, plannedGain, _) = event.action else { return XCTFail("Expected gain update") }
+            XCTAssertEqual(plannedGain, gain)
+            XCTAssertEqual(actual.plannedSourceRowIndex, event.source.rowIndex)
+            XCTAssertEqual(actual.plannedSourceTickInRow, event.syntheticTick)
+            XCTAssertEqual(actual.effectParam, event.effectParam.map { String(format: "%02X", $0) })
+            XCTAssertEqual(actual.plannedEventFrame, event.scheduledFrame)
+            XCTAssertEqual(actual.eventAppliedFrame, UInt64(event.scheduledFrame))
+            XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
+            XCTAssertEqual(actual.eventApplicationTiming, "exact_frame")
+            XCTAssertEqual(actual.gainAfter, gain)
+        }
+    }
+
+    @MainActor
     func testPortamentoFixturesApplyOfflinePitchUpdatesAtPlannedRuntimeFrames() throws {
         for name in ["portamento-scaling-linear", "portamento-scaling-amiga"] {
             let fixtureURL = try referenceXMFixtureURL("generated/\(name).xm")

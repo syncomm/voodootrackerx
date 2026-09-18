@@ -67,6 +67,12 @@ enum PlaybackSongSyntheticAdapter {
         var vibratoDepthMemorySource: PlaybackSongSyntheticEffectMemorySource?
         var vibratoControl: VibratoControlState?
         var vibratoPhase: Double = 0
+        var tremolo = TremoloState()
+        // FT2's ramp tremolo reads the sign of the vibrato phase. This observer
+        // serves that quirk only; it does not change the existing pitch planner.
+        var tremoloVibratoPhase = 0
+        var tremoloVibratoSpeed = 0
+        var tremoloVibratoControl = 0
 
         mutating func initializePanning(fromSampleHeader value: UInt8) {
             panningValue = Double(value)
@@ -709,6 +715,12 @@ enum PlaybackSongSyntheticAdapter {
             let hasValidImmediateNoteInstrument = (1...96).contains(cell.note) &&
                 cell.instrument > 0 &&
                 !hasNoteDelayEffect
+            prepareTremoloRow(
+                cell: cell, song: song, source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
+                globalVolume: context.globalVolumeState.volumeValue,
+                channelState: &channelState, updates: &context.voiceStateUpdates
+            )
             let resetsInstrumentVolumeBeforeTrigger = hasValidImmediateNoteInstrument &&
                 !handlesTonePortamento &&
                 cell.effectType == 0 &&
@@ -1655,6 +1667,19 @@ enum PlaybackSongSyntheticAdapter {
             )
             let scheduledNoteFrame = noteDelay?.delayedFrame ?? scheduledStartFrame
             let scheduledNoteTick = noteDelay?.applied == true ? noteDelay?.requestedTick ?? 0 : 0
+            if scheduledNoteTick > 0 {
+                // The established EDx path has resolved a real delayed trigger.
+                // Reset at that trigger, rather than on an out-of-row delay.
+                resetTremoloTriggerPhases(state: &channelState)
+                if channelState.tremolo.activated, cell.instrument > 0 {
+                    channelState.baseChannelVolume = 64
+                    // FT2's delayed trigger replays an explicit volume value,
+                    // not slide commands already handled by the column path.
+                    if case .setVolume = volumeColumn.command {
+                        _ = applyVolumeColumn(volumeColumn, to: &channelState)
+                    }
+                }
+            }
             let setFinetuneOverride = hasSetFinetuneEffect && song.usesLinearFrequencyTable
                 ? setFinetuneValue(from: cell)
                 : nil
@@ -1959,6 +1984,19 @@ enum PlaybackSongSyntheticAdapter {
                 )
             }
             context.channelStates[channelIndex] = channelState
+        }
+        // Plan nonzero tremolo ticks after all tick-zero channel/global writers.
+        // In particular, a later channel's Gxx must not see a future tremolo value.
+        for channelIndex in row.cells.indices {
+            let cell = row.cells[channelIndex]
+            advanceTremoloVibratoObserver(cell: cell, rowSpeed: timingConfig.speed,
+                                         state: &context.channelStates[channelIndex])
+            context.voiceStateUpdates.append(contentsOf: applyTremolo(
+                cell: cell, source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, timingConfig: timingConfig,
+                timingPlan: timingPlan, globalVolume: context.globalVolumeState.volumeValue,
+                state: &context.channelStates[channelIndex]
+            ))
         }
         return PlaybackSongSyntheticRowDiagnostic(
             source: source,

@@ -646,6 +646,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateStatus: Equatable {
 }
 
 enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
+    case tremolo(PlaybackSongSyntheticTremoloTick)
+    case tremoloControl(value: Int)
     case volumeColumn(PlaybackSongSyntheticVolumeColumnCommand)
     case instrumentDefaultVolume(value: Int)
     case cxxSetVolume(value: Int)
@@ -660,6 +662,10 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
 
     var label: String {
         switch self {
+        case .tremolo:
+            return "7xy tremolo"
+        case .tremoloControl:
+            return "E7x tremolo control"
         case let .volumeColumn(command):
             return command.name
         case .instrumentDefaultVolume:
@@ -684,6 +690,20 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "6xy vibrato + volume slide"
         }
     }
+}
+
+struct PlaybackSongSyntheticTremoloTick: Equatable {
+    let baseVolume: Int
+    let outputVolume: Int
+    let sampleVolume: Float?
+    let speed: Int
+    let depth: Int
+    let control: Int
+    let phaseBefore: Int
+    let phaseAfter: Int
+    let vibratoPhase: Int
+    let delta: Int
+    let clamped: Bool
 }
 
 enum PlaybackSongSyntheticGlobalVolumeSlideDirection: String, Equatable {

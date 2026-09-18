@@ -8,6 +8,15 @@ other reference playback for real XM files.
 Do not commit traces from copyrighted modules. Keep local modules and generated
 trace files in `/tmp` or another untracked local path.
 
+For `7xy`/`E7x`, bounded diagnostics use the existing
+`volume_panning_state_updates` list. A `tremolo` command payload records base,
+output, sample factor, speed/depth, control, phase before/after, vibrato phase,
+delta, and clamping. Join its source row/tick and scheduled frame with runtime
+`gain_pan_update` application fields (`gainAfter`, `plannedEventFrame`,
+`eventAppliedFrame`, `plannedVsAppliedDelta`). Tick 0 and unchanged output can
+have semantic evidence without a changed-gain event. See
+[volume ownership](design/xm-volume-ownership.md#tremolo-output-memory-and-controls).
+
 ## Enable Trace Export
 
 Trace export is disabled by default. In Debug builds, set

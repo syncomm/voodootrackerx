@@ -21,6 +21,7 @@ class ScanTrackedPrivateLeaksTests(unittest.TestCase):
                 "tests/reference-xm/generated/fxx-timing.xm",
                 "tests/reference-xm/generated/portamento-scaling-linear.xm",
                 "tests/reference-xm/generated/portamento-scaling-amiga.xm",
+                "tests/reference-xm/generated/tremolo-effects.xm",
                 "tests/fixtures/minimal.mod",
             ]:
                 self.write_file(repo, path, b"synthetic public fixture")

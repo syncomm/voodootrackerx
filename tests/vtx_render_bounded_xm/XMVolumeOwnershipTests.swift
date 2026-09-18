@@ -123,17 +123,6 @@ final class XMVolumeOwnershipTests: XCTestCase {
         XCTAssertEqual(bounded.block.frameCount, 56)
     }
 
-    func testTremoloAndEveryTremoloControlRemainDeferredAndOutputNeutral() {
-        for command in [cell(7, 0x48)] + (0...15).map({ cell(0x0E, 0x70 | UInt8($0)) }) {
-            XCTAssertTrue(Adapter.hasDeferredEffect(command))
-            let (context, states) = inspect(song([cell(note: 49, volume: 0x30), command, cell()], sample: 0.25))
-            XCTAssertEqual(states.map(\.baseChannelVolume), [32, 32, 32])
-            XCTAssertEqual(context.events.map(\.gain), [0.125])
-            XCTAssertFalse(context.voiceStateUpdates.contains { $0.source.rowIndex == 1 })
-            XCTAssertTrue(context.deferredCellFields.contains { $0.source.rowIndex == 1 && $0.field == .effect })
-        }
-    }
-
     private func inspect(_ song: PlaybackSong) -> (Adapter.AdapterRowContext, [Adapter.ChannelState]) {
         let traversal = PlaybackSongTraversalPlanner.plan(song, startOrderIndex: 0, orderCount: 1)
         let timing = PlaybackSongFxxTimingPlanner.plan(song, traversalPlan: traversal, sampleRate: 100)

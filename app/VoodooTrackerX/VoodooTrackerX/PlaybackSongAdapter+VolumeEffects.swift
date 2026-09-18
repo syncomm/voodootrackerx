@@ -1,6 +1,131 @@
 import Foundation
 
 extension PlaybackSongSyntheticAdapter {
+    struct TremoloState: Equatable {
+        var speed = 0
+        var depth = 0
+        var control = 0
+        var phase = 0
+        var activated = false
+    }
+
+    static let tremoloSine = [
+        0, 24, 49, 74, 97, 120, 141, 161, 180, 197, 212, 224, 235, 244, 250, 253,
+        255, 253, 250, 244, 235, 224, 212, 197, 180, 161, 141, 120, 97, 74, 49, 24,
+    ]
+
+    static func tremoloDelta(phase: Int, depth: Int, control: Int, vibratoPhase: Int) -> Int {
+        let index = (phase >> 2) & 31
+        let magnitude: Int
+        switch control & 3 {
+        case 0: magnitude = tremoloSine[index]
+        // FT2 intentionally reproduced: ramp complement uses vibrato's sign.
+        case 1: magnitude = vibratoPhase & 128 != 0 ? 255 - index * 8 : index * 8
+        default: magnitude = 255 // Waveforms 2 and 3 are both square in FT2.
+        }
+        let delta = (magnitude * depth) >> 6
+        return phase & 128 == 0 ? delta : -delta
+    }
+
+    static func prepareTremoloRow(
+        cell: PlaybackCell, song: PlaybackSong, source: PlaybackPosition, channelIndex: Int,
+        syntheticRow: Int, scheduledFrame: Int, globalVolume: Int,
+        channelState: inout ChannelState,
+        updates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
+    ) {
+        // Instrument triggers reset phases before a same-cell control write. A
+        // note alone does not. Keep unsupported/delayed trigger routing unchanged.
+        let instrumentTrigger = cell.instrument > 0 && cell.note < 97 &&
+            song.instrumentsByIndex[Int(cell.instrument)] != nil &&
+            !(cell.effectType == 0x0E && (0xD1...0xDF).contains(cell.effectParam))
+        if instrumentTrigger {
+            // K00 bypasses triggerInstrument; volume-column portamento takes
+            // precedence over K00 in FT2 and still performs that trigger.
+            if !(cell.effectType == 0x14 && cell.effectParam == 0) || cell.volumeColumn >> 4 == 0x0F {
+                resetTremoloTriggerPhases(state: &channelState)
+            }
+            if channelState.tremolo.activated || cell.effectType == 0x07 {
+                let before = channelState
+                // In this adapter, the sample default remains an independent
+                // factor. Restore its neutral tracker multiplier, then let the
+                // ordinary same-cell volume writers override it below.
+                channelState.baseChannelVolume = 64
+                updates.append(voiceStateUpdateDiagnostic(
+                    source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledFrame, cell: cell, commandSource: .instrumentState,
+                    command: .instrumentDefaultVolume(value: 64), rawVolumeColumn: nil,
+                    effectType: cell.effectType, effectParam: cell.effectParam, status: .applied,
+                    behavior: nil, channelStateBefore: before, channelStateAfter: channelState,
+                    globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume
+                ))
+            }
+        }
+        if cell.effectType == 0x0E && cell.effectParam >> 4 == 0x04 {
+            channelState.tremoloVibratoControl = Int(cell.effectParam & 15)
+        }
+        if cell.effectType == 0x0E && cell.effectParam >> 4 == 0x07 {
+            channelState.tremolo.control = Int(cell.effectParam & 15)
+            updates.append(voiceStateUpdateDiagnostic(
+                source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame, cell: cell, commandSource: .effectColumn,
+                command: .tremoloControl(value: channelState.tremolo.control), rawVolumeColumn: nil,
+                effectType: cell.effectType, effectParam: cell.effectParam, status: .applied,
+                behavior: nil, channelStateBefore: channelState, channelStateAfter: channelState,
+                globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
+                activeVoiceUpdatedOverride: false
+            ))
+        }
+    }
+
+    static func resetTremoloTriggerPhases(state: inout ChannelState) {
+        if state.tremolo.control & 4 == 0 { state.tremolo.phase = 0 }
+        if state.tremoloVibratoControl & 4 == 0 { state.tremoloVibratoPhase = 0 }
+    }
+
+    static func advanceTremoloVibratoObserver(cell: PlaybackCell, rowSpeed: Int, state: inout ChannelState) {
+        guard rowSpeed > 1, cell.effectType == 0x04 || cell.effectType == 0x06 else { return }
+        let speed = Int(cell.effectParam >> 4)
+        if cell.effectType == 0x04 && speed > 0 { state.tremoloVibratoSpeed = speed }
+        state.tremoloVibratoPhase = (state.tremoloVibratoPhase + (rowSpeed - 1) * state.tremoloVibratoSpeed * 4) & 255
+    }
+
+    static func applyTremolo(
+        cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int, syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig, timingPlan: PlaybackSongFxxTimingPlan,
+        globalVolume: Int, state: inout ChannelState
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        guard cell.effectType == 0x07, timingConfig.speed > 1 else { return [] }
+        let speed = Int(cell.effectParam >> 4)
+        let depth = Int(cell.effectParam & 15)
+        if speed > 0 { state.tremolo.speed = speed }
+        if depth > 0 { state.tremolo.depth = depth }
+        state.tremolo.activated = true
+        return (1..<timingConfig.speed).map { tick in
+            let before = state
+            let delta = tremoloDelta(phase: state.tremolo.phase, depth: state.tremolo.depth,
+                                     control: state.tremolo.control, vibratoPhase: state.tremoloVibratoPhase)
+            let unclamped = state.baseChannelVolume + delta
+            state.outputChannelVolume = clampedVolumeValue(unclamped)
+            state.tremolo.phase = (state.tremolo.phase + state.tremolo.speed * 4) & 255
+            let semantic = PlaybackSongSyntheticTremoloTick(
+                baseVolume: state.baseChannelVolume, outputVolume: state.outputChannelVolume,
+                sampleVolume: state.activeSampleVolume, speed: state.tremolo.speed, depth: state.tremolo.depth,
+                control: state.tremolo.control, phaseBefore: before.tremolo.phase, phaseAfter: state.tremolo.phase,
+                vibratoPhase: state.tremoloVibratoPhase, delta: delta, clamped: unclamped != state.outputChannelVolume
+            )
+            return voiceStateUpdateDiagnostic(
+                source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick), cell: cell,
+                commandSource: .effectColumn, command: .tremolo(semantic), rawVolumeColumn: nil,
+                effectType: cell.effectType, effectParam: cell.effectParam, status: .applied,
+                behavior: .tickLevelAfterTick0, channelStateBefore: before, channelStateAfter: state,
+                globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
+                effectMemoryReused: speed == 0 || depth == 0,
+                activeVoiceUpdatedOverride: state.activeEventIndex != nil && state.activeSampleVolume != nil
+            )
+        }
+    }
+
     static let lxxSetEnvelopePositionPolicy = "first_pass_volume_envelope_position_only"
 
     static func mixerSampleBuffer(

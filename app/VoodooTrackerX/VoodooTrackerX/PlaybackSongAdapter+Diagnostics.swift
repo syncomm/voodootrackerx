@@ -370,7 +370,7 @@ extension PlaybackSongSyntheticAdapter {
         case 0x00 where cell.effectParam != 0:
             return .applied
         case 0x07:
-            return .deferredUnsupported
+            return timingConfig.speed > 1 ? .applied : .ignoredNoOp
         case 0x05:
             return .applied
         case 0x04:
@@ -406,6 +406,8 @@ extension PlaybackSongSyntheticAdapter {
                 return .deferredUnsupported
             }
             return xxyAmount(from: cell) == 0 ? .ignoredNoOp : .applied
+        case 0x0E where cell.effectParam >> 4 == 0x07:
+            return .applied
         case 0x0E where isRetriggerEffect(cell):
             let interval = retriggerIntervalNibble(from: cell)
             guard interval > 0 else {
@@ -576,7 +578,9 @@ extension PlaybackSongSyntheticAdapter {
             return false
         }
         switch cell.effectType {
-        case 0x08, 0x0A, 0x0C:
+        case 0x07, 0x08, 0x0A, 0x0C:
+            return false
+        case 0x0E where cell.effectParam >> 4 == 0x07:
             return false
         default:
             return true

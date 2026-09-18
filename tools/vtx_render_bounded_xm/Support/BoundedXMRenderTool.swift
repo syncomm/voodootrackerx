@@ -4878,6 +4878,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
         _ command: PlaybackSongSyntheticVoiceStateUpdateCommand
     ) -> [String: Any] {
         switch command {
+        case let .tremolo(tick):
+            return [
+                "name": "tremolo", "label": command.label,
+                "base_volume": tick.baseVolume, "output_volume": tick.outputVolume,
+                "sample_volume": tick.sampleVolume.map { $0 as Any } ?? NSNull(),
+                "speed": tick.speed, "depth": tick.depth, "control": tick.control,
+                "phase_before": tick.phaseBefore, "phase_after": tick.phaseAfter,
+                "vibrato_phase": tick.vibratoPhase, "delta": tick.delta, "clamped": tick.clamped,
+            ]
+        case let .tremoloControl(value):
+            return ["name": "tremoloControl", "label": command.label, "value": value]
         case let .volumeColumn(command):
             return [
                 "name": voiceStateCommandName(.volumeColumn(command)),
@@ -4933,6 +4944,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
         _ command: PlaybackSongSyntheticVoiceStateUpdateCommand
     ) -> String {
         switch command {
+        case .tremolo:
+            return "tremolo"
+        case .tremoloControl:
+            return "tremoloControl"
         case let .volumeColumn(command):
             return command.name
         case .instrumentDefaultVolume:

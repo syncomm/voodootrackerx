@@ -344,6 +344,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 }
             }
             let hasBridgedEffectMetadata = isSetFinetune ||
+                mapping.effectType == 0x07 ||
+                (mapping.effectType == 0x0E && mapping.effectParam >> 4 == 0x07) ||
                 isFinePortamentoUp ||
                 isFinePortamentoDown ||
                 bridgedExtraFinePortamento != nil ||
@@ -384,6 +386,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             }
             var categories = ["gain_pan_update"]
             switch update.command {
+            case .tremolo:
+                categories.append("tremolo_7xy")
+                if update.effectMemoryReused { categories.append("effect_memory_reused") }
             case .gxxSetGlobalVolume:
                 categories.append("gxx_global_volume_update")
                 categories.append("global_volume_update")

@@ -105,7 +105,7 @@ static int vtx_c_mixer_voice_state_event_is_valid(
     if (update_pan && !isfinite(pan)) {
         return 0;
     }
-    if (update_sample_step && (!isfinite(sample_step) || sample_step <= 0.0 || sample_step > (double)UINT32_MAX)) {
+    if (update_sample_step && (!isfinite(sample_step) || sample_step < 0.0 || sample_step > (double)UINT32_MAX)) {
         return 0;
     }
     return 1;
@@ -500,7 +500,8 @@ static void vtx_c_mixer_apply_voice_state_events(VTXCMixerState *state, uint64_t
                 }
             }
             if (event->update_sample_step) {
-                voice->sample_step = vtx_c_mixer_sanitized_sample_step(event->sample_step);
+                // Scheduling validates the value; explicit zero holds the existing cursor.
+                voice->sample_step = event->sample_step;
             }
             if (event->update_volume_envelope_position) {
                 voice->volume_envelope.position_frame = event->volume_envelope_position_frame;
@@ -1716,7 +1717,7 @@ static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
     event.update_pan = update_pan ? 1 : 0;
     event.pan = vtx_c_mixer_sanitized_pan(pan);
     event.update_sample_step = update_sample_step ? 1 : 0;
-    event.sample_step = vtx_c_mixer_sanitized_sample_step(sample_step);
+    event.sample_step = sample_step; // Presence is carried by update_sample_step, not the value.
     event.update_volume_envelope_position = update_volume_envelope_position ? 1 : 0;
     event.volume_envelope_position_frame = volume_envelope_position_frame;
     event.ramp_enabled = ramp_enabled ? 1 : 0;

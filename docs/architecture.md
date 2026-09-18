@@ -202,6 +202,18 @@ mixer used by offline renders and the runtime C mixer render core. Audio and
 DSP logic should stay out of AppKit view/controller code, and offline
 render/export validation remains separate from runtime smoke testing.
 
+An explicit finite zero sample-step update holds an existing C mixer voice at
+its exact fractional source cursor. Swift's `stepUpdate` event and C's
+`update_sample_step` flag distinguish that value from absence of an update.
+The voice stays active, with interpolation and loop direction preserved;
+gain/pan ramps, envelopes, and fadeout continue on output frames. A later
+positive update resumes from the frozen cursor, including across offline
+window continuations. Runtime epsilon filtering never suppresses crossing
+zero. Updates apply before rendering their scheduled frame and do not revive
+completed voices. Negative/nonfinite steps remain invalid; initial zero-step
+voice creation retains its existing normalization to one. This boundary adds
+no XM effect support; Amiga vibrato remains deferred.
+
 For the accepted first-pass backend decision and future mixer path, see:
 
 - `docs/decisions/002-first-pass-audio-backend.md`

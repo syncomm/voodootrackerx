@@ -495,6 +495,10 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
 // Schedules a generic sample-step update for an existing offline voice at an
 // absolute output frame. The adapter owns musical interpretation; C receives
 // only a deterministic source-sample step.
+// Finite zero (including -0.0) holds an active voice's cursor without stopping
+// it; a later positive step resumes it. Ramps/envelopes continue. An absent
+// update retains the previous step. Negative/nonfinite/out-of-range steps fail.
+// This does not change initial-step sanitization or resurrect completed voices.
 VTXCMixerStatus vtx_c_mixer_schedule_voice_sample_step_update(
     VTXCMixerState *state,
     uint32_t voice_index,

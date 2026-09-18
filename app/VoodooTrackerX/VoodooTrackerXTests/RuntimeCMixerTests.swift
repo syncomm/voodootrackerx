@@ -3,6 +3,98 @@ import AudioToolbox
 import XCTest
 
 final class RuntimeCMixerTests: XCTestCase {
+    func testZeroStepPlannedHoldResumeMatchesOfflineAtExactFrames() throws {
+        for mode in [MixerSampleLoopMode.none, .forward, .pingPong] {
+            let config = MixerRenderConfig(sampleRate: 48_000, channelCount: 1)
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 64,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            let sample = MixerSampleBuffer(monoPCM: (0..<8).map { Float($0) / 8 })
+            let loop = MixerSampleLoop(mode: mode, startFrame: 1, endFrame: 5)
+            let event = SyntheticTrackerEvent(row: 0, sample: sample, playbackStep: 0.75, loop: loop)
+            XCTAssertTrue(core.triggerAdapterEventWithDiagnostics(event, eventIndex: 0, mapping: makeSyntheticEventMapping()).succeeded)
+            let offline = CSoftwareMixer(config: config)
+            let voice = offline.addVoice(sample: sample, playbackStep: 0.75, loop: loop)
+            let updates = [(7, 0.0), (23, 0.25)]
+            core.configureAdapterEventScheduleForTesting(updates.enumerated().map { index, update in
+                RuntimeCMixerAdapterEvent(id: index, source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
+                    channelIndex: 0, syntheticTick: index + 1, scheduledFrame: update.0,
+                    action: .stepUpdate(activeEventIndex: 0, playbackStep: update.1), categories: ["step_update"])
+            }, runtimeFrameOffset: 0)
+            for (frame, step) in updates {
+                XCTAssertTrue(offline.scheduleVoicePlaybackStepUpdate(voiceIndex: voice, scheduledFrame: frame, playbackStep: step).wasAccepted)
+            }
+            let frozenPosition = mode == .none ? 5.25 : (mode == .forward ? 1.25 : 2.75)
+            for (index, count) in [3, 6, 12, 3, 3].enumerated() {
+                XCTAssertEqual(renderRuntimePCM(core, frames: count), offline.render(frames: count).interleavedPCM)
+                let runtimeVoice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                let offlineVoice = try XCTUnwrap(offline.voiceDiagnostic(forVoiceAt: voice))
+                XCTAssertEqual(runtimeVoice.samplePosition, offlineVoice.samplePosition)
+                XCTAssertEqual(runtimeVoice.sampleStep, offlineVoice.sampleStep)
+                XCTAssertTrue(runtimeVoice.active)
+                if index == 0 { XCTAssertEqual(runtimeVoice.samplePosition, 2.25) }
+                if index == 1 || index == 2 {
+                    XCTAssertEqual(runtimeVoice.samplePosition, frozenPosition)
+                    XCTAssertEqual(runtimeVoice.sampleStep, 0)
+                }
+                if index == 3 {
+                    XCTAssertEqual(runtimeVoice.samplePosition, frozenPosition + (mode == .pingPong ? -0.25 : 0.25))
+                }
+            }
+            let applied = core.drainAppliedAdapterEventDiagnostics()
+            XCTAssertEqual(applied.count, 2)
+            for (index, diagnostic) in applied.enumerated() {
+                XCTAssertEqual(diagnostic.plannedRuntimeFrame, updates[index].0)
+                XCTAssertEqual(diagnostic.appliedFrame, UInt64(updates[index].0))
+                XCTAssertEqual(diagnostic.eventFrameDelta, 0)
+                XCTAssertEqual(diagnostic.eventApplicationTiming, "exact_frame")
+                XCTAssertEqual(diagnostic.inCallbackOffset, index == 0 ? 4 : 2)
+                guard case let .stepUpdate(result) = diagnostic.result else { return XCTFail("Missing explicit step update") }
+                XCTAssertTrue(result.stepApplied)
+                XCTAssertEqual(result.targetVoiceIndex, voice)
+                XCTAssertEqual(result.sampleStepBefore, index == 0 ? 0.75 : 0)
+                XCTAssertEqual(result.sampleStepAfter, updates[index].1)
+                let trace = RuntimeCMixerTraceEvent(runtimeAction: result.traceAction, runtimeAudioBackend: "c_mixer",
+                    sampleStepBefore: result.sampleStepBefore, sampleStepAfter: result.sampleStepAfter,
+                    sampleStepRequested: result.sampleStepRequested)
+                let object = try XCTUnwrap(JSONSerialization.jsonObject(with: RuntimeCMixerTraceJSONLFormatter.line(for: trace)) as? [String: Any])
+                XCTAssertEqual(object["sampleStepAfter"] as? Double, updates[index].1)
+                XCTAssertEqual(object["sampleStepRequested"] as? Double, updates[index].1)
+            }
+        }
+    }
+
+    func testZeroStepRuntimeHoldResumeCrossesEpsilonAndRejectsInvalidValues() throws {
+        let core = RuntimeCMixerRenderCore(config: MixerRenderConfig(sampleRate: 48_000, channelCount: 1), maximumRenderFrames: 16)
+        let tiny = RuntimeCMixerRenderCore.updateEpsilon / 2
+        let event = SyntheticTrackerEvent(row: 0, sample: MixerSampleBuffer(monoPCM: [0, 0.5, 1]), playbackStep: tiny)
+        XCTAssertTrue(core.triggerAdapterEventWithDiagnostics(event, eventIndex: 0, mapping: makeSyntheticEventMapping()).succeeded)
+        _ = renderRuntimePCM(core, frames: 1)
+        for step in [0.0, tiny, -0.0, tiny] {
+            let result = core.applyAdapterStepUpdateWithDiagnostics(channel: 0, activeEventIndex: 0, playbackStep: step)
+            XCTAssertTrue(result.stepApplied)
+            XCTAssertFalse(result.epsilonSuppressedStep)
+            let before = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0)).samplePosition
+            _ = renderRuntimePCM(core, frames: 1)
+            let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+            XCTAssertEqual(after.sampleStep, step)
+            XCTAssertEqual(after.samplePosition, before + step)
+        }
+        for step in [Double.nan, .infinity, -.infinity, -0.25, Double(UInt32.max) + 1] {
+            let result = core.applyAdapterStepUpdateWithDiagnostics(channel: 0, activeEventIndex: 0, playbackStep: step)
+            XCTAssertFalse(result.stepApplied)
+            XCTAssertEqual(result.succeeded, false)
+            XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 0)?.sampleStep, tiny)
+        }
+        // A gain-only event carries no step update, including while the voice is held.
+        XCTAssertTrue(core.applyAdapterStepUpdateWithDiagnostics(channel: 0, activeEventIndex: 0, playbackStep: 0).stepApplied)
+        _ = renderRuntimePCM(core, frames: 1)
+        let held = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0)).samplePosition
+        XCTAssertTrue(core.applyAdapterGainPanUpdateWithDiagnostics(channel: 0, activeEventIndex: 0, gain: 0.5, pan: nil).gainPanApplied)
+        _ = renderRuntimePCM(core, frames: 4)
+        XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 0)?.samplePosition, held)
+        XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 0)?.sampleStep, 0)
+    }
+
     func testRuntimeCMixerAdapterEventPlanReportsLxxEnvelopePositionMetadata() throws {
         let envelope = makePlaybackVolumeEnvelope(points: [
             PlaybackEnvelopePoint(tick: 0, value: 64),
@@ -3494,6 +3586,58 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
         XCTAssertEqual(engine.currentPublishedFollowPosition?.position, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
         XCTAssertEqual(engine.currentPublishedFollowPosition?.source, .playbackTimer)
+    }
+
+    @MainActor
+    func testZeroStepHoldKeepsRenderedSampleTimeAndPlaybackFollowAdvancing() throws {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        let sample = makePlaybackSample(pcm: (0..<64).map { Float($0) / 128 }, baseSampleRate: 100)
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2, 5],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1), makePlaybackRow(index: 1)],
+                5: [makePlaybackRow(index: 0), makePlaybackRow(index: 1)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 25)
+        ))
+        harness.engine.play(from: nil)
+        defer { harness.engine.stop() }
+        let timerPosition = try XCTUnwrap(harness.engine.currentPosition)
+        _ = harness.audioEngine.renderForTesting(frameCount: 3)
+        harness.audioEngine.configureAdapterEventScheduleForTesting([
+            RuntimeCMixerAdapterEvent(id: 1, source: timerPosition, channelIndex: 0,
+                syntheticTick: 0, scheduledFrame: 3,
+                action: .stepUpdate(activeEventIndex: 0, playbackStep: 0), categories: ["step_update"])
+        ], runtimeFrameOffset: 0)
+
+        // At 100 Hz and BPM 25 each tick is 10 frames; the playback timer stays idle.
+        var renderedFrames = 3
+        for (frame, order, pattern, row, tick) in [
+            (9, 0, 2, 0, 0), (10, 0, 2, 0, 1), (20, 0, 2, 1, 0),
+            (40, 1, 5, 0, 0), (50, 1, 5, 0, 1)
+        ] {
+            let count = frame - renderedFrames
+            let pcm = harness.audioEngine.renderForTesting(frameCount: count)
+            // The ramp sample stays at source frame 3 throughout the hold.
+            XCTAssertEqual(pcm, Array(repeating: Float(3) / 128, count: count))
+            let snapshot = harness.audioEngine.snapshotForTesting()
+            XCTAssertEqual(snapshot.activeVoiceCount, 1)
+            XCTAssertEqual(snapshot.currentFrame, UInt64(frame))
+            XCTAssertEqual(snapshot.renderedFrameCount, UInt64(frame))
+            let follow = try XCTUnwrap(harness.audioEngine.playbackFollowPosition(
+                timerPosition: timerPosition, timerTickInRow: 0
+            ))
+            XCTAssertEqual(follow.source, .cMixerSampleTime)
+            XCTAssertEqual(follow.sampleTimeFrame, frame)
+            XCTAssertEqual(follow.position, PlaybackPosition(orderIndex: order, patternIndex: pattern, rowIndex: row))
+            XCTAssertEqual(follow.tickInRow, tick)
+            renderedFrames = frame
+        }
+        XCTAssertEqual(harness.engine.currentPosition, timerPosition)
+        let hold = try XCTUnwrap(harness.traceWriter.events.first { $0.runtimeAction == "c_mixer_update_step_applied" })
+        XCTAssertEqual(hold.sampleStepAfter, 0)
+        XCTAssertEqual(hold.eventAppliedFrame, 3)
     }
 
     @MainActor

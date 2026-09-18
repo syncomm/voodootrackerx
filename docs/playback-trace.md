@@ -135,18 +135,28 @@ Same-cell nonzero `6xy` note triggers keep effect metadata and trigger with the
 row-level volume-slide adjustment. Empty-note `6xy` rows reuse prior channel
 vibrato memory for sample-step updates and use the existing row-start gain
 update path for nonzero volume slides. `600` can replay vibrato memory without
-volume-slide memory; missing vibrato memory remains effect-memory-deferred.
+volume-slide memory. Vibrato speed/depth start at zero; an unseeded `400` or
+`6xy` consumes that valid zero state without a missing-memory diagnostic.
+Nonzero `4xy` nibbles update their independent channel memory on nonzero ticks;
+`400`, `40y`, and `4x0` retain each zero nibble's previous value. The `6xy`
+volume-slide timing and `600` slide-memory boundary remain unchanged.
 `Kxx` rows use the existing key-off/release path; same-cell note triggers keep
 the `Kxx` effect metadata and then release at the requested row tick.
 `Rxy` rows use the shared retrigger path for the active voice. Same-cell note
 rows trigger once at tick 0 and schedule generated retriggers on later interval
 ticks; `R00` remains an effect-memory-deferred no-op. First-pass volume modes
 use the common XM retrigger volume table and clamp channel volume to `0...64`.
-XM `E4x` vibrato control rows store per-channel deterministic vibrato
-waveform/control state for later `4xy`/`6xy` rows and emit no direct audio
-events. Supported first-pass controls cover sine/default, ramp-down, square,
-and deterministic random waveforms; unsupported control values remain explicit
-deferred diagnostics.
+XM `E40...E4F` store channel-local FT2 vibrato control for later `4xy`/`6xy`
+rows and emit no direct audio events. The low two bits select sine, ramp,
+square, square; bit 2 suppresses instrument-trigger phase reset and bit 3 is
+ignored. Phase is a wrapping byte (`0...255`), sampled before advancing by
+four times the speed nibble. Integer waveform magnitude times depth is shifted
+right by five; phase bit 7 selects the reference period-delta sign. Linear
+playback adds that signed delta to the unmodulated base period. Consecutive
+`4xy`/`6xy` rows retain the last output at tick 0; leaving the family restores
+the base. Amiga vibrato execution remains explicitly deferred. Existing runtime
+trace fields carry planned/applied frame and sample-step updates; the trace
+schema is unchanged.
 
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing

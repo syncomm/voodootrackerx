@@ -79,9 +79,9 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 | `1xx` | Portamento up | Implemented, parity-watch | `100` memory supported | Yes | Yes | Linear slides subtract `4 * xx` period units per tick after tick 0; Amiga-table `1xx` remains deferred. |
 | `2xx` | Portamento down | Implemented, parity-watch | `200` memory supported | Yes | Yes | Linear slides add `4 * xx` period units per tick after tick 0; the existing narrow Amiga-table period/sample-step path is preserved. |
 | `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and target-clamped updates after tick 0 (Linear `4 * xx` period units); Amiga targets use the FT2-compatible quantized period lookup. No-active/no-target/no-speed/missing-memory residuals remain parity-watch. |
-| `4xy` | Vibrato | Implemented | `400` / zero-nibble memory supported | Yes | Yes | Uses supported `E4x` waveform state where available. |
+| `4xy` | Vibrato | Implemented, parity-watch | Initially zero speed/depth; `400` / zero-nibble memory supported | Yes | Yes | FT2 integer phase/waveform modulation in Linear mode; Amiga execution remains deferred. See the shared contract below. |
 | `5xy` | Tone portamento + volume slide | Implemented, parity-watch | Uses existing `3xx` tone target/speed; `500` reuses shared Axy-style volume-slide memory when available | Yes | Yes | Reuses Linear `3xx` speed in `4 * xx` period units and the independent `Axy` tick-level volume-slide policy; missing `500` volume-slide memory remains no-op/deferred. |
-| `6xy` | Vibrato + volume slide | Implemented | Vibrato memory supported | Yes | Yes | Reuses vibrato memory plus current volume-slide gain path. |
+| `6xy` | Vibrato + volume slide | Implemented, parity-watch | Shared `4xy` vibrato memory; `600` volume-slide memory deferred | Yes | Yes | Corrected Linear vibrato plus the existing row-level volume-slide path. Amiga vibrato and tick-level slide correction remain separate work. |
 | `7xy` | Tremolo | Implemented, parity-watch | Independent speed/depth nibble memory, initially zero; `700`, `70y`, and `7x0` supported | Yes | Yes | Exact integer output-volume modulation after tick 0; phase and output persist across empty rows. Existing sample scaling, gain ramps, and trigger/other-effect boundaries remain; see [volume ownership](design/xm-volume-ownership.md#tremolo-output-memory-and-controls). |
 | `8xx` | Set panning | Implemented | Not applicable | Yes | Yes | Row-level panning state update. |
 | `9xx` | Sample offset | Implemented | `900` memory supported | Yes | Yes | Same-cell note/sample starts; out-of-range offsets are skipped safely. |
@@ -93,7 +93,7 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 | `E1x` | Fine portamento up | Implemented, parity-watch | `E10` deferred/no-op | Yes | Yes | One tick-0 Linear adjustment of `4 * x` period units (including same-cell note triggers). |
 | `E2x` | Fine portamento down | Implemented, parity-watch | `E20` deferred/no-op | Yes | Yes | One tick-0 Linear adjustment of `4 * x` period units (including same-cell note triggers). |
 | `E3x` | Glissando control | Deferred | Deferred | No | No | No current C mixer adapter behavior. |
-| `E4x` | Vibrato control | Implemented, parity-watch | State stored for later vibrato | Yes | Yes | `E40...E43` are implemented; unsupported waveform/control values stay deferred. |
+| `E4x` | Vibrato control | Implemented | Channel-local control stored for later vibrato | Yes | Yes | All 16 values: low two bits select sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 is ignored. |
 | `E5x` | Set finetune | Implemented, parity-watch | No-note memory deferred | Yes | Yes | Same-cell note triggers only; non-linear table behavior deferred. |
 | `E6x` | Pattern loop | Implemented, parity-watch | Loop state supported for focused traversal | Yes | Yes | Missing loop starts are diagnosed without inventing playback; broader traversal quirks remain tracked. |
 | `E7x` | Tremolo control | Implemented, parity-watch | Channel-local control stored for later tremolo | Yes | Yes | All nibble values follow FT2: low two bits select sine/ramp/square/square, bit 2 suppresses phase reset, bit 3 is ignored. Ramp reproduces the vibrato-phase sign quirk without changing vibrato playback. |
@@ -150,6 +150,38 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
   tone portamento are not broadened by the Amiga foundation.
 - Private Amiga-table coverage is tracked locally; do not publish private
   filenames, local paths, or corpus details.
+
+## Shared Vibrato Contract
+
+On ticks `1...(speed - 1)`, `4xy` samples the current unsigned-byte phase,
+computes the integer FT2 waveform magnitude, applies
+`signedDelta = sign * ((magnitude * depth) >> 5)`, then advances phase by
+`4 * speedNibble` modulo 256. Sine uses the 32-entry FT2 table; ramp uses
+`8 * ((phase >> 2) & 31)`, complemented in the negative half; both square
+aliases use magnitude 255. Phase bit 7 selects the negative half.
+
+Nonzero speed/depth nibbles replace independent, initially zero memories on
+nonzero ticks. `400` retains both, `40y` changes depth, `4x0` changes speed;
+`6xy` consumes the same state. A speed-1 row does not write those memories.
+Explicit instrument triggers, including instrument-only rows, reset phase
+unless the previously stored control suppresses it. Note-only continuation
+does not reset phase; a same-cell `E4x` write occurs after the trigger reset.
+
+FT2 and VTX Linear periods have the same coordinates: C-4 is 4608 and an
+octave is 768 units. Output period is base period plus signed delta, with
+the existing Linear range guard; sample step is
+`baseHz * 2^((4608 - outputPeriod) / 768) / outputHz`. Modulation never changes
+the base. Consecutive `4xy`/`6xy` rows hold output through tick 0; leaving the
+family restores the base. The public `vibrato-semantics.xm` fixture and
+`VibratoFoundationTests` pin this contract against the
+[pinned FT2 replayer](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1836-L1866).
+
+Existing note-only sample retrigger limitations, Linear range-edge behavior,
+and `6xy` row-level volume-slide timing remain parity boundaries. `600`
+volume-slide memory is still deferred. Amiga `4xy`/`6xy` pitch execution is
+still guarded: its later implementation must map the reference delta to
+VTX's 4x period representation and explicitly handle FT2 unsigned wrapping
+and period zero, rather than blindly reuse the existing Amiga clamp.
 
 ## Portamento Units
 

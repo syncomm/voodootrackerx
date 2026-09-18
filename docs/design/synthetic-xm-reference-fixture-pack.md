@@ -148,6 +148,13 @@ Start with focused fixtures that each prove one behavior class:
   retention. The README owns the row map. Quiet-header characterization derives
   the same single-sample fixture in memory; numeric tests cover `E78...E7F`
   aliases. This does not correct the separate sample-volume compatibility gap.
+- `vibrato-semantics.xm`: one 46-row Linear pattern with the same neutral sine
+  isolates `4xy` phase ordering, integer waveform/depth modulation, nibble
+  memory, all `E40...E4F` waveform/reset controls, no-note continuation,
+  instrument-trigger reset or suppression, and explicitly seeded `6xy` vibrato
+  reuse. The README owns the row map; the manifest pins bytes and PCM hashes.
+  `600` memory and `6xy` slide timing remain separate contracts. Amiga vibrato
+  execution remains deferred until its dedicated period-domain implementation.
 - `note-entry-preview.xm`: tiny loaded-module payload for selected
   instrument/sample display and future preview availability tests.
 - `looped-sample.xm`: forward loop metadata and a steady loop segment.

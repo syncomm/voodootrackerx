@@ -118,7 +118,10 @@ final class TremoloTests: XCTestCase {
             XCTAssertEqual(states[4].tremolo.control, 1)
             XCTAssertEqual(tremolo(context).first?.1.vibratoPhase, 160)
             XCTAssertEqual(tremolo(context).first?.1.outputVolume, 63)
-            if vibrato == 0x80 { XCTAssertFalse(context.vibratoEffects[0].applied) }
+            if vibrato == 0x80 {
+                XCTAssertTrue(context.vibratoEffects[0].applied)
+                XCTAssertTrue(context.vibratoEffects[0].stepUpdates.allSatisfy { $0.vibrato?.signedReferenceDelta == 0 })
+            }
         }
     }
 

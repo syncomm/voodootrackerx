@@ -324,6 +324,18 @@ When ft2-clone is used as the primary reference, export outside the repository
 and record the full profile. Prefer Float32 for direct comparison with VTX
 Float32 candidates.
 
+For shared vibrato semantics use `vibrato-semantics.xm`: order 0, one order,
+46 rows, 264960 frames (5.52 seconds). Use **Linear Frequency Slides**, Linear
+(FT2) interpolation, 48000 Hz Float32 stereo, amplification 10x, master volume
+256, ramping on, and Precise BPM off. The
+[fixture row map](../tests/reference-xm/README.md)
+isolates memory, all waveform/reset aliases, instrument-only reset, and seeded
+`6xy`. Compare exact tick periods first: C-4 `448` starts with
+`4608, 4632, 4653, 4666, 4671` on ticks 1–5; the next `400` row holds 4671
+through tick 0. FT2 fixed-point step quantization, gain ramps, and the retained
+`6xy` row-level slide policy can still produce waveform residuals. This fixture
+does not validate Amiga execution or `600` slide memory.
+
 When `openmpt123` is installed locally, a simple full render can be useful for
 secondary checks:
 

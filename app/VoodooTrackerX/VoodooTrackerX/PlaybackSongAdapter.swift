@@ -61,12 +61,13 @@ enum PlaybackSongSyntheticAdapter {
         var portamentoUpMemory: PortamentoSlideMemory?
         var portamentoDownMemory: PortamentoSlideMemory?
         var volumeSlideMemory: VolumeSlideMemory?
-        var vibratoSpeed: Int?
-        var vibratoDepth: Int?
+        var vibratoSpeed = 0
+        var vibratoDepth = 0
         var vibratoSpeedMemorySource: PlaybackSongSyntheticEffectMemorySource?
         var vibratoDepthMemorySource: PlaybackSongSyntheticEffectMemorySource?
         var vibratoControl: VibratoControlState?
-        var vibratoPhase: Double = 0
+        var vibratoPhase = 0
+        var vibratoOutputLinearPeriod: Double?
         var tremolo = TremoloState()
         // FT2's ramp tremolo reads the sign of the vibrato phase. This observer
         // serves that quirk only; it does not change the existing pitch planner.
@@ -111,7 +112,6 @@ enum PlaybackSongSyntheticAdapter {
         case sine = 0
         case rampDown = 1
         case square = 2
-        case random = 3
 
         var name: String {
             switch self {
@@ -121,8 +121,6 @@ enum PlaybackSongSyntheticAdapter {
                 return "ramp_down"
             case .square:
                 return "square"
-            case .random:
-                return "random"
             }
         }
     }
@@ -183,6 +181,7 @@ enum PlaybackSongSyntheticAdapter {
         state.activeSampleVolume = nil
         state.activePlaybackStep = nil
         state.activeLinearPeriod = nil
+        state.vibratoOutputLinearPeriod = nil
         state.activeAmigaPeriod = nil
         state.activeSampleBaseSampleRate = nil
         state.activeSampleRelativeNote = nil
@@ -502,7 +501,7 @@ enum PlaybackSongSyntheticAdapter {
 
         let rowIterationStart = profileSession?.beginPhase()
         var eventGenerationNanoseconds: UInt64 = 0
-        for traversalRow in traversalPlan.rows {
+        for (rowIndex, traversalRow) in traversalPlan.rows.enumerated() {
             rowMappings.append(PlaybackSongSyntheticRowMapping(
                 source: traversalRow.source,
                 syntheticRow: traversalRow.syntheticRow
@@ -526,6 +525,7 @@ enum PlaybackSongSyntheticAdapter {
                 timingConfig: rowTimingConfig,
                 timingPlan: timingPlan,
                 scheduledStartFrame: rowTiming?.rowStartFrame ?? timingPlan.frameFor(row: traversalRow.syntheticRow, tick: 0),
+                nextRow: traversalPlan.rows.indices.contains(rowIndex + 1) ? traversalPlan.rows[rowIndex + 1].row : nil,
                 context: &context
             )
             if let eventGenerationStart {
@@ -653,6 +653,7 @@ enum PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
         scheduledStartFrame: Int,
+        nextRow: PlaybackRow? = nil,
         context: inout AdapterRowContext
     ) -> PlaybackSongSyntheticRowDiagnostic {
         let eventStartCount = context.events.count
@@ -665,6 +666,8 @@ enum PlaybackSongSyntheticAdapter {
         }
         for channelIndex in row.cells.indices {
             let cell = row.cells[channelIndex]
+            let nextCell = nextRow.flatMap { $0.cells.indices.contains(channelIndex) ? $0.cells[channelIndex] : nil }
+            let restoreVibratoAtRowEnd = nextCell.map { $0.effectType != 4 && $0.effectType != 6 } ?? false
             context.eventCoverage.visit(cell)
             if let effectCommandDiagnostic = effectCommandDiagnostic(
                 from: cell,
@@ -900,6 +903,7 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    restoreAtRowEnd: restoreVibratoAtRowEnd,
                     channelState: &channelState
                 )
                 context.vibratoEffects.append(diagnostic)
@@ -913,6 +917,7 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    restoreAtRowEnd: restoreVibratoAtRowEnd,
                     channelState: &channelState
                 )
                 context.vibratoEffects.append(diagnostic)
@@ -1163,6 +1168,15 @@ enum PlaybackSongSyntheticAdapter {
 
             let instrumentIndex = Int(cell.instrument)
             guard instrumentIndex > 0 else {
+                if hasVibrato || hasVibratoVolumeSlide {
+                    // Preserve the existing skipped note-only trigger, while its
+                    // effect continues on the carried voice without a phase reset.
+                    context.vibratoEffects.append(handleVibrato(
+                        from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                        timingConfig: timingConfig, timingPlan: timingPlan,
+                        restoreAtRowEnd: restoreVibratoAtRowEnd, channelState: &channelState
+                    ))
+                }
                 if hasNoteCutEffect {
                     handleNoteCut(
                         from: cell,
@@ -1788,6 +1802,7 @@ enum PlaybackSongSyntheticAdapter {
             channelState.activeSampleVolume = sample.volume
             channelState.activePlaybackStep = pitchMapping.playbackStep
             channelState.activeLinearPeriod = pitchMapping.linearPeriod
+            channelState.vibratoOutputLinearPeriod = nil
             channelState.activeAmigaPeriod = pitchMapping.amigaPeriod
             channelState.activeSampleBaseSampleRate = sample.baseSampleRate
             channelState.activeSampleRelativeNote = sample.relativeNote
@@ -1906,6 +1921,7 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    restoreAtRowEnd: restoreVibratoAtRowEnd,
                     channelState: &channelState
                 )
                 context.vibratoEffects.append(diagnostic)
@@ -1919,6 +1935,7 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    restoreAtRowEnd: restoreVibratoAtRowEnd,
                     channelState: &channelState
                 )
                 context.vibratoEffects.append(diagnostic)

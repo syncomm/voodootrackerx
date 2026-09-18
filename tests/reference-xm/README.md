@@ -256,3 +256,40 @@ PCM, commands, and tracker-volume trajectories stay comparable. Any local quiet
 XM or WAV derivative stays outside the repository. The known downstream sample
 scaling compatibility gap is separate from tracker-domain tremolo correctness;
 see [volume ownership](../../docs/design/xm-volume-ownership.md).
+
+`generated/vibrato-semantics.xm` (1,327 bytes) isolates the shared FT2
+`4xy`/`E4x` foundation and vibrato component of `6xy`. It uses Linear
+frequencies, one channel, speed 6/BPM 125, and 46 rows (5.52 seconds). Its
+single neutral, envelope-free instrument contains the same forward-looped
+256-frame 16-bit sine as the timing fixture. The manifest pins XM SHA-256
+`ed8c96a7b13c668650ed816f19cc9fe444e288aa783002f40d299bc4c9c5ec18`.
+
+| Rows (decimal) | Case |
+| --- | --- |
+| 0...7 | C-4/I01; no-note `448`; `400`; `403`; `480`; `400`; instrument-only I01 + `400`; empty |
+| `8 + 2*x`, for `x = 0...15` | `E4x` establishes each waveform/reset control |
+| Each control row +1 | C-4/I01 + `488` exercises the selected waveform and instrument-driven phase reset or suppression |
+| 40...45 | `E40`; C-4/I01/volume `30` + `448`; `601`; `610`; `612`; empty |
+
+FT2 samples the current phase before advancing by four times the speed nibble.
+The integer waveform magnitude times depth is shifted right by five; phase bit
+7 selects the period-delta sign. `E4x` low two bits select sine, ramp, square,
+square; bit 2 suppresses instrument-trigger phase reset and bit 3 is ignored.
+The `488` rows advance far enough to exercise both waveform halves. Explicit
+instrument triggers test reset behavior, including the instrument-only row 6.
+`400`, `403`, and `480` exercise complete and independent nibble
+memory. Numeric tests own exact tick trajectories and phase wrapping.
+
+The final `6xy` rows have explicitly seeded vibrato state and preserve the
+existing volume-slide behavior. `600` memory and row-versus-tick slide timing
+are outside this fixture's acceptance contract. Amiga vibrato execution remains
+deferred; this fixture establishes the shared foundation in Linear mode.
+
+For maintainer listening, load this fixture and compare rows 1...6, the control
+pairs at 8...39, then the seeded combination at 41...44 against an ft2-clone
+reference. Export the reference at 48,000 Hz, 32-bit float WAV, Linear (FT2)
+interpolation, Linear frequency slides, Amplification 10x, Master volume 256,
+Volume ramping ON, and Precise BPM OFF. Follow
+[audio comparison](../../docs/audio-comparison.md), retaining all WAVs and
+diagnostic artifacts outside the repository. Audio comparison corroborates the
+exact tick-domain tests; listening requires maintainer confirmation.

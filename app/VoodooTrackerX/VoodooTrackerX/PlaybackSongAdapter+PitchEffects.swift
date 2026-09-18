@@ -1781,403 +1781,125 @@ extension PlaybackSongSyntheticAdapter {
         syntheticRow: Int,
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
+        restoreAtRowEnd: Bool = false,
         channelState: inout ChannelState
     ) -> PlaybackSongSyntheticVibratoDiagnostic {
-        let isVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
-        let paramSpeed = Int((cell.effectParam & 0xF0) >> 4)
-        let paramDepth = Int(cell.effectParam & 0x0F)
-        let targetMemorySource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
-        let rememberedSpeed = channelState.vibratoSpeed
-        let rememberedDepth = channelState.vibratoDepth
-        let rememberedSpeedSource = channelState.vibratoSpeedMemorySource
-        let rememberedDepthSource = channelState.vibratoDepthMemorySource
-        let speed: Int
-        let depth: Int
-        let speedSource: String?
-        let depthSource: String?
-        let speedMemorySource: PlaybackSongSyntheticEffectMemorySource?
-        let depthMemorySource: PlaybackSongSyntheticEffectMemorySource?
-        var missingMemoryReasons = [String]()
-
-        if isVibratoVolumeSlide {
-            if let rememberedSpeed {
-                speed = rememberedSpeed
-                speedSource = "4xy_channel_state"
-                speedMemorySource = rememberedSpeedSource
-            } else {
-                speed = 0
-                speedSource = "missing_4xy_channel_state"
-                speedMemorySource = nil
-                missingMemoryReasons.append("missing_vibrato_speed_memory")
-            }
-            if let rememberedDepth {
-                depth = rememberedDepth
-                depthSource = "4xy_channel_state"
-                depthMemorySource = rememberedDepthSource
-            } else {
-                depth = 0
-                depthSource = "missing_4xy_channel_state"
-                depthMemorySource = nil
-                missingMemoryReasons.append("missing_vibrato_depth_memory")
-            }
-        } else {
-            if paramSpeed > 0 {
-                speed = paramSpeed
-                speedSource = "effect_param"
-                speedMemorySource = nil
-                channelState.vibratoSpeed = paramSpeed
-                channelState.vibratoSpeedMemorySource = targetMemorySource
-            } else if let rememberedSpeed {
-                speed = rememberedSpeed
-                speedSource = "4xy_channel_state"
-                speedMemorySource = rememberedSpeedSource
-            } else {
-                speed = 0
-                speedSource = "missing_4xy_channel_state"
-                speedMemorySource = nil
-                missingMemoryReasons.append("missing_vibrato_speed_memory")
-            }
-
-            if paramDepth > 0 {
-                depth = paramDepth
-                depthSource = "effect_param"
-                depthMemorySource = nil
-                channelState.vibratoDepth = paramDepth
-                channelState.vibratoDepthMemorySource = targetMemorySource
-            } else if let rememberedDepth {
-                depth = rememberedDepth
-                depthSource = "4xy_channel_state"
-                depthMemorySource = rememberedDepthSource
-            } else {
-                depth = 0
-                depthSource = "missing_4xy_channel_state"
-                depthMemorySource = nil
-                missingMemoryReasons.append("missing_vibrato_depth_memory")
-            }
+        let combined = isVibratoVolumeSlideEffect(cell)
+        let targetSource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
+        let writesSpeed = !combined && cell.effectParam >> 4 > 0 && timingConfig.speed > 1
+        let writesDepth = !combined && cell.effectParam & 15 > 0 && timingConfig.speed > 1
+        let speedMemorySource = writesSpeed ? nil : channelState.vibratoSpeedMemorySource
+        let depthMemorySource = writesDepth ? nil : channelState.vibratoDepthMemorySource
+        // FT2's nibble memory starts at zero and is written only on nonzero ticks.
+        if writesSpeed {
+            channelState.vibratoSpeed = Int(cell.effectParam >> 4)
+            channelState.vibratoSpeedMemorySource = targetSource
         }
-
-        let effectMemoryReused = speedMemorySource != nil || depthMemorySource != nil
-        let effectMemoryMissing = !missingMemoryReasons.isEmpty
-        let memoryUnavailableReason = memoryUnavailableReason(from: missingMemoryReasons)
-        let volumeSlide = isVibratoVolumeSlide ? volumeSlideAmounts(effectParam: cell.effectParam) : nil
-        let hasActiveVoice = channelState.activeEventIndex != nil
-        let phaseBefore = channelState.vibratoPhase
-        let currentLinearPeriodBefore = channelState.activeLinearPeriod
-        let currentPlaybackStepBefore = channelState.activePlaybackStep
-        let vibratoControl = channelState.vibratoControl ?? VibratoControlState(
-            controlValue: 0,
-            waveform: .sine,
-            retriggerSuppressed: false,
-            source: nil
+        if writesDepth {
+            channelState.vibratoDepth = Int(cell.effectParam & 15)
+            channelState.vibratoDepthMemorySource = targetSource
+        }
+        let speed = channelState.vibratoSpeed
+        let depth = channelState.vibratoDepth
+        let control = channelState.vibratoControl ?? VibratoControlState(
+            controlValue: 0, waveform: .sine, retriggerSuppressed: false, source: nil
         )
-        let waveformSource = vibratoControl.source == nil ? "default_sine" : "e4x_channel_state"
+        let phaseBefore = channelState.vibratoPhase
+        let basePeriod = channelState.activeLinearPeriod
+        let outputPeriodBefore = channelState.vibratoOutputLinearPeriod ?? basePeriod
+        let stepBefore = channelState.activePlaybackStep
+        var updates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
+        var status: PlaybackSongSyntheticVibratoDiagnostic.Status = .applied
+        var policy = combined ? "6xy_ft2_vibrato_plus_unchanged_row_volume_slide" : "ft2_integer_vibrato_linear_period"
 
-        guard !effectMemoryMissing else {
-            return vibratoDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                timingConfig: timingConfig,
-                cell: cell,
-                status: cell.effectParam == 0 ? .zeroParamEffectMemoryDeferred : .zeroSpeedOrDepthEffectMemoryDeferred,
-                activeVoiceFound: hasActiveVoice,
-                activeEventIndex: channelState.activeEventIndex,
-                activeEventMappingIndex: channelState.activeEventMappingIndex,
-                speed: speed,
-                depth: depth,
-                speedSource: speedSource,
-                depthSource: depthSource,
-                controlValue: vibratoControl.controlValue,
-                waveform: vibratoControl.waveform,
-                waveformSource: waveformSource,
-                effectMemoryReused: effectMemoryReused,
-                effectMemoryMissing: true,
-                effectMemoryDeferred: true,
-                speedMemorySource: speedMemorySource,
-                depthMemorySource: depthMemorySource,
-                memoryUnavailableReason: memoryUnavailableReason,
-                volumeSlide: volumeSlide,
-                phaseBefore: phaseBefore,
-                phaseAfter: channelState.vibratoPhase,
-                currentLinearPeriodBefore: currentLinearPeriodBefore,
-                currentLinearPeriodAfter: channelState.activeLinearPeriod,
-                currentPlaybackStepBefore: currentPlaybackStepBefore,
-                currentPlaybackStepAfter: channelState.activePlaybackStep,
-                stepUpdates: [],
-                policy: isVibratoVolumeSlide
-                    ? "6xy_missing_vibrato_memory_deferred_no_op"
-                    : "4xy_missing_vibrato_memory_deferred_no_op"
-            )
-        }
-
-        if isVibratoVolumeSlide, !hasActiveVoice {
-            return vibratoDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                timingConfig: timingConfig,
-                cell: cell,
-                status: .noActiveVoice,
-                activeVoiceFound: false,
-                activeEventIndex: channelState.activeEventIndex,
-                activeEventMappingIndex: channelState.activeEventMappingIndex,
-                speed: speed,
-                depth: depth,
-                speedSource: speedSource,
-                depthSource: depthSource,
-                controlValue: vibratoControl.controlValue,
-                waveform: vibratoControl.waveform,
-                waveformSource: waveformSource,
-                effectMemoryReused: effectMemoryReused,
-                effectMemoryMissing: false,
-                effectMemoryDeferred: false,
-                speedMemorySource: speedMemorySource,
-                depthMemorySource: depthMemorySource,
-                memoryUnavailableReason: nil,
-                volumeSlide: volumeSlide,
-                phaseBefore: phaseBefore,
-                phaseAfter: channelState.vibratoPhase,
-                currentLinearPeriodBefore: currentLinearPeriodBefore,
-                currentLinearPeriodAfter: channelState.activeLinearPeriod,
-                currentPlaybackStepBefore: currentPlaybackStepBefore,
-                currentPlaybackStepAfter: channelState.activePlaybackStep,
-                stepUpdates: [],
-                policy: "no_active_voice_no_playback_invented"
-            )
-        }
-
-        guard speed > 0, depth > 0 else {
-            return vibratoDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                timingConfig: timingConfig,
-                cell: cell,
-                status: .zeroSpeedOrDepthEffectMemoryDeferred,
-                activeVoiceFound: hasActiveVoice,
-                activeEventIndex: channelState.activeEventIndex,
-                activeEventMappingIndex: channelState.activeEventMappingIndex,
-                speed: speed,
-                depth: depth,
-                speedSource: speedSource,
-                depthSource: depthSource,
-                controlValue: vibratoControl.controlValue,
-                waveform: vibratoControl.waveform,
-                waveformSource: waveformSource,
-                effectMemoryReused: effectMemoryReused,
-                effectMemoryMissing: false,
-                effectMemoryDeferred: true,
-                speedMemorySource: speedMemorySource,
-                depthMemorySource: depthMemorySource,
-                memoryUnavailableReason: nil,
-                volumeSlide: volumeSlide,
-                phaseBefore: phaseBefore,
-                phaseAfter: channelState.vibratoPhase,
-                currentLinearPeriodBefore: currentLinearPeriodBefore,
-                currentLinearPeriodAfter: channelState.activeLinearPeriod,
-                currentPlaybackStepBefore: currentPlaybackStepBefore,
-                currentPlaybackStepAfter: channelState.activePlaybackStep,
-                stepUpdates: [],
-                policy: isVibratoVolumeSlide
-                    ? "6xy_missing_4xy_vibrato_memory_deferred_no_op"
-                    : "zero_speed_or_depth_effect_memory_deferred_no_op"
-            )
-        }
-
-        guard hasActiveVoice else {
-            return vibratoDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                timingConfig: timingConfig,
-                cell: cell,
-                status: .noActiveVoice,
-                activeVoiceFound: false,
-                activeEventIndex: channelState.activeEventIndex,
-                activeEventMappingIndex: channelState.activeEventMappingIndex,
-                speed: speed,
-                depth: depth,
-                speedSource: speedSource,
-                depthSource: depthSource,
-                controlValue: vibratoControl.controlValue,
-                waveform: vibratoControl.waveform,
-                waveformSource: waveformSource,
-                effectMemoryReused: effectMemoryReused,
-                effectMemoryMissing: false,
-                effectMemoryDeferred: false,
-                speedMemorySource: speedMemorySource,
-                depthMemorySource: depthMemorySource,
-                memoryUnavailableReason: nil,
-                volumeSlide: volumeSlide,
-                phaseBefore: phaseBefore,
-                phaseAfter: channelState.vibratoPhase,
-                currentLinearPeriodBefore: currentLinearPeriodBefore,
-                currentLinearPeriodAfter: channelState.activeLinearPeriod,
-                currentPlaybackStepBefore: currentPlaybackStepBefore,
-                currentPlaybackStepAfter: channelState.activePlaybackStep,
-                stepUpdates: [],
-                policy: "no_active_voice_no_playback_invented"
-            )
-        }
-
-        guard channelState.activeUsesLinearFrequencyTable == true,
-              let baseLinearPeriod = channelState.activeLinearPeriod,
-              let basePlaybackStep = channelState.activePlaybackStep,
-              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
-            return vibratoDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                timingConfig: timingConfig,
-                cell: cell,
-                status: .unsupportedFrequencyTable,
-                activeVoiceFound: true,
-                activeEventIndex: channelState.activeEventIndex,
-                activeEventMappingIndex: channelState.activeEventMappingIndex,
-                speed: speed,
-                depth: depth,
-                speedSource: speedSource,
-                depthSource: depthSource,
-                controlValue: vibratoControl.controlValue,
-                waveform: vibratoControl.waveform,
-                waveformSource: waveformSource,
-                effectMemoryReused: effectMemoryReused,
-                effectMemoryMissing: false,
-                effectMemoryDeferred: false,
-                speedMemorySource: speedMemorySource,
-                depthMemorySource: depthMemorySource,
-                memoryUnavailableReason: nil,
-                volumeSlide: volumeSlide,
-                phaseBefore: phaseBefore,
-                phaseAfter: channelState.vibratoPhase,
-                currentLinearPeriodBefore: currentLinearPeriodBefore,
-                currentLinearPeriodAfter: channelState.activeLinearPeriod,
-                currentPlaybackStepBefore: currentPlaybackStepBefore,
-                currentPlaybackStepAfter: channelState.activePlaybackStep,
-                stepUpdates: [],
-                policy: "linear_frequency_only_first_pass"
-            )
-        }
-
-        var phase = channelState.vibratoPhase
-        var currentLinearPeriod = baseLinearPeriod
-        var currentPlaybackStep = basePlaybackStep
-        var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
-        let rowSpeed = max(1, timingConfig.speed)
-        let periodDepth = Double(depth) * 4.0
-        for tick in 1..<rowSpeed {
-            let beforePeriod = currentLinearPeriod
-            let beforeStep = currentPlaybackStep
-            phase += Double(speed) * (.pi / 32.0)
-            let modulatedPeriod = clampedLinearPeriod(
-                baseLinearPeriod - (vibratoWaveformValue(vibratoControl.waveform, phase: phase) * periodDepth)
-            )
-            guard let nextStep = playbackStep(
-                linearPeriod: modulatedPeriod,
-                baseSampleRate: baseSampleRate,
-                outputSampleRate: timingConfig.sampleRate
-            ) else {
-                channelState.vibratoPhase = phase
-                return vibratoDiagnostic(
-                    source: source,
-                    channelIndex: channelIndex,
-                    syntheticRow: syntheticRow,
-                    timingConfig: timingConfig,
-                    cell: cell,
-                    status: .outOfRange,
-                    activeVoiceFound: true,
-                    activeEventIndex: channelState.activeEventIndex,
-                    activeEventMappingIndex: channelState.activeEventMappingIndex,
-                    speed: speed,
-                    depth: depth,
-                    speedSource: speedSource,
-                    depthSource: depthSource,
-                    controlValue: vibratoControl.controlValue,
-                    waveform: vibratoControl.waveform,
-                    waveformSource: waveformSource,
-                    effectMemoryReused: effectMemoryReused,
-                    effectMemoryMissing: false,
-                    effectMemoryDeferred: false,
-                    speedMemorySource: speedMemorySource,
-                    depthMemorySource: depthMemorySource,
-                    memoryUnavailableReason: nil,
-                    volumeSlide: volumeSlide,
-                    phaseBefore: phaseBefore,
-                    phaseAfter: channelState.vibratoPhase,
-                    currentLinearPeriodBefore: currentLinearPeriodBefore,
-                    currentLinearPeriodAfter: channelState.activeLinearPeriod,
-                    currentPlaybackStepBefore: currentPlaybackStepBefore,
-                    currentPlaybackStepAfter: channelState.activePlaybackStep,
-                    stepUpdates: stepUpdates,
-                    policy: "vibrato_pitch_out_of_range"
-                )
+        if channelState.activeEventIndex == nil {
+            // Channel-local phase runs even when there is no represented mixer voice.
+            channelState.vibratoPhase = (phaseBefore + max(0, timingConfig.speed - 1) * speed * 4) & 255
+            status = .noActiveVoice
+            policy = "no_active_voice_no_playback_invented"
+        } else if channelState.activeUsesLinearFrequencyTable != true || basePeriod == nil ||
+                    stepBefore == nil || channelState.activeSampleBaseSampleRate == nil {
+            // Amiga period conversion/wrapping belongs to its separate execution slice.
+            status = .unsupportedFrequencyTable
+            policy = "linear_frequency_only_first_pass"
+        } else if let basePeriod, let stepBefore, let baseSampleRate = channelState.activeSampleBaseSampleRate {
+            var currentPeriod = outputPeriodBefore ?? basePeriod
+            var currentStep = stepBefore
+            for tick in 1..<max(1, timingConfig.speed) {
+                let modulation = vibratoTick(phase: channelState.vibratoPhase, speed: speed,
+                                             depth: depth, control: control.controlValue)
+                // FT2 and VTX Linear periods have identical sign and units (C-4=4608).
+                let modulatedPeriod = clampedLinearPeriod(basePeriod + Double(modulation.signedReferenceDelta))
+                guard let step = playbackStep(linearPeriod: modulatedPeriod, baseSampleRate: baseSampleRate,
+                                              outputSampleRate: timingConfig.sampleRate) else {
+                    status = .outOfRange
+                    policy = "vibrato_pitch_out_of_range"
+                    break
+                }
+                updates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                    syntheticTick: tick, scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                    linearPeriodBefore: currentPeriod, linearPeriodAfter: modulatedPeriod,
+                    playbackStepBefore: currentStep, playbackStepAfter: step, reachedTarget: false,
+                    vibrato: modulation
+                ))
+                channelState.vibratoPhase = modulation.phaseAfter
+                currentPeriod = modulatedPeriod
+                currentStep = step
             }
-            currentLinearPeriod = modulatedPeriod
-            currentPlaybackStep = nextStep
-            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
-                syntheticTick: tick,
-                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
-                linearPeriodBefore: beforePeriod,
-                linearPeriodAfter: currentLinearPeriod,
-                playbackStepBefore: beforeStep,
-                playbackStepAfter: currentPlaybackStep,
-                reachedTarget: false
-            ))
+            // getNewNote restores only on leaving 4/6, not between consecutive rows.
+            // Lookahead uses the traversed next row, so jumps and loops share this rule.
+            if restoreAtRowEnd, currentPeriod != basePeriod,
+               let step = playbackStep(linearPeriod: basePeriod, baseSampleRate: baseSampleRate,
+                                       outputSampleRate: timingConfig.sampleRate) {
+                updates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                    syntheticTick: timingConfig.speed,
+                    scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
+                    linearPeriodBefore: currentPeriod, linearPeriodAfter: basePeriod,
+                    playbackStepBefore: currentStep, playbackStepAfter: step, reachedTarget: true
+                ))
+                currentPeriod = basePeriod
+                currentStep = step
+            }
+            // Modulation never accumulates into the note/portamento base period.
+            channelState.vibratoOutputLinearPeriod = restoreAtRowEnd ? nil : currentPeriod
+            channelState.activePlaybackStep = currentStep
         }
-
-        if !stepUpdates.isEmpty,
-           abs(currentPlaybackStep - basePlaybackStep) > 0.000000001 {
-            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
-                syntheticTick: rowSpeed,
-                scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
-                linearPeriodBefore: currentLinearPeriod,
-                linearPeriodAfter: baseLinearPeriod,
-                playbackStepBefore: currentPlaybackStep,
-                playbackStepAfter: basePlaybackStep,
-                reachedTarget: true
-            ))
-            currentLinearPeriod = baseLinearPeriod
-            currentPlaybackStep = basePlaybackStep
-        }
-
-        channelState.vibratoPhase = phase
-        channelState.activeLinearPeriod = currentLinearPeriod
-        channelState.activePlaybackStep = currentPlaybackStep
-
         return vibratoDiagnostic(
-            source: source,
-            channelIndex: channelIndex,
-            syntheticRow: syntheticRow,
-            timingConfig: timingConfig,
-            cell: cell,
-            status: .applied,
-            activeVoiceFound: true,
-            activeEventIndex: channelState.activeEventIndex,
-            activeEventMappingIndex: channelState.activeEventMappingIndex,
-            speed: speed,
-            depth: depth,
-            speedSource: speedSource,
-            depthSource: depthSource,
-            controlValue: vibratoControl.controlValue,
-            waveform: vibratoControl.waveform,
-            waveformSource: waveformSource,
-            effectMemoryReused: effectMemoryReused,
-            effectMemoryMissing: false,
-            effectMemoryDeferred: false,
-            speedMemorySource: speedMemorySource,
-            depthMemorySource: depthMemorySource,
-            memoryUnavailableReason: nil,
-            volumeSlide: volumeSlide,
-            phaseBefore: phaseBefore,
-            phaseAfter: channelState.vibratoPhase,
-            currentLinearPeriodBefore: currentLinearPeriodBefore,
-            currentLinearPeriodAfter: channelState.activeLinearPeriod,
-            currentPlaybackStepBefore: currentPlaybackStepBefore,
-            currentPlaybackStepAfter: channelState.activePlaybackStep,
-            stepUpdates: stepUpdates,
-            policy: isVibratoVolumeSlide
-                ? "6xy_reuses_4xy_vibrato_state_plus_row_level_volume_slide"
-                : "deterministic_vibrato_waveform_linear_period_first_pass"
+            source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+            timingConfig: timingConfig, cell: cell, status: status,
+            activeVoiceFound: channelState.activeEventIndex != nil,
+            activeEventIndex: channelState.activeEventIndex, activeEventMappingIndex: channelState.activeEventMappingIndex,
+            speed: speed, depth: depth,
+            speedSource: writesSpeed ? "effect_param" : (speedMemorySource == nil ? "initial_zero_state" : "4xy_channel_state"),
+            depthSource: writesDepth ? "effect_param" : (depthMemorySource == nil ? "initial_zero_state" : "4xy_channel_state"),
+            controlValue: control.controlValue, waveform: control.waveform,
+            waveformSource: control.source == nil ? "default_sine" : "e4x_channel_state",
+            effectMemoryReused: speedMemorySource != nil || depthMemorySource != nil,
+            effectMemoryMissing: false, effectMemoryDeferred: false,
+            speedMemorySource: speedMemorySource, depthMemorySource: depthMemorySource,
+            memoryUnavailableReason: nil, volumeSlide: combined ? volumeSlideAmounts(effectParam: cell.effectParam) : nil,
+            phaseBefore: Double(phaseBefore), phaseAfter: Double(channelState.vibratoPhase),
+            currentLinearPeriodBefore: outputPeriodBefore,
+            currentLinearPeriodAfter: channelState.vibratoOutputLinearPeriod ?? basePeriod,
+            currentPlaybackStepBefore: stepBefore, currentPlaybackStepAfter: channelState.activePlaybackStep,
+            stepUpdates: updates, policy: policy
+        )
+    }
+
+    /// Samples FT2's integer waveform, scales depth, then advances the byte phase.
+    static func vibratoTick(phase: Int, speed: Int, depth: Int, control: Int) -> PlaybackSongSyntheticVibratoTick {
+        let phase = phase & 255
+        let index = (phase >> 2) & 31
+        let sign = phase & 128 == 0 ? 1 : -1
+        let magnitude: Int
+        switch control & 3 {
+        case 0: magnitude = tremoloSine[index] // FT2 shares this integer table with tremolo.
+        case 1: magnitude = sign > 0 ? index * 8 : 255 - index * 8
+        default: magnitude = 255 // Both 2 and 3 are square; bit 3 is an alias.
+        }
+        return PlaybackSongSyntheticVibratoTick(
+            phaseBefore: phase, waveformMagnitude: magnitude, waveformSign: sign, depth: depth,
+            signedReferenceDelta: sign * ((magnitude * depth) >> 5), phaseAfter: (phase + speed * 4) & 255
         )
     }
 
@@ -2243,7 +1965,7 @@ extension PlaybackSongSyntheticAdapter {
             activeEventIndex: activeEventIndex,
             activeEventMappingIndex: activeEventMappingIndex,
             controlValue: controlValue,
-            waveformID: waveform.rawValue,
+            waveformID: waveformID,
             waveformName: waveform.name,
             retriggerSuppressed: retriggerSuppressed,
             unsupportedWaveform: false,
@@ -2253,36 +1975,8 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func supportedVibratoWaveform(controlValue: Int) -> VibratoWaveform? {
-        guard (0...3).contains(controlValue) else {
-            return nil
-        }
-        return VibratoWaveform(rawValue: controlValue)
-    }
-
-    static func vibratoWaveformValue(_ waveform: VibratoWaveform, phase: Double) -> Double {
-        switch waveform {
-        case .sine:
-            return sin(phase)
-        case .rampDown:
-            let cycle = normalizedCycle(phase)
-            return 1.0 - (cycle * 2.0)
-        case .square:
-            return normalizedCycle(phase) < 0.5 ? 1.0 : -1.0
-        case .random:
-            return deterministicRandomVibratoValue(phase: phase)
-        }
-    }
-
-    static func normalizedCycle(_ phase: Double) -> Double {
-        let period = Double.pi * 2.0
-        let remainder = phase.truncatingRemainder(dividingBy: period)
-        return (remainder < 0 ? remainder + period : remainder) / period
-    }
-
-    static func deterministicRandomVibratoValue(phase: Double) -> Double {
-        let phaseStep = Int((phase / (.pi / 32.0)).rounded(.down))
-        let hashed = UInt32(truncatingIfNeeded: phaseStep &* 1_103_515_245 &+ 12_345)
-        return (Double((hashed >> 16) & 0x7FFF) / 16_383.5) - 1.0
+        guard (0...15).contains(controlValue) else { return nil }
+        return VibratoWaveform(rawValue: min(controlValue & 3, 2))
     }
 
     static func vibratoDiagnostic(

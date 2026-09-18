@@ -80,6 +80,8 @@ extension PlaybackSongSyntheticAdapter {
     static func resetTremoloTriggerPhases(state: inout ChannelState) {
         if state.tremolo.control & 4 == 0 { state.tremolo.phase = 0 }
         if state.tremoloVibratoControl & 4 == 0 { state.tremoloVibratoPhase = 0 }
+        // The same existing instrument-trigger gate owns pitch-phase resets.
+        if state.vibratoControl?.retriggerSuppressed != true { state.vibratoPhase = 0 }
     }
 
     static func advanceTremoloVibratoObserver(cell: PlaybackCell, rowSpeed: Int, state: inout ChannelState) {

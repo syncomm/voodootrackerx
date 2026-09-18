@@ -3756,9 +3756,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.vibratoWaveformSource, "default_sine")
         XCTAssertEqual(diagnostic.rowSpeed, 4)
         XCTAssertEqual(diagnostic.rowBPM, 250)
-        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7, 8])
-        XCTAssertGreaterThan(try XCTUnwrap(diagnostic.stepUpdates.first?.playbackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore))
-        XCTAssertEqual(try XCTUnwrap(diagnostic.stepUpdates.last?.playbackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore), accuracy: 0.000_001)
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7])
+        XCTAssertEqual(try XCTUnwrap(diagnostic.stepUpdates.first?.playbackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore))
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.linearPeriodAfter), [4_608, 4_632, 4_653])
+        XCTAssertLessThan(try XCTUnwrap(diagnostic.stepUpdates.last?.playbackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore))
         XCTAssertEqual(command.status, .applied)
         XCTAssertEqual(plan.diagnostics.deferredCellFields.map(\.effectType), [])
     }
@@ -3817,7 +3818,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(vibrato.vibratoControlValue, 1)
         XCTAssertEqual(vibrato.vibratoWaveform, "ramp_down")
         XCTAssertEqual(vibrato.vibratoWaveformSource, "e4x_channel_state")
-        XCTAssertEqual(vibrato.stepUpdates.map(\.scheduledFrame), [9, 10, 11, 12])
+        XCTAssertEqual(vibrato.stepUpdates.map(\.scheduledFrame), [9, 10, 11])
         XCTAssertEqual(diagnostics.deferredCellFields.map(\.effectType), [])
     }
 
@@ -3852,13 +3853,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
             sine.stepUpdates.map(\.playbackStepAfter),
             ramp.stepUpdates.map(\.playbackStepAfter)
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             try XCTUnwrap(ramp.stepUpdates.first?.playbackStepAfter),
             try XCTUnwrap(sine.stepUpdates.first?.playbackStepAfter)
         )
     }
 
-    func testPlaybackSongAdapterE43RandomWaveformIsRepeatable() throws {
+    func testPlaybackSongAdapterE43SquareWaveformIsRepeatable() throws {
         let sample = makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -3876,8 +3877,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let firstVibrato = try XCTUnwrap(first.vibratoEffects.first)
         let secondVibrato = try XCTUnwrap(second.vibratoEffects.first)
 
-        XCTAssertEqual(first.vibratoControlEffects.first?.waveformName, "random")
-        XCTAssertEqual(firstVibrato.vibratoWaveform, "random")
+        XCTAssertEqual(first.vibratoControlEffects.first?.waveformName, "square")
+        XCTAssertEqual(firstVibrato.vibratoWaveform, "square")
+        XCTAssertEqual(firstVibrato.stepUpdates.first?.linearPeriodAfter, 4608 + 63)
         XCTAssertEqual(
             firstVibrato.stepUpdates.map(\.playbackStepAfter),
             secondVibrato.stepUpdates.map(\.playbackStepAfter)
@@ -3885,7 +3887,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(first.deferredCellFields.map(\.effectType), [])
     }
 
-    func testPlaybackSongAdapterUnsupportedE4xControlIsDeferredExplicitly() throws {
+    func testPlaybackSongAdapterE44StoresSineWithResetSuppression() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -3899,19 +3901,19 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let control = try XCTUnwrap(diagnostics.vibratoControlEffects.first)
         let command = try XCTUnwrap(diagnostics.effectCommandDiagnostics.first { $0.effectType == 0x0E && $0.effectParam == 0x44 })
 
-        XCTAssertEqual(control.status, .unsupportedWaveform)
+        XCTAssertEqual(control.status, .stored)
         XCTAssertTrue(control.detected)
-        XCTAssertFalse(control.applied)
-        XCTAssertFalse(control.stored)
-        XCTAssertTrue(control.deferred)
-        XCTAssertTrue(control.unsupportedWaveform)
+        XCTAssertTrue(control.applied)
+        XCTAssertTrue(control.stored)
+        XCTAssertFalse(control.deferred)
+        XCTAssertFalse(control.unsupportedWaveform)
         XCTAssertEqual(control.controlValue, 4)
         XCTAssertEqual(control.waveformID, 0)
-        XCTAssertEqual(control.waveformName, "unsupported")
+        XCTAssertEqual(control.waveformName, "sine")
         XCTAssertTrue(control.retriggerSuppressed)
-        XCTAssertFalse(control.affectsLaterVibrato)
-        XCTAssertEqual(command.status, .deferredUnsupported)
-        XCTAssertEqual(diagnostics.deferredCellFields.map(\.field), [.effect])
+        XCTAssertTrue(control.affectsLaterVibrato)
+        XCTAssertEqual(command.status, .applied)
+        XCTAssertEqual(diagnostics.deferredCellFields.map(\.field), [])
     }
 
     func testPlaybackSongAdapterE4xWindowedCarryoverMatchesDefaultRender() throws {
@@ -3960,7 +3962,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(plan.diagnostics.eventMappings.first?.effectType, 0x04)
         XCTAssertEqual(diagnostic.status, .applied)
         XCTAssertEqual(diagnostic.activeEventIndex, 0)
-        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [1, 2, 3, 4])
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [1, 2, 3])
     }
 
     func testPlaybackSongAdapterVibrato4xyNoActiveVoiceIsDiagnosed() throws {
@@ -3987,7 +3989,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.stepUpdates, [])
     }
 
-    func testPlaybackSongAdapterVibrato400IsEffectMemoryDeferredNoOp() throws {
+    func testPlaybackSongAdapterVibrato400UsesInitialZeroMemory() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -4002,17 +4004,18 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let diagnostic = try XCTUnwrap(plan.diagnostics.vibratoEffects.first)
         let command = try XCTUnwrap(plan.diagnostics.effectCommandDiagnostics.first { $0.effectType == 0x04 })
 
-        XCTAssertEqual(diagnostic.status, .zeroParamEffectMemoryDeferred)
-        XCTAssertFalse(diagnostic.applied)
-        XCTAssertTrue(diagnostic.deferred)
-        XCTAssertTrue(diagnostic.ignoredAsNoOp)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.applied)
+        XCTAssertFalse(diagnostic.deferred)
+        XCTAssertFalse(diagnostic.ignoredAsNoOp)
         XCTAssertTrue(diagnostic.activeVoiceFound)
         XCTAssertEqual(diagnostic.vibratoSpeed, 0)
         XCTAssertEqual(diagnostic.vibratoDepth, 0)
-        XCTAssertTrue(diagnostic.effectMemoryMissing)
-        XCTAssertTrue(diagnostic.effectMemoryDeferred)
-        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_vibrato_speed_depth_memory")
-        XCTAssertEqual(diagnostic.stepUpdates, [])
+        XCTAssertFalse(diagnostic.effectMemoryMissing)
+        XCTAssertFalse(diagnostic.effectMemoryDeferred)
+        XCTAssertNil(diagnostic.memoryUnavailableReason)
+        XCTAssertEqual(diagnostic.stepUpdates.count, 3)
+        XCTAssertTrue(diagnostic.stepUpdates.allSatisfy { $0.linearPeriodAfter == 4_608 })
         XCTAssertEqual(command.status, .ignoredNoOp)
     }
 
@@ -4040,11 +4043,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(memoryDiagnostic.vibratoDepthSource, "4xy_channel_state")
         XCTAssertEqual(memoryDiagnostic.vibratoSpeedMemorySource?.source.rowIndex, 0)
         XCTAssertEqual(memoryDiagnostic.vibratoDepthMemorySource?.source.rowIndex, 0)
-        XCTAssertEqual(memoryDiagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7, 8])
+        XCTAssertEqual(memoryDiagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7])
         XCTAssertEqual(diagnostics.deferredCellFields.map(\.effectType), [])
     }
 
-    func testPlaybackSongAdapterVibrato4xyZeroNibbleIsEffectMemoryDeferredNoOp() throws {
+    func testPlaybackSongAdapterVibrato4xyZeroDepthUsesInitialZeroMemory() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -4057,15 +4060,16 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.vibratoEffects.first)
 
-        XCTAssertEqual(diagnostic.status, .zeroSpeedOrDepthEffectMemoryDeferred)
-        XCTAssertFalse(diagnostic.applied)
-        XCTAssertTrue(diagnostic.deferred)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.applied)
+        XCTAssertFalse(diagnostic.deferred)
         XCTAssertEqual(diagnostic.vibratoSpeed, 4)
         XCTAssertEqual(diagnostic.vibratoDepth, 0)
-        XCTAssertTrue(diagnostic.effectMemoryMissing)
-        XCTAssertTrue(diagnostic.effectMemoryDeferred)
-        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_vibrato_depth_memory")
-        XCTAssertEqual(diagnostic.stepUpdates, [])
+        XCTAssertFalse(diagnostic.effectMemoryMissing)
+        XCTAssertFalse(diagnostic.effectMemoryDeferred)
+        XCTAssertNil(diagnostic.memoryUnavailableReason)
+        XCTAssertEqual(diagnostic.stepUpdates.count, 3)
+        XCTAssertTrue(diagnostic.stepUpdates.allSatisfy { $0.linearPeriodAfter == 4_608 })
     }
 
     func testPlaybackSongAdapterVibrato4x0ReusesPriorDepthMemory() throws {
@@ -4140,7 +4144,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedTonePortamentoVoices ?? 0, 0)
     }
 
-    func testPlaybackSongAdapterVibratoVolumeSlideRequiresPrior4xyStateAndVolumeColumnVibratoRemainsDeferred() throws {
+    func testPlaybackSongAdapterVibratoVolumeSlideUsesInitialZeroStateAndVolumeColumnVibratoRemainsDeferred() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -4154,11 +4158,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let volumeColumn = try XCTUnwrap(diagnostics.volumeColumnMappings.first?.volumeColumn)
         let diagnostic = try XCTUnwrap(diagnostics.vibratoEffects.first { $0.effectType == 0x06 })
 
-        XCTAssertEqual(diagnostic.status, .zeroSpeedOrDepthEffectMemoryDeferred)
-        XCTAssertEqual(diagnostic.vibratoSpeedSource, "missing_4xy_channel_state")
-        XCTAssertTrue(diagnostic.effectMemoryMissing)
-        XCTAssertTrue(diagnostic.effectMemoryDeferred)
-        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_vibrato_speed_depth_memory")
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertEqual(diagnostic.vibratoSpeedSource, "initial_zero_state")
+        XCTAssertFalse(diagnostic.effectMemoryMissing)
+        XCTAssertFalse(diagnostic.effectMemoryDeferred)
+        XCTAssertNil(diagnostic.memoryUnavailableReason)
         XCTAssertEqual(diagnostic.volumeSlideUp, 2)
         XCTAssertEqual(diagnostic.volumeSlideDown, 0)
         XCTAssertEqual(effect.status, .applied)
@@ -4199,7 +4203,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.volumeSlideDown, 2)
         XCTAssertEqual(diagnostic.volumeSlideAmount, 2)
         XCTAssertEqual(diagnostic.volumeSlideDirection, "down")
-        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7, 8])
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7])
         XCTAssertEqual(update.status, .applied)
         XCTAssertTrue(update.activeVoiceUpdated)
         XCTAssertEqual(update.effectiveVolumeBefore, 32)
@@ -4212,16 +4216,17 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
-                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
-                makePlaybackRow(index: 1, effectType: 0x06, effectParam: 0x00),
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x04, effectParam: 0x48),
+                makePlaybackRow(index: 1, effectType: 0x06, effectParam: 0x02),
+                makePlaybackRow(index: 2, effectType: 0x06, effectParam: 0x00),
             ]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
         let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
-        let diagnostic = try XCTUnwrap(diagnostics.vibratoEffects.first { $0.effectType == 0x06 })
-        let update = try XCTUnwrap(diagnostics.voiceStateUpdates.first { update in
+        let diagnostic = try XCTUnwrap(diagnostics.vibratoEffects.first { $0.effectType == 0x06 && $0.effectParam == 0 })
+        let update = try XCTUnwrap(diagnostics.voiceStateUpdates.last { update in
             if case .effect6xyVolumeSlide = update.command {
                 return true
             }
@@ -4238,12 +4243,16 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.vibratoDepth, 8)
         XCTAssertEqual(diagnostic.volumeSlideAmount, 0)
         XCTAssertEqual(diagnostic.volumeSlideDirection, "none")
-        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7, 8])
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [9, 10, 11])
         XCTAssertEqual(update.status, .ignoredNoOp)
         XCTAssertTrue(update.ignoredAsNoOp)
+        XCTAssertEqual(update.effectiveVolumeBefore, 30)
+        XCTAssertEqual(update.effectiveVolumeAfter, 30)
+        XCTAssertEqual(update.gainBefore, 30.0 / 64.0)
+        XCTAssertEqual(update.gainAfter, 30.0 / 64.0)
     }
 
-    func testPlaybackSongAdapterVibratoVolumeSlide600WithoutPriorVibratoMemoryIsDeferredNoOp() throws {
+    func testPlaybackSongAdapterVibratoVolumeSlide600UsesInitialZeroVibratoWithoutSlideMemory() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -4256,13 +4265,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
         let diagnostic = try XCTUnwrap(diagnostics.vibratoEffects.first { $0.effectType == 0x06 })
 
-        XCTAssertEqual(diagnostic.status, .zeroParamEffectMemoryDeferred)
-        XCTAssertTrue(diagnostic.deferred)
-        XCTAssertTrue(diagnostic.ignoredAsNoOp)
-        XCTAssertTrue(diagnostic.effectMemoryMissing)
-        XCTAssertTrue(diagnostic.effectMemoryDeferred)
-        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_vibrato_speed_depth_memory")
-        XCTAssertEqual(diagnostic.stepUpdates, [])
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertFalse(diagnostic.deferred)
+        XCTAssertFalse(diagnostic.ignoredAsNoOp)
+        XCTAssertFalse(diagnostic.effectMemoryMissing)
+        XCTAssertFalse(diagnostic.effectMemoryDeferred)
+        XCTAssertNil(diagnostic.memoryUnavailableReason)
+        XCTAssertEqual(diagnostic.stepUpdates.count, 3)
+        XCTAssertTrue(diagnostic.stepUpdates.allSatisfy { $0.linearPeriodAfter == 4_608 })
     }
 
     func testPlaybackSongAdapterTonePortamentoVolumeSlide5xySchedulesStepAndGainUpdates() throws {
@@ -5661,7 +5671,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
-                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x44)
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x34)
             ]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
@@ -5676,7 +5686,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let effect = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first)
 
         XCTAssertEqual(result.block.interleavedPCM, [1, 0])
-        XCTAssertEqual(effect.decodedLabel, "E4x vibrato control")
+        XCTAssertEqual(effect.decodedLabel, "E3x glissando control")
         XCTAssertEqual(effect.status, .deferredUnsupported)
         XCTAssertEqual(result.diagnostics.deferredCellFields.map(\.field), [.effect])
         XCTAssertEqual(result.diagnostics.noteCutEffects, [])

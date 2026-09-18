@@ -436,11 +436,11 @@ final class RuntimeCMixerTests: XCTestCase {
         let vibratoUpdates = plan.events.filter { $0.categories.contains("vibrato_update") }
 
         XCTAssertTrue(plan.generated)
-        XCTAssertEqual(vibratoUpdates.count, 4)
+        XCTAssertEqual(vibratoUpdates.count, 3)
         XCTAssertTrue(plan.categories.contains("vibrato_update"))
         XCTAssertTrue(plan.categories.contains("step_update"))
-        XCTAssertEqual(vibratoUpdates.map(\.effectType), [0x04, 0x04, 0x04, 0x04])
-        XCTAssertEqual(vibratoUpdates.map(\.effectParam), [0x48, 0x48, 0x48, 0x48])
+        XCTAssertEqual(vibratoUpdates.map(\.effectType), [0x04, 0x04, 0x04])
+        XCTAssertEqual(vibratoUpdates.map(\.effectParam), [0x48, 0x48, 0x48])
     }
 
     func testRuntimeCMixerAdapterEventPlanReportsVibrato4xyMemoryMetadata() throws {
@@ -460,7 +460,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 $0.categories.contains("4xy_vibrato_memory_applied")
         }
 
-        XCTAssertEqual(memoryUpdates.count, 4)
+        XCTAssertEqual(memoryUpdates.count, 3)
         XCTAssertTrue(plan.categories.contains("effect_memory_reused"))
         XCTAssertTrue(memoryUpdates.allSatisfy { $0.categories.contains("effect_memory_reused") })
         XCTAssertTrue(memoryUpdates.allSatisfy { $0.effectType == 0x04 })
@@ -497,7 +497,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(gainUpdate.effectType, 0x06)
         XCTAssertEqual(gainUpdate.effectParam, 0x01)
         XCTAssertEqual(gainUpdate.scheduledFrame, 8)
-        XCTAssertEqual(stepUpdates.count, 8)
+        XCTAssertEqual(stepUpdates.count, 6)
         XCTAssertTrue(stepUpdates.allSatisfy { $0.effectType == 0x06 })
         XCTAssertTrue(stepUpdates.allSatisfy { $0.categories.contains("effect_memory_reused") })
         XCTAssertTrue(stepUpdates.allSatisfy { $0.categories.contains("6xy_vibrato_memory_applied") })
@@ -3032,6 +3032,91 @@ final class RuntimeCMixerTests: XCTestCase {
             XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
             XCTAssertEqual(actual.eventApplicationTiming, "exact_frame")
             XCTAssertEqual(actual.gainAfter, gain)
+        }
+    }
+
+    @MainActor
+    func testVibratoFixturePlansAndAppliesIdenticalPitchAtEveryRuntimeFrame() throws {
+        let fixture = try referenceXMFixtureURL("generated/vibrato-semantics.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixture.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixture.path)
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+        let offline = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song, config: MixerRenderConfig(sampleRate: 48_000, channelCount: 1), frames: end
+        ))
+        XCTAssertEqual(runtime.plan, offline.plan)
+        let semantics = offline.diagnostics.vibratoEffects
+        XCTAssertTrue(semantics.allSatisfy(\.applied))
+        XCTAssertTrue(semantics.contains { $0.effectType == 0x06 })
+        for (row, phases, magnitudes, deltas) in [
+            (1, [0, 16, 32, 48, 64], [0, 97, 180, 235, 255], [0, 24, 45, 58, 63]),
+            (2, [80, 96, 112, 128, 144], [235, 180, 97, 0, 97], [58, 45, 24, 0, -24]),
+            (42, [80, 96, 112, 128, 144], [235, 180, 97, 0, 97], [58, 45, 24, 0, -24]),
+        ] {
+            let diagnostic = try XCTUnwrap(semantics.first { $0.source.rowIndex == row })
+            XCTAssertEqual(diagnostic.currentLinearPeriodBefore, row == 1 ? 4_608 : 4_671)
+            let updates = diagnostic.stepUpdates.filter { $0.vibrato != nil }
+            XCTAssertEqual(updates.count, 5)
+            for (index, update) in updates.enumerated() {
+                let tick = try XCTUnwrap(update.vibrato)
+                XCTAssertEqual(tick.phaseBefore, phases[index])
+                XCTAssertEqual(tick.phaseAfter, (phases[index] + 16) & 255)
+                XCTAssertEqual(tick.waveformMagnitude, magnitudes[index])
+                XCTAssertEqual(tick.waveformSign, phases[index] < 128 ? 1 : -1)
+                XCTAssertEqual(tick.depth, 8)
+                XCTAssertEqual(tick.signedReferenceDelta, deltas[index])
+                XCTAssertEqual(update.linearPeriodAfter, Double(4_608 + deltas[index]))
+            }
+        }
+        let planned = runtime.events.filter { $0.categories.contains("vibrato_update") }
+        XCTAssertEqual(planned.count, semantics.reduce(0) { $0 + $1.stepUpdates.count })
+        for diagnostic in semantics {
+            let events = planned.filter { $0.source == diagnostic.source }
+            XCTAssertEqual(events.count, diagnostic.stepUpdates.count)
+            for (event, update) in zip(events, diagnostic.stepUpdates) {
+                XCTAssertEqual(event.syntheticTick, update.syntheticTick)
+                XCTAssertEqual(event.effectType, diagnostic.effectType)
+                XCTAssertEqual(event.effectParam, diagnostic.effectParam)
+                XCTAssertEqual(event.scheduledFrame, update.scheduledFrame)
+                XCTAssertEqual(event.scheduledFrame, event.source.rowIndex * 5_760 + event.syntheticTick * 960)
+                guard case let .stepUpdate(_, step) = event.action else { return XCTFail("Expected pitch update") }
+                XCTAssertEqual(step, update.playbackStepAfter)
+                XCTAssertEqual(step, 8_363 * pow(2, (4_608 - update.linearPeriodAfter) / 768) / 48_000,
+                               accuracy: 1e-12)
+            }
+        }
+
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 48_000)
+        harness.engine.load(song: song)
+        harness.engine.play(from: nil)
+        defer { harness.engine.stop() }
+        var rendered = 0
+        while rendered < end {
+            // These callbacks cross tick boundaries, exercising exact in-callback application.
+            let count = min(4_093, end - rendered)
+            _ = harness.audioEngine.renderForTesting(frameCount: count)
+            rendered += count
+        }
+        let consumed = harness.traceWriter.events.filter { $0.adapterEventCategory == "step_update" }
+        XCTAssertEqual(consumed.count, planned.count)
+        XCTAssertTrue(consumed.contains { $0.runtimeAction == "c_mixer_update_step_applied" })
+        for event in planned {
+            let actual = try XCTUnwrap(consumed.first { $0.plannedEventID == event.id })
+            guard case let .stepUpdate(_, step) = event.action else { return XCTFail("Expected pitch update") }
+            XCTAssertEqual(actual.plannedSourceRowIndex, event.source.rowIndex)
+            XCTAssertEqual(actual.plannedSourceTickInRow, event.syntheticTick)
+            XCTAssertEqual(actual.effectType, event.effectType.map { String(format: "%02X", $0) })
+            XCTAssertEqual(actual.effectParam, event.effectParam.map { String(format: "%02X", $0) })
+            XCTAssertEqual(actual.plannedEventFrame, event.scheduledFrame)
+            XCTAssertEqual(actual.eventAppliedFrame, UInt64(event.scheduledFrame))
+            XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
+            XCTAssertEqual(actual.eventApplicationTiming, "exact_frame")
+            XCTAssertEqual(try XCTUnwrap(actual.sampleStepAfter), step, accuracy: 1e-12)
+            let diagnostic = try XCTUnwrap(semantics.first { $0.source == event.source })
+            let update = try XCTUnwrap(diagnostic.stepUpdates.first { $0.syntheticTick == event.syntheticTick })
+            XCTAssertEqual(try XCTUnwrap(actual.sampleStepBefore), update.playbackStepBefore, accuracy: 1e-12)
+            XCTAssertTrue(["update_applied", "update_suppressed_no_change"].contains(actual.updateDisposition ?? ""))
         }
     }
 

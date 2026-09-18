@@ -597,15 +597,7 @@ extension PlaybackSongSyntheticAdapter {
         if cell.effectType == 0x02, cell.effectParam == 0 {
             return channelState.portamentoDownMemory == nil
         }
-        if cell.effectType == 0x04 {
-            let speed = Int((cell.effectParam & 0xF0) >> 4)
-            let depth = Int(cell.effectParam & 0x0F)
-            return (speed == 0 && channelState.vibratoSpeed == nil) ||
-                (depth == 0 && channelState.vibratoDepth == nil)
-        }
-        if cell.effectType == 0x06 {
-            return channelState.vibratoSpeed == nil || channelState.vibratoDepth == nil
-        }
+        if cell.effectType == 0x04 || cell.effectType == 0x06 { return false }
         if (cell.effectType == 0x0A || cell.effectType == 0x05),
            cell.effectParam == 0 {
             return channelState.volumeSlideMemory == nil

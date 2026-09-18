@@ -36,6 +36,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/portamento-scaling-linear.xm | \
     tests/reference-xm/generated/portamento-scaling-amiga.xm | \
     tests/reference-xm/generated/tremolo-effects.xm | \
+    tests/reference-xm/generated/vibrato-semantics.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

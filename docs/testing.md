@@ -161,6 +161,14 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
   matching ft2-clone profile; listening remains a separate maintainer check.
 - Confirm modules with `3xx` tone portamento commands slide active notes toward target notes without doubled retriggers.
 - Confirm modules with `4xy` vibrato commands produce audible pitch modulation.
+- Use `vibrato-semantics.xm` for the exact shared Linear vibrato contract:
+  run `swift test --filter VibratoFoundationTests`, then load the public fixture
+  in the canonical Debug app and compare ordinary `4xy`, first-tick motion,
+  memory, `E4x` controls, instrument reset/suppression, and seeded `6xy` with
+  the matching ft2-clone Linear export. `RuntimeCMixerTests` pins identical
+  pitch plans and exact applied frames. See `docs/audio-comparison.md` for the
+  profile and fixture README for the row map. Automated checks do not establish
+  maintainer listening; Amiga vibrato remains deferred.
 - Confirm modules with `5xy` or `6xy` combined volume-slide commands keep the pitch effect active while changing volume.
 - Use `tremolo-effects.xm` for `7xy`/`E7x`: check modulation, zero-nibble
   memory, waveform/reset controls, and held output across empty rows.

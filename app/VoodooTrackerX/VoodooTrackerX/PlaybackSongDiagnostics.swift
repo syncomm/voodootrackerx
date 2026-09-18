@@ -1009,6 +1009,16 @@ struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {
     let envelopePolicy: String
 }
 
+/// Exact modulation in FT2 reference-period units; phases use the unsigned-byte domain.
+struct PlaybackSongSyntheticVibratoTick: Equatable {
+    let phaseBefore: Int
+    let waveformMagnitude: Int
+    let waveformSign: Int
+    let depth: Int
+    let signedReferenceDelta: Int
+    let phaseAfter: Int
+}
+
 struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
     let syntheticTick: Int
     let scheduledFrame: Int
@@ -1020,6 +1030,7 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
     let playbackStepAfter: Double
     let reachedTarget: Bool
     let clamped: Bool
+    let vibrato: PlaybackSongSyntheticVibratoTick?
 
     init(
         syntheticTick: Int,
@@ -1031,7 +1042,8 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
         playbackStepBefore: Double,
         playbackStepAfter: Double,
         reachedTarget: Bool,
-        clamped: Bool = false
+        clamped: Bool = false,
+        vibrato: PlaybackSongSyntheticVibratoTick? = nil
     ) {
         self.syntheticTick = syntheticTick
         self.scheduledFrame = scheduledFrame
@@ -1043,6 +1055,7 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
         self.playbackStepAfter = playbackStepAfter
         self.reachedTarget = reachedTarget
         self.clamped = clamped
+        self.vibrato = vibrato
     }
 }
 

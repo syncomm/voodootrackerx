@@ -23,6 +23,7 @@ class ScanTrackedPrivateLeaksTests(unittest.TestCase):
                 "tests/reference-xm/generated/portamento-scaling-amiga.xm",
                 "tests/reference-xm/generated/tremolo-effects.xm",
                 "tests/reference-xm/generated/vibrato-semantics.xm",
+                "tests/reference-xm/generated/amiga-vibrato.xm",
                 "tests/fixtures/minimal.mod",
             ]:
                 self.write_file(repo, path, b"synthetic public fixture")

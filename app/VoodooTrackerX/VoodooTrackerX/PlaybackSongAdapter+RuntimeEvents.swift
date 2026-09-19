@@ -625,13 +625,15 @@ extension PlaybackSongSyntheticAdapter {
         outputSampleRate: Double
     ) -> Double? {
         guard amigaPeriod.isFinite,
-              amigaPeriod > 0,
+              amigaPeriod >= 0,
               outputSampleRate.isFinite,
               outputSampleRate > 0,
               baseSampleRate.isFinite,
               baseSampleRate > 0 else {
             return nil
         }
+        // FT2 period zero means 0 Hz: deliver an explicit held-cursor update.
+        if amigaPeriod == 0 { return 0 }
         let amigaFrequency = baseSampleRate * xmAmigaC4Period / amigaPeriod
         let step = amigaFrequency / outputSampleRate
         guard amigaFrequency.isFinite,

@@ -68,6 +68,7 @@ enum PlaybackSongSyntheticAdapter {
         var vibratoControl: VibratoControlState?
         var vibratoPhase = 0
         var vibratoOutputLinearPeriod: Double?
+        var vibratoOutputAmigaPeriod: Double?
         var tremolo = TremoloState()
         // FT2's ramp tremolo reads the sign of the vibrato phase. This observer
         // serves that quirk only; it does not change the existing pitch planner.
@@ -182,6 +183,7 @@ enum PlaybackSongSyntheticAdapter {
         state.activePlaybackStep = nil
         state.activeLinearPeriod = nil
         state.vibratoOutputLinearPeriod = nil
+        state.vibratoOutputAmigaPeriod = nil
         state.activeAmigaPeriod = nil
         state.activeSampleBaseSampleRate = nil
         state.activeSampleRelativeNote = nil
@@ -1803,6 +1805,7 @@ enum PlaybackSongSyntheticAdapter {
             channelState.activePlaybackStep = pitchMapping.playbackStep
             channelState.activeLinearPeriod = pitchMapping.linearPeriod
             channelState.vibratoOutputLinearPeriod = nil
+            channelState.vibratoOutputAmigaPeriod = nil
             channelState.activeAmigaPeriod = pitchMapping.amigaPeriod
             channelState.activeSampleBaseSampleRate = sample.baseSampleRate
             channelState.activeSampleRelativeNote = sample.relativeNote

@@ -110,9 +110,7 @@ final class VibratoFoundationTests: XCTestCase {
         XCTAssertFalse(volume[1].applied) // 600 slide memory remains outside scope.
     }
 
-    func testAmigaRemainsDeferredAndPortamentoDoesNotRetainStaleOutputPeriod() {
-        let amiga = adapt([cell(4, 0x48, note: 49, instrument: 1), cell(6, 2)], linear: false)
-        XCTAssertTrue(amiga.diagnostics.vibratoEffects.allSatisfy { $0.status == .unsupportedFrequencyTable && $0.stepUpdates.isEmpty })
+    func testPortamentoDoesNotRetainStaleOutputPeriod() {
         let linear = adapt([cell(4, 0x48, note: 49, instrument: 1), cell(1, 0x10), cell(4, 0)])
         XCTAssertEqual(linear.diagnostics.vibratoEffects.last?.stepUpdates.first?.linearPeriodBefore, 4288)
         XCTAssertEqual(linear.diagnostics.vibratoEffects.last?.stepUpdates.first?.playbackStepBefore, step(4288))

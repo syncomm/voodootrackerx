@@ -168,7 +168,12 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
   the matching ft2-clone Linear export. `RuntimeCMixerTests` pins identical
   pitch plans and exact applied frames. See `docs/audio-comparison.md` for the
   profile and fixture README for the row map. Automated checks do not establish
-  maintainer listening; Amiga vibrato remains deferred.
+  maintainer listening.
+- Use `amiga-vibrato.xm` and `swift test --filter AmigaVibratoTests` for Amiga
+  `4xy`/`6xy` pitch. `RuntimeCMixerTests` checks exact applied frames, cursor
+  hold/resume, and advancing sample-time follow at period zero. Compare rows
+  0...5, 6...19, 20...23, and 25...28 with ft2-clone Amiga Frequency Slides;
+  `600` slide memory and `6xy` slide timing remain outside acceptance.
 - Confirm modules with `5xy` or `6xy` combined volume-slide commands keep the pitch effect active while changing volume.
 - Use `tremolo-effects.xm` for `7xy`/`E7x`: check modulation, zero-nibble
   memory, waveform/reset controls, and held output across empty rows.

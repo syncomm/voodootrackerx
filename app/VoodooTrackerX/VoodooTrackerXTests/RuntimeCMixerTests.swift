@@ -3128,6 +3128,94 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testAmigaVibratoFixtureDeliversZeroHoldResumeAndAdvancingFollow() throws {
+        let fixture = try referenceXMFixtureURL("generated/amiga-vibrato.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        let config = MixerRenderConfig(sampleRate: 48_000, channelCount: 1)
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+        let offline = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(song: song, config: config, frames: end))
+        XCTAssertEqual(runtime.plan, offline.plan)
+        let semantics = offline.diagnostics.vibratoEffects
+        let planned = runtime.events.filter { $0.categories.contains("vibrato_update") }
+        XCTAssertEqual(planned.count, semantics.reduce(0) { $0 + $1.stepUpdates.count })
+        for diagnostic in semantics {
+            XCTAssertTrue(diagnostic.applied)
+            let base = diagnostic.source.rowIndex < 25 ? 1706 : 119 // FT2 lookup, sample finetune +8.
+            for update in diagnostic.stepUpdates {
+                let period = try XCTUnwrap(update.amigaPeriodAfter)
+                if let tick = update.vibrato {
+                    XCTAssertEqual(period, Double((base + tick.signedReferenceDelta) & 65535) * 4)
+                }
+                let event = try XCTUnwrap(planned.first { $0.source == diagnostic.source && $0.syntheticTick == update.syntheticTick })
+                guard case let .stepUpdate(_, step) = event.action else { return XCTFail("Missing pitch event") }
+                XCTAssertEqual(step, period == 0 ? 0 : 8363 * 6848 / period / 48000, accuracy: 1e-12)
+                XCTAssertEqual(event.scheduledFrame, diagnostic.source.rowIndex * 5760 + update.syntheticTick * 960)
+            }
+        }
+        let zero = try XCTUnwrap(planned.first { if case .stepUpdate(_, 0) = $0.action { return true }; return false })
+        XCTAssertEqual(zero.source.rowIndex, 27)
+        XCTAssertEqual(zero.syntheticTick, 3)
+        XCTAssertEqual(zero.scheduledFrame, 158400)
+        guard case let .stepUpdate(activeEvent, _) = zero.action else { return XCTFail("Missing zero step") }
+        let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+        core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 48000)
+        harness.engine.load(song: song)
+        harness.engine.play(from: nil)
+        defer { harness.engine.stop() }
+        let timerPosition = try XCTUnwrap(harness.engine.currentPosition)
+        var rendered = 0
+        var frozenPosition: Double?
+        for boundary in [158400, 158401, 159359, 159360, 159361, end] {
+            while rendered < boundary {
+                let count = min(4093, boundary - rendered)
+                let pcm = renderRuntimePCM(core, frames: count)
+                XCTAssertEqual(pcm, harness.audioEngine.renderForTesting(frameCount: count))
+                XCTAssertEqual(pcm, Array(offline.block.interleavedPCM[rendered..<(rendered + count)]))
+                rendered += count
+            }
+            if boundary == 158400 { frozenPosition = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: activeEvent)).samplePosition }
+            let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: activeEvent))
+            if (158401...159360).contains(boundary) {
+                XCTAssertTrue(voice.active)
+                XCTAssertEqual(voice.sampleStep, 0)
+                XCTAssertEqual(voice.samplePosition, frozenPosition)
+            }
+            if boundary == 159361 {
+                XCTAssertTrue(voice.active)
+                XCTAssertGreaterThan(voice.sampleStep, 0)
+                XCTAssertEqual(voice.samplePosition, (try XCTUnwrap(frozenPosition) + voice.sampleStep).truncatingRemainder(dividingBy: 256), accuracy: 1e-10)
+            }
+            XCTAssertEqual(harness.audioEngine.snapshotForTesting().renderedFrameCount, UInt64(boundary))
+            if boundary < end {
+                let follow = try XCTUnwrap(harness.audioEngine.playbackFollowPosition(timerPosition: timerPosition, timerTickInRow: 0))
+                XCTAssertEqual(follow.source, .cMixerSampleTime)
+                XCTAssertEqual(follow.sampleTimeFrame, boundary)
+                XCTAssertEqual(follow.position, PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: boundary / 5760))
+                XCTAssertEqual(follow.tickInRow, (boundary % 5760) / 960)
+            }
+        }
+        XCTAssertEqual(harness.engine.currentPosition, timerPosition)
+        let consumed = harness.traceWriter.events.filter { $0.adapterEventCategory == "step_update" }
+        XCTAssertEqual(consumed.count, planned.count)
+        for event in planned {
+            let actual = try XCTUnwrap(consumed.first { $0.plannedEventID == event.id })
+            guard case let .stepUpdate(_, step) = event.action else { return XCTFail("Missing pitch event") }
+            XCTAssertEqual(actual.plannedSourceRowIndex, event.source.rowIndex)
+            XCTAssertEqual(actual.plannedSourceTickInRow, event.syntheticTick)
+            XCTAssertEqual(actual.eventAppliedFrame, UInt64(event.scheduledFrame))
+            XCTAssertEqual(actual.plannedEventFrame, event.scheduledFrame)
+            XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
+            XCTAssertEqual(try XCTUnwrap(actual.sampleStepAfter), step, accuracy: 1e-12)
+            if event.id == zero.id || event.scheduledFrame == 159360 {
+                XCTAssertEqual(actual.runtimeAction, "c_mixer_update_step_applied")
+            }
+        }
+    }
+
+    @MainActor
     func testVibratoFixturePlansAndAppliesIdenticalPitchAtEveryRuntimeFrame() throws {
         let fixture = try referenceXMFixtureURL("generated/vibrato-semantics.xm")
         let metadata = try ModuleMetadataLoader().load(fromPath: fixture.path)

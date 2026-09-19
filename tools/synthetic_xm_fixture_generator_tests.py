@@ -21,6 +21,7 @@ ALL_FIXTURES = [
     "portamento-scaling-amiga.xm",
     "tremolo-effects.xm",
     "vibrato-semantics.xm",
+    "amiga-vibrato.xm",
 ]
 
 
@@ -485,11 +486,13 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "portamento-scaling-amiga.xm").resolve(),
                     (output_dir / "generated" / "tremolo-effects.xm").resolve(),
                     (output_dir / "generated" / "vibrato-semantics.xm").resolve(),
+                    (output_dir / "generated" / "amiga-vibrato.xm").resolve(),
                 ],
             )
             self.assertEqual(
                 files,
                 [
+                    "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
@@ -541,6 +544,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertFalse((output_dir / "generated" / "portamento-scaling-amiga.xm").exists())
             self.assertFalse((output_dir / "generated" / "tremolo-effects.xm").exists())
             self.assertFalse((output_dir / "generated" / "vibrato-semantics.xm").exists())
+            self.assertFalse((output_dir / "generated" / "amiga-vibrato.xm").exists())
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
 
@@ -556,6 +560,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertEqual(
                 files,
                 [
+                    "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
@@ -625,6 +630,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:portamento-scaling-amiga.xm": "generated/portamento-scaling-amiga.xm",
                     "xm:tremolo-effects.xm": "generated/tremolo-effects.xm",
                     "xm:vibrato-semantics.xm": "generated/vibrato-semantics.xm",
+                    "xm:amiga-vibrato.xm": "generated/amiga-vibrato.xm",
                 },
             )
 

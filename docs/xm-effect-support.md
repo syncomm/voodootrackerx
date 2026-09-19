@@ -79,9 +79,9 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 | `1xx` | Portamento up | Implemented, parity-watch | `100` memory supported | Yes | Yes | Linear slides subtract `4 * xx` period units per tick after tick 0; Amiga-table `1xx` remains deferred. |
 | `2xx` | Portamento down | Implemented, parity-watch | `200` memory supported | Yes | Yes | Linear slides add `4 * xx` period units per tick after tick 0; the existing narrow Amiga-table period/sample-step path is preserved. |
 | `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and target-clamped updates after tick 0 (Linear `4 * xx` period units); Amiga targets use the FT2-compatible quantized period lookup. No-active/no-target/no-speed/missing-memory residuals remain parity-watch. |
-| `4xy` | Vibrato | Implemented, parity-watch | Initially zero speed/depth; `400` / zero-nibble memory supported | Yes | Yes | FT2 integer phase/waveform modulation in Linear mode; Amiga execution remains deferred. See the shared contract below. |
+| `4xy` | Vibrato | Implemented, parity-watch | Initially zero speed/depth; `400` / zero-nibble memory supported | Yes | Yes | Shared FT2 integer modulation in Linear and Amiga modes; Amiga wraps the unsigned period before 4x mapping, including explicit zero-step hold/resume. See the contract below. |
 | `5xy` | Tone portamento + volume slide | Implemented, parity-watch | Uses existing `3xx` tone target/speed; `500` reuses shared Axy-style volume-slide memory when available | Yes | Yes | Reuses Linear `3xx` speed in `4 * xx` period units and the independent `Axy` tick-level volume-slide policy; missing `500` volume-slide memory remains no-op/deferred. |
-| `6xy` | Vibrato + volume slide | Implemented, parity-watch | Shared `4xy` vibrato memory; `600` volume-slide memory deferred | Yes | Yes | Corrected Linear vibrato plus the existing row-level volume-slide path. Amiga vibrato and tick-level slide correction remain separate work. |
+| `6xy` | Vibrato + volume slide | Implemented, parity-watch | Shared `4xy` vibrato memory; `600` volume-slide memory deferred | Yes | Yes | Reuses Linear/Amiga `4xy` pitch execution plus the unchanged row-level volume-slide path. Tick-level slide correction remains separate work. |
 | `7xy` | Tremolo | Implemented, parity-watch | Independent speed/depth nibble memory, initially zero; `700`, `70y`, and `7x0` supported | Yes | Yes | Exact integer output-volume modulation after tick 0; phase and output persist across empty rows. Existing sample scaling, gain ramps, and trigger/other-effect boundaries remain; see [volume ownership](design/xm-volume-ownership.md#tremolo-output-memory-and-controls). |
 | `8xx` | Set panning | Implemented | Not applicable | Yes | Yes | Row-level panning state update. |
 | `9xx` | Sample offset | Implemented | `900` memory supported | Yes | Yes | Same-cell note/sample starts; out-of-range offsets are skipped safely. |
@@ -143,9 +143,9 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
 - Amiga frequency table: narrow foundation implemented, parity-watch, for note
   period/frequency/sample-step calculation using the FT2-compatible quantized
   period lookup, sample finetune metadata, `2xx` portamento down, and
-  effect-column `3xx` tone portamento in the runtime/offline C mixer adapter
-  path.
-- Broader Amiga-table pitch effects remain separate parity work; `1xx`,
+  effect-column `3xx` tone portamento, `4xy`, and the vibrato half of `6xy`
+  in the runtime/offline C mixer adapter path.
+- Broader Amiga-table pitch effects remain separate parity work; `0xy`, `1xx`,
   `E1x`/`E2x`, `X1x`/`X2x`, same-cell `E5x`, `5xy`, and volume-column
   tone portamento are not broadened by the Amiga foundation.
 - Private Amiga-table coverage is tracked locally; do not publish private
@@ -176,12 +176,25 @@ family restores the base. The public `vibrato-semantics.xm` fixture and
 `VibratoFoundationTests` pin this contract against the
 [pinned FT2 replayer](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1836-L1866).
 
-Existing note-only sample retrigger limitations, Linear range-edge behavior,
-and `6xy` row-level volume-slide timing remain parity boundaries. `600`
-volume-slide memory is still deferred. Amiga `4xy`/`6xy` pitch execution is
-still guarded: its later implementation must map the reference delta to
-VTX's 4x period representation and explicitly handle FT2 unsigned wrapping
-and period zero, rather than blindly reuse the existing Amiga clamp.
+Existing note-only sample retrigger/tick-zero pitch restoration limitations,
+Linear range-edge behavior, and `6xy` row-level volume-slide timing remain parity boundaries. `600`
+volume-slide memory is still deferred.
+
+Amiga `4xy` and the vibrato half of `6xy` apply the same signed delta using
+`resultFT2 = (baseFT2 + signedDelta) mod 65536`, then
+`resultVTX = 4 * resultFT2`. C-4 at finetune 0 is FT2 1712 / VTX 6848.
+This operation does not use the separate note/portamento clamp or alter the
+unmodulated base. Nonzero step is `baseHz * 1712 / resultFT2 / outputHz`;
+period zero produces an explicit step-zero update. The existing C mixer holds
+the active source cursor while rendered-frame time and playback follow advance;
+a later nonzero update resumes that same voice. Underflow and upper overflow
+wrap, including 118 - 119 = 65535 and 65417 + 119 = 0.
+
+`amiga-vibrato.xm`, `AmigaVibratoTests`, and `RuntimeCMixerTests` pin periods,
+memory/controls, zero hold/resume, and exact runtime/offline event frames.
+The existing extreme Amiga note-base clamp remains a separate parity boundary,
+as does FT2 fixed-point versus VTX analytic frequency conversion. This does not
+promote other Amiga pitch families or change `6xy` slide timing/`600` memory.
 
 ## Portamento Units
 
@@ -210,8 +223,8 @@ fixtures pin these supported paths; no deferred effect family is promoted.
 ## Explicitly Deferred / Not V1
 
 - `E0x` filter toggle.
-- Broader Amiga frequency-table pitch parity beyond the narrow note,
-  `2xx` down, and effect-column `3xx` foundation.
+- Broader Amiga frequency-table pitch parity beyond note, `2xx` down,
+  effect-column `3xx`, `4xy`, and the vibrato half of `6xy`.
 - `E3x`, `E8x`, `EEx`, `EFx`, `Pxy`, and `Txy` in the default
   C mixer adapter path.
 - `X` subcommands other than `X1x` and `X2x`.

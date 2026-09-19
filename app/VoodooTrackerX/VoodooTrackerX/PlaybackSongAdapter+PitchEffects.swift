@@ -1805,40 +1805,47 @@ extension PlaybackSongSyntheticAdapter {
             controlValue: 0, waveform: .sine, retriggerSuppressed: false, source: nil
         )
         let phaseBefore = channelState.vibratoPhase
-        let basePeriod = channelState.activeLinearPeriod
-        let outputPeriodBefore = channelState.vibratoOutputLinearPeriod ?? basePeriod
+        let linear = channelState.activeUsesLinearFrequencyTable == true
+        let basePeriod = linear ? channelState.activeLinearPeriod : channelState.activeAmigaPeriod
+        let outputPeriodBefore = (linear ? channelState.vibratoOutputLinearPeriod : channelState.vibratoOutputAmigaPeriod) ?? basePeriod
         let stepBefore = channelState.activePlaybackStep
         var updates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
         var status: PlaybackSongSyntheticVibratoDiagnostic.Status = .applied
         var policy = combined ? "6xy_ft2_vibrato_plus_unchanged_row_volume_slide" : "ft2_integer_vibrato_linear_period"
+        if !linear && !combined { policy = "ft2_integer_vibrato_wrapped_amiga_period" }
 
         if channelState.activeEventIndex == nil {
             // Channel-local phase runs even when there is no represented mixer voice.
             channelState.vibratoPhase = (phaseBefore + max(0, timingConfig.speed - 1) * speed * 4) & 255
             status = .noActiveVoice
             policy = "no_active_voice_no_playback_invented"
-        } else if channelState.activeUsesLinearFrequencyTable != true || basePeriod == nil ||
+        } else if channelState.activeUsesLinearFrequencyTable == nil || basePeriod == nil ||
                     stepBefore == nil || channelState.activeSampleBaseSampleRate == nil {
-            // Amiga period conversion/wrapping belongs to its separate execution slice.
             status = .unsupportedFrequencyTable
-            policy = "linear_frequency_only_first_pass"
+            policy = "missing_active_pitch_state"
         } else if let basePeriod, let stepBefore, let baseSampleRate = channelState.activeSampleBaseSampleRate {
+            func step(for period: Double) -> Double? {
+                linear ? playbackStep(linearPeriod: period, baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate)
+                    : playbackStep(amigaPeriod: period, baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate)
+            }
             var currentPeriod = outputPeriodBefore ?? basePeriod
             var currentStep = stepBefore
             for tick in 1..<max(1, timingConfig.speed) {
                 let modulation = vibratoTick(phase: channelState.vibratoPhase, speed: speed,
                                              depth: depth, control: control.controlValue)
                 // FT2 and VTX Linear periods have identical sign and units (C-4=4608).
-                let modulatedPeriod = clampedLinearPeriod(basePeriod + Double(modulation.signedReferenceDelta))
-                guard let step = playbackStep(linearPeriod: modulatedPeriod, baseSampleRate: baseSampleRate,
-                                              outputSampleRate: timingConfig.sampleRate) else {
+                let modulatedPeriod = linear
+                    ? clampedLinearPeriod(basePeriod + Double(modulation.signedReferenceDelta))
+                    : vibratoAmigaPeriod(basePeriod: basePeriod, signedReferenceDelta: modulation.signedReferenceDelta)
+                guard let step = step(for: modulatedPeriod) else {
                     status = .outOfRange
                     policy = "vibrato_pitch_out_of_range"
                     break
                 }
                 updates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
                     syntheticTick: tick, scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
-                    linearPeriodBefore: currentPeriod, linearPeriodAfter: modulatedPeriod,
+                    linearPeriodBefore: linear ? currentPeriod : 0, linearPeriodAfter: linear ? modulatedPeriod : 0,
+                    amigaPeriodBefore: linear ? nil : currentPeriod, amigaPeriodAfter: linear ? nil : modulatedPeriod,
                     playbackStepBefore: currentStep, playbackStepAfter: step, reachedTarget: false,
                     vibrato: modulation
                 ))
@@ -1849,19 +1856,20 @@ extension PlaybackSongSyntheticAdapter {
             // getNewNote restores only on leaving 4/6, not between consecutive rows.
             // Lookahead uses the traversed next row, so jumps and loops share this rule.
             if restoreAtRowEnd, currentPeriod != basePeriod,
-               let step = playbackStep(linearPeriod: basePeriod, baseSampleRate: baseSampleRate,
-                                       outputSampleRate: timingConfig.sampleRate) {
+               let step = step(for: basePeriod) {
                 updates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
                     syntheticTick: timingConfig.speed,
                     scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
-                    linearPeriodBefore: currentPeriod, linearPeriodAfter: basePeriod,
+                    linearPeriodBefore: linear ? currentPeriod : 0, linearPeriodAfter: linear ? basePeriod : 0,
+                    amigaPeriodBefore: linear ? nil : currentPeriod, amigaPeriodAfter: linear ? nil : basePeriod,
                     playbackStepBefore: currentStep, playbackStepAfter: step, reachedTarget: true
                 ))
                 currentPeriod = basePeriod
                 currentStep = step
             }
             // Modulation never accumulates into the note/portamento base period.
-            channelState.vibratoOutputLinearPeriod = restoreAtRowEnd ? nil : currentPeriod
+            if linear { channelState.vibratoOutputLinearPeriod = restoreAtRowEnd ? nil : currentPeriod }
+            else { channelState.vibratoOutputAmigaPeriod = restoreAtRowEnd ? nil : currentPeriod }
             channelState.activePlaybackStep = currentStep
         }
         return vibratoDiagnostic(
@@ -1879,11 +1887,17 @@ extension PlaybackSongSyntheticAdapter {
             speedMemorySource: speedMemorySource, depthMemorySource: depthMemorySource,
             memoryUnavailableReason: nil, volumeSlide: combined ? volumeSlideAmounts(effectParam: cell.effectParam) : nil,
             phaseBefore: Double(phaseBefore), phaseAfter: Double(channelState.vibratoPhase),
-            currentLinearPeriodBefore: outputPeriodBefore,
-            currentLinearPeriodAfter: channelState.vibratoOutputLinearPeriod ?? basePeriod,
+            currentLinearPeriodBefore: linear ? outputPeriodBefore : nil,
+            currentLinearPeriodAfter: linear ? (channelState.vibratoOutputLinearPeriod ?? basePeriod) : nil,
             currentPlaybackStepBefore: stepBefore, currentPlaybackStepAfter: channelState.activePlaybackStep,
             stepUpdates: updates, policy: policy
         )
+    }
+
+    /// Wraps in FT2's unsigned 16-bit period domain before returning to VTX's 4x domain.
+    static func vibratoAmigaPeriod(basePeriod: Double, signedReferenceDelta: Int) -> Double {
+        let referencePeriod = Int(basePeriod / xmAmigaPeriodLookupScale)
+        return Double(UInt16(truncatingIfNeeded: referencePeriod + signedReferenceDelta)) * xmAmigaPeriodLookupScale
     }
 
     /// Samples FT2's integer waveform, scales depth, then advances the byte phase.

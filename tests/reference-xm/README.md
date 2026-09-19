@@ -282,8 +282,8 @@ memory. Numeric tests own exact tick trajectories and phase wrapping.
 
 The final `6xy` rows have explicitly seeded vibrato state and preserve the
 existing volume-slide behavior. `600` memory and row-versus-tick slide timing
-are outside this fixture's acceptance contract. Amiga vibrato execution remains
-deferred; this fixture establishes the shared foundation in Linear mode.
+are outside this fixture's acceptance contract. This fixture establishes the
+shared foundation in Linear mode; Amiga execution uses its own fixture below.
 
 For maintainer listening, load this fixture and compare rows 1...6, the control
 pairs at 8...39, then the seeded combination at 41...44 against an ft2-clone
@@ -293,3 +293,29 @@ Volume ramping ON, and Precise BPM OFF. Follow
 [audio comparison](../../docs/audio-comparison.md), retaining all WAVs and
 diagnostic artifacts outside the repository. Audio comparison corroborates the
 exact tick-domain tests; listening requires maintainer confirmation.
+
+`generated/amiga-vibrato.xm` (1,253 bytes) uses Amiga frequencies, one channel,
+speed 6/BPM 125, and 30 rows (3.6 seconds). Its one sustained 16-bit sine is
+the same original project PCM with sample finetune +8. The manifest pins
+SHA-256 `aa74e2992daebef012792f76ce34fa81c9e22e75a833ab5d2df3895de4d30012`.
+
+| Rows (decimal) | Case / listening window |
+| --- | --- |
+| 0...5 (0.00–0.72 s) | C-4/I01 `448`, three `400` rows, `403`, `480`: positive/negative sine halves, phase wrap, nibble memory |
+| 6...19 (0.72–2.40 s) | `E41` ramp, `E42` square, `E44` reset suppression, then `E40`; explicit instrument, instrument-only, and note-only cases |
+| 20...23 (2.40–2.88 s) | C-4/I01/volume `30` + `448`; `602`, `600`, `612`: seeded vibrato, retained slide policy |
+| 24...29 (2.88–3.60 s) | `E40`; A#7/I01 `44F`; three `400` rows; empty restore |
+
+The final case starts at FT2 period 119. Row 27 tick 3 (3.30 s, frame 158400)
+subtracts 119, producing an explicit zero step for 960 frames, then resumes the
+same source cursor. Tests also cover unsigned underflow/upper wrap directly.
+No other Amiga pitch family is present. Render the local reference with the
+profile above, changing Frequency Slides to **Amiga** after loading the XM.
+Compare the first three windows for ordinary vibrato, controls/triggers, and
+seeded `6xy`; the final extreme-pitch window corroborates numeric zero delivery.
+All WAVs/diagnostics stay outside git. Maintainer listening remains a separate
+gate; optional real-corpus listening follows only after the public gate passes.
+The note-only cells at rows 15 and 19 retain the existing trigger limitation:
+VTX holds the preceding output through tick 0 while FT2 restores the note base.
+Their subsequent vibrato ticks and phase continuation match; this fixture does
+not promote note-only trigger parity or broaden the shared vibrato contract.

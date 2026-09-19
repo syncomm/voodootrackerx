@@ -336,6 +336,16 @@ through tick 0. FT2 fixed-point step quantization, gain ramps, and the retained
 `6xy` row-level slide policy can still produce waveform residuals. This fixture
 does not validate Amiga execution or `600` slide memory.
 
+For Amiga vibrato use `amiga-vibrato.xm`: order 0, one order, 30 rows,
+172800 frames (3.6 seconds). Use the same profile above with **Amiga Frequency
+Slides**. Its sample finetune +8 gives C-4 period 1706; `448` ticks 1–5 yield
+1706, 1730, 1751, 1764, 1769 before VTX's 4x mapping. A#7 at row 25 has base
+119; row 27 tick 3 reaches period/step zero at frame 158400 and resumes at
+159360. Compare exact tick periods and frames first; reference WAV residuals
+include existing step quantization, trigger/ramp, and `6xy` slide differences.
+The fixture README defines the public listening windows. Listening is a
+separate maintainer gate and must not be inferred from automated comparison.
+
 When `openmpt123` is installed locally, a simple full render can be useful for
 secondary checks:
 

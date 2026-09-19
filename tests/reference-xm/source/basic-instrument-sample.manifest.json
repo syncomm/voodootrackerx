@@ -2175,12 +2175,300 @@
       ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
-        "Amiga vibrato execution remains deferred; this fixture uses Linear frequencies.",
+        "This fixture validates Linear frequencies; Amiga execution has its own amiga-vibrato.xm fixture.",
         "600 slide-memory replay and 6xy row-versus-tick slide timing are outside this fixture acceptance contract."
       ],
       "xm_output": "generated/vibrato-semantics.xm",
       "xm_sha256": "ed8c96a7b13c668650ed816f19cc9fe444e288aa783002f40d299bc4c9c5ec18",
       "xm_size_bytes": 1327
+    },
+    {
+      "id": "amiga-vibrato",
+      "intended_tests": [
+        "Amiga integer periods, nibble memory, E4 controls and seeded 6xy",
+        "effect-level zero-step runtime/offline delivery and sample-time follow"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 0,
+        "instruments": [
+          {
+            "name": "VIBRATO SINE",
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 8,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "VIBRATO SINE 16",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 12000,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 72,
+                "effect_type": 4,
+                "instrument": 1,
+                "note": 49,
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 0,
+                "row": 1
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 0,
+                "row": 2
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 0,
+                "row": 3
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 3,
+                "effect_type": 4,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 128,
+                "effect_type": 4,
+                "note": 0,
+                "row": 5
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 65,
+                "effect_type": 14,
+                "note": 0,
+                "row": 6
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 72,
+                "effect_type": 4,
+                "instrument": 1,
+                "note": 49,
+                "row": 7
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 0,
+                "row": 8
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 66,
+                "effect_type": 14,
+                "note": 0,
+                "row": 9
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 72,
+                "effect_type": 4,
+                "instrument": 1,
+                "note": 49,
+                "row": 10
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 0,
+                "row": 11
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 68,
+                "effect_type": 14,
+                "note": 0,
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 72,
+                "effect_type": 4,
+                "instrument": 1,
+                "note": 49,
+                "row": 13
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "instrument": 1,
+                "note": 49,
+                "row": 14
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 49,
+                "row": 15
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 14,
+                "instrument": 1,
+                "note": 0,
+                "row": 16
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 0,
+                "row": 17
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "instrument": 1,
+                "note": 0,
+                "row": 18
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 49,
+                "row": 19
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 72,
+                "effect_type": 4,
+                "instrument": 1,
+                "note": 49,
+                "row": 20,
+                "volume_column": 48
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 2,
+                "effect_type": 6,
+                "note": 0,
+                "row": 21
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 22
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 18,
+                "effect_type": 6,
+                "note": 0,
+                "row": 23
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 14,
+                "note": 0,
+                "row": 24
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 79,
+                "effect_type": 4,
+                "instrument": 1,
+                "note": 95,
+                "row": 25
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 0,
+                "row": 26
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 0,
+                "row": 27
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "note": 0,
+                "row": 28
+              }
+            ],
+            "rows": 30
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX AMIGA VIBRATO",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "amiga-vibrato.xm",
+      "purpose": "Isolated FT2 Amiga vibrato, unsigned period mapping, and exact zero-step hold/resume.",
+      "significant_rows": [
+        "Rows 0...5: 448, 400, 400, 400, 403, 480; both sine halves, phase wrap, and independent nibble memory.",
+        "Rows 6...19: E41/E42/E44/E40, explicit instrument resets/suppression, instrument-only and note-only continuation.",
+        "Rows 20...23: C-4/I01/volume30 448, 602, 600, 612; unchanged row-level slide policy.",
+        "Rows 24...29: E40, A#7/I01 44F, 400, 400, 400, empty. Sample finetune +8 makes FT2 base 119; row 27 tick 3 reaches period/step zero at frame 158400 and resumes at frame 159360."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Other Amiga pitch effects and the existing extreme note-base clamp are outside scope.",
+        "600 slide-memory replay and 6xy slide timing remain deferred."
+      ],
+      "xm_output": "generated/amiga-vibrato.xm",
+      "xm_sha256": "aa74e2992daebef012792f76ce34fa81c9e22e75a833ab5d2df3895de4d30012",
+      "xm_size_bytes": 1253
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

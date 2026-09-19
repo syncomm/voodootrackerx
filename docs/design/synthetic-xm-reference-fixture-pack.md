@@ -153,8 +153,11 @@ Start with focused fixtures that each prove one behavior class:
   memory, all `E40...E4F` waveform/reset controls, no-note continuation,
   instrument-trigger reset or suppression, and explicitly seeded `6xy` vibrato
   reuse. The README owns the row map; the manifest pins bytes and PCM hashes.
-  `600` memory and `6xy` slide timing remain separate contracts. Amiga vibrato
-  execution remains deferred until its dedicated period-domain implementation.
+  `600` memory and `6xy` slide timing remain separate contracts.
+- `amiga-vibrato.xm`: one 30-row Amiga pattern, one sustained sine with finetune
+  +8, ordinary `4xy`, nibble memory, E4 controls, trigger reset/suppression,
+  seeded `6xy`, and legal A#7 period-zero hold/resume. The README owns its row
+  map; exact period/step/frame tests are primary, with local ft2-clone evidence.
 - `note-entry-preview.xm`: tiny loaded-module payload for selected
   instrument/sample display and future preview availability tests.
 - `looped-sample.xm`: forward loop metadata and a steady loop segment.

@@ -173,8 +173,14 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
   `4xy`/`6xy` pitch. `RuntimeCMixerTests` checks exact applied frames, cursor
   hold/resume, and advancing sample-time follow at period zero. Compare rows
   0...5, 6...19, 20...23, and 25...28 with ft2-clone Amiga Frequency Slides;
-  `600` slide memory and `6xy` slide timing remain outside acceptance.
-- Confirm modules with `5xy` or `6xy` combined volume-slide commands keep the pitch effect active while changing volume.
+  `6xy` slide timing remains outside acceptance.
+- Use `effect-memory.xm` and `swift test --filter VolumeSlideMemoryTests` for
+  shared `Axy`/`5xy`/`6xy` memory. `RuntimeCMixerTests` pins identical plans,
+  PCM, and applied gain frames. In the canonical Debug app, compare channel 0's
+  `602` → `600` at rows 1–2 against channel 1's unseeded `600`; rows 4–11
+  cover cross-family replay. The [fixture row map](../tests/reference-xm/README.md)
+  gives exact controls. Listening corroborates direction/magnitude and requires
+  Gregory's report; the retained row-level timing is not FT2 timing acceptance.
 - Use `tremolo-effects.xm` for `7xy`/`E7x`: check modulation, zero-nibble
   memory, waveform/reset controls, and held output across empty rows.
   `swift test --filter TremoloTests` pins tracker-volume semantics;

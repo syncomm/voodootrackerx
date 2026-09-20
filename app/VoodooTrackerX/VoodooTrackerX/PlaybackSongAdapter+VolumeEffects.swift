@@ -324,6 +324,7 @@ extension PlaybackSongSyntheticAdapter {
         channelIndex: Int,
         syntheticRow: Int,
         scheduledFrame: Int,
+        rowSpeed: Int,
         channelState: inout ChannelState,
         globalVolumeValue: Int
     ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? {
@@ -374,33 +375,17 @@ extension PlaybackSongSyntheticAdapter {
             )
         case 0x06:
             let before = channelState
-            let slide = volumeSlideAmounts(effectParam: cell.effectParam)
-            guard slide.up > 0 || slide.down > 0 else {
-                return voiceStateUpdateDiagnostic(
-                    source: source,
-                    channelIndex: channelIndex,
-                    syntheticRow: syntheticRow,
-                    scheduledFrame: scheduledFrame,
-                    cell: cell,
-                    commandSource: .effectColumn,
-                    command: .effect6xyVolumeSlide(up: 0, down: 0),
-                    rawVolumeColumn: nil,
-                    effectType: cell.effectType,
-                    effectParam: cell.effectParam,
-                    status: .ignoredNoOp,
-                    behavior: .rowLevelApproximation,
-                    channelStateBefore: before,
-                    channelStateAfter: before,
-                    globalVolumeBefore: globalVolumeValue,
-                    globalVolumeAfter: globalVolumeValue
-                )
+            rememberVolumeSlide(from: cell, source: source, channelIndex: channelIndex,
+                                rowSpeed: rowSpeed, channelState: &channelState)
+            let remembered = cell.effectParam == 0 && rowSpeed > 1 ? channelState.volumeSlideMemory : nil
+            let slide = resolved6xyVolumeSlide(from: cell, rowSpeed: rowSpeed, channelState: channelState)
+            let unclamped = before.baseChannelVolume + slide.up - slide.down
+            // Preserve nonzero 6xy's row approximation, including speed 1. A
+            // zero FT2 memory still writes base to output when nonzero ticks exist.
+            if cell.effectParam != 0 || rowSpeed > 1 {
+                channelState.baseChannelVolume = clampedVolumeValue(unclamped)
             }
-            if slide.up > 0 {
-                channelState.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume + slide.up)
-            } else {
-                channelState.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume - slide.down)
-            }
-            channelState.volumeValueZeroedByAxy = false
+            if slide.amount > 0 { channelState.volumeValueZeroedByAxy = false }
             return voiceStateUpdateDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -412,12 +397,18 @@ extension PlaybackSongSyntheticAdapter {
                 rawVolumeColumn: nil,
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
-                status: .applied,
+                status: slide.amount > 0 || before.outputChannelVolume != channelState.outputChannelVolume ? .applied : .ignoredNoOp,
                 behavior: .rowLevelApproximation,
                 channelStateBefore: before,
                 channelStateAfter: channelState,
                 globalVolumeBefore: globalVolumeValue,
-                globalVolumeAfter: globalVolumeValue
+                globalVolumeAfter: globalVolumeValue,
+                volumeSlide: slide,
+                volumeSlideClamped: unclamped != channelState.baseChannelVolume,
+                volumeSlideTick0Suppressed: false,
+                volumeSlideRowSpeed: rowSpeed,
+                effectMemoryReused: remembered != nil,
+                memorySource: remembered?.source
             )
         case 0x0E where isFineVolumeSlideEffect(cell):
             let before = channelState
@@ -490,7 +481,8 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         let requestedSlide = axyVolumeSlideAmounts(effectParam: cell.effectParam)
-        let targetMemorySource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
+        rememberVolumeSlide(from: cell, source: source, channelIndex: channelIndex,
+                            rowSpeed: timingConfig.speed, channelState: &channelState)
         let slide: VolumeSlideAmounts
         let memorySource: PlaybackSongSyntheticEffectMemorySource?
         let effectMemoryReused: Bool
@@ -500,10 +492,6 @@ extension PlaybackSongSyntheticAdapter {
 
         if requestedSlide.amount > 0 {
             slide = requestedSlide
-            channelState.volumeSlideMemory = VolumeSlideMemory(
-                slide: requestedSlide,
-                source: targetMemorySource
-            )
             memorySource = nil
             effectMemoryReused = false
             effectMemoryMissing = false
@@ -606,6 +594,25 @@ extension PlaybackSongSyntheticAdapter {
             ))
         }
         return updates
+    }
+
+    // FT2 A/5/6 share one full-byte memory, written only on nonzero ticks.
+    static func rememberVolumeSlide(
+        from cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        rowSpeed: Int, channelState: inout ChannelState
+    ) {
+        guard rowSpeed > 1, cell.effectParam != 0 else { return }
+        channelState.volumeSlideMemory = VolumeSlideMemory(
+            parameter: cell.effectParam,
+            source: effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
+        )
+    }
+
+    static func resolved6xyVolumeSlide(from cell: PlaybackCell, rowSpeed: Int, channelState: ChannelState) -> VolumeSlideAmounts {
+        let parameter = cell.effectParam != 0 ? cell.effectParam :
+            (rowSpeed > 1 ? channelState.volumeSlideMemory?.parameter ?? 0 : 0)
+        return volumeSlideAmounts(effectParam: parameter, mixedNibblePolicy: "up_nibble_precedence_current_policy",
+                                  zeroPolicy: rowSpeed > 1 ? "600_initial_zero_memory" : "600_no_nonzero_ticks")
     }
 
     static func applyAxyVolumeSlide(

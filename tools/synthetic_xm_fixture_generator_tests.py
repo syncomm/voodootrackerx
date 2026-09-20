@@ -22,6 +22,7 @@ ALL_FIXTURES = [
     "tremolo-effects.xm",
     "vibrato-semantics.xm",
     "amiga-vibrato.xm",
+    "effect-memory.xm",
 ]
 
 
@@ -389,6 +390,23 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(),
                          "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8")
 
+    def test_effect_memory_fixture_pins_shared_slide_bytes_and_control_rows(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        fixture = next(item for item in manifest["fixtures"] if item["name"] == "effect-memory.xm")
+        payload = generator.fixture_xm_bytes(manifest, fixture["name"])
+        self.assertEqual(len(payload), 1248)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(),
+                         "0399629f9b9678f835c6542abb88130aa5666adee55d639af512725dd0d8b612")
+        module = fixture["module"]
+        self.assertEqual((module["channels"], module["speed"], module["bpm"]), (2, 6, 125))
+        cells = {(e["row"], e["channel"]): (e["effect_type"], e["effect_parameter"])
+                 for e in module["patterns"][0]["events"]}
+        self.assertEqual([cells[(r, 1)] for r in range(4, 12)],
+                         [(10, 1), (6, 0), (5, 1), (6, 0), (6, 0x31), (6, 0), (10, 0), (5, 0)])
+        self.assertEqual([cells[(r, 0)] for r in [0, 1, 2, 13, 14, 15]],
+                         [(6, 0), (6, 2), (6, 0), (6, 0x20), (6, 0), (6, 0)])
+
     def test_advanced_instrument_validation_rejects_invalid_indices_keymaps_and_partial_fields(self):
         generator = load_module()
         manifest = generator.fixture_manifest()
@@ -487,6 +505,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "tremolo-effects.xm").resolve(),
                     (output_dir / "generated" / "vibrato-semantics.xm").resolve(),
                     (output_dir / "generated" / "amiga-vibrato.xm").resolve(),
+                    (output_dir / "generated" / "effect-memory.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -494,6 +513,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 [
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
+                    "generated/effect-memory.xm",
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
@@ -545,6 +565,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertFalse((output_dir / "generated" / "tremolo-effects.xm").exists())
             self.assertFalse((output_dir / "generated" / "vibrato-semantics.xm").exists())
             self.assertFalse((output_dir / "generated" / "amiga-vibrato.xm").exists())
+            self.assertFalse((output_dir / "generated" / "effect-memory.xm").exists())
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
 
@@ -562,6 +583,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 [
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
+                    "generated/effect-memory.xm",
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
@@ -631,6 +653,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:tremolo-effects.xm": "generated/tremolo-effects.xm",
                     "xm:vibrato-semantics.xm": "generated/vibrato-semantics.xm",
                     "xm:amiga-vibrato.xm": "generated/amiga-vibrato.xm",
+                    "xm:effect-memory.xm": "generated/effect-memory.xm",
                 },
             )
 

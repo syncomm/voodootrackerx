@@ -106,10 +106,10 @@ trigger with the row-level adjusted channel volume. Empty-note nonzero
 while `EA0`/`EB0` remain effect-memory-deferred no-ops.
 Same-cell nonzero `Axy` note triggers keep effect metadata and trigger once at
 the tick-0 channel volume. The Swift adapter then emits `Axy` gain updates on
-ticks `1...(speed - 1)` for the row. Nonzero Axy-style volume slides store
-per-channel memory, `A00` replays that memory when available, and missing
+ticks `1...(speed - 1)` for the row. Nonzero `Axy`/`5xy`/`6xy` volume slides on rows with nonzero ticks store
+shared per-channel memory, `A00` replays that memory when available, and missing
 memory remains a diagnosed no-op/deferred case. Mixed nibbles keep the
-MikMod-observed up-nibble precedence policy.
+FT2 up-nibble precedence policy.
 Same-cell `9xx` note triggers keep effect metadata, and `900` note triggers are
 tagged when they reuse prior same-channel nonzero `9xx` sample-offset memory.
 Volume-column `F0...FF` tone-portamento rows emit adapter step updates with
@@ -131,15 +131,23 @@ updates. Same-cell note `5xy` rows set the tone-portamento target without
 retriggering, empty-note rows continue an existing target when available, and
 `500` reuses shared Axy-style volume-slide memory when available. Missing
 `500` volume-slide memory remains a diagnosed no-op/deferred case.
-Same-cell nonzero `6xy` note triggers keep effect metadata and trigger with the
-row-level volume-slide adjustment. Empty-note `6xy` rows reuse prior channel
-vibrato memory for sample-step updates and use the existing row-start gain
-update path for nonzero volume slides. `600` can replay vibrato memory without
-volume-slide memory. Vibrato speed/depth start at zero; an unseeded `400` or
-`6xy` consumes that valid zero state without a missing-memory diagnostic.
-Nonzero `4xy` nibbles update their independent channel memory on nonzero ticks;
-`400`, `40y`, and `4x0` retain each zero nibble's previous value. The `6xy`
-volume-slide timing and `600` slide-memory boundary remain unchanged.
+Same-cell `6xy` note triggers keep effect metadata and trigger with the
+row-level volume-slide adjustment. `600` replays the last same-channel nonzero
+`Axy`/`5xy`/`6xy` parameter; unseeded memory supplies zero amount. Speed-1 rows
+neither seed slide memory nor replay `600`. Nonzero `6xy` still applies once at
+row start, including speed 1; full tick timing remains parity-watch debt.
+The existing `volume_panning_state_updates` fields carry `effect_param: 0`,
+`effect_memory_reused`, `memory_source`, the resolved `volume_slide_up/down`,
+output volume before/after, and planned gain/frame. Join source/channel/tick
+with runtime `gain_pan_update` or same-cell trigger application fields
+(`plannedEventFrame`, `eventAppliedFrame`, `plannedVsAppliedDelta`). Successful
+replays carry `vibrato_volume_slide_600_memory_reused`, without a deferred/no-op
+classification. This changes no trace schema.
+Vibrato speed/depth start at zero; an unseeded `400` or `6xy` consumes that
+valid zero state without a missing-memory diagnostic. Nonzero `4xy` nibbles
+update their independent memory on nonzero ticks; `400`, `40y`, and `4x0`
+retain each zero nibble's previous value. Slide parameters never write vibrato
+speed/depth, and absence of slide memory does not prevent vibrato execution.
 `Kxx` rows use the existing key-off/release path; same-cell note triggers keep
 the `Kxx` effect metadata and then release at the requested row tick.
 `Rxy` rows use the shared retrigger path for the active voice. Same-cell note
@@ -154,7 +162,7 @@ four times the speed nibble. Integer waveform magnitude times depth is shifted
 right by five; phase bit 7 selects the reference period-delta sign. Linear
 playback adds that signed delta to the unmodulated base period. Consecutive
 `4xy`/`6xy` rows retain the last output at tick 0; leaving the family restores
-the base. Amiga vibrato execution remains explicitly deferred. Existing runtime
+the base. Linear and Amiga use the shared vibrato contract. Existing runtime
 trace fields carry planned/applied frame and sample-step updates; the trace
 schema is unchanged.
 

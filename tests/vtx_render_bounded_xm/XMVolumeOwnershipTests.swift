@@ -64,7 +64,7 @@ final class XMVolumeOwnershipTests: XCTestCase {
             state.activeEventIndex = 0
             let update = Adapter.applyEffectColumnState(from: command,
                 source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0), channelIndex: 0,
-                syntheticRow: 0, scheduledFrame: 0, channelState: &state, globalVolumeValue: 64)
+                syntheticRow: 0, scheduledFrame: 0, rowSpeed: 6, channelState: &state, globalVolumeValue: 64)
             XCTAssertEqual(update?.gainBefore, 0.0625)
             XCTAssertEqual(update?.gainAfter, Float(expected) / 256)
             XCTAssertEqual(update?.effectiveVolumeBefore, 16)

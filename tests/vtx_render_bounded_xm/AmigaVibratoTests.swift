@@ -70,14 +70,15 @@ final class AmigaVibratoTests: XCTestCase {
         }
     }
 
-    func testSeeded6xySharesPitchAndPreservesRowSlideAnd600Deferral() {
+    func testSeeded6xySharesPitchAndPreservesRowTimingWith600Replay() {
         let mixed = adapt([cell(4, 0x48, note: 49, instrument: 1, volume: 0x30), cell(6, 2), cell(6), cell(6, 0x12)])
         let pure = adapt([cell(4, 0x48, note: 49, instrument: 1, volume: 0x30), cell(4), cell(4), cell(4)])
         XCTAssertEqual(mixed.diagnostics.vibratoEffects.map(\.stepUpdates), pure.diagnostics.vibratoEffects.map(\.stepUpdates))
         let volume = mixed.diagnostics.voiceStateUpdates.filter { $0.effectType == 6 }
         XCTAssertEqual(volume.map(\.syntheticTick), [0, 0, 0])
-        XCTAssertEqual(volume.map(\.effectiveVolumeAfter), [30, 30, 31])
-        XCTAssertFalse(volume[1].applied)
+        XCTAssertEqual(volume.map(\.effectiveVolumeAfter), [30, 28, 29])
+        XCTAssertTrue(volume[1].applied)
+        XCTAssertTrue(volume[1].effectMemoryReused)
     }
 
     func testValidNoteReachesZeroAndUnderflowWithoutClampingOrRetrigger() throws {

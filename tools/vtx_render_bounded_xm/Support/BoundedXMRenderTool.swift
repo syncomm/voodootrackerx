@@ -3790,7 +3790,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 is6xyVolumeSlideUpdate($0) && is6xyVolumeSlideNoActiveVoice($0)
             },
             "vibrato_volume_slide_6xy_zero_param_effect_memory_deferred": count {
-                is6xyVolumeSlideUpdate($0) && is6xyVolumeSlideZeroParamNoOp($0)
+                is6xyVolumeSlideUpdate($0) && $0.effectMemoryDeferred
             },
             "vibrato_volume_slide_6xy_scheduled_gain_update_count": count {
                 is6xyVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
@@ -3993,18 +3993,6 @@ enum PlaybackSongDiagnosticsJSONExporter {
             !update.activeVoiceUpdated
     }
 
-    private static func is6xyVolumeSlideZeroParamNoOp(
-        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
-    ) -> Bool {
-        guard update.ignoredAsNoOp else {
-            return false
-        }
-        if case let .effect6xyVolumeSlide(up, down) = update.command {
-            return up == 0 && down == 0
-        }
-        return false
-    }
-
     private static func isChangedGainStateUpdate(
         _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
     ) -> Bool {
@@ -4135,7 +4123,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             object["volume_slide_down"] = down
             object["volume_slide_amount"] = max(up, down)
             object["volume_slide_direction"] = up > 0 ? "up" : (down > 0 ? "down" : "none")
-            object["effect_memory_deferred"] = update.ignoredAsNoOp && up == 0 && down == 0
+            object["effect_memory_deferred"] = update.effectMemoryDeferred
             object["no_active_voice"] = is6xyVolumeSlideNoActiveVoice(update)
         default:
             break

@@ -319,3 +319,28 @@ The note-only cells at rows 15 and 19 retain the existing trigger limitation:
 VTX holds the preceding output through tick 0 while FT2 restores the note base.
 Their subsequent vibrato ticks and phase continuation match; this fixture does
 not promote note-only trigger parity or broaden the shared vibrato contract.
+
+`generated/effect-memory.xm` (1,248 bytes) isolates shared `Axy`/`5xy`/`6xy`
+volume-slide memory. Two Linear channels, one neutral sustained project sine,
+16 rows, speed 6/BPM 125, with speed-1 controls at rows 13–14. SHA-256:
+`0399629f9b9678f835c6542abb88130aa5666adee55d639af512725dd0d8b612`.
+
+| Rows (decimal) | Channel 0 | Channel 1 |
+| --- | --- | --- |
+| 0–2 | C-4/I01/volume30 `600`, `602`, `600` | C-4/I01/volume30 `448`, `600`, `600` with no slide memory |
+| 3–5 | `448`, `600`, empty retention | `C20`, `A01`, `600` |
+| 6–7 | `C20`, C-4/I01/volume30 `600` | `501`, `600` |
+| 8–11 | instrument-only `600`, note-only `600`, `600`, empty | C-4/I01/volume30 `631`, `600`, `A00`, `500` |
+| 12–15 | `C20`, `620`, `600`, `600` | `C20`, `F01`, empty, `F06` |
+
+At 48 kHz the one-pass plan ends at frame 82560 (1.72 s). `VolumeSlideMemoryTests`
+pins memory origins and bounded/windowed output; `RuntimeCMixerTests` checks
+exact runtime gain frames. The fixture introduces no other memory family.
+For FT2 reference use pinned commit `87be42543dac82cf802b5bddad917bda62ace131`,
+48000 Hz stereo Float32, Linear interpolation/frequencies, amplification 10,
+master 256, ramping on, Precise BPM off. Compare memory bytes and per-tick
+amounts: VTX still applies `6xy` once at row start while FT2 applies every
+nonzero tick. Whole-WAV equality is not an acceptance criterion.
+For a listening sanity check, play rows 0–2: the seeded channel continues
+sliding on `600`, while the unseeded control retains volume. Then check rows
+4–11 for shared-family replay. Listening requires an explicit maintainer report.

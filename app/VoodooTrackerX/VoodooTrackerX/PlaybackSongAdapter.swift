@@ -60,7 +60,7 @@ enum PlaybackSongSyntheticAdapter {
         var sampleOffsetMemory: SampleOffsetMemory?
         var portamentoUpMemory: PortamentoSlideMemory?
         var portamentoDownMemory: PortamentoSlideMemory?
-        var volumeSlideMemory: VolumeSlideMemory?
+        var volumeSlideMemory: VolumeSlideMemory? // Shared Axy/5xy/6xy full parameter and origin.
         var vibratoSpeed = 0
         var vibratoDepth = 0
         var vibratoSpeedMemorySource: PlaybackSongSyntheticEffectMemorySource?
@@ -98,8 +98,12 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     struct VolumeSlideMemory: Equatable {
-        let slide: VolumeSlideAmounts
+        let parameter: UInt8
         let source: PlaybackSongSyntheticEffectMemorySource
+
+        var slide: VolumeSlideAmounts {
+            PlaybackSongSyntheticAdapter.axyVolumeSlideAmounts(effectParam: parameter)
+        }
     }
 
     struct VibratoControlState: Equatable {
@@ -677,7 +681,8 @@ enum PlaybackSongSyntheticAdapter {
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
                 traversalEffectStatuses: context.traversalEffectStatuses,
-                timingConfig: timingConfig
+                timingConfig: timingConfig,
+                channelState: context.channelStates[channelIndex]
             ) {
                 context.effectCommandDiagnostics.append(effectCommandDiagnostic)
             }
@@ -761,6 +766,7 @@ enum PlaybackSongSyntheticAdapter {
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
                 scheduledFrame: scheduledStartFrame,
+                rowSpeed: timingConfig.speed,
                 channelState: &channelState,
                 globalVolumeValue: context.globalVolumeState.volumeValue
             ) {

@@ -326,7 +326,8 @@ extension PlaybackSongSyntheticAdapter {
         channelIndex: Int,
         syntheticRow: Int,
         traversalEffectStatuses: [TraversalEffectKey: PlaybackSongSyntheticEffectCommandDiagnostic.Status],
-        timingConfig: SyntheticTrackerTimingConfig
+        timingConfig: SyntheticTrackerTimingConfig,
+        channelState: ChannelState
     ) -> PlaybackSongSyntheticEffectCommandDiagnostic? {
         guard shouldReportEffectCommand(cell) else {
             return nil
@@ -346,7 +347,7 @@ extension PlaybackSongSyntheticAdapter {
             effectType: cell.effectType,
             effectParam: cell.effectParam,
             decodedLabel: effectCommandLabel(effectType: cell.effectType, effectParam: cell.effectParam),
-            status: traversalEffectStatuses[traversalKey] ?? effectCommandStatus(cell, timingConfig: timingConfig),
+            status: traversalEffectStatuses[traversalKey] ?? effectCommandStatus(cell, timingConfig: timingConfig, channelState: channelState),
             isTraversalHazard: isTraversalHazard(cell)
         )
     }
@@ -364,7 +365,8 @@ extension PlaybackSongSyntheticAdapter {
 
     static func effectCommandStatus(
         _ cell: PlaybackCell,
-        timingConfig: SyntheticTrackerTimingConfig
+        timingConfig: SyntheticTrackerTimingConfig,
+        channelState: ChannelState
     ) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
         switch cell.effectType {
         case 0x00 where cell.effectParam != 0:
@@ -378,7 +380,8 @@ extension PlaybackSongSyntheticAdapter {
             let depth = Int(cell.effectParam & 0x0F)
             return cell.effectParam == 0 || speed == 0 || depth == 0 ? .ignoredNoOp : .applied
         case 0x06:
-            return cell.effectParam == 0 ? .ignoredNoOp : .applied
+            return resolved6xyVolumeSlide(from: cell, rowSpeed: timingConfig.speed, channelState: channelState).amount > 0
+                ? .applied : .ignoredNoOp
         case 0x01...0x02:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x03:

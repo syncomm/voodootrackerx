@@ -147,6 +147,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 .filter { $0.effectType == 0x06 && $0.applied }
                 .compactMap(\.activeEventIndex)
         )
+        let slideMemoryTriggerCoordinates = Set(adaptedPlan.diagnostics.voiceStateUpdates.filter {
+            $0.effectType == 6 && $0.effectMemoryReused && $0.applied && (1...96).contains($0.cellNote)
+        }.map { [$0.syntheticRow, $0.channelIndex] })
         let appliedAxyVolumeSlideEventIndices = Set(
             adaptedPlan.diagnostics.voiceStateUpdates
                 .filter { update in
@@ -305,6 +308,12 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if isVibratoVolumeSlide {
                 categories.append("vibrato_volume_slide_6xy")
             }
+            if mapping.effectType == 6 && slideMemoryTriggerCoordinates.contains([
+                mapping.syntheticRow, mapping.channelIndex
+            ]) {
+                categories.append("effect_memory_reused")
+                categories.append("vibrato_volume_slide_600_memory_reused")
+            }
             let isAxyVolumeSlide = mapping.effectType == 0x0A &&
                 appliedAxyVolumeSlideEventIndices.contains(eventIndex)
             if isAxyVolumeSlide {
@@ -420,6 +429,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 }
             case .effect6xyVolumeSlide:
                 categories.append("vibrato_volume_slide_6xy")
+                if update.effectMemoryReused {
+                    categories.append("effect_memory_reused")
+                    categories.append("vibrato_volume_slide_600_memory_reused")
+                }
             default:
                 break
             }

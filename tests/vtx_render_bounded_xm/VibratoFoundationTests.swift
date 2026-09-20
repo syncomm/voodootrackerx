@@ -99,15 +99,16 @@ final class VibratoFoundationTests: XCTestCase {
         XCTAssertTrue(silent.pattern.events.isEmpty)
     }
 
-    func testSeeded6xySharesPitchWhileRowVolumeAnd600RemainUnchanged() {
+    func testSeeded6xySharesPitchWhile600ReplaysAtUnchangedRowTiming() {
         let plan = adapt([cell(4, 0x48, note: 49, instrument: 1, volume: 0x30), cell(6, 2), cell(6, 0), cell(6, 0x12)])
         let pure = adapt([cell(4, 0x48, note: 49, instrument: 1, volume: 0x30), cell(4, 0), cell(4, 0), cell(4, 0)])
         XCTAssertEqual(plan.diagnostics.vibratoEffects.map(\.stepUpdates), pure.diagnostics.vibratoEffects.map(\.stepUpdates))
         let volume = plan.diagnostics.voiceStateUpdates.filter { $0.effectType == 6 }
         XCTAssertEqual(volume.map(\.syntheticTick), [0, 0, 0])
-        XCTAssertEqual(volume.map(\.effectiveVolumeAfter), [30, 30, 31])
+        XCTAssertEqual(volume.map(\.effectiveVolumeAfter), [30, 28, 29])
         XCTAssertEqual(volume.map(\.effectParam), [2, 0, 0x12])
-        XCTAssertFalse(volume[1].applied) // 600 slide memory remains outside scope.
+        XCTAssertTrue(volume[1].applied)
+        XCTAssertTrue(volume[1].effectMemoryReused)
     }
 
     func testPortamentoDoesNotRetainStaleOutputPeriod() {

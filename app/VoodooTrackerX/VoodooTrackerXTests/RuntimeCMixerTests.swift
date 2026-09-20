@@ -3128,6 +3128,68 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func test600MemoryFixturePlansAndAppliesIdenticalGainAtEveryRuntimeFrame() throws {
+        let fixture = try referenceXMFixtureURL("generated/effect-memory.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+        XCTAssertEqual(end, 82560)
+        let offline = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song, config: MixerRenderConfig(sampleRate: 48_000, channelCount: 1), frames: end))
+        XCTAssertEqual(runtime.plan, offline.plan)
+        let replay = offline.diagnostics.voiceStateUpdates.filter { $0.effectType == 6 && $0.effectMemoryReused }
+        XCTAssertEqual(replay.count, 10)
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 48_000)
+        harness.engine.load(song: song)
+        harness.engine.play(from: nil)
+        defer { harness.engine.stop() }
+        var rendered = 0
+        while rendered < end {
+            let count = min(4093, end - rendered)
+            XCTAssertEqual(harness.audioEngine.renderForTesting(frameCount: count),
+                           Array(offline.block.interleavedPCM[rendered..<(rendered + count)]))
+            rendered += count
+        }
+        for update in replay {
+            XCTAssertEqual(update.effectParam, 0)
+            XCTAssertEqual(update.syntheticTick, 0) // Retained row-level approximation.
+            XCTAssertFalse(update.effectMemoryDeferred)
+            let memory = try XCTUnwrap(update.memorySource)
+            XCTAssertEqual(memory.channelIndex, update.channelIndex)
+            XCTAssertTrue([UInt8(5), 6, 10].contains(memory.effectType))
+            let before = try XCTUnwrap(update.effectiveVolumeBefore)
+            let after = try XCTUnwrap(update.effectiveVolumeAfter)
+            let delta = memory.effectParam >> 4 > 0 ? Int(memory.effectParam >> 4) : -Int(memory.effectParam & 15)
+            XCTAssertEqual(after, min(64, max(0, before + delta)))
+            XCTAssertEqual(update.gainAfter, Float(after) / 64)
+            // Existing note-only routing has no gain event; its memory/state is still tested.
+            if !update.activeVoiceUpdated && update.cellNote != 49 { continue }
+            let event = runtime.events.first {
+                $0.source == update.source && $0.channelIndex == update.channelIndex &&
+                $0.categories.contains("vibrato_volume_slide_600_memory_reused")
+            }
+            if update.cellNote == 49 && update.instrumentIndex == 0 { XCTAssertNil(event); continue }
+            let planned = try XCTUnwrap(event)
+            XCTAssertEqual(planned.scheduledFrame, update.scheduledFrame)
+            XCTAssertTrue(planned.categories.contains("effect_memory_reused"))
+            let actual = try XCTUnwrap(harness.traceWriter.events.first { $0.plannedEventID == planned.id })
+            XCTAssertEqual(actual.effectParam, "00")
+            XCTAssertEqual(actual.plannedSourceRowIndex, update.source.rowIndex)
+            XCTAssertEqual(actual.plannedSourceTickInRow, 0)
+            XCTAssertEqual(actual.plannedEventFrame, update.scheduledFrame)
+            XCTAssertEqual(actual.eventAppliedFrame, UInt64(update.scheduledFrame))
+            XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
+            if case let .gainPanUpdate(_, gain, _) = planned.action {
+                XCTAssertEqual(gain, update.gainAfter)
+                XCTAssertEqual(actual.gainAfter, update.gainAfter)
+                XCTAssertEqual(actual.runtimeAction, "c_mixer_update_gain_pan_applied")
+            } else if case let .noteTrigger(_, event, _) = planned.action {
+                XCTAssertEqual(event.gain, update.gainAfter)
+            } else { XCTFail("Expected slide gain or same-cell trigger") }
+        }
+    }
+
+    @MainActor
     func testAmigaVibratoFixtureDeliversZeroHoldResumeAndAdvancingFollow() throws {
         let fixture = try referenceXMFixtureURL("generated/amiga-vibrato.xm")
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)

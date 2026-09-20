@@ -4212,7 +4212,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(update.gainAfter, 30.0 / 64.0)
     }
 
-    func testPlaybackSongAdapterVibratoVolumeSlide600ReusesPriorVibratoMemoryWithoutVolumeSlideMemory() throws {
+    func testPlaybackSongAdapterVibratoVolumeSlide600ReusesPriorVibratoMemoryAndVolumeSlideMemory() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -4241,15 +4241,17 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertFalse(diagnostic.effectMemoryMissing)
         XCTAssertEqual(diagnostic.vibratoSpeed, 4)
         XCTAssertEqual(diagnostic.vibratoDepth, 8)
-        XCTAssertEqual(diagnostic.volumeSlideAmount, 0)
-        XCTAssertEqual(diagnostic.volumeSlideDirection, "none")
+        XCTAssertEqual(diagnostic.volumeSlideAmount, 2)
+        XCTAssertEqual(diagnostic.volumeSlideDirection, "down")
         XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [9, 10, 11])
-        XCTAssertEqual(update.status, .ignoredNoOp)
-        XCTAssertTrue(update.ignoredAsNoOp)
+        XCTAssertEqual(update.status, .applied)
+        XCTAssertFalse(update.ignoredAsNoOp)
+        XCTAssertTrue(update.effectMemoryReused)
+        XCTAssertEqual(update.memorySource?.effectParam, 2)
         XCTAssertEqual(update.effectiveVolumeBefore, 30)
-        XCTAssertEqual(update.effectiveVolumeAfter, 30)
+        XCTAssertEqual(update.effectiveVolumeAfter, 28)
         XCTAssertEqual(update.gainBefore, 30.0 / 64.0)
-        XCTAssertEqual(update.gainAfter, 30.0 / 64.0)
+        XCTAssertEqual(update.gainAfter, 28.0 / 64.0)
     }
 
     func testPlaybackSongAdapterVibratoVolumeSlide600UsesInitialZeroVibratoWithoutSlideMemory() throws {

@@ -2464,11 +2464,298 @@
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
         "Other Amiga pitch effects and the existing extreme note-base clamp are outside scope.",
-        "600 slide-memory replay and 6xy slide timing remain deferred."
+        "6xy slide timing remains deferred; effect-memory.xm owns 600 replay coverage."
       ],
       "xm_output": "generated/amiga-vibrato.xm",
       "xm_sha256": "aa74e2992daebef012792f76ce34fa81c9e22e75a833ab5d2df3895de4d30012",
       "xm_size_bytes": 1253
+    },
+    {
+      "id": "effect-memory",
+      "intended_tests": [
+        "VolumeSlideMemoryTests: full-byte memory, isolation, retention, vibrato independence",
+        "RuntimeCMixerTests: identical bounded/runtime gains and exact applied frames"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "name": "VIBRATO SINE",
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "VIBRATO SINE 16",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 12000,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 48
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 72,
+                "effect_type": 4,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 48
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 2,
+                "effect_type": 6,
+                "note": 0,
+                "row": 1
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 1
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 2
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 2
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 72,
+                "effect_type": 4,
+                "note": 0,
+                "row": 3
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 3
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 10,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 5
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 6
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 5,
+                "note": 0,
+                "row": 6
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "instrument": 1,
+                "note": 49,
+                "row": 7,
+                "volume_column": 48
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 7
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "instrument": 1,
+                "note": 0,
+                "row": 8
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 49,
+                "effect_type": 6,
+                "instrument": 1,
+                "note": 49,
+                "row": 8,
+                "volume_column": 48
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 49,
+                "row": 9
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 9
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 10
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 10,
+                "note": 0,
+                "row": 10
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 5,
+                "note": 0,
+                "row": 11
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 12
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 6,
+                "note": 0,
+                "row": 13
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 15,
+                "note": 0,
+                "row": 13
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 14
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "note": 0,
+                "row": 15
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "note": 0,
+                "row": 15
+              }
+            ],
+            "rows": 16
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX SLIDE MEMORY",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "effect-memory.xm",
+      "purpose": "Focused shared A/5/6 volume-slide memory and 600 replay; existing 6xy timing retained.",
+      "significant_rows": [
+        "Rows 0...3: unseeded 600, 602 to 600; channel 1 has vibrato but no slide memory.",
+        "Rows 4...7: 448 plus retained slide memory; A01 to 600 and 501 to 600 on channel 1.",
+        "Rows 8...11: instrument-only and note-only retention; 631 to 600 to A00 to 500 on channel 1.",
+        "Rows 12...15: C20, speed-1 620 (no memory write), speed-1 600 (no replay), F06 restores replay of 02."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "6xy volume-slide application remains a row-level approximation.",
+        "Other effect-memory families are outside scope."
+      ],
+      "xm_output": "generated/effect-memory.xm",
+      "xm_sha256": "0399629f9b9678f835c6542abb88130aa5666adee55d639af512725dd0d8b612",
+      "xm_size_bytes": 1248
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

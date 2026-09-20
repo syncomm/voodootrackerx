@@ -153,7 +153,7 @@ Start with focused fixtures that each prove one behavior class:
   memory, all `E40...E4F` waveform/reset controls, no-note continuation,
   instrument-trigger reset or suppression, and explicitly seeded `6xy` vibrato
   reuse. The README owns the row map; the manifest pins bytes and PCM hashes.
-  `600` memory and `6xy` slide timing remain separate contracts.
+  `effect-memory.xm` owns `600` memory coverage; `6xy` slide timing remains separate.
 - `amiga-vibrato.xm`: one 30-row Amiga pattern, one sustained sine with finetune
   +8, ordinary `4xy`, nibble memory, E4 controls, trigger reset/suppression,
   seeded `6xy`, and legal A#7 period-zero hold/resume. The README owns its row
@@ -172,8 +172,10 @@ Start with focused fixtures that each prove one behavior class:
 - `traversal-effects.xm`: position jump, pattern break, pattern delay, and
   loop traversal cases.
 - `retrigger-cut-delay.xm`: retrigger, note cut, note delay, and key-off cases.
-- `effect-memory.xm`: small effect-memory cases once expected behavior is
-  documented.
+- `effect-memory.xm`: one 16-row, two-channel public fixture for shared
+  `Axy`/`5xy`/`6xy` memory and `600` replay, initial zero, channel isolation,
+  intervening rows/triggers, independent vibrato, mixed nibbles, and speed 1.
+  Existing `6xy` slide timing remains separate; no other memory family is added.
 - `volume-column-effects.xm`: focused volume-column commands.
 
 Each fixture should include a short source note explaining why it exists, what

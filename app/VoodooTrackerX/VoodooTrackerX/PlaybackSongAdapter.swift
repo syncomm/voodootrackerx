@@ -2011,10 +2011,15 @@ enum PlaybackSongSyntheticAdapter {
             }
             context.channelStates[channelIndex] = channelState
         }
-        // Plan nonzero tremolo ticks after all tick-zero channel/global writers.
-        // In particular, a later channel's Gxx must not see a future tremolo value.
+        // Plan nonzero 6xy/tremolo ticks after all tick-zero channel/global writers.
+        // A later channel's Gxx must not see a future slide or tremolo value.
         for channelIndex in row.cells.indices {
             let cell = row.cells[channelIndex]
+            context.voiceStateUpdates.append(contentsOf: apply6xyVolumeSlide(
+                from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                timingConfig: timingConfig, timingPlan: timingPlan,
+                channelState: &context.channelStates[channelIndex], globalVolumeValue: context.globalVolumeState.volumeValue
+            ))
             advanceTremoloVibratoObserver(cell: cell, rowSpeed: timingConfig.speed,
                                          state: &context.channelStates[channelIndex])
             context.voiceStateUpdates.append(contentsOf: applyTremolo(

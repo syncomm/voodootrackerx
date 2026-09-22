@@ -4248,10 +4248,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertFalse(update.ignoredAsNoOp)
         XCTAssertTrue(update.effectMemoryReused)
         XCTAssertEqual(update.memorySource?.effectParam, 2)
-        XCTAssertEqual(update.effectiveVolumeBefore, 30)
-        XCTAssertEqual(update.effectiveVolumeAfter, 28)
-        XCTAssertEqual(update.gainBefore, 30.0 / 64.0)
-        XCTAssertEqual(update.gainAfter, 28.0 / 64.0)
+        XCTAssertEqual(update.effectiveVolumeBefore, 22)
+        XCTAssertEqual(update.effectiveVolumeAfter, 20)
+        XCTAssertEqual(update.gainBefore, 22.0 / 64.0)
+        XCTAssertEqual(update.gainAfter, 20.0 / 64.0)
     }
 
     func testPlaybackSongAdapterVibratoVolumeSlide600UsesInitialZeroVibratoWithoutSlideMemory() throws {

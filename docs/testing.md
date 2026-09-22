@@ -175,12 +175,14 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
   0...5, 6...19, 20...23, and 25...28 with ft2-clone Amiga Frequency Slides;
   `6xy` slide timing remains outside acceptance.
 - Use `effect-memory.xm` and `swift test --filter VolumeSlideMemoryTests` for
-  shared `Axy`/`5xy`/`6xy` memory. `RuntimeCMixerTests` pins identical plans,
-  PCM, and applied gain frames. In the canonical Debug app, compare channel 0's
+  shared `Axy`/`5xy`/`6xy` memory and exact `6xy`/`600` tick scheduling at speeds
+  1, 3, and 6. `RuntimeCMixerTests` pins identical plans/gain frames and PCM
+  within Float rounding tolerance. In the canonical Debug app, compare channel 0's
   `602` → `600` at rows 1–2 against channel 1's unseeded `600`; rows 4–11
   cover cross-family replay. The [fixture row map](../tests/reference-xm/README.md)
-  gives exact controls. Listening corroborates direction/magnitude and requires
-  Gregory's report; the retained row-level timing is not FT2 timing acceptance.
+  gives exact controls. Also compare speed-1 holds at rows 13–14 and the speed-3
+  same-cell `602` / no-note `600` at rows 16–17. Listen for the within-row
+  stair-step cadence against ft2-clone; Gregory's listening report remains a merge gate.
 - Use `tremolo-effects.xm` for `7xy`/`E7x`: check modulation, zero-nibble
   memory, waveform/reset controls, and held output across empty rows.
   `swift test --filter TremoloTests` pins tracker-volume semantics;

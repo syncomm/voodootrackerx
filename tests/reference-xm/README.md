@@ -280,9 +280,8 @@ instrument triggers test reset behavior, including the instrument-only row 6.
 `400`, `403`, and `480` exercise complete and independent nibble
 memory. Numeric tests own exact tick trajectories and phase wrapping.
 
-The final `6xy` rows have explicitly seeded vibrato state and preserve the
-existing volume-slide behavior. `600` memory and row-versus-tick slide timing
-are outside this fixture's acceptance contract. This fixture establishes the
+The final `6xy` rows have explicitly seeded vibrato state. `effect-memory.xm`
+owns the shared slide memory and tick-scheduling acceptance contract. This fixture establishes the
 shared foundation in Linear mode; Amiga execution uses its own fixture below.
 
 For maintainer listening, load this fixture and compare rows 1...6, the control
@@ -320,27 +319,32 @@ VTX holds the preceding output through tick 0 while FT2 restores the note base.
 Their subsequent vibrato ticks and phase continuation match; this fixture does
 not promote note-only trigger parity or broaden the shared vibrato contract.
 
-`generated/effect-memory.xm` (1,248 bytes) isolates shared `Axy`/`5xy`/`6xy`
-volume-slide memory. Two Linear channels, one neutral sustained project sine,
-16 rows, speed 6/BPM 125, with speed-1 controls at rows 13–14. SHA-256:
-`0399629f9b9678f835c6542abb88130aa5666adee55d639af512725dd0d8b612`.
+`generated/effect-memory.xm` (1,261 bytes) isolates shared `Axy`/`5xy`/`6xy`
+volume-slide memory and `6xy`/`600` tick timing. Two Linear channels, one neutral
+sustained project sine, 18 rows, speed 6/BPM 125, with speed-1 controls at rows
+13–14 and speed 3 at rows 16–17. SHA-256:
+`0e20804e0bbf9aba449c58b76ab97ba93ec02429c5fa056ed26d8a118c43f168`.
 
 | Rows (decimal) | Channel 0 | Channel 1 |
 | --- | --- | --- |
 | 0–2 | C-4/I01/volume30 `600`, `602`, `600` | C-4/I01/volume30 `448`, `600`, `600` with no slide memory |
 | 3–5 | `448`, `600`, empty retention | `C20`, `A01`, `600` |
 | 6–7 | `C20`, C-4/I01/volume30 `600` | `501`, `600` |
-| 8–11 | instrument-only `600`, note-only `600`, `600`, empty | C-4/I01/volume30 `631`, `600`, `A00`, `500` |
+| 8–11 | instrument-only/volume50 `600`, note-only `600`, `600`, empty | C-4/I01/volume30 `631`, `600`, `A00`, `500` |
 | 12–15 | `C20`, `620`, `600`, `600` | `C20`, `F01`, empty, `F06` |
+| 16–17 | C-4/I01/volume30 `602`, no-note `600` | `F03`, empty |
 
-At 48 kHz the one-pass plan ends at frame 82560 (1.72 s). `VolumeSlideMemoryTests`
+At 48 kHz each tick is 960 frames; the one-pass plan ends at frame 88320 (1.84 s). `VolumeSlideMemoryTests`
 pins memory origins and bounded/windowed output; `RuntimeCMixerTests` checks
-exact runtime gain frames. The fixture introduces no other memory family.
+exact runtime gain frames. Row 8 explicitly sets volume 64 because instrument-only default-volume reset
+parity is separate from slide timing. The fixture introduces no other memory family.
 For FT2 reference use pinned commit `87be42543dac82cf802b5bddad917bda62ace131`,
 48000 Hz stereo Float32, Linear interpolation/frequencies, amplification 10,
-master 256, ramping on, Precise BPM off. Compare memory bytes and per-tick
-amounts: VTX still applies `6xy` once at row start while FT2 applies every
-nonzero tick. Whole-WAV equality is not an acceptance criterion.
+master 256, ramping on, Precise BPM off. Compare exact tick volumes and frames:
+channel 0 row 1 is `32, 30, 28, 26, 24, 22`, row 2 is `22, 20, 18, 16, 14, 12`;
+rows 13–14 hold 32 with no slide; rows 16–17 are `32, 30, 28` and `28, 26, 24`.
+The first value is tick 0. Whole-WAV equality is not an acceptance criterion.
 For a listening sanity check, play rows 0–2: the seeded channel continues
 sliding on `600`, while the unseeded control retains volume. Then check rows
-4–11 for shared-family replay. Listening requires an explicit maintainer report.
+4–11 for shared-family replay and 16–17 for speed-3 cadence. Compare the within-row
+stair steps with ft2-clone. Listening requires an explicit maintainer report.

@@ -373,43 +373,6 @@ extension PlaybackSongSyntheticAdapter {
                 globalVolumeBefore: globalVolumeValue,
                 globalVolumeAfter: globalVolumeValue
             )
-        case 0x06:
-            let before = channelState
-            rememberVolumeSlide(from: cell, source: source, channelIndex: channelIndex,
-                                rowSpeed: rowSpeed, channelState: &channelState)
-            let remembered = cell.effectParam == 0 && rowSpeed > 1 ? channelState.volumeSlideMemory : nil
-            let slide = resolved6xyVolumeSlide(from: cell, rowSpeed: rowSpeed, channelState: channelState)
-            let unclamped = before.baseChannelVolume + slide.up - slide.down
-            // Preserve nonzero 6xy's row approximation, including speed 1. A
-            // zero FT2 memory still writes base to output when nonzero ticks exist.
-            if cell.effectParam != 0 || rowSpeed > 1 {
-                channelState.baseChannelVolume = clampedVolumeValue(unclamped)
-            }
-            if slide.amount > 0 { channelState.volumeValueZeroedByAxy = false }
-            return voiceStateUpdateDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                scheduledFrame: scheduledFrame,
-                cell: cell,
-                commandSource: .effectColumn,
-                command: .effect6xyVolumeSlide(up: slide.up, down: slide.down),
-                rawVolumeColumn: nil,
-                effectType: cell.effectType,
-                effectParam: cell.effectParam,
-                status: slide.amount > 0 || before.outputChannelVolume != channelState.outputChannelVolume ? .applied : .ignoredNoOp,
-                behavior: .rowLevelApproximation,
-                channelStateBefore: before,
-                channelStateAfter: channelState,
-                globalVolumeBefore: globalVolumeValue,
-                globalVolumeAfter: globalVolumeValue,
-                volumeSlide: slide,
-                volumeSlideClamped: unclamped != channelState.baseChannelVolume,
-                volumeSlideTick0Suppressed: false,
-                volumeSlideRowSpeed: rowSpeed,
-                effectMemoryReused: remembered != nil,
-                memorySource: remembered?.source
-            )
         case 0x0E where isFineVolumeSlideEffect(cell):
             let before = channelState
             let amount = fineVolumeSlideAmount(from: cell)
@@ -463,6 +426,41 @@ extension PlaybackSongSyntheticAdapter {
             )
         default:
             return nil
+        }
+    }
+
+    static func apply6xyVolumeSlide(
+        from cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int, syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig, timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState, globalVolumeValue: Int
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        let rowSpeed = timingConfig.speed
+        guard cell.effectType == 0x06, rowSpeed > 1 else { return [] }
+        rememberVolumeSlide(from: cell, source: source, channelIndex: channelIndex,
+                            rowSpeed: rowSpeed, channelState: &channelState)
+        let remembered = cell.effectParam == 0 ? channelState.volumeSlideMemory : nil
+        let slide = resolved6xyVolumeSlide(from: cell, rowSpeed: rowSpeed, channelState: channelState)
+        // FT2 runs doVibrato then volSlide on ticks 1..<speed. Initial zero
+        // memory still restores output from base on those ticks, never tick 0.
+        return (1..<rowSpeed).map { tick in
+            let before = channelState
+            let unclamped = before.baseChannelVolume + slide.up - slide.down
+            channelState.baseChannelVolume = clampedVolumeValue(unclamped)
+            if slide.amount > 0 { channelState.volumeValueZeroedByAxy = false }
+            let applied = slide.amount > 0 || before.outputChannelVolume != channelState.outputChannelVolume
+            return voiceStateUpdateDiagnostic(
+                source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick), cell: cell,
+                commandSource: .effectColumn, command: .effect6xyVolumeSlide(up: slide.up, down: slide.down),
+                rawVolumeColumn: nil, effectType: cell.effectType, effectParam: cell.effectParam,
+                status: applied ? .applied : .ignoredNoOp, behavior: .tickLevelAfterTick0,
+                channelStateBefore: before, channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue, globalVolumeAfter: globalVolumeValue,
+                volumeSlide: slide, volumeSlideClamped: unclamped != channelState.baseChannelVolume,
+                volumeSlideTick0Suppressed: true, volumeSlideRowSpeed: rowSpeed,
+                effectMemoryReused: remembered != nil, memorySource: remembered?.source,
+                activeVoiceUpdatedOverride: applied && before.activeEventIndex != nil && before.activeSampleVolume != nil
+            )
         }
     }
 

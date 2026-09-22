@@ -81,7 +81,7 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 | `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and target-clamped updates after tick 0 (Linear `4 * xx` period units); Amiga targets use the FT2-compatible quantized period lookup. No-active/no-target/no-speed/missing-memory residuals remain parity-watch. |
 | `4xy` | Vibrato | Implemented, parity-watch | Initially zero speed/depth; `400` / zero-nibble memory supported | Yes | Yes | Shared FT2 integer modulation in Linear and Amiga modes; Amiga wraps the unsigned period before 4x mapping, including explicit zero-step hold/resume. See the contract below. |
 | `5xy` | Tone portamento + volume slide | Implemented, parity-watch | Uses existing `3xx` tone target/speed; `500` reuses shared `Axy`/`5xy`/`6xy` slide memory | Yes | Yes | Reuses Linear `3xx` speed in `4 * xx` period units and the independent `Axy` tick-level volume-slide policy; missing `500` volume-slide memory remains no-op/deferred. |
-| `6xy` | Vibrato + volume slide | Implemented, parity-watch | Independent `4xy` vibrato and shared `Axy`/`5xy`/`6xy` slide memory; `600` replays the latter | Yes | Yes | Reuses Linear/Amiga `4xy` pitch execution plus the unchanged row-level volume-slide path. Tick-level slide correction remains separate work. |
+| `6xy` | Vibrato + volume slide | Implemented, parity-watch | Independent `4xy` vibrato and shared `Axy`/`5xy`/`6xy` slide memory; `600` replays the latter | Yes | Yes | Reuses unchanged Linear/Amiga `4xy` pitch execution; slide applies on ticks `1...(speed - 1)`, including `600`. No tick-zero or speed-1 slide; the row-level timing gap is closed. |
 | `7xy` | Tremolo | Implemented, parity-watch | Independent speed/depth nibble memory, initially zero; `700`, `70y`, and `7x0` supported | Yes | Yes | Exact integer output-volume modulation after tick 0; phase and output persist across empty rows. Existing sample scaling, gain ramps, and trigger/other-effect boundaries remain; see [volume ownership](design/xm-volume-ownership.md#tremolo-output-memory-and-controls). |
 | `8xx` | Set panning | Implemented | Not applicable | Yes | Yes | Row-level panning state update. |
 | `9xx` | Sample offset | Implemented | `900` memory supported | Yes | Yes | Same-cell note/sample starts; out-of-range offsets are skipped safely. |
@@ -163,13 +163,14 @@ Intervening rows/effects and note/instrument triggers preserve the memory.
 Channel initialization starts it at zero, so unseeded `600` supplies no slide
 amount; FT2 still copies base volume to output. Vibrato state is independent.
 
-FT2 dispatches these handlers only on nonzero ticks: a speed-1 row cannot
-replace slide memory. VTX retains its existing nonzero `6xy` row-start volume
-adjustment even at speed 1, but does not store that parameter or replay `600`
-on such a row. `Axy`/`5xy` keep their existing tick scheduling. At higher
-speeds, `600` uses the existing `6xy` row-level application path: memory
-semantics are corrected; full `6xy` volume-slide timing remains parity-watch debt.
-Sample/header/global/envelope/fadeout scaling and gain ramps are unchanged.
+`Axy`/`5xy` scheduling and memory are unchanged. `6xy`/`600` now follow FT2's
+[nonzero-tick dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2234-L2287): vibrato then the shared slide on ticks `1..<speed`.
+[Tick-zero dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L985-L1031) does not slide; speed 1 has no slide, output restoration, or memory write/replay.
+Each slide clamps base volume to `0...64` then copies it to output; unseeded
+`600` restores base to output with zero slide amount. Trigger, gain/scaling,
+and vibrato phase/value/frame contracts remain unchanged. Runtime and offline
+apply their independent gain and pitch updates before rendering the shared frame.
+`effect-memory.xm` pins speeds 1/3/6; this closes only the `6xy` row-level timing gap.
 
 ## Shared Vibrato Contract
 
@@ -196,9 +197,8 @@ family restores the base. The public `vibrato-semantics.xm` fixture and
 `VibratoFoundationTests` pin this contract against the
 [pinned FT2 replayer](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1836-L1866).
 
-Existing note-only sample retrigger/tick-zero pitch restoration limitations,
-Linear range-edge behavior, and `6xy` row-level volume-slide timing remain parity
-boundaries. `600` memory support does not close that timing gap.
+Existing note-only sample retrigger/tick-zero pitch restoration limitations and
+Linear range-edge behavior remain parity boundaries.
 
 Amiga `4xy` and the vibrato half of `6xy` apply the same signed delta using
 `resultFT2 = (baseFT2 + signedDelta) mod 65536`, then
@@ -214,7 +214,7 @@ wrap, including 118 - 119 = 65535 and 65417 + 119 = 0.
 memory/controls, zero hold/resume, and exact runtime/offline event frames.
 The existing extreme Amiga note-base clamp remains a separate parity boundary,
 as does FT2 fixed-point versus VTX analytic frequency conversion. This does not
-promote other Amiga pitch families or change `6xy` slide timing.
+promote other Amiga pitch families; the shared slide schedule is specified above.
 
 ## Portamento Units
 

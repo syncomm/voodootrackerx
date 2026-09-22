@@ -1811,7 +1811,7 @@ extension PlaybackSongSyntheticAdapter {
         let stepBefore = channelState.activePlaybackStep
         var updates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
         var status: PlaybackSongSyntheticVibratoDiagnostic.Status = .applied
-        var policy = combined ? "6xy_ft2_vibrato_plus_unchanged_row_volume_slide" : "ft2_integer_vibrato_linear_period"
+        var policy = combined ? "6xy_ft2_vibrato_plus_tick_volume_slide" : "ft2_integer_vibrato_linear_period"
         if !linear && !combined { policy = "ft2_integer_vibrato_wrapped_amiga_period" }
 
         if channelState.activeEventIndex == nil {

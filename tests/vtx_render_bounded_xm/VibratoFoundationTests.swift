@@ -99,16 +99,16 @@ final class VibratoFoundationTests: XCTestCase {
         XCTAssertTrue(silent.pattern.events.isEmpty)
     }
 
-    func testSeeded6xySharesPitchWhile600ReplaysAtUnchangedRowTiming() {
+    func testSeeded6xyPreservesPitchWhile600ReplaysOnNonzeroTicks() {
         let plan = adapt([cell(4, 0x48, note: 49, instrument: 1, volume: 0x30), cell(6, 2), cell(6, 0), cell(6, 0x12)])
         let pure = adapt([cell(4, 0x48, note: 49, instrument: 1, volume: 0x30), cell(4, 0), cell(4, 0), cell(4, 0)])
         XCTAssertEqual(plan.diagnostics.vibratoEffects.map(\.stepUpdates), pure.diagnostics.vibratoEffects.map(\.stepUpdates))
         let volume = plan.diagnostics.voiceStateUpdates.filter { $0.effectType == 6 }
-        XCTAssertEqual(volume.map(\.syntheticTick), [0, 0, 0])
-        XCTAssertEqual(volume.map(\.effectiveVolumeAfter), [30, 28, 29])
-        XCTAssertEqual(volume.map(\.effectParam), [2, 0, 0x12])
-        XCTAssertTrue(volume[1].applied)
-        XCTAssertTrue(volume[1].effectMemoryReused)
+        XCTAssertEqual(volume.map(\.syntheticTick), Array(repeating: [1, 2, 3, 4, 5], count: 3).flatMap { $0 })
+        XCTAssertEqual(volume.map(\.effectiveVolumeAfter), [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 13, 14, 15, 16, 17])
+        XCTAssertEqual(volume.map(\.effectParam), [UInt8(2), 0, 0x12].flatMap { Array(repeating: $0, count: 5) })
+        XCTAssertTrue(volume[5].applied)
+        XCTAssertTrue(volume[5].effectMemoryReused)
     }
 
     func testPortamentoDoesNotRetainStaleOutputPeriod() {

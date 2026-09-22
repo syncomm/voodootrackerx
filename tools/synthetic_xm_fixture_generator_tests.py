@@ -395,9 +395,9 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         manifest = generator.fixture_manifest()
         fixture = next(item for item in manifest["fixtures"] if item["name"] == "effect-memory.xm")
         payload = generator.fixture_xm_bytes(manifest, fixture["name"])
-        self.assertEqual(len(payload), 1248)
+        self.assertEqual(len(payload), 1261)
         self.assertEqual(hashlib.sha256(payload).hexdigest(),
-                         "0399629f9b9678f835c6542abb88130aa5666adee55d639af512725dd0d8b612")
+                         "0e20804e0bbf9aba449c58b76ab97ba93ec02429c5fa056ed26d8a118c43f168")
         module = fixture["module"]
         self.assertEqual((module["channels"], module["speed"], module["bpm"]), (2, 6, 125))
         cells = {(e["row"], e["channel"]): (e["effect_type"], e["effect_parameter"])
@@ -406,6 +406,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                          [(10, 1), (6, 0), (5, 1), (6, 0), (6, 0x31), (6, 0), (10, 0), (5, 0)])
         self.assertEqual([cells[(r, 0)] for r in [0, 1, 2, 13, 14, 15]],
                          [(6, 0), (6, 2), (6, 0), (6, 0x20), (6, 0), (6, 0)])
+        self.assertEqual([cells[(16, 0)], cells[(16, 1)], cells[(17, 0)]], [(6, 2), (15, 3), (6, 0)])
 
     def test_advanced_instrument_validation_rejects_invalid_indices_keymaps_and_partial_fields(self):
         generator = load_module()

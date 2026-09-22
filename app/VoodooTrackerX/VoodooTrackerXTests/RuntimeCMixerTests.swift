@@ -587,8 +587,8 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(noteTrigger.effectType, 0x06)
         XCTAssertEqual(noteTrigger.effectParam, 0x02)
         XCTAssertEqual(gainUpdate.effectType, 0x06)
-        XCTAssertEqual(gainUpdate.effectParam, 0x01)
-        XCTAssertEqual(gainUpdate.scheduledFrame, 8)
+        XCTAssertEqual(gainUpdate.effectParam, 0x02)
+        XCTAssertEqual(gainUpdate.scheduledFrame, 5)
         XCTAssertEqual(stepUpdates.count, 6)
         XCTAssertTrue(stepUpdates.allSatisfy { $0.effectType == 0x06 })
         XCTAssertTrue(stepUpdates.allSatisfy { $0.categories.contains("effect_memory_reused") })
@@ -3133,12 +3133,15 @@ final class RuntimeCMixerTests: XCTestCase {
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
         let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
         let end = try XCTUnwrap(runtime.plannedSongEndFrame)
-        XCTAssertEqual(end, 82560)
+        XCTAssertEqual(end, 88320)
         let offline = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
             song: song, config: MixerRenderConfig(sampleRate: 48_000, channelCount: 1), frames: end))
         XCTAssertEqual(runtime.plan, offline.plan)
-        let replay = offline.diagnostics.voiceStateUpdates.filter { $0.effectType == 6 && $0.effectMemoryReused }
-        XCTAssertEqual(replay.count, 10)
+        let slides = offline.diagnostics.voiceStateUpdates.filter { if case .effect6xyVolumeSlide = $0.command { return true }; return false }
+        XCTAssertEqual(slides.filter(\.effectMemoryReused).count, 52)
+        XCTAssertTrue(slides.allSatisfy { $0.syntheticTick > 0 })
+        XCTAssertTrue(runtime.events.filter { $0.effectType == 6 && $0.categories.contains("gain_pan_update") }
+            .allSatisfy { $0.syntheticTick > 0 })
         let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 48_000)
         harness.engine.load(song: song)
         harness.engine.play(from: nil)
@@ -3146,46 +3149,50 @@ final class RuntimeCMixerTests: XCTestCase {
         var rendered = 0
         while rendered < end {
             let count = min(4093, end - rendered)
-            XCTAssertEqual(harness.audioEngine.renderForTesting(frameCount: count),
-                           Array(offline.block.interleavedPCM[rendered..<(rendered + count)]))
+            let actual = harness.audioEngine.renderForTesting(frameCount: count)
+            let expected = offline.block.interleavedPCM[rendered..<(rendered + count)]
+            XCTAssertEqual(actual.count, expected.count)
+            // Replacement ramps overlap three voices; summation order can differ by a Float ulp.
+            XCTAssertLessThanOrEqual(zip(actual, expected).map { abs($0 - $1) }.max() ?? 0, 1e-7)
             rendered += count
         }
-        for update in replay {
-            XCTAssertEqual(update.effectParam, 0)
-            XCTAssertEqual(update.syntheticTick, 0) // Retained row-level approximation.
+        for update in slides {
             XCTAssertFalse(update.effectMemoryDeferred)
-            let memory = try XCTUnwrap(update.memorySource)
-            XCTAssertEqual(memory.channelIndex, update.channelIndex)
-            XCTAssertTrue([UInt8(5), 6, 10].contains(memory.effectType))
+            let parameter = update.memorySource?.effectParam ?? update.effectParam ?? 0
             let before = try XCTUnwrap(update.effectiveVolumeBefore)
             let after = try XCTUnwrap(update.effectiveVolumeAfter)
-            let delta = memory.effectParam >> 4 > 0 ? Int(memory.effectParam >> 4) : -Int(memory.effectParam & 15)
+            let delta = parameter >> 4 > 0 ? Int(parameter >> 4) : -Int(parameter & 15)
             XCTAssertEqual(after, min(64, max(0, before + delta)))
             XCTAssertEqual(update.gainAfter, Float(after) / 64)
-            // Existing note-only routing has no gain event; its memory/state is still tested.
-            if !update.activeVoiceUpdated && update.cellNote != 49 { continue }
-            let event = runtime.events.first {
+            let events = runtime.events.filter {
                 $0.source == update.source && $0.channelIndex == update.channelIndex &&
-                $0.categories.contains("vibrato_volume_slide_600_memory_reused")
+                $0.syntheticTick == update.syntheticTick && $0.categories.contains("gain_pan_update")
             }
-            if update.cellNote == 49 && update.instrumentIndex == 0 { XCTAssertNil(event); continue }
-            let planned = try XCTUnwrap(event)
+            XCTAssertEqual(events.count, before == after ? 0 : 1)
+            guard let planned = events.first else { continue }
             XCTAssertEqual(planned.scheduledFrame, update.scheduledFrame)
-            XCTAssertTrue(planned.categories.contains("effect_memory_reused"))
-            let actual = try XCTUnwrap(harness.traceWriter.events.first { $0.plannedEventID == planned.id })
-            XCTAssertEqual(actual.effectParam, "00")
+            XCTAssertEqual(planned.scheduledFrame, offline.diagnostics.rowTiming[update.syntheticRow].rowStartFrame + update.syntheticTick * 960)
+            XCTAssertEqual(planned.categories.contains("effect_memory_reused"), update.effectMemoryReused)
+            let applications = harness.traceWriter.events.filter { $0.plannedEventID == planned.id }
+            let actual = try XCTUnwrap(applications.first)
+            XCTAssertEqual(applications.count, 1)
+            XCTAssertEqual(actual.effectParam, update.effectParam.map { String(format: "%02X", $0) })
             XCTAssertEqual(actual.plannedSourceRowIndex, update.source.rowIndex)
-            XCTAssertEqual(actual.plannedSourceTickInRow, 0)
+            XCTAssertEqual(actual.plannedSourceTickInRow, update.syntheticTick)
             XCTAssertEqual(actual.plannedEventFrame, update.scheduledFrame)
             XCTAssertEqual(actual.eventAppliedFrame, UInt64(update.scheduledFrame))
             XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
-            if case let .gainPanUpdate(_, gain, _) = planned.action {
-                XCTAssertEqual(gain, update.gainAfter)
-                XCTAssertEqual(actual.gainAfter, update.gainAfter)
-                XCTAssertEqual(actual.runtimeAction, "c_mixer_update_gain_pan_applied")
-            } else if case let .noteTrigger(_, event, _) = planned.action {
-                XCTAssertEqual(event.gain, update.gainAfter)
-            } else { XCTFail("Expected slide gain or same-cell trigger") }
+            XCTAssertEqual(actual.gainAfter, update.gainAfter)
+            XCTAssertEqual(actual.runtimeAction, "c_mixer_update_gain_pan_applied")
+            // Existing gain-before-pitch ordering is safe: both updates precede this frame's audio.
+            if let pitch = runtime.events.first(where: {
+                $0.source == update.source && $0.channelIndex == update.channelIndex &&
+                $0.syntheticTick == update.syntheticTick && $0.categories.contains("step_update")
+            }) {
+                XCTAssertLessThan(planned.id, pitch.id)
+                let appliedPitch = try XCTUnwrap(harness.traceWriter.events.first { $0.plannedEventID == pitch.id })
+                XCTAssertEqual(appliedPitch.eventAppliedFrame, actual.eventAppliedFrame)
+            }
         }
     }
 

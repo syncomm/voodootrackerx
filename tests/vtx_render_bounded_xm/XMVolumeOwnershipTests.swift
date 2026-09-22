@@ -26,7 +26,7 @@ final class XMVolumeOwnershipTests: XCTestCase {
             (cell(0x0A, 2), [30, 28, 26], [1, 2, 3]),
             (cell(0x0E, 0xA3), [35], [0]), (cell(0x0E, 0xB3), [29], [0]),
             (cell(0x05, 2), [30, 28, 26], [1, 2, 3]),
-            (cell(0x06, 2), [30], [0]),
+            (cell(0x06, 2), [30, 28, 26], [1, 2, 3]),
         ]
         for (command, volumes, ticks) in cases {
             let module = song([cell(note: 49, volume: 0x30), command, cell()], sample: 0.25)
@@ -103,7 +103,7 @@ final class XMVolumeOwnershipTests: XCTestCase {
         XCTAssertEqual(result.diagnostics.eventMappings.first?.volumeEnvelopeSemantics.fadeoutApplied, true)
     }
 
-    func testRepresentativePreFoundationPCMAndWindowedRenderingRemainIdentical() {
+    func testRepresentativeVolumePCMAndWindowedRenderingRemainIdentical() {
         let commands = [cell(note: 49, volume: 0x30), cell(0x0C, 16), cell(volume: 0x30),
             cell(0x0A, 2), cell(0x0E, 0xA3), cell(0x0E, 0xB3), cell(0x05, 2), cell(0x06, 2),
             cell(0x1B, 0x63), cell(0x10, 32), cell(0x11, 4), cell(), cell(note: 49), cell()]
@@ -118,8 +118,8 @@ final class XMVolumeOwnershipTests: XCTestCase {
             return [0, 8, 16, 24].map { UInt8(truncatingIfNeeded: bits >> $0) }
         }
         let hash = SHA256.hash(data: Data(bytes)).map { String(format: "%02x", $0) }.joined()
-        // Captured on the unchanged pre-foundation adapter; preserve exact Float32 output.
-        XCTAssertEqual(hash, "dd747eebec7253a8bff57cbb97517fa0b455a230c65ffd7eb9bc76f38f7932de")
+        // Updated only for 6xy nonzero-tick scheduling; all other volume writers stay frozen.
+        XCTAssertEqual(hash, "aefa0b51fe32f99c13754ab048c86b8623c92f12e06b43abdd0bf078c543bd09")
         XCTAssertEqual(bounded.block.frameCount, 56)
     }
 

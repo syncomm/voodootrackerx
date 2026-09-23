@@ -101,6 +101,142 @@ gain/pan updates, release, `Lxx`, cuts, and replacement, using one runtime/offli
 authority. A reset-specific permanent second envelope mode would leave those
 interactions dependent on voice history. Do not introduce it implicitly.
 
+## Ordinary target cadence: measured contract
+
+Independent constant-PCM probes through the same unchanged pinned reference
+cover rising, falling and flat segments, held sustain, release from sustain,
+fadeout with and without an envelope, reset followed by advancement/release,
+quiet sample/channel/global volume, static center/non-center pan, and coincident
+volume/pan/global writes. Each render reloads its generated XM. The reference
+profile remains stereo Float32, Linear frequency mode/interpolation,
+amplification 10, master 256, ramping on, Precise BPM off. Only external
+observation/stimulus code changes; no reference implementation text, tables or
+assets enter VTX. Source provenance is checked against the pinned archive.
+
+| Rate / BPM | Ordinary target interval and ramp duration | Reset duration |
+| --- | ---: | ---: |
+| 48000 / 125 | 960 frames | 240 frames |
+| 44100 / 125 | 882 frames | 220 frames |
+| 48000 / 250 | 480 frames | 240 frames |
+| 44100 / 137 | 804 frames | 220 frames |
+
+For these probes the ordinary interval/duration is
+`floor(sampleRate * 2.5 / BPM)`. A BPM command changes that interval on its own
+row; changing speed changes ticks per row, not the tick interval. This measures
+the reference's **Precise BPM off** profile, not permission to replace VTX's
+accepted fractional frame timeline or change Fxx behavior.
+
+At tick frame `N`, semantic processing precedes target publication. Changed
+envelope/fadeout targets interpolate final L/R over that tick, using the
+previous target at `N` and reaching the new target at `N + D`, within Float32
+accumulation error. Identical targets produce no new ramp; flat/sustain output
+holds. On leaving sustain without fadeout, the release tick retains the sustain
+value; the following tick publishes the next segment value. Fadeout can change
+the release tick's target even when the envelope value is unchanged.
+
+For a rising `(0,16), (4,64)` envelope at 48000/125, envelope target factors
+at frames `0, 960, 1920, 2880, 3840` are
+`0.25, 0.4375, 0.625, 0.8125, 1`. The ramp published at 960 starts at 0.25;
+its quarter, half and three-quarter factors are `0.296875, 0.34375, 0.390625`,
+and it completes at 1920. The falling control reverses those factors. These
+are target-domain values, before channel/global volume and pan.
+
+The prior reset probe now has a pinned handoff: publish 1 at 17280, ramp from
+0.25 for 240 frames, hold through 18239, then publish 0.75 at 18240 and ramp
+for 960 frames. There is no return to a continuously evaluated audible
+envelope at 17520. Semantic advancement must remain independent of this hold.
+
+### Target composition and coincident writers
+
+Measured reference targets combine the channel's current output volume,
+envelope, released fadeout, the global volume visible while processing that
+channel, and static pan. FT2 does not multiply sample/header volume a second
+time. VTX's proposed target must retain its own composition:
+
+```text
+plannedGain = sample/header * outputChannelVolume/64 * globalVolume/64
+targetL/R = plannedGain * semanticEnvelope * semanticFadeout * existingPanLawL/R
+```
+
+Retain current clamps, VTX sample ownership and profile pan laws. XM pan-envelope
+offsets remain zero. Downstream headroom is absent from the voice target.
+
+Coincident `C20` uses the new volume and envelope value in **one quick target**
+(240/220 frames); an ordinary `8xx` or same-channel `Gxx` uses the tick-length
+target. A reset plus volume-column volume and `8xx` includes both new values
+in its quick target. Therefore neither an unconditional tick ramp nor applying
+the old scalar/pan micro-ramps beneath a final-output ramp matches these cases.
+
+Cross-channel `Gxx` is order-sensitive in the reference: a reset on channel 0
+sees the old global value when channel 1 changes it later that tick; reversing
+the channels includes the new global value immediately. At 48000/125 with
+channel volume 32, pan byte 224 and `G20`, the former reset targets L/R
+`0.17677307 / 0.46770477`; the latter targets
+`0.08838654 / 0.23385239`. Both see the new global value on the following tick.
+This is separate ordering evidence, not authorization to redesign VTX global
+volume or channel traversal.
+
+An instrument-only cell with `K00` does not exercise an envelope reset in the
+reference: the envelope retains its position and release/fadeout runs. Do not
+use that cell to infer ordering for an explicitly injected reset plus release,
+or implement deferred instrument-only behavior from this characterization.
+
+### Interruption is not an assumed continuity rule
+
+At the tested valid tempos, ordinary ramps finish by the next tick and quick
+ramps finish earlier. To observe overlap independently, an external driver
+also delivers the next ordinary tick after rendering only part of the previous
+tick. This is a controlled early-delivery experiment, not a reachable XM tempo
+claim. The unchanged reference rebases from the **previous target**, not its
+currently interpolated gain, even when the next target is unchanged.
+
+For the reset above, delivering the next tick after 120 frames starts the new
+L ramp at `0.70710754` toward `0.53033066`; the last rendered L multiplier was
+`0.43973341`. Interrupting an ordinary falling ramp halfway likewise starts
+at its previous target `0.57452488`, not the last rendered `0.64095573`.
+Do not substitute a smoother rebase rule and call it measured reference parity.
+
+## Stop boundary: semantic targets precede output implementation
+
+The audible cadence is pinned, but publishing the existing VTX semantic values
+at ticks cannot meet the reference target contract. Three independent controls
+expose semantic prerequisites:
+
+| Control | Reference observation | Current VTX authority |
+| --- | --- | --- |
+| Flat envelope, fadeout 1024, release at 11520 (48000/125) | Fadeout target is `31/32` on release, then `30/32`, `29/32`, etc.; each change ramps for 960 frames. | Release begins at 1; C subtracts per frame using `1024 / 65536 / 960`. One tick later the carried value is about `0.98437876`, rather than the reference's next target `0.9375`. |
+| Same fadeout with envelope disabled | Key-off also sets base/output volume to zero; output reaches zero in 240 frames. Fadeout continues semantically. A later `C40` exposes its reduced value again. | Key-off retains channel volume and audibly fades with the same continuous approximation as the enabled-envelope case. |
+| Carried envelope across `FFA` (125 to 250 BPM) | Envelope advances one tick every 480 frames after the command. | Points were converted to frames at trigger; the C clock still advances through those original frame distances. Sampling it at new tick boundaries advances only half a former tick. |
+
+These are not errors that an output ramp can repair without changing semantic
+targets or introducing a second envelope/fadeout authority. Non-integral
+segments also show reference tick-value quantization: `(0,64), (3,32)` yields
+Q8 values `16384, 13654, 10924, 8192`, distinct from VTX's continuous linear
+evaluation. Derive any eventual arithmetic independently from observations;
+do not import reference tables or implementation structure.
+
+The shared-target foundation therefore stops before production changes under
+its output-only boundary. The smallest next prerequisite is a focused design
+and correction of **shared XM tick-domain envelope/release/fadeout targets**,
+using the existing frame plan and preserving generic synthetic frame envelopes,
+reset identity/cursor guarantees, sample/header ownership, and existing gain/pan
+families. Do not silently turn that prerequisite into this output-only change.
+
+The eventual output implementation additionally needs explicit transition
+intent: current C gain/pan events erase whether a scalar write came from `Cxx`,
+slide, tremolo or global volume, though observed durations differ. Multiplying
+an interpolated base ramp by an interpolated envelope ramp introduces a product
+term; it is not linear final-L/R interpolation. Simply stacking ramps or
+switching all these writers to one duration is not a sufficient design.
+
+Continuation must carry final L/R start/target, progress/duration, publication
+frame and generation, alongside independent semantic state. Fold events
+strictly before a window boundary and queue boundary events at local zero.
+Neither current semantic envelope position alone nor an old scalar ramp
+reconstructs an in-flight final-output ramp. Keep completed/stale voices
+excluded and share the eventual C output authority between runtime and offline.
+No such carried state or implementation is delivered by this characterization.
+
 ## Cuts and retained boundaries
 
 The reference `EC0` control sets semantic volume to zero immediately but ramps

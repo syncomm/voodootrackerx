@@ -147,6 +147,8 @@ operation; runtime auto-headroom remains disabled.
 The [reset output characterization](xm-reset-output-ramp.md) distinguishes this
 semantic operation from FT2's audible final-L/R ramp and records the unresolved
 handoff to ongoing envelope/fadeout output. Reset smoothing is not implemented.
+That note also pins ordinary tick-length targets and the separate semantic
+envelope/release/fadeout prerequisites that prevent an output-only correction.
 
 ## Tremolo output, memory, and controls
 

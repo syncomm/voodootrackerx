@@ -70,6 +70,57 @@ normalized control scale, including its channel/global/envelope/fadeout state;
 fields are diagnostic estimates, not measurements of C-mixer PCM or substitutes
 for adapter gain/application evidence. See [playback trace](../playback-trace.md).
 
+## Non-retriggering envelope and release reset
+
+`PlaybackVoiceStateEvent` targets an existing trigger event index and channel.
+Its reset has four independent presence flags: restart the enabled volume
+envelope, restart the enabled panning clock, restore key-on, and restore unity
+fadeout. The operation changes neither tracker/sample volume nor pan, pitch,
+sample identity, fractional cursor, loop state, or ping-pong direction. It
+creates no voice. Instrument-only default-volume/reset dispatch and note-only
+routing remain separate, deferred work.
+
+The [pinned FT2 instrument reset](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L348-L407)
+sets enabled clocks to 65535 and their point cursors to zero; envelope handling
+then advances to tick zero, selects the first point, and establishes the first
+interpolation segment. Key-off clears and fadeout returns to 32768 (unity).
+The C mixer represents the corresponding first rendered frame with position
+zero, using its existing frame-based interpolation and sustain handling.
+Disabled clocks retain their state. Ordinary triggers, envelope interpolation,
+and the existing tick-to-frame/fadeout-rate approximations are unchanged.
+
+XM panning metadata now supplies a clock with its point positions, sustain, and
+loop boundaries, but every mixer offset is zero. Exact non-neutral values stay
+in the instrument model. This permits clock advancement/reset without audible
+modulation; it does not implement panning envelopes or `Lxx` panning behavior.
+Generic synthetic mixer panning envelopes retain their established behavior.
+
+The existing fixed-capacity C state-event queue applies resets before rendering
+their frame. Independent flags never use zero values as presence signals.
+Explicit subsequent key-off events use the same queue. Reset clears historical
+trigger-owned key-off scheduling but retains a future or same-frame release.
+Same-frame explicit transitions retain input order, follow triggers, and precede
+`Lxx`; the trigger-owned release runs afterward, as before.
+
+Both planners reject stale event/channel associations and events after cuts or
+replacement. Runtime checks current association and C activity again. C ignores
+resets on completed voices and replacement tails; stopping/reusing a slot drops
+its queued transitions. No inactive voice is revived by reset or state import.
+Channel-only instrument/effect memory remains the adapter's responsibility.
+
+Window reconstruction folds transitions strictly before the boundary; events
+on the boundary remain queued at local frame zero. It carries envelope clocks,
+key-on, fadeout, and its rate independently, without rescheduling a historical
+key-off at zero. Future releases survive. For explicit transition histories,
+fadeout reconstruction repeats C's Float32 subtraction to preserve completion
+and rounding; the existing no-transition path retains its arithmetic. Source
+position reconstruction and replacement ramps keep their existing ownership.
+
+Direct C, Swift, window, and runtime tests cover partial resets, cursor identity,
+completion, stale generations, and exact application frames. Product WAV
+auto-headroom and fixed runtime `-12 dB` headroom are independent of this state
+operation; runtime auto-headroom remains disabled.
+
 ## Tremolo output, memory, and controls
 
 `7xy` updates ticks `1...speed-1`. Each nonzero parameter nibble replaces its
@@ -124,8 +175,9 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   gives VTX gain 0.125 versus FT2 0.5 before other factors. Quiet-sample tests
   pin tremolo depth/clamping before this retained downstream multiplier.
 - The fixture's note-only cells preserve tremolo state, but existing VTX
-  missing-instrument routing skips their sample retrigger. FT2 retriggers the
-  remembered sample. This separate boundary creates phase differences in WAVs.
+  missing-instrument routing skips their sample retrigger. FT2 reuses the
+  remembered instrument and resolves the new note through its keymap. This
+  separate boundary creates phase differences in WAVs.
 - Existing C-mixer gain-update ramps remain 32 frames; FT2 ordinarily ramps
   across a tick. [FT2 ramp selection](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_audio.c#L270-L283)
   explains another rendering difference without changing the modulation target.
@@ -133,7 +185,7 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   volume policy. FT2 resets its volume from the active sample default in these
   cases; tremolo phase preservation does not correct that separate difference.
 - Initial missing-memory `A00`, `EA0`/`EB0`, `R00`, and other deferred cases
-  retain their documented status. Existing `6xy`, volume-column, and `Hxy`
+  retain their documented status. Existing volume-column and `Hxy`
   timing approximations remain. Tremolo does not broaden those families.
 
 ## Maintainer smoke

@@ -306,7 +306,7 @@ struct PlaybackVolumeEnvelope: Equatable {
     }
 }
 
-/// Exact supported XM instrument panning-envelope fields. Playback intentionally ignores this foundation value.
+/// Exact XM panning-envelope fields. Playback carries an output-inert clock; audible modulation is deferred.
 struct PlaybackPanningEnvelope: Equatable {
     static let disabled = PlaybackPanningEnvelope(
         enabled: false,

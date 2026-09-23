@@ -392,6 +392,7 @@ struct PlaybackSongWindowContinuation: Equatable {
     let runtimeState: CSoftwareMixerVoiceRuntimeState
     let keyOffFrame: Int?
     let carriedTonePortamentoActive: Bool
+    var fadeoutDecrement: Float? = nil
 }
 
 struct PlaybackSongWindowBucket: Equatable {
@@ -682,9 +683,9 @@ final class PlaybackSongOfflineRenderSession {
         plan.diagnostics
     }
 
-    init(request: PlaybackSongOfflineRenderRequest) {
+    init(request: PlaybackSongOfflineRenderRequest, preparedPlan: PlaybackSongSyntheticPlan? = nil) {
         self.request = request
-        let fullPlan = PlaybackSongSyntheticAdapter.adapt(
+        let fullPlan = preparedPlan ?? PlaybackSongSyntheticAdapter.adapt(
             request.song,
             startOrderIndex: request.startOrderIndex,
             orderCount: request.orderCount,
@@ -701,6 +702,9 @@ final class PlaybackSongOfflineRenderSession {
         let preparedMixer = CSoftwareMixer(config: request.config)
         let scheduledResults = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).scheduleWithResults(adaptedPlan.pattern, on: preparedMixer)
         let voiceIndices = scheduledResults.map(\.voiceIndex)
+        PlaybackSongOfflineRenderer.schedulePlaybackStateEvents(
+            adaptedPlan, voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
+            on: preparedMixer, includedEventIndices: includedEventIndices)
         PlaybackSongOfflineRenderer.scheduleEnvelopePositionUpdates(
             adaptedPlan.diagnostics.envelopePositionEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
@@ -817,8 +821,11 @@ final class PlaybackSongOfflineRenderSession {
 /// or app Play button wiring.
 final class PlaybackSongOfflineRenderer {
     let maximumFrameCount: Int
+    // Internal semantic-plan input must match the request range and sample rate.
+    private let preparedPlan: PlaybackSongSyntheticPlan?
 
-    init(maximumFrameCount: Int = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount) {
+    init(maximumFrameCount: Int = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount, preparedPlan: PlaybackSongSyntheticPlan? = nil) {
+        self.preparedPlan = preparedPlan
         self.maximumFrameCount = max(0, maximumFrameCount)
     }
 
@@ -847,7 +854,8 @@ final class PlaybackSongOfflineRenderer {
         return PlaybackSongSyntheticPlan(
             timingConfig: plan.timingConfig,
             pattern: SyntheticPattern(rowCount: plan.pattern.rowCount, events: events),
-            diagnostics: plan.diagnostics
+            diagnostics: plan.diagnostics,
+            playbackStateEvents: plan.playbackStateEvents
         )
     }
 
@@ -859,12 +867,12 @@ final class PlaybackSongOfflineRenderer {
     }
 
     func prepare(_ request: PlaybackSongOfflineRenderRequest) -> PlaybackSongOfflineRenderSession {
-        PlaybackSongOfflineRenderSession(request: effectiveRequest(from: request, frames: request.requestedFrameCount))
+        PlaybackSongOfflineRenderSession(request: effectiveRequest(from: request, frames: request.requestedFrameCount), preparedPlan: preparedPlan)
     }
 
     func render(_ request: PlaybackSongOfflineRenderRequest) -> PlaybackSongOfflineRenderResult {
         let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
-        let session = PlaybackSongOfflineRenderSession(request: effectiveRequest)
+        let session = PlaybackSongOfflineRenderSession(request: effectiveRequest, preparedPlan: preparedPlan)
         return PlaybackSongOfflineRenderResult(
             request: effectiveRequest,
             plan: session.plan,
@@ -1174,7 +1182,7 @@ final class PlaybackSongOfflineRenderer {
         let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
         let safeWindowRows = max(1, windowRows)
         let planAdaptStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
-        let fullPlan = PlaybackSongSyntheticAdapter.adapt(
+        let fullPlan = preparedPlan ?? PlaybackSongSyntheticAdapter.adapt(
             effectiveRequest.song,
             startOrderIndex: effectiveRequest.startOrderIndex,
             orderCount: effectiveRequest.orderCount,
@@ -1312,6 +1320,10 @@ final class PlaybackSongOfflineRenderer {
                     voiceIndexByEventIndex[pair.offset] = voiceIndex
                 }
             }
+            Self.schedulePlaybackStateEvents(
+                adaptedPlan, voiceIndexByEventIndex: voiceIndexByEventIndex, on: mixer,
+                includedEventIndices: includedEventIndices, windowStartFrame: spec.startFrame,
+                windowEndFrame: spec.endFrame)
             if let indexedBucket {
                 Self.schedulePreindexedWindowUpdates(
                     indexedBucket.schedulingUpdateCandidates,
@@ -1610,7 +1622,7 @@ final class PlaybackSongOfflineRenderer {
             return partialResult + safeFrames
         }
         let effectiveRequest = effectiveRequest(from: request, frames: requestedFrames)
-        let session = PlaybackSongOfflineRenderSession(request: effectiveRequest)
+        let session = PlaybackSongOfflineRenderSession(request: effectiveRequest, preparedPlan: preparedPlan)
         var remainingFrames = effectiveRequest.boundedFrameCount
         var interleavedPCM = [Float]()
         for requestedChunkFrames in splitFrameCounts where remainingFrames > 0 {
@@ -1640,7 +1652,7 @@ final class PlaybackSongOfflineRenderer {
         progress: ((Int, Int, MixerRenderBlock) throws -> Void)? = nil
     ) rethrows -> PlaybackSongOfflineStreamingRenderResult {
         let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
-        let session = PlaybackSongOfflineRenderSession(request: effectiveRequest)
+        let session = PlaybackSongOfflineRenderSession(request: effectiveRequest, preparedPlan: preparedPlan)
         let totalFrames = effectiveRequest.boundedFrameCount
         let safeChunkFrameCount = max(1, chunkFrameCount)
         var renderedFrames = 0
@@ -1869,6 +1881,35 @@ final class PlaybackSongOfflineRenderer {
                 gain: gain,
                 pan: pan
             )
+        }
+    }
+
+    /// Filters stale channel generations before either runtime or offline scheduling.
+    static func carriedPlaybackStateEvents(for plan: PlaybackSongSyntheticPlan) -> [PlaybackVoiceStateEvent] {
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        return plan.playbackStateEvents.enumerated().filter { _, update in
+            switch update.change {
+            case let .reset(reset): guard reset.dimensions != 0 else { return false }
+            case let .keyOff(decrement): guard decrement.isFinite, decrement >= 0 else { return false }
+            }
+            guard plan.pattern.events.indices.contains(update.activeEventIndex),
+                  latestEventIndicesByChannel(atOrBefore: update.scheduledFrame, plan: plan, scheduler: scheduler)[update.channelIndex] == update.activeEventIndex else { return false }
+            return !hasAppliedNoteCut(eventIndex: update.activeEventIndex, atOrBefore: update.scheduledFrame, plan: plan) &&
+                !hasAppliedRetriggerCut(eventIndex: update.activeEventIndex, atOrBefore: update.scheduledFrame, plan: plan)
+        }.sorted {
+            $0.element.scheduledFrame == $1.element.scheduledFrame ? $0.offset < $1.offset : $0.element.scheduledFrame < $1.element.scheduledFrame
+        }.map(\.element)
+    }
+
+    /// Schedules only the current window's transitions; C checks activity again at application.
+    static func schedulePlaybackStateEvents(
+        _ plan: PlaybackSongSyntheticPlan, voiceIndexByEventIndex: [Int: Int], on mixer: CSoftwareMixer,
+        includedEventIndices: Set<Int>? = nil, windowStartFrame: Int = 0, windowEndFrame: Int = Int.max
+    ) {
+        for update in carriedPlaybackStateEvents(for: plan) where update.scheduledFrame >= windowStartFrame && update.scheduledFrame < windowEndFrame {
+            guard includesEvent(update.activeEventIndex, includedEventIndices: includedEventIndices),
+                  let voice = voiceIndexByEventIndex[update.activeEventIndex] else { continue }
+            _ = mixer.schedulePlaybackStateChange(update.change, voiceIndex: voice, scheduledFrame: update.scheduledFrame - windowStartFrame)
         }
     }
 
@@ -2852,6 +2893,10 @@ final class PlaybackSongOfflineRenderer {
         ) != nil else {
             return false
         }
+        if let state = reconstructedPlaybackState(for: event, eventIndex: voice.eventIndex, plan: plan,
+                                                  eventStartFrame: eventStartFrame, boundaryFrame: frame) {
+            return state.fadeout > 0
+        }
         let releasedFrames = releasedFrameCount(
             boundaryFrame: frame,
             keyOffFrame: event.keyOffFrame
@@ -2860,6 +2905,76 @@ final class PlaybackSongOfflineRenderer {
             releasedFrames: releasedFrames,
             decrementPerFrame: event.fadeoutFrameDecrement
         ) > 0
+    }
+
+    private struct ReconstructedPlaybackState {
+        var volumePosition = 0
+        var panPosition = 0
+        var keyOn = true
+        var fadeout: Float = 1
+        var decrement: Float = 0
+    }
+
+    /// Folds explicit transitions before the boundary. Boundary events remain queued at local frame zero.
+    /// The legacy path is retained when no new transitions exist, preserving existing render output.
+    private static func reconstructedPlaybackState(
+        for event: SyntheticTrackerEvent, eventIndex: Int, plan: PlaybackSongSyntheticPlan,
+        eventStartFrame: Int, boundaryFrame: Int
+    ) -> ReconstructedPlaybackState? {
+        let changes = carriedPlaybackStateEvents(for: plan).filter { $0.activeEventIndex == eventIndex }
+        guard !changes.isEmpty else { return nil }
+        var timeline: [(frame: Int, order: Int, change: MixerPlaybackStateChange?, position: Int?)] = changes.enumerated().map {
+            ($0.element.scheduledFrame, $0.offset, $0.element.change, nil)
+        }
+        for update in envelopePositionUpdates(for: eventIndex, plan: plan) {
+            timeline.append((update.scheduledFrame, Int.max - 1, nil, update.appliedPositionFrame))
+        }
+        // The legacy trigger-owned key-off runs after queued state updates at its frame in C.
+        if let frame = event.keyOffFrame {
+            timeline.append((frame, Int.max, .keyOff(fadeoutDecrement: event.fadeoutFrameDecrement), nil))
+        }
+        timeline = timeline.filter { $0.frame >= eventStartFrame && $0.frame < boundaryFrame }.sorted {
+            $0.frame == $1.frame ? $0.order < $1.order : $0.frame < $1.frame
+        }
+        timeline.append((boundaryFrame, 0, nil, nil))
+        var state = ReconstructedPlaybackState(decrement: event.fadeoutFrameDecrement)
+        var cursor = eventStartFrame
+        for item in timeline {
+            let frames = item.frame - cursor
+            if let envelope = event.volumeEnvelope {
+                state.volumePosition = advanceEnvelopePosition(state.volumePosition, frames: frames, keyOn: state.keyOn, envelope: envelope)
+            }
+            if let envelope = event.panEnvelope {
+                state.panPosition = advanceEnvelopePosition(state.panPosition, frames: frames, keyOn: state.keyOn, envelope: envelope)
+            }
+            if !state.keyOn, state.decrement > 0 {
+                // Match C's repeated Float32 subtraction, including rounding at completion.
+                for _ in 0..<frames {
+                    state.fadeout = max(0, state.fadeout - state.decrement)
+                    if state.fadeout == 0 { break }
+                }
+            }
+            cursor = item.frame
+            guard state.fadeout > 0, sourcePositionState(for: event, eventIndex: eventIndex, plan: plan,
+                eventStartFrame: eventStartFrame, boundaryFrame: item.frame) != nil else {
+                state.fadeout = 0
+                return state
+            }
+            switch item.change {
+            case let .reset(reset):
+                if reset.volumeEnvelope, event.volumeEnvelope != nil { state.volumePosition = 0 }
+                if reset.panEnvelope, event.panEnvelope != nil { state.panPosition = 0 }
+                if reset.keyOn { state.keyOn = true }
+                if reset.fadeout { state.fadeout = 1 }
+            case let .keyOff(decrement):
+                state.keyOn = false
+                // Trigger-owned release only flips the key; explicit release events own rate writes.
+                if item.order != Int.max { state.decrement = min(1, decrement) }
+            case nil: break
+            }
+            if let position = item.position { state.volumePosition = clampedEnvelopePosition(position) }
+        }
+        return state
     }
 
     private static func continuation(
@@ -2886,7 +3001,9 @@ final class PlaybackSongOfflineRenderer {
             return nil
         }
         let keyOffFrame = event.keyOffFrame
-        let keyOn = keyOffFrame.map { boundaryFrame <= $0 } ?? true
+        let resetState = reconstructedPlaybackState(for: sourceEvent, eventIndex: eventIndex, plan: plan,
+                                                    eventStartFrame: eventStartFrame, boundaryFrame: boundaryFrame)
+        let keyOn = resetState?.keyOn ?? (keyOffFrame.map { boundaryFrame <= $0 } ?? true)
         let keyedFrames = keyedFrameCount(
             elapsedFrames: elapsedFrames,
             eventStartFrame: eventStartFrame,
@@ -2896,14 +3013,14 @@ final class PlaybackSongOfflineRenderer {
             boundaryFrame: boundaryFrame,
             keyOffFrame: keyOffFrame
         )
-        let fadeoutValue = fadeoutValue(
+        let fadeoutValue = resetState?.fadeout ?? fadeoutValue(
             releasedFrames: releasedFrames,
             decrementPerFrame: event.fadeoutFrameDecrement
         )
         guard fadeoutValue > 0 else {
             return nil
         }
-        let volumeEnvelopePosition = volumeEnvelopePosition(
+        let volumeEnvelopePosition = resetState?.volumePosition ?? volumeEnvelopePosition(
             for: event.volumeEnvelope,
             eventIndex: eventIndex,
             plan: plan,
@@ -2911,14 +3028,14 @@ final class PlaybackSongOfflineRenderer {
             boundaryFrame: boundaryFrame,
             keyOffFrame: keyOffFrame
         )
-        let panEnvelopePosition = envelopePosition(
+        let panEnvelopePosition = resetState?.panPosition ?? envelopePosition(
             for: event.panEnvelope,
             keyedFrames: keyedFrames,
             releasedFrames: releasedFrames
         )
         let localKeyOffFrame: Int?
-        if let keyOffFrame {
-            localKeyOffFrame = max(0, keyOffFrame - boundaryFrame)
+        if let keyOffFrame, keyOffFrame >= boundaryFrame {
+            localKeyOffFrame = keyOffFrame - boundaryFrame
         } else {
             localKeyOffFrame = nil
         }
@@ -2937,7 +3054,8 @@ final class PlaybackSongOfflineRenderer {
                 panRamp: panRamp
             ),
             keyOffFrame: localKeyOffFrame,
-            carriedTonePortamentoActive: carriedTonePortamentoActive
+            carriedTonePortamentoActive: carriedTonePortamentoActive,
+            fadeoutDecrement: resetState?.decrement ?? event.fadeoutFrameDecrement
         )
     }
 
@@ -2961,6 +3079,7 @@ final class PlaybackSongOfflineRenderer {
             fadeoutFrameDecrement: event.fadeoutFrameDecrement
         )
         if let voiceIndex = result.voiceIndex {
+            mixer.setFadeoutDecrement(continuation.fadeoutDecrement ?? event.fadeoutFrameDecrement, forVoiceAt: voiceIndex)
             mixer.setRuntimeState(continuation.runtimeState, forVoiceAt: voiceIndex)
             if continuation.playbackStep == 0 {
                 // Continuation is not a new zero-step trigger: restore hold before rendering.

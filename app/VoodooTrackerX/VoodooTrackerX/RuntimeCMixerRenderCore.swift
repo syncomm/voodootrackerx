@@ -656,6 +656,7 @@ enum RuntimeCMixerAppliedAdapterEventResult: Equatable {
     case gainPanUpdate(RuntimeCMixerUpdateResult)
     case stepUpdate(RuntimeCMixerUpdateResult)
     case envelopePositionUpdate(RuntimeCMixerEnvelopePositionUpdateResult)
+    case playbackStateChange(targetVoiceIndex: Int?, accepted: Bool)
     case noteCut(RuntimeCMixerPlannedCutResult)
 }
 
@@ -2660,8 +2661,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             return 1
         case .noteTrigger:
             return 2
-        case .envelopePositionUpdate:
+        case .playbackStateChange:
             return 3
+        case .envelopePositionUpdate:
+            return 4
         }
     }
 
@@ -3349,7 +3352,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 gainPanUpdateCount += 1
             case .stepUpdate:
                 stepUpdateCount += 1
-            case .envelopePositionUpdate:
+            case .envelopePositionUpdate, .playbackStateChange:
                 break
             case .noteCut:
                 noteCutCount += 1
@@ -3444,6 +3447,20 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 activeEventIndex: activeEventIndex,
                 positionFrame: positionFrame
             ))
+        case let .playbackStateChange(activeEventIndex, change):
+            // Existing trigger identity and channel ownership protect reused C slots.
+            if adapterEventIndexByChannel[queuedEvent.event.channelIndex] == activeEventIndex,
+               let voice = adapterVoiceStateByEventIndex[activeEventIndex],
+               voice.channel == queuedEvent.event.channelIndex,
+               let current = mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex),
+               current.active, !current.deactivateAfterGainRamp,
+               current.channelTag == voice.channel {
+                let update = mixer.schedulePlaybackStateChange(
+                    change, voiceIndex: voice.voiceIndex, scheduledFrame: appliedFrameInt)
+                result = .playbackStateChange(targetVoiceIndex: voice.voiceIndex, accepted: update.wasAccepted)
+            } else {
+                result = .playbackStateChange(targetVoiceIndex: nil, accepted: false)
+            }
         case let .noteCut(activeEventIndex):
             result = .noteCut(applyAdapterNoteCutWithDiagnosticsLocked(
                 channel: queuedEvent.event.channelIndex,
@@ -3455,7 +3472,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             adapterCurrentEventIndexBefore == adapterCurrentEventIndexAfter
         let sustainedVoiceUpdate: Bool
         switch queuedEvent.event.action {
-        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .noteCut:
+        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .noteCut:
             sustainedVoiceUpdate = adapterActiveEventIndex != nil &&
                 adapterActiveEventIndex == adapterCurrentEventIndexBefore
         case .noteTrigger:
@@ -4298,7 +4315,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             effectType = event.effectType ?? mapping.effectType
             effectParam = event.effectParam ?? mapping.effectParam
             volumeColumn = mapping.volumeColumn.rawValue
-        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .noteCut:
+        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .noteCut:
             noteValue = nil
             instrumentIndex = nil
             effectType = event.effectType

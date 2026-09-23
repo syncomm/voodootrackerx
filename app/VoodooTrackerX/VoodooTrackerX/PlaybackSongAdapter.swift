@@ -4,6 +4,15 @@ struct PlaybackSongSyntheticPlan: Equatable {
     let timingConfig: SyntheticTrackerTimingConfig
     let pattern: SyntheticPattern
     let diagnostics: PlaybackSongSyntheticDiagnostics
+    var playbackStateEvents: [PlaybackVoiceStateEvent] = []
+}
+
+/// Targets the existing trigger event identity, never a reusable mixer slot.
+struct PlaybackVoiceStateEvent: Equatable {
+    let activeEventIndex: Int
+    let channelIndex: Int
+    let scheduledFrame: Int
+    let change: MixerPlaybackStateChange
 }
 
 enum PlaybackSongSyntheticAdapter {
@@ -1793,7 +1802,8 @@ enum PlaybackSongSyntheticAdapter {
                 playbackStep: pitchMapping.playbackStep,
                 loop: loop,
                 initialSourceFrame: sampleOffset.appliedOffsetFrames ?? 0,
-                volumeEnvelope: envelopeMapping.envelope
+                volumeEnvelope: envelopeMapping.envelope,
+                panEnvelope: inertPanningEnvelopeClock(from: instrument.panningEnvelope, timingConfig: timingConfig)
             ))
             context.eventCoverage.recordScheduledNote(
                 method: sampleSelection.method,

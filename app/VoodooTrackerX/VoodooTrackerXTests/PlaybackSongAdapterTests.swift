@@ -310,11 +310,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
             frames: 6
         ))
 
-        XCTAssertEqual(baselineAdapterPlan, candidateAdapterPlan)
+        XCTAssertEqual(baselineAdapterPlan.diagnostics, candidateAdapterPlan.diagnostics)
         XCTAssertEqual(baselineAdapterPlan.pattern.events.map(\.pan), candidateAdapterPlan.pattern.events.map(\.pan))
         XCTAssertTrue(baselineAdapterPlan.pattern.events.allSatisfy { $0.panEnvelope == nil })
-        XCTAssertTrue(candidateAdapterPlan.pattern.events.allSatisfy { $0.panEnvelope == nil })
-        XCTAssertEqual(baselineRuntimePlan, candidateRuntimePlan)
+        XCTAssertTrue(candidateAdapterPlan.pattern.events.allSatisfy { $0.panEnvelope?.points.map(\.value) == [0, 0] })
+        XCTAssertEqual(baselineRuntimePlan.events.map(\.scheduledFrame), candidateRuntimePlan.events.map(\.scheduledFrame))
         XCTAssertEqual(baselineRender.block.interleavedPCM.map(\.bitPattern), candidateRender.block.interleavedPCM.map(\.bitPattern))
     }
 

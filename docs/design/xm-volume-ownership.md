@@ -144,6 +144,10 @@ completion, stale generations, and exact application frames. Product WAV
 auto-headroom and fixed runtime `-12 dB` headroom are independent of this state
 operation; runtime auto-headroom remains disabled.
 
+The [reset output characterization](xm-reset-output-ramp.md) distinguishes this
+semantic operation from FT2's audible final-L/R ramp and records the unresolved
+handoff to ongoing envelope/fadeout output. Reset smoothing is not implemented.
+
 ## Tremolo output, memory, and controls
 
 `7xy` updates ticks `1...speed-1`. Each nonzero parameter nibble replaces its

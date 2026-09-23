@@ -1648,7 +1648,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         let editedEvent = try XCTUnwrap(editedPlan.pattern.events.first)
 
         XCTAssertEqual(originalEvent.gain, 1, accuracy: 0.000_001)
-        XCTAssertEqual(editedEvent.gain, 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(editedEvent.gain, 0.0625, accuracy: 0.000_001)
         XCTAssertEqual(originalPlan.pattern.events.count, editedPlan.pattern.events.count)
         XCTAssertEqual(originalPlan.pattern.rowCount, editedPlan.pattern.rowCount)
         XCTAssertEqual(originalPlan.timingConfig, editedPlan.timingConfig)
@@ -1669,7 +1669,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertTrue(harness.coordinator.undo())
         XCTAssertEqual(try XCTUnwrap(plan(for: try XCTUnwrap(harness.editableDocument)).pattern.events.first).gain, 1, accuracy: 0.000_001)
         XCTAssertTrue(harness.coordinator.redo())
-        XCTAssertEqual(try XCTUnwrap(plan(for: try XCTUnwrap(harness.editableDocument)).pattern.events.first).gain, 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(plan(for: try XCTUnwrap(harness.editableDocument)).pattern.events.first).gain, 0.0625, accuracy: 0.000_001)
     }
 
     func testWholeDocumentUndoRedoSnapshotsPreserveExactSamplePanning() {

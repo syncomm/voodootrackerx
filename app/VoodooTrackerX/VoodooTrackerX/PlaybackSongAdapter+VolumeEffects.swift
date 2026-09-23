@@ -30,6 +30,7 @@ extension PlaybackSongSyntheticAdapter {
     static func prepareTremoloRow(
         cell: PlaybackCell, song: PlaybackSong, source: PlaybackPosition, channelIndex: Int,
         syntheticRow: Int, scheduledFrame: Int, globalVolume: Int,
+        initializesExplicitTriggerVolume: Bool,
         channelState: inout ChannelState,
         updates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
     ) {
@@ -44,7 +45,7 @@ extension PlaybackSongSyntheticAdapter {
             if !(cell.effectType == 0x14 && cell.effectParam == 0) || cell.volumeColumn >> 4 == 0x0F {
                 resetTremoloTriggerPhases(state: &channelState)
             }
-            if channelState.tremolo.activated || cell.effectType == 0x07 {
+            if !initializesExplicitTriggerVolume && (channelState.tremolo.activated || cell.effectType == 0x07) {
                 let before = channelState
                 // In this adapter, the sample default remains an independent
                 // factor. Restore its neutral tracker multiplier, then let the

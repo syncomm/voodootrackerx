@@ -1811,7 +1811,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         )
         let sourceEvent = try XCTUnwrap(sourcePlan.pattern.events.first)
         let editedEvent = try XCTUnwrap(editedPlan.pattern.events.first)
-        XCTAssertEqual(editedEvent.gain, 17.0 / 64.0, accuracy: 0.000_001)
+        XCTAssertEqual(editedEvent.gain, (17.0 / 64.0) * (17.0 / 64.0), accuracy: 0.000_001)
         XCTAssertEqual(
             editedEvent.playbackStep,
             sourceEvent.playbackStep * pow(2.0, -11.5 / 12.0),

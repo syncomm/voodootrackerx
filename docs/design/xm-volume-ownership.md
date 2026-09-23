@@ -8,12 +8,12 @@ owned by [XM effect support](../xm-effect-support.md).
 
 | Component | Domain and lifetime | Writers and consumers |
 | --- | --- | --- |
-| `baseChannelVolume` | Integer `0...64`; persistent, channel-local; initially 64 | Existing instrument/default-volume paths, `Cxx`, volume-column volume/slides, `Axy`, `EAx`/`EBx`, `5xy`/`6xy` volume components, and `Rxy` volume modes write the base. Each retains its existing timing, memory, and clamp policy. |
+| `baseChannelVolume` | Integer `0...64`; persistent, channel-local; initially 64 | Instrument/default-volume paths, `Cxx`, volume-column volume/slides, `Axy`, `EAx`/`EBx`, `5xy`/`6xy` volume components, and `Rxy` volume modes write the base. No-envelope key-off zeros it. Each retains its timing, memory, and clamp policy. |
 | `outputChannelVolume` | Integer `0...64`; channel-local output retained between writes | Follows each base write. `7xy` writes output independently; empty rows retain it. Trigger and active-voice gain construction consume output. |
 | `PlaybackSample.volume` / `activeSampleVolume` | Header `0...64` normalized to Float `0...1`; immutable sample metadata plus channel-local active selection | The builder normalizes the header. Existing trigger/instrument-selection paths select the active sample factor; channel-volume commands do not rewrite it. |
 | Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` and the existing row-level `Hxy` approximation update the global state and active gains. Future triggers use the current global multiplier. |
-| Volume envelope | Point values `0...64` normalized to `0...1`; voice-local progression | The adapter maps instrument points/sustain/loop state at trigger. The C mixer advances the envelope; existing key-off and `Lxx` paths control release/position. |
-| Fadeout | Voice-local multiplier `0...1`, initially 1 | Existing key-off planning supplies the per-frame decrement derived from instrument fadeout. The C mixer decreases/clamps it after release; the current default-tick approximation is preserved. |
+| Volume envelope | Point values `0...64` normalized to `0...1`; voice-local progression | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
+| Fadeout | Voice-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
 | Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `adaptedGain` combines output, sample, and global factors. The C mixer applies its existing gain-update ramps, envelope, fadeout, and panning. |
 | Mix/output gain | Render/host/export policy; independent of channel state | Existing mix profile, runtime headroom, and export gain policies apply downstream. Summed Float32 PCM may exceed unity; encoded PCM16 clamps at the export boundary. |
 
@@ -68,8 +68,10 @@ its independent sample factor: default/header 16 initializes base/output 16
 and produces gain `0.0625` at full global volume without envelope/fadeout.
 FT2's different sample-multiplier ownership remains a separate compatibility gap.
 
-Specialized delayed, retrigger, portamento, and immediate key-off paths retain
-their existing volume contracts. Instrument-only reset dispatch and note-only
+Specialized delayed, retrigger and portamento paths retain their existing volume
+contracts. Key-off without an enabled volume envelope zeros base/output while
+retaining the active source association; later volume writes can expose its
+remaining fadeout. Instrument-only reset dispatch and note-only
 routing remain deferred. This initialization does not alter envelope/reset
 operations, gain ramps, replacement ramps, or downstream headroom policy.
 
@@ -107,10 +109,11 @@ The [pinned FT2 instrument reset](https://github.com/8bitbubsy/ft2-clone/blob/87
 sets enabled clocks to 65535 and their point cursors to zero; envelope handling
 then advances to tick zero, selects the first point, and establishes the first
 interpolation segment. Key-off clears and fadeout returns to 32768 (unity).
-The C mixer represents the corresponding first rendered frame with position
-zero, using its existing frame-based interpolation and sustain handling.
-Disabled clocks retain their state. Ordinary triggers, envelope interpolation,
-and the existing tick-to-frame/fadeout-rate approximations are unchanged.
+The shared XM timeline represents the corresponding published target with
+logical position zero. Disabled clocks retain their state. It consumes the
+canonical Fxx frame plan and preserves VTX's linear point interpolation. See
+[the semantic tick contract](xm-reset-output-ramp.md#shared-xm-semantic-tick-contract)
+for measured sustain/loop, release, fadeout and BPM-change behavior.
 
 XM panning metadata now supplies a clock with its point positions, sustain, and
 loop boundaries, but every mixer offset is zero. Exact non-neutral values stay
@@ -118,12 +121,13 @@ in the instrument model. This permits clock advancement/reset without audible
 modulation; it does not implement panning envelopes or `Lxx` panning behavior.
 Generic synthetic mixer panning envelopes retain their established behavior.
 
-The existing fixed-capacity C state-event queue applies resets before rendering
-their frame. Independent flags never use zero values as presence signals.
-Explicit subsequent key-off events use the same queue. Reset clears historical
-trigger-owned key-off scheduling but retains a future or same-frame release.
-Same-frame explicit transitions retain input order, follow triggers, and precede
-`Lxx`; the trigger-owned release runs afterward, as before.
+Generic synthetic frame envelopes retain the fixed-capacity C reset/key-off
+queue and per-frame rate. XM plans fold explicit resets and release into their
+semantic snapshots instead; reset dimensions remain independent presence flags.
+Same-frame explicit transitions retain input order, then XM release and `Lxx`
+are included before publication. A reset between ticks publishes immediately
+without consuming a tick or fadeout step. XM fadeout uses the instrument's tick
+rate; a legacy synthetic key-off's per-frame rate is not a second XM authority.
 
 Both planners reject stale event/channel associations and events after cuts or
 replacement. Runtime checks current association and C activity again. C ignores
@@ -132,12 +136,13 @@ its queued transitions. No inactive voice is revived by reset or state import.
 Channel-only instrument/effect memory remains the adapter's responsibility.
 
 Window reconstruction folds transitions strictly before the boundary; events
-on the boundary remain queued at local frame zero. It carries envelope clocks,
-key-on, fadeout, and its rate independently, without rescheduling a historical
-key-off at zero. Future releases survive. For explicit transition histories,
-fadeout reconstruction repeats C's Float32 subtraction to preserve completion
-and rounding; the existing no-transition path retains its arithmetic. Source
-position reconstruction and replacement ramps keep their existing ownership.
+on the boundary remain scheduled at local frame zero. XM imports its last
+logical clocks, key-on, integer fadeout and target directly, including zero
+fadeout on a still-running source. It never reconstructs them from startup BPM
+or reschedules a historical release at zero. Generic frame-envelope histories
+retain their Float32 subtraction reconstruction. Source-position reconstruction
+and replacement ramps keep their existing ownership. Final audible L/R
+ramp/hold state remains a separate, unimplemented output contract.
 
 Direct C, Swift, window, and runtime tests cover partial resets, cursor identity,
 completion, stale generations, and exact application frames. Product WAV
@@ -147,8 +152,9 @@ operation; runtime auto-headroom remains disabled.
 The [reset output characterization](xm-reset-output-ramp.md) distinguishes this
 semantic operation from FT2's audible final-L/R ramp and records the unresolved
 handoff to ongoing envelope/fadeout output. Reset smoothing is not implemented.
-That note also pins ordinary tick-length targets and the separate semantic
-envelope/release/fadeout prerequisites that prevent an output-only correction.
+That note also pins ordinary tick-length output ramps and the implemented
+shared semantic targets that supply their inputs. Final-output continuation
+and transition intent remain separate work.
 
 ## Tremolo output, memory, and controls
 
@@ -211,9 +217,9 @@ all tremolo update states. This is not a waveform-identical rendering claim:
 - Existing C-mixer gain-update ramps remain 32 frames; FT2 ordinarily ramps
   across a tick. [FT2 ramp selection](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_audio.c#L270-L283)
   explains another rendering difference without changing the modulation target.
-- Note 97 or `K00` with an instrument retains VTX's existing key-off and
-  volume policy. FT2 resets its volume from the active sample default in these
-  cases; tremolo phase preservation does not correct that separate difference.
+- Instrument-associated note 97 / `K00` retain their separate default-volume
+  dispatch boundary. The shared no-envelope release rule still zeros output;
+  this does not implement the deferred instrument-only/default-volume policy.
 - Initial missing-memory `A00`, `EA0`/`EB0`, `R00`, and other deferred cases
   retain their documented status. Existing volume-column and `Hxy`
   timing approximations remain. Tremolo does not broaden those families.

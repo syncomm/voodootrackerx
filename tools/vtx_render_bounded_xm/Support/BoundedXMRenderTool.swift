@@ -3062,7 +3062,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["effective_global_volume_multiplier"] = Double(mapping.effectiveGlobalVolumeMultiplier)
         object["effective_pan"] = Double(mapping.effectivePan)
         object["gain_construction"] = gainConstructionJSON(mapping: mapping, event: event)
-        object["volume_envelope"] = eventVolumeEnvelopeJSON(mapping, event: event, startFrame: startFrame)
+        object["volume_envelope"] = eventVolumeEnvelopeJSON(mapping, event: event, startFrame: startFrame, plan: result.plan)
         object["pitch"] = eventPitchJSON(mapping)
         if let startSeconds = seconds(forFrame: startFrame, sampleRate: result.block.config.sampleRate) {
             object["scheduled_start_seconds"] = startSeconds
@@ -3104,7 +3104,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
     private static func eventVolumeEnvelopeJSON(
         _ mapping: PlaybackSongSyntheticEventMapping,
         event: SyntheticTrackerEvent?,
-        startFrame: Int
+        startFrame: Int,
+        plan: PlaybackSongSyntheticPlan
     ) -> [String: Any] {
         let semantics = mapping.volumeEnvelopeSemantics
         let envelope = event?.volumeEnvelope
@@ -3186,6 +3187,53 @@ enum PlaybackSongDiagnosticsJSONExporter {
             appendEnvelopeSnapshotFields(keyOffSnapshot, suffix: "at_key_off", to: &object)
         }
         object["diagnostic_snapshots"] = [startSnapshot, keyOffSnapshot].compactMap { $0 }.map(envelopeSnapshotJSON)
+        if let history = plan.xmEnvelopeTimeline?.updatesByEvent[mapping.eventIndex], !history.isEmpty {
+            object["clock_policy"] = "canonical_fxx_tick_plan"
+            object["point_mapping_policy"] = "legacy_trigger_frame_projection"
+            object["position_domain"] = "xm_ticks"
+            object["advance_policy"] = "publish_tick_target_and_hold"
+            object["sustain_policy"] = "hold_logical_sustain_tick_until_release"
+            object["loop_policy"] = "wrap_on_end_tick_except_released_sustain_end"
+            object["loop_end_policy"] = "exclusive"
+            object["loop_after_key_off"] = semantics.loopApplied && !(semantics.sustainEnabled && semantics.sustainTick == semantics.loopEndTick)
+            object["fadeout_frame_decrement"] = NSNull()
+            object["fadeout_tick_decrement"] = semantics.fadeoutValue
+            object["semantic_targets"] = history.map { update -> [String: Any] in
+                var target = positionJSON(update.source)
+                target["event_index"] = update.eventIndex
+                target["channel_index"] = update.channelIndex
+                target["tick"] = update.tick
+                target["scheduled_frame"] = update.scheduledFrame
+                target["current_bpm"] = update.bpm
+                target["current_speed"] = update.speed
+                target["volume_position_tick"] = update.state.volumeTick
+                target["pan_position_tick"] = update.state.panTick
+                target["volume_value"] = Double(update.state.volumeValue)
+                target["key_on"] = update.state.keyOn
+                target["fadeout_accumulator"] = update.state.fadeoutAccumulator
+                target["fadeout_value"] = Double(update.state.fadeoutValue)
+                return target
+            }
+            var snapshots = [[String: Any]]()
+            for (label, suffix, frame) in [("start", "at_start", startFrame), ("key_off", "at_key_off", keyOffFrame ?? -1)] {
+                guard let update = history.last(where: { $0.scheduledFrame <= frame }) else { continue }
+                let state = update.state
+                let gain = plan.diagnostics.voiceStateUpdates.last { $0.activeEventIndex == mapping.eventIndex && $0.applied && $0.scheduledFrame <= frame }?.gainAfter ?? event?.gain ?? 0
+                let snapshot = EnvelopeDiagnosticSnapshot(label: label, absoluteFrame: frame,
+                    positionFrame: nil, positionFrameAfterAdvance: nil, value: Double(state.volumeValue),
+                    segmentIndex: nil, sustainHeld: state.keyOn && semantics.sustainApplied && semantics.sustainTick == state.volumeTick,
+                    loopActive: nil, loopTakenCount: nil, keyOn: state.keyOn,
+                    fadeoutValue: Double(state.fadeoutValue), fadeoutAppliedGain: Double(state.fadeoutValue),
+                    finalVoiceGain: Double(gain * state.volumeValue * state.fadeoutValue))
+                appendEnvelopeSnapshotFields(snapshot, suffix: suffix, to: &object)
+                object["envelope_position_tick_\(suffix)"] = state.volumeTick
+                var json = envelopeSnapshotJSON(snapshot)
+                json["position_tick"] = state.volumeTick
+                json["fadeout_accumulator"] = state.fadeoutAccumulator
+                snapshots.append(json)
+            }
+            object["diagnostic_snapshots"] = snapshots
+        }
         return object
     }
 
@@ -4866,6 +4914,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         _ command: PlaybackSongSyntheticVoiceStateUpdateCommand
     ) -> [String: Any] {
         switch command {
+        case .keyOffWithoutEnvelope:
+            return ["name": "key_off_without_envelope", "label": command.label]
         case let .tremolo(tick):
             return [
                 "name": "tremolo", "label": command.label,
@@ -4938,6 +4988,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "tremoloControl"
         case let .volumeColumn(command):
             return command.name
+        case .keyOffWithoutEnvelope:
+            return "key_off_without_envelope"
         case .instrumentDefaultVolume:
             return "instrumentDefaultVolume"
         case .cxxSetVolume:

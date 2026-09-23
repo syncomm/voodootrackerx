@@ -393,6 +393,7 @@ struct PlaybackSongWindowContinuation: Equatable {
     let keyOffFrame: Int?
     let carriedTonePortamentoActive: Bool
     var fadeoutDecrement: Float? = nil
+    var envelopeSemanticState: MixerEnvelopeSemanticState? = nil
 }
 
 struct PlaybackSongWindowBucket: Equatable {
@@ -698,7 +699,7 @@ final class PlaybackSongOfflineRenderSession {
         let adaptedPlan = PlaybackSongOfflineRenderer.plan(
             fullPlan,
             mutingEventsNotIn: includedEventIndices
-        )
+        ).extendingEnvelopeTail(throughFrame: request.boundedFrameCount)
         let preparedMixer = CSoftwareMixer(config: request.config)
         let scheduledResults = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).scheduleWithResults(adaptedPlan.pattern, on: preparedMixer)
         let voiceIndices = scheduledResults.map(\.voiceIndex)
@@ -855,7 +856,8 @@ final class PlaybackSongOfflineRenderer {
             timingConfig: plan.timingConfig,
             pattern: SyntheticPattern(rowCount: plan.pattern.rowCount, events: events),
             diagnostics: plan.diagnostics,
-            playbackStateEvents: plan.playbackStateEvents
+            playbackStateEvents: plan.playbackStateEvents,
+            xmEnvelopeTimeline: plan.xmEnvelopeTimeline
         )
     }
 
@@ -1196,7 +1198,7 @@ final class PlaybackSongOfflineRenderer {
         let adaptedPlan = Self.plan(
             fullPlan,
             mutingEventsNotIn: includedEventIndices
-        )
+        ).extendingEnvelopeTail(throughFrame: effectiveRequest.boundedFrameCount)
         let totalFrames = effectiveRequest.boundedFrameCount
         let indexBuildStartTime = VTXPerformanceClock.now()
         let windows = Self.windowSpecs(
@@ -1906,7 +1908,15 @@ final class PlaybackSongOfflineRenderer {
         _ plan: PlaybackSongSyntheticPlan, voiceIndexByEventIndex: [Int: Int], on mixer: CSoftwareMixer,
         includedEventIndices: Set<Int>? = nil, windowStartFrame: Int = 0, windowEndFrame: Int = Int.max
     ) {
+        let semanticUpdates = plan.xmEnvelopeTimeline?.updates ?? []
+        mixer.setEnvelopeSemanticSchedule(semanticUpdates.compactMap { update in
+            guard update.scheduledFrame >= windowStartFrame, update.scheduledFrame < windowEndFrame,
+                  includesEvent(update.eventIndex, includedEventIndices: includedEventIndices),
+                  let voice = voiceIndexByEventIndex[update.eventIndex] else { return nil }
+            return (frame: update.scheduledFrame - windowStartFrame, voice: voice, state: update.state)
+        })
         for update in carriedPlaybackStateEvents(for: plan) where update.scheduledFrame >= windowStartFrame && update.scheduledFrame < windowEndFrame {
+            guard plan.xmEnvelopeTimeline?.updatesByEvent[update.activeEventIndex] == nil else { continue }
             guard includesEvent(update.activeEventIndex, includedEventIndices: includedEventIndices),
                   let voice = voiceIndexByEventIndex[update.activeEventIndex] else { continue }
             _ = mixer.schedulePlaybackStateChange(update.change, voiceIndex: voice, scheduledFrame: update.scheduledFrame - windowStartFrame)
@@ -2893,6 +2903,7 @@ final class PlaybackSongOfflineRenderer {
         ) != nil else {
             return false
         }
+        if plan.xmEnvelopeTimeline?.updatesByEvent[voice.eventIndex] != nil { return true }
         if let state = reconstructedPlaybackState(for: event, eventIndex: voice.eventIndex, plan: plan,
                                                   eventStartFrame: eventStartFrame, boundaryFrame: frame) {
             return state.fadeout > 0
@@ -3001,9 +3012,10 @@ final class PlaybackSongOfflineRenderer {
             return nil
         }
         let keyOffFrame = event.keyOffFrame
-        let resetState = reconstructedPlaybackState(for: sourceEvent, eventIndex: eventIndex, plan: plan,
-                                                    eventStartFrame: eventStartFrame, boundaryFrame: boundaryFrame)
-        let keyOn = resetState?.keyOn ?? (keyOffFrame.map { boundaryFrame <= $0 } ?? true)
+        let semanticState = plan.xmEnvelopeTimeline?.state(eventIndex: eventIndex, before: boundaryFrame)
+        let resetState = semanticState == nil ? reconstructedPlaybackState(for: sourceEvent, eventIndex: eventIndex, plan: plan,
+                                                    eventStartFrame: eventStartFrame, boundaryFrame: boundaryFrame) : nil
+        let keyOn = semanticState?.keyOn ?? resetState?.keyOn ?? (keyOffFrame.map { boundaryFrame <= $0 } ?? true)
         let keyedFrames = keyedFrameCount(
             elapsedFrames: elapsedFrames,
             eventStartFrame: eventStartFrame,
@@ -3013,14 +3025,14 @@ final class PlaybackSongOfflineRenderer {
             boundaryFrame: boundaryFrame,
             keyOffFrame: keyOffFrame
         )
-        let fadeoutValue = resetState?.fadeout ?? fadeoutValue(
+        let fadeoutValue = semanticState?.fadeoutValue ?? resetState?.fadeout ?? fadeoutValue(
             releasedFrames: releasedFrames,
             decrementPerFrame: event.fadeoutFrameDecrement
         )
-        guard fadeoutValue > 0 else {
+        guard semanticState != nil || fadeoutValue > 0 else {
             return nil
         }
-        let volumeEnvelopePosition = resetState?.volumePosition ?? volumeEnvelopePosition(
+        let volumeEnvelopePosition = semanticState != nil ? 0 : resetState?.volumePosition ?? volumeEnvelopePosition(
             for: event.volumeEnvelope,
             eventIndex: eventIndex,
             plan: plan,
@@ -3028,13 +3040,13 @@ final class PlaybackSongOfflineRenderer {
             boundaryFrame: boundaryFrame,
             keyOffFrame: keyOffFrame
         )
-        let panEnvelopePosition = resetState?.panPosition ?? envelopePosition(
+        let panEnvelopePosition = semanticState != nil ? 0 : resetState?.panPosition ?? envelopePosition(
             for: event.panEnvelope,
             keyedFrames: keyedFrames,
             releasedFrames: releasedFrames
         )
         let localKeyOffFrame: Int?
-        if let keyOffFrame, keyOffFrame >= boundaryFrame {
+        if let keyOffFrame, keyOffFrame >= boundaryFrame, semanticState == nil {
             localKeyOffFrame = keyOffFrame - boundaryFrame
         } else {
             localKeyOffFrame = nil
@@ -3055,7 +3067,8 @@ final class PlaybackSongOfflineRenderer {
             ),
             keyOffFrame: localKeyOffFrame,
             carriedTonePortamentoActive: carriedTonePortamentoActive,
-            fadeoutDecrement: resetState?.decrement ?? event.fadeoutFrameDecrement
+            fadeoutDecrement: resetState?.decrement ?? event.fadeoutFrameDecrement,
+            envelopeSemanticState: semanticState
         )
     }
 
@@ -3080,6 +3093,9 @@ final class PlaybackSongOfflineRenderer {
         )
         if let voiceIndex = result.voiceIndex {
             mixer.setFadeoutDecrement(continuation.fadeoutDecrement ?? event.fadeoutFrameDecrement, forVoiceAt: voiceIndex)
+            if let semantic = continuation.envelopeSemanticState {
+                mixer.setEnvelopeSemanticState(semantic, forVoiceAt: voiceIndex)
+            }
             mixer.setRuntimeState(continuation.runtimeState, forVoiceAt: voiceIndex)
             if continuation.playbackStep == 0 {
                 // Continuation is not a new zero-step trigger: restore hold before rendering.

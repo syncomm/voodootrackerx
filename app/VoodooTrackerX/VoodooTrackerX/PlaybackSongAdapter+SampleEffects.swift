@@ -23,6 +23,8 @@ extension PlaybackSongSyntheticAdapter {
         channelState: inout ChannelState,
         events: inout [SyntheticTrackerEvent],
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
+        voiceStateUpdates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
+        globalVolume: Int,
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
@@ -87,10 +89,25 @@ extension PlaybackSongSyntheticAdapter {
             fadeoutValue: previousMapping.volumeEnvelopeSemantics.fadeoutValue,
             sampleRate: previousMapping.outputSampleRate
         )
-        events[activeEventIndex] = events[activeEventIndex].withKeyOffFrame(
-            scheduledFrame,
-            fadeoutFrameDecrement: fadeoutDecrement
-        )
+        if events[activeEventIndex].keyOffFrame == nil {
+            events[activeEventIndex] = events[activeEventIndex].withKeyOffFrame(
+                scheduledFrame, fadeoutFrameDecrement: fadeoutDecrement)
+        }
+        if events[activeEventIndex].volumeEnvelope == nil {
+            let before = channelState
+            channelState.baseChannelVolume = 0
+            if events[activeEventIndex].scheduledStartFrame == scheduledFrame {
+                // Runtime control updates precede triggers at a shared frame.
+                events[activeEventIndex] = events[activeEventIndex].withGainPan(gain: 0)
+            }
+            voiceStateUpdates.append(voiceStateUpdateDiagnostic(source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, syntheticTick: syntheticTick, scheduledFrame: scheduledFrame, cell: cell,
+                commandSource: .effectColumn, command: .keyOffWithoutEnvelope, rawVolumeColumn: nil,
+                effectType: effectType, effectParam: effectParam, status: .applied, behavior: nil,
+                channelStateBefore: before, channelStateAfter: channelState,
+                globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
+                activeVoiceUpdatedOverride: events[activeEventIndex].scheduledStartFrame != scheduledFrame))
+        }
         eventMappings[activeEventMappingIndex] = eventMapping(
             previousMapping,
             applying: previousMapping.volumeEnvelopeSemantics.applyingKeyOff(
@@ -124,7 +141,7 @@ extension PlaybackSongSyntheticAdapter {
         if hasDeferredEffect(cell) || volumeColumn.deferred {
             eventCoverage.recordDeferredCellWithoutSkip()
         }
-        clearActiveVoiceState(&channelState)
+        // Release does not end source lifetime. Later volume commands still address this generation.
     }
 
     static func handleKxxKeyOff(
@@ -138,6 +155,8 @@ extension PlaybackSongSyntheticAdapter {
         channelState: inout ChannelState,
         events: inout [SyntheticTrackerEvent],
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
+        voiceStateUpdates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
+        globalVolume: Int,
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
@@ -184,6 +203,8 @@ extension PlaybackSongSyntheticAdapter {
             channelState: &channelState,
             events: &events,
             keyOffEvents: &keyOffEvents,
+            voiceStateUpdates: &voiceStateUpdates,
+            globalVolume: globalVolume,
             eventMappings: &eventMappings,
             ignoredCells: &ignoredCells,
             deferredCellFields: &deferredCellFields,

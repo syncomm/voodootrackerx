@@ -30,6 +30,9 @@ host.
   playback and bounded offline work.
 - Nonzero Fxx speed/BPM commands govern their own row from tick 0 through the
   shared frame plan, including runtime event application and sample-time follow.
+- XM envelope/release targets and integer fadeout consume that same tick plan
+  in runtime and offline rendering. Neutral pan clocks share its timing;
+  audible pan envelopes and final-L/R envelope ramps remain deferred.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.

@@ -887,7 +887,8 @@ final class OfflineRenderTests: XCTestCase {
         let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
         let summary = try XCTUnwrap(result.windowedRenderSummary)
 
-        XCTAssertPCMEqual(result.block.interleavedPCM, [1, 1, 1, 0.75, 0.5])
+        // A no-envelope key-off zeros channel volume on the release tick.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [1, 1, 0, 0, 0])
         XCTAssertGreaterThan(summary.totalReleasedVoiceCarryovers, 0)
         XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 0)
     }

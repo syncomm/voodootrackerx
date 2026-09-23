@@ -153,6 +153,7 @@
 		K00000000000000000000019 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */; };
 		K0000000000000000000001A /* PlaybackSongAdapter+SampleEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002A /* PlaybackSongAdapter+SampleEffects.swift */; };
 		K0000000000000000000001B /* PlaybackSongAdapter+Timing.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002B /* PlaybackSongAdapter+Timing.swift */; };
+		K00000000000000000000E01 /* PlaybackXMEnvelopeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000E02 /* PlaybackXMEnvelopeSemantics.swift */; };
 		K0000000000000000000001C /* PlaybackSongAdapter+Traversal.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002C /* PlaybackSongAdapter+Traversal.swift */; };
 		K0000000000000000000001D /* PlaybackSongAdapter+VolumeColumn.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002D /* PlaybackSongAdapter+VolumeColumn.swift */; };
 		K0000000000000000000001E /* PlaybackSongAdapter+VolumeEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002E /* PlaybackSongAdapter+VolumeEffects.swift */; };
@@ -167,6 +168,7 @@
 		K00000000000000000000039 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */; };
 		K0000000000000000000003A /* PlaybackSongAdapter+SampleEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002A /* PlaybackSongAdapter+SampleEffects.swift */; };
 		K0000000000000000000003B /* PlaybackSongAdapter+Timing.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002B /* PlaybackSongAdapter+Timing.swift */; };
+		K00000000000000000000E03 /* PlaybackXMEnvelopeSemantics.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000E02 /* PlaybackXMEnvelopeSemantics.swift */; };
 		K0000000000000000000003C /* PlaybackSongAdapter+Traversal.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002C /* PlaybackSongAdapter+Traversal.swift */; };
 		K0000000000000000000003D /* PlaybackSongAdapter+VolumeColumn.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002D /* PlaybackSongAdapter+VolumeColumn.swift */; };
 		K0000000000000000000003E /* PlaybackSongAdapter+VolumeEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002E /* PlaybackSongAdapter+VolumeEffects.swift */; };
@@ -270,6 +272,7 @@
 		K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+RuntimeEvents.swift"; sourceTree = "<group>"; };
 		K0000000000000000000002A /* PlaybackSongAdapter+SampleEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+SampleEffects.swift"; sourceTree = "<group>"; };
 		K0000000000000000000002B /* PlaybackSongAdapter+Timing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+Timing.swift"; sourceTree = "<group>"; };
+		K00000000000000000000E02 /* PlaybackXMEnvelopeSemantics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackXMEnvelopeSemantics.swift"; sourceTree = "<group>"; };
 		K0000000000000000000002C /* PlaybackSongAdapter+Traversal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+Traversal.swift"; sourceTree = "<group>"; };
 		K0000000000000000000002D /* PlaybackSongAdapter+VolumeColumn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+VolumeColumn.swift"; sourceTree = "<group>"; };
 		K0000000000000000000002E /* PlaybackSongAdapter+VolumeEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+VolumeEffects.swift"; sourceTree = "<group>"; };
@@ -350,6 +353,7 @@
 				K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */,
 				K0000000000000000000002A /* PlaybackSongAdapter+SampleEffects.swift */,
 				K0000000000000000000002B /* PlaybackSongAdapter+Timing.swift */,
+				K00000000000000000000E02 /* PlaybackXMEnvelopeSemantics.swift */,
 				K0000000000000000000002C /* PlaybackSongAdapter+Traversal.swift */,
 				K0000000000000000000002D /* PlaybackSongAdapter+VolumeColumn.swift */,
 				K0000000000000000000002E /* PlaybackSongAdapter+VolumeEffects.swift */,
@@ -587,6 +591,7 @@
 				K00000000000000000000019 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */,
 				K0000000000000000000001A /* PlaybackSongAdapter+SampleEffects.swift in Sources */,
 				K0000000000000000000001B /* PlaybackSongAdapter+Timing.swift in Sources */,
+				K00000000000000000000E01 /* PlaybackXMEnvelopeSemantics.swift in Sources */,
 				K0000000000000000000001C /* PlaybackSongAdapter+Traversal.swift in Sources */,
 				K0000000000000000000001D /* PlaybackSongAdapter+VolumeColumn.swift in Sources */,
 				K0000000000000000000001E /* PlaybackSongAdapter+VolumeEffects.swift in Sources */,
@@ -642,6 +647,7 @@
 				K00000000000000000000039 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */,
 				K0000000000000000000003A /* PlaybackSongAdapter+SampleEffects.swift in Sources */,
 				K0000000000000000000003B /* PlaybackSongAdapter+Timing.swift in Sources */,
+				K00000000000000000000E03 /* PlaybackXMEnvelopeSemantics.swift in Sources */,
 				K0000000000000000000003C /* PlaybackSongAdapter+Traversal.swift in Sources */,
 				K0000000000000000000003D /* PlaybackSongAdapter+VolumeColumn.swift in Sources */,
 				K0000000000000000000003E /* PlaybackSongAdapter+VolumeEffects.swift in Sources */,

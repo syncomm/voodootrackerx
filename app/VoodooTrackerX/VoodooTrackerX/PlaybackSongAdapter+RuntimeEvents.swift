@@ -845,16 +845,16 @@ extension PlaybackSongSyntheticAdapter {
         let loopApplied = mapping.status == .mapped && loopEnabled && mapping.loopStartFrame != nil && mapping.loopEndFrame != nil
         var limitations = [String]()
         if sustainApplied || loopApplied || envelope.fadeout > 0 {
-            limitations.append("first_pass_bounded_offline_envelope_approximation")
+            limitations.append("linear_point_values_without_ft2_q8_segment_rounding")
         }
         if sustainApplied {
-            limitations.append("sustain_holds_at_mapped_frame_while_keyed_on")
+            limitations.append("sustain_uses_logical_tick_position")
         }
         if loopApplied {
-            limitations.append("envelope_loop_is_frame_based_while_keyed_on")
+            limitations.append("loop_wraps_on_end_tick")
         }
         if envelope.fadeout > 0 {
-            limitations.append("fadeout_uses_linear_per_frame_decrement_after_key_off")
+            limitations.append("audible_envelope_fadeout_ramps_deferred")
         }
 
         return PlaybackSongSyntheticEnvelopeSemanticsDiagnostic(
@@ -905,8 +905,8 @@ extension PlaybackSongSyntheticAdapter {
               sampleRate > 0 else {
             return 0
         }
-        // First-pass offline approximation: spread the XM tick-domain fadeout decrement
-        // smoothly across one default-speed tick worth of output frames.
+        // Legacy projection for generic synthetic frame envelopes. Managed XM playback
+        // imports integer tick targets instead and never consumes this approximation.
         let framesPerDefaultTick = sampleRate * PlaybackTiming.xmDefault.tickDuration
         guard framesPerDefaultTick.isFinite, framesPerDefaultTick > 0 else {
             return 0

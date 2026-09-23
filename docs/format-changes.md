@@ -3,6 +3,30 @@
 This log records intentional changes to VTX's supported persistence or module
 compatibility boundary. It is not a claim of arbitrary XM round-trip support.
 
+## XM tick-domain envelope diagnostics
+
+Bounded-render JSON now identifies XM envelope state with
+`clock_policy: canonical_fxx_tick_plan` and `position_domain: xm_ticks`.
+`semantic_targets` contains source coordinates, event/channel identity, tick,
+scheduled frame, current BPM/speed, logical volume/pan positions, key state,
+integer fadeout accumulator and held envelope/fadeout factors. Snapshots add
+`position_tick` and `fadeout_accumulator`; top-level snapshot fields add
+`envelope_position_tick_at_start` and `envelope_position_tick_at_key_off`.
+
+For this clock policy, obsolete frame-position/after-advance/segment/loop-count
+snapshot fields and `fadeout_frame_decrement` are null. Use the tick fields and
+`fadeout_tick_decrement` instead. Static point-frame arrays retain their legacy
+trigger-tempo projection, explicitly marked by
+`point_mapping_policy: legacy_trigger_frame_projection`; they do not govern
+playback. Generic synthetic frame-envelope diagnostics retain their existing
+fields and policies. Consumers must inspect the clock policy before treating
+a position or fadeout rate as frame-domain data.
+
+Focused JSON tests cover the new policy, null legacy fields, exact targets and
+identity. Generic envelope/reset tests preserve the frame-domain path. This
+changes generated diagnostic output only: MOD/XM parsing, module bytes, editable
+documents and WAV encoding have no format change or required migration.
+
 ## Sparse sample-slot XM export foundation
 
 Status: implemented for the supported editable XM subset.

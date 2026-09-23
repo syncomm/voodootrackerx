@@ -1,8 +1,9 @@
 # XM Non-retriggering Reset Output Contract
 
-This is a reference characterization and an unresolved design constraint, not
-an implemented ramp or a claim of broad FT2 mix parity. Semantic resets remain
-owned by [XM volume ownership](xm-volume-ownership.md). Instrument-only dispatch,
+This note owns the implemented XM semantic tick contract and the independently
+measured, still unimplemented final-output ramp contract. It does not claim
+broad FT2 mix parity. Volume/reset ownership is described in
+[XM volume ownership](xm-volume-ownership.md). Instrument-only dispatch,
 note-only routing, and audible XM panning envelopes remain deferred.
 
 ## Current gain path
@@ -12,22 +13,70 @@ note-only routing, and audible XM panning envelopes remain deferred.
 | Tracker base/output volume | Base writes synchronize output; tremolo can change output independently. Both use `0...64`. |
 | Planned scalar gain | The shared adapter multiplies sample/header volume, output volume, and global volume. Explicit note+instrument initialization also loads the mapped sample default into base/output. |
 | Gain/pan updates | C independently interpolates scalar gain and channel pan over 32 frames, using `(position + 1) / 32`. Slides, tremolo, and global writes use this path. |
-| Envelope and fadeout | C evaluates the volume envelope and released fadeout every frame **after** the gain ramp. Reset changes their semantic state immediately. |
+| Envelope and fadeout | `PlaybackXMEnvelopeTimeline` publishes held targets at canonical Fxx tick frames. C multiplies their product **after** the unchanged gain ramp. Explicit resets can publish at their exact frame. |
 | Stereo output | The envelope/fadeout product is multiplied by the pan-law gains. Sample pan initializes channel pan. Parsed XM pan-envelope metadata advances a neutral clock; it has no audible offset. |
 | Output policy | Mixer profile scaling follows voice summation. Runtime fixed `-12 dB` headroom and product WAV auto-headroom to `-1 dB` remain separate downstream policies; runtime auto-headroom is disabled. |
 
 The reset therefore bypasses the existing scalar ramp. Replacement separately
 ramps the old voice's scalar gain to zero over 32 frames; the new voice starts
 at its supplied gain without a C onset ramp. VTX note cuts use immediate zero
-gain or voice retirement. Key-off releases envelope sustain and starts the
-existing per-frame fadeout. None of these families is changed by this note.
+gain or voice retirement. Key-off releases envelope sustain and begins integer
+tick fadeout. Without an enabled volume envelope it also zeros base/output
+volume through the existing gain-update path; source playback continues.
 
 Runtime splits rendering at planned event frames and applies the same C state
-operation as bounded offline rendering. Gain/pitch updates precede cuts and
-triggers, then reset precedes `Lxx`; trigger-owned release follows queued state
-events. Windowed rendering reconstructs scalar gain/pan ramps separately from
-envelope clocks, key-on, and Float32 fadeout. Events exactly on the boundary
-remain queued at local frame zero. There is no carried final-output ramp state.
+import as bounded offline rendering. Gain/pitch updates precede cuts and
+triggers; folded reset, release and `Lxx` state is then published. Windowed
+rendering reconstructs scalar gain/pan ramps separately from the exact semantic
+snapshot immediately before its boundary. Boundary targets remain scheduled at
+local frame zero. There is no carried final-output ramp state.
+
+## Shared XM semantic tick contract
+
+`PlaybackXMEnvelopeTimeline` consumes `PlaybackSongFxxTimingPlan`; it does not
+compute a second tempo or elapsed-seconds clock. Each active trigger generation
+owns logical volume/pan positions, key-on, a fadeout accumulator, and held
+envelope/fadeout factors. Runtime events and offline render splits import the
+same snapshot through a small C state boundary. Generic synthetic frame
+envelopes and their reset queue retain their separate established behavior.
+
+The unchanged pinned reference below was observed across 24 independently
+generated cases at 48000/125, 48000/250 and 44100/125, including later `FFA`
+and `F03`. Measurements establish these rules:
+
+| Field | Semantic rule |
+| --- | --- |
+| Initial state | Publish envelope position 0 on the trigger tick, key-on true, fadeout 32768 (unity). |
+| Advancement | Advance one logical position at each subsequent canonical XM tick; hold the factor between ticks. Existing VTX linear point interpolation is retained. |
+| Sustain/release | Hold the sustain point while key-on. The release tick retains a held sustain value; the next tick advances. |
+| Loop | Wrap on the end tick to the start point (exclusive end). Looping continues after release, except that a released sustain point at the loop end lets progression escape the loop. |
+| `Lxx` | Publish the supported volume-envelope position on that exact tick; subsequent ticks advance from it. Values beyond the final point hold that point's value. |
+| Fadeout | On the release tick and each subsequent tick, `accumulator = max(0, accumulator - instrumentFadeout)`; factor is `accumulator / 32768`. Zero fadeout holds unity; an oversized value clamps immediately. |
+| No-envelope key-off | Note 97 and `Kxx` zero base/output volume at their scheduled tick. Fadeout still progresses and source cursor/lifetime continue. Later `C40` restores channel volume, exposing the remaining fadeout; zero fadeout factor stays silent. |
+| Neutral pan clock | Uses the same tick frames, logical sustain/loop bookkeeping and reset presence flags. It contributes no audible pan offset; `Lxx` pan behavior remains deferred. |
+
+At 48 kHz a voice started at BPM 125 publishes positions 5, 6, 7, 8, 9 at
+frames `4800, 5760, 6240, 6720, 7200` when row 1 changes to BPM 250.
+The command's own row immediately uses 480-frame ticks. At 44.1 kHz the
+corresponding boundary is `4410, 5292, 5733, 6174`. A later `F03` changes row
+length to three ticks without changing the BPM-derived tick interval. These
+are consumers of the accepted Fxx timeline, whose fractional-frame policy is
+unchanged. Bounded tails use that plan's existing final-tempo extrapolation.
+
+The public `envelope-release-fadeout-timing.xm` combines sustain/release, a
+no-envelope release followed by `C40`, a looping envelope, `FFA`, and `F03`.
+Tests pin target source coordinates, generation, frame, tempo, speed, logical
+positions, key state, and exact accumulator. Runtime planned/applied frame
+delta is zero. Window imports retain the prior snapshot, including a still
+running source whose fadeout is zero, without reviving completed or stale
+voices. Source cursor reconstruction and replacement ownership are unchanged.
+
+Fractional slopes remain a separate point-arithmetic difference: reference
+Q8 values for `(0,64), (3,32)` are `16384, 13654, 10924, 8192`, while VTX keeps
+its existing linear Float calculation. Reference raw pan-sustain counters also
+show a distinct release quirk in the observed neutral-pan case; VTX's logical
+pan clock is not a claim of raw FT2 point/counter parity. Neither finding adds
+audible pan processing or broadens this semantic correction.
 
 ## Independently measured reference
 
@@ -66,17 +115,19 @@ separate known ownership difference. The observed stereo endpoint law also
 differs from VTX's non-center comparison-profile pan law. Neither difference is
 permission to change those domains in a reset-ramp implementation.
 
-## Why a reset-only overlay is insufficient
+## Why the isolated reset overlay was rejected
 
 Consider envelope points `(0,64), (3,16), (20,16)` with a reset at row 3,
 BPM 125. The old envelope is 0.25; the semantic initial value is 1. At 48 kHz,
 the reset is frame 17280 and its reference ramp ends at frame 17520.
 
-VTX's semantic envelope has already decreased to 0.9375 after those 240 frames.
-A ramp that reaches the initial target and then returns to the existing mixer
-must jump from 1 to approximately 0.9375. A ramp to the advancing VTX target
-instead changes the measured FT2 endpoint and interpolation law. Freezing the
-semantic envelope to avoid this would violate exact reset-state progression.
+Before the tick-domain correction, VTX's continuously evaluated envelope had
+already decreased to 0.9375 after those 240 frames.
+A ramp that reached the initial target and then returned to that per-frame
+path had to jump from 1 to approximately 0.9375. Ramping to the advancing target
+instead changed the measured FT2 endpoint and interpolation law. This was
+evidence that semantic progression and audible target cadence needed separate
+ownership.
 
 The independently generated constant-PCM probe makes this measurable without
 sample-phase differences. Values below are left-channel PCM with matching
@@ -84,17 +135,17 @@ center pan and comparison scale, before downstream headroom:
 
 | 48 kHz probe | Maximum adjacent jump |
 | --- | ---: |
-| Current VTX at reset | 0.04143204 |
+| VTX before tick-domain correction, at reset | 0.04143204 |
 | FT2 reset ramp | 0.00017264 |
 | Rejected isolated ramp, returning to VTX one frame after its endpoint | 0.00346706 |
 
 At 44.1 kHz the corresponding rejected return jump is 0.00346050. This is an
 external falsification experiment, not a shipped candidate or listening
 acceptance. FT2 holds its initial target until the next tick, then ramps toward
-0.75. VTX immediately follows its continuously advancing envelope. Extending
-the isolated ramp only moves the unresolved return boundary.
+0.75. The old VTX path immediately followed its continuously advancing
+envelope. Extending that isolated ramp only moved the return boundary.
 
-The smallest prerequisite is a design for **audible envelope/fadeout output
+The remaining output work needs a design for **audible envelope/fadeout output
 target cadence and its continuation state**, separate from semantic clocks.
 It must explain the handoff after a reset and interactions with subsequent
 gain/pan updates, release, `Lxx`, cuts, and replacement, using one runtime/offline
@@ -196,13 +247,13 @@ L ramp at `0.70710754` toward `0.53033066`; the last rendered L multiplier was
 at its previous target `0.57452488`, not the last rendered `0.64095573`.
 Do not substitute a smoother rebase rule and call it measured reference parity.
 
-## Stop boundary: semantic targets precede output implementation
+## Semantic prerequisites and remaining output boundary
 
-The audible cadence is pinned, but publishing the existing VTX semantic values
-at ticks cannot meet the reference target contract. Three independent controls
-expose semantic prerequisites:
+The original output-only characterization stopped at three independent
+semantic defects. This table preserves the measured pre-correction baseline;
+the shared tick contract above replaces those semantic approximations.
 
-| Control | Reference observation | Current VTX authority |
+| Control | Reference observation | Pre-correction VTX authority |
 | --- | --- | --- |
 | Flat envelope, fadeout 1024, release at 11520 (48000/125) | Fadeout target is `31/32` on release, then `30/32`, `29/32`, etc.; each change ramps for 960 frames. | Release begins at 1; C subtracts per frame using `1024 / 65536 / 960`. One tick later the carried value is about `0.98437876`, rather than the reference's next target `0.9375`. |
 | Same fadeout with envelope disabled | Key-off also sets base/output volume to zero; output reaches zero in 240 frames. Fadeout continues semantically. A later `C40` exposes its reduced value again. | Key-off retains channel volume and audibly fades with the same continuous approximation as the enabled-envelope case. |
@@ -215,12 +266,10 @@ Q8 values `16384, 13654, 10924, 8192`, distinct from VTX's continuous linear
 evaluation. Derive any eventual arithmetic independently from observations;
 do not import reference tables or implementation structure.
 
-The shared-target foundation therefore stops before production changes under
-its output-only boundary. The smallest next prerequisite is a focused design
-and correction of **shared XM tick-domain envelope/release/fadeout targets**,
-using the existing frame plan and preserving generic synthetic frame envelopes,
-reset identity/cursor guarantees, sample/header ownership, and existing gain/pan
-families. Do not silently turn that prerequisite into this output-only change.
+The semantic prerequisites now use the existing frame plan, while preserving
+generic synthetic frame envelopes, reset identity/cursor guarantees,
+sample/header ownership, and existing gain/pan families. This does not implement
+the independently measured final-L/R audible cadence.
 
 The eventual output implementation additionally needs explicit transition
 intent: current C gain/pan events erase whether a scalar write came from `Cxx`,
@@ -248,8 +297,8 @@ The reference's explicit `stopVoice` control produces zero PCM from its exact
 application frame, confirming that an immediate-stop path is distinct from
 the `EC0` volume command.
 
-The 32-frame gain/replacement ramps, onset behavior, per-frame envelope/fadeout
-approximations, headroom policies, and explicit-trigger default-volume behavior
+The 32-frame gain/pan and replacement ramps, onset behavior, generic frame
+envelopes, headroom policies, and explicit-trigger default-volume behavior
 remain unchanged. No final-output implementation is ready until the cadence
 and continuation design resolves the demonstrated return discontinuity and
 the resulting implementation passes exact-frame parity and maintainer listening.

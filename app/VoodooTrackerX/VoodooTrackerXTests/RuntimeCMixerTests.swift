@@ -3,6 +3,87 @@ import AudioToolbox
 import XCTest
 
 final class RuntimeCMixerTests: XCTestCase {
+    func testXMEnvelopeFixtureAppliesSharedSemanticTargetsAtExactRuntimeFrames() throws {
+        let fixture = try referenceXMFixtureURL("generated/envelope-release-fadeout-timing.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixture.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixture.path)
+        for rate in [44_100.0, 48_000] {
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan)
+            let states = try XCTUnwrap(plan.xmEnvelopeTimeline?.updates)
+            let renderer = PlaybackSongOfflineRenderer()
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 16)
+            let offline = renderer.render(request)
+            XCTAssertEqual(offline.plan, plan)
+            for window in [1, 2, 3, 5] {
+                let windowed = renderer.renderWindowed(request, windowRows: window).block.interleavedPCM
+                // Existing source-cursor reconstruction may round the interpolated sample;
+                // semantic state and runtime application frames below remain exact.
+                let maximumError = zip(windowed, offline.block.interleavedPCM).map { abs($0 - $1) }.max() ?? 0
+                XCTAssertLessThanOrEqual(maximumError, 0.0000001)
+            }
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var cursor = 0
+            for frame in Set(states.map(\.scheduledFrame)).sorted() {
+                while cursor <= frame {
+                    let count = min(997, frame + 1 - cursor)
+                    XCTAssertEqual(renderRuntimePCM(core, frames: count), Array(offline.block.interleavedPCM[cursor..<(cursor + count)]))
+                    cursor += count
+                }
+                for update in states where update.scheduledFrame == frame {
+                    let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: update.eventIndex))
+                    XCTAssertEqual(voice.channelTag, update.channelIndex)
+                    XCTAssertTrue(voice.active)
+                    XCTAssertEqual(voice.envelopeSemanticState, update.state)
+                    XCTAssertEqual(voice.keyOn, update.state.keyOn)
+                    XCTAssertEqual(voice.fadeoutValue, update.state.fadeoutValue)
+                }
+            }
+            let applied = core.drainAppliedAdapterEventDiagnostics().filter {
+                if case .envelopeSemanticUpdate = $0.event.action { return true }; return false
+            }
+            XCTAssertEqual(applied.count, states.count)
+            for (actual, expected) in zip(applied, states) {
+                XCTAssertEqual(actual.event.source, expected.source)
+                XCTAssertEqual(actual.event.syntheticTick, expected.tick)
+                XCTAssertEqual(actual.adapterActiveEventIndex, expected.eventIndex)
+                XCTAssertEqual(actual.plannedRuntimeFrame, expected.scheduledFrame)
+                XCTAssertEqual(actual.appliedFrame, UInt64(expected.scheduledFrame))
+                XCTAssertEqual(actual.eventFrameDelta, 0)
+                guard case let .playbackStateChange(_, accepted) = actual.result else { return XCTFail("Missing semantic application") }
+                XCTAssertTrue(accepted)
+            }
+        }
+    }
+
+    func testXMEnvelopeSemanticUpdateRejectsStaleGenerationAndCompletedSource() throws {
+        let mapping = makeSyntheticEventMapping()
+        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 100, channelCount: 1), maximumRenderFrames: 64)
+        let event = SyntheticTrackerEvent(row: 0, sample: .init(monoPCM: [1, 1, 1]), playbackStep: 1)
+        XCTAssertTrue(core.triggerAdapterEventWithDiagnostics(event, eventIndex: 0, mapping: mapping).succeeded)
+        let semantic = MixerEnvelopeSemanticState(volumeTick: 8, panTick: 4, keyOn: false, fadeoutAccumulator: 16_384, volumeValue: 0.25)
+        let actions: [(Int, RuntimeCMixerAdapterEventAction)] = [
+            (3, .envelopeSemanticUpdate(activeEventIndex: 0, state: semantic)),
+            (4, .noteTrigger(eventIndex: 1, event: event, mapping: makeSyntheticEventMapping(eventIndex: 1))),
+            (4, .envelopeSemanticUpdate(activeEventIndex: 0, state: semantic)),
+            (5, .envelopeSemanticUpdate(activeEventIndex: 1, state: semantic))]
+        core.configureAdapterEventScheduleForTesting(actions.enumerated().map { index, action in
+            .init(id: index, source: mapping.source, channelIndex: 0, syntheticTick: 0,
+                scheduledFrame: action.0, action: action.1, categories: ["xm_envelope_semantic_tick"])
+        }, runtimeFrameOffset: 0)
+        _ = renderRuntimePCM(core, frames: 6)
+        let updates = core.drainAppliedAdapterEventDiagnostics().compactMap { diagnostic -> Bool? in
+            guard case let .playbackStateChange(_, accepted) = diagnostic.result else { return nil }
+            XCTAssertEqual(diagnostic.eventFrameDelta, 0)
+            return accepted
+        }
+        XCTAssertEqual(updates, [false, false, true])
+        XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 1)?.envelopeSemanticState, semantic)
+    }
+
     func testExplicitTriggerDefaultsIgnoreEditorFocusAndApplyAtExactRuntimeFrames() throws {
         let full = makePlaybackSample(pcm: Array(repeating: 1, count: 256))
         let quiet = makePlaybackSample(sampleIndex: 1, pcm: Array(repeating: 1, count: 256), volume: 0.25)
@@ -148,10 +229,10 @@ final class RuntimeCMixerTests: XCTestCase {
         plan.playbackStateEvents = [.init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 6,
             change: .reset(.init(volumeEnvelope: true, keyOn: true, fadeout: true)))]
         let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100, preparedPlan: plan)
-        let reset = try XCTUnwrap(runtime.events.first { if case .playbackStateChange = $0.action { return true }; return false })
+        let reset = try XCTUnwrap(runtime.events.first { if case .envelopeSemanticUpdate = $0.action { return $0.scheduledFrame == 6 }; return false })
         XCTAssertEqual(reset.source.rowIndex, 1)
         XCTAssertEqual(reset.syntheticTick, 0)
-        XCTAssertEqual(runtime.events.filter { $0.scheduledFrame == 6 }.map(\.primaryCategory), ["carried_playback_state", "lxx_set_envelope_position"])
+        XCTAssertEqual(runtime.events.filter { $0.scheduledFrame == 6 }.map(\.primaryCategory), ["lxx_set_envelope_position", "xm_envelope_semantic_tick"])
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
         let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
         let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: 18)
@@ -323,7 +404,7 @@ final class RuntimeCMixerTests: XCTestCase {
 
         XCTAssertTrue(plan.generated)
         XCTAssertTrue(plan.categories.contains("lxx_set_envelope_position"))
-        XCTAssertEqual(sameFrameEvents.map(\.primaryCategory), ["note_trigger", "lxx_set_envelope_position"])
+        XCTAssertEqual(sameFrameEvents.map(\.primaryCategory), ["note_trigger", "lxx_set_envelope_position", "xm_envelope_semantic_tick"])
         XCTAssertEqual(lxx.effectType, 0x15)
         XCTAssertEqual(lxx.effectParam, 0x02)
         if case let .envelopePositionUpdate(activeEventIndex, positionFrame) = lxx.action {

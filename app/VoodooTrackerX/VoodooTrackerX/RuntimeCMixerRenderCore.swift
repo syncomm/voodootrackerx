@@ -2665,6 +2665,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             return 3
         case .envelopePositionUpdate:
             return 4
+        case .envelopeSemanticUpdate:
+            return 5
         }
     }
 
@@ -3352,7 +3354,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 gainPanUpdateCount += 1
             case .stepUpdate:
                 stepUpdateCount += 1
-            case .envelopePositionUpdate, .playbackStateChange:
+            case .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate:
                 break
             case .noteCut:
                 noteCutCount += 1
@@ -3461,6 +3463,16 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             } else {
                 result = .playbackStateChange(targetVoiceIndex: nil, accepted: false)
             }
+        case let .envelopeSemanticUpdate(activeEventIndex, semantic):
+            if adapterEventIndexByChannel[queuedEvent.event.channelIndex] == activeEventIndex,
+               let voice = adapterVoiceStateByEventIndex[activeEventIndex],
+               voice.channel == queuedEvent.event.channelIndex,
+               mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex)?.channelTag == voice.channel {
+                let accepted = mixer.setEnvelopeSemanticState(semantic, forVoiceAt: voice.voiceIndex)
+                result = .playbackStateChange(targetVoiceIndex: voice.voiceIndex, accepted: accepted)
+            } else {
+                result = .playbackStateChange(targetVoiceIndex: nil, accepted: false)
+            }
         case let .noteCut(activeEventIndex):
             result = .noteCut(applyAdapterNoteCutWithDiagnosticsLocked(
                 channel: queuedEvent.event.channelIndex,
@@ -3472,7 +3484,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             adapterCurrentEventIndexBefore == adapterCurrentEventIndexAfter
         let sustainedVoiceUpdate: Bool
         switch queuedEvent.event.action {
-        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .noteCut:
+        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate, .noteCut:
             sustainedVoiceUpdate = adapterActiveEventIndex != nil &&
                 adapterActiveEventIndex == adapterCurrentEventIndexBefore
         case .noteTrigger:
@@ -4315,7 +4327,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             effectType = event.effectType ?? mapping.effectType
             effectParam = event.effectParam ?? mapping.effectParam
             volumeColumn = mapping.volumeColumn.rawValue
-        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .noteCut:
+        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate, .noteCut:
             noteValue = nil
             instrumentIndex = nil
             effectType = event.effectType

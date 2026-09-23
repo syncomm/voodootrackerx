@@ -4,7 +4,14 @@ struct PlaybackSongSyntheticPlan: Equatable {
     let timingConfig: SyntheticTrackerTimingConfig
     let pattern: SyntheticPattern
     let diagnostics: PlaybackSongSyntheticDiagnostics
-    var playbackStateEvents: [PlaybackVoiceStateEvent] = []
+    var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
+        didSet {
+            var timeline = xmEnvelopeTimeline
+            timeline?.rebuild(plan: self)
+            xmEnvelopeTimeline = timeline
+        }
+    }
+    var xmEnvelopeTimeline: PlaybackXMEnvelopeTimeline? = nil
 }
 
 /// Targets the existing trigger event identity, never a reusable mixer slot.
@@ -572,7 +579,7 @@ enum PlaybackSongSyntheticAdapter {
             ]
         )
 
-        let plan = PlaybackSongSyntheticPlan(
+        var plan = PlaybackSongSyntheticPlan(
             timingConfig: timingConfig,
             pattern: SyntheticPattern(rowCount: traversalPlan.pathLength, events: context.events),
             diagnostics: PlaybackSongSyntheticDiagnostics(
@@ -616,6 +623,7 @@ enum PlaybackSongSyntheticAdapter {
                 eventCoverage: context.eventCoverage.summary
             )
         )
+        plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
             startedAt: totalStart,
@@ -991,6 +999,8 @@ enum PlaybackSongSyntheticAdapter {
                     channelState: &channelState,
                     events: &context.events,
                     keyOffEvents: &context.keyOffEvents,
+                    voiceStateUpdates: &context.voiceStateUpdates,
+                    globalVolume: context.globalVolumeState.volumeValue,
                     eventMappings: &context.eventMappings,
                     ignoredCells: &context.ignoredCells,
                     deferredCellFields: &context.deferredCellFields,
@@ -1008,6 +1018,8 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &channelState,
                         events: &context.events,
                         keyOffEvents: &context.keyOffEvents,
+                        voiceStateUpdates: &context.voiceStateUpdates,
+                        globalVolume: context.globalVolumeState.volumeValue,
                         eventMappings: &context.eventMappings,
                         ignoredCells: &context.ignoredCells,
                         deferredCellFields: &context.deferredCellFields,
@@ -1135,6 +1147,8 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &channelState,
                         events: &context.events,
                         keyOffEvents: &context.keyOffEvents,
+                        voiceStateUpdates: &context.voiceStateUpdates,
+                        globalVolume: context.globalVolumeState.volumeValue,
                         eventMappings: &context.eventMappings,
                         ignoredCells: &context.ignoredCells,
                         deferredCellFields: &context.deferredCellFields,
@@ -2019,6 +2033,8 @@ enum PlaybackSongSyntheticAdapter {
                     channelState: &channelState,
                     events: &context.events,
                     keyOffEvents: &context.keyOffEvents,
+                    voiceStateUpdates: &context.voiceStateUpdates,
+                    globalVolume: context.globalVolumeState.volumeValue,
                     eventMappings: &context.eventMappings,
                     ignoredCells: &context.ignoredCells,
                     deferredCellFields: &context.deferredCellFields,

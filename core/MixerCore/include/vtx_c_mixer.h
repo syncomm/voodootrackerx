@@ -152,6 +152,9 @@ typedef struct {
     double sample_step;
     float effective_gain;
     float effective_pan;
+    uint32_t volume_envelope_position_frame;
+    uint32_t pan_envelope_position_frame;
+    int ping_pong_direction;
     int key_on;
     float fadeout_value;
     int gain_ramp_active;
@@ -170,6 +173,9 @@ typedef struct {
 typedef struct {
     uint32_t voice_index;
     uint64_t scheduled_frame;
+    uint32_t playback_reset;
+    int release_key;
+    float release_fadeout_decrement;
     int update_gain;
     float gain;
     int update_pan;
@@ -183,6 +189,12 @@ typedef struct {
     int deactivate_after_gain_ramp;
 } VTXCMixerVoiceStateEvent;
 
+// Independent reset dimensions. Disabled envelope clocks are preserved.
+#define VTX_C_MIXER_RESET_VOLUME_ENVELOPE 1u
+#define VTX_C_MIXER_RESET_PAN_ENVELOPE 2u
+#define VTX_C_MIXER_RESET_KEY_ON 4u
+#define VTX_C_MIXER_RESET_FADEOUT 8u
+
 typedef struct {
     VTXCMixerConfig config;
     uint64_t current_frame;
@@ -195,6 +207,18 @@ typedef struct {
     VTXCMixerVoice voices[VTX_C_MIXER_MAX_VOICES];
     VTXCMixerVoiceStateEvent voice_state_events[VTX_C_MIXER_MAX_VOICE_STATE_EVENTS];
 } VTXCMixerState;
+
+// Schedule state transitions on an existing voice; never create or reactivate it.
+VTXCMixerStatus vtx_c_mixer_schedule_voice_playback_reset(
+    VTXCMixerState *state, uint32_t voice_index, uint64_t frame, uint32_t dimensions
+);
+VTXCMixerStatus vtx_c_mixer_schedule_voice_release(
+    VTXCMixerState *state, uint32_t voice_index, uint64_t frame, float fadeout_decrement
+);
+// Restore a continuation's rate independently of any pending release frame.
+VTXCMixerStatus vtx_c_mixer_set_voice_fadeout_decrement(
+    VTXCMixerState *state, uint32_t voice_index, float fadeout_decrement
+);
 
 VTXCMixerConfig vtx_c_mixer_default_config(void);
 float vtx_c_mixer_pan_left_gain(VTXCMixerPanLaw pan_law, float pan);

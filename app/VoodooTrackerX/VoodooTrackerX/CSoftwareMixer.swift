@@ -46,6 +46,27 @@ enum CSoftwareMixerScheduledVoiceRejectionReason: String, Equatable {
     case invalidScheduledVoice = "invalid_scheduled_voice"
 }
 
+/// Independent, explicitly present carried-state resets; no sample or volume ownership changes.
+struct MixerPlaybackReset: Equatable {
+    var volumeEnvelope = false
+    var panEnvelope = false
+    var keyOn = false
+    var fadeout = false
+
+    var dimensions: UInt32 {
+        (volumeEnvelope ? VTX_C_MIXER_RESET_VOLUME_ENVELOPE : 0) |
+            (panEnvelope ? VTX_C_MIXER_RESET_PAN_ENVELOPE : 0) |
+            (keyOn ? VTX_C_MIXER_RESET_KEY_ON : 0) |
+            (fadeout ? VTX_C_MIXER_RESET_FADEOUT : 0)
+    }
+}
+
+/// Preplanned state transitions on an existing voice, distinct from trigger and cut.
+enum MixerPlaybackStateChange: Equatable {
+    case reset(MixerPlaybackReset)
+    case keyOff(fadeoutDecrement: Float)
+}
+
 enum CSoftwareMixerVoiceStateUpdateRejectionReason: String, Equatable {
     case voiceStateEventCapacity = "voice_state_event_capacity"
     case invalidVoiceStateUpdate = "invalid_voice_state_update"
@@ -200,6 +221,9 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
     let effectivePan: Float
     let keyOn: Bool
     let fadeoutValue: Float
+    let volumeEnvelopePositionFrame: Int
+    let panEnvelopePositionFrame: Int
+    let pingPongDirection: Int
     let gainRamp: CSoftwareMixerValueRampRuntimeState?
     let deactivateAfterGainRamp: Bool
     let panRamp: CSoftwareMixerValueRampRuntimeState?
@@ -216,6 +240,9 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
         effectivePan = diagnostic.effective_pan
         keyOn = diagnostic.key_on != 0
         fadeoutValue = diagnostic.fadeout_value
+        volumeEnvelopePositionFrame = Int(diagnostic.volume_envelope_position_frame)
+        panEnvelopePositionFrame = Int(diagnostic.pan_envelope_position_frame)
+        pingPongDirection = Int(diagnostic.ping_pong_direction)
         gainRamp = diagnostic.gain_ramp_active == 0 ? nil : CSoftwareMixerValueRampRuntimeState(
             start: diagnostic.gain_ramp_start,
             target: diagnostic.gain_ramp_target,
@@ -572,6 +599,27 @@ final class CSoftwareMixer {
         return CSoftwareMixerScheduledVoiceResult(voiceIndex: Int(voiceIndex), rejectionReason: nil)
     }
 
+    /// Schedules an allocation-free transition in the shared fixed-capacity C queue.
+    @discardableResult
+    func schedulePlaybackStateChange(
+        _ change: MixerPlaybackStateChange, voiceIndex: Int, scheduledFrame: Int
+    ) -> CSoftwareMixerVoiceStateUpdateResult {
+        guard voiceIndex >= 0, voiceIndex <= Int(UInt32.max), scheduledFrame >= 0 else {
+            return .init(wasAccepted: false, rejectionReason: .invalidVoiceStateUpdate)
+        }
+        let status: VTXCMixerStatus
+        switch change {
+        case let .reset(reset):
+            status = vtx_c_mixer_schedule_voice_playback_reset(
+                state, UInt32(voiceIndex), UInt64(scheduledFrame), reset.dimensions)
+        case let .keyOff(decrement):
+            status = vtx_c_mixer_schedule_voice_release(
+                state, UInt32(voiceIndex), UInt64(scheduledFrame), decrement)
+        }
+        return .init(wasAccepted: status == VTX_C_MIXER_STATUS_OK,
+                     rejectionReason: status == VTX_C_MIXER_STATUS_OK ? nil : Self.voiceStateUpdateRejectionReason(for: status))
+    }
+
     /// Copies a synthetic volume envelope into an existing C-backed voice.
     func setVolumeEnvelope(_ envelope: MixerEnvelope?, forVoiceAt voiceIndex: Int) {
         precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
@@ -601,6 +649,12 @@ final class CSoftwareMixer {
             fadeoutFrameDecrement.isFinite ? fadeoutFrameDecrement : 0
         )
         Self.requireOK(status)
+    }
+
+    /// Restores the carried fadeout rate without fabricating a historical key-off.
+    func setFadeoutDecrement(_ decrement: Float, forVoiceAt voiceIndex: Int) {
+        precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max))
+        Self.requireOK(vtx_c_mixer_set_voice_fadeout_decrement(state, UInt32(voiceIndex), decrement))
     }
 
     /// Imports caller-computed runtime state into an existing C-backed offline voice.
@@ -1037,16 +1091,18 @@ final class CSoftwareMixer {
             return body(nil)
         }
         precondition(envelope.points.count <= Int(UInt32.max), "C mixer envelope has too many points")
-        let cPoints = envelope.points.map { point in
-            VTXCMixerEnvelopePoint(
-                position_frame: UInt32(clamping: point.positionFrame),
-                value: point.value
-            )
-        }
-        return cPoints.withUnsafeBufferPointer { buffer in
+        guard envelope.points.count <= Int(VTX_C_MIXER_MAX_ENVELOPE_POINTS) else { return body(nil) }
+        // Fixed C storage keeps attaching an output-inert clock allocation-free in the callback.
+        var storage = VTXCMixerEnvelopeState()
+        return withUnsafeMutableBytes(of: &storage.points) { bytes in
+            let buffer = bytes.bindMemory(to: VTXCMixerEnvelopePoint.self)
+            for (index, point) in envelope.points.enumerated() {
+                buffer[index] = VTXCMixerEnvelopePoint(
+                    position_frame: UInt32(clamping: point.positionFrame), value: point.value)
+            }
             var cEnvelope = VTXCMixerEnvelope(
                 points: buffer.baseAddress,
-                point_count: UInt32(cPoints.count),
+                point_count: UInt32(envelope.points.count),
                 sustain_enabled: envelope.sustainFrame == nil ? 0 : 1,
                 sustain_frame: UInt32(clamping: envelope.sustainFrame ?? 0),
                 loop_enabled: envelope.loopStartFrame == nil || envelope.loopEndFrame == nil ? 0 : 1,

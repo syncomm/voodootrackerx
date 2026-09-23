@@ -3,6 +3,140 @@ import AudioToolbox
 import XCTest
 
 final class RuntimeCMixerTests: XCTestCase {
+    func testNonretriggeringResetPlanMatchesBoundedWindowedAndRuntimeAtExactFrames() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        let song = makePlaybackSong(orderPatternIndices: [0],
+            patternRowsByIndex: [0: (0..<40).map { makePlaybackRow(index: $0, note: $0 == 0 ? 49 : 0, instrument: $0 == 0 ? 1 : 0) }],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])], initialTiming: .init(speed: 1, bpm: 250))
+        let baseline = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let event = SyntheticTrackerEvent(row: 0, scheduledStartFrame: 0, sample: .init(monoPCM: (0..<8).map { Float($0) / 8 }),
+            playbackStep: 0.75, loop: .init(mode: .pingPong, startFrame: 1, endFrame: 5),
+            volumeEnvelope: .init(points: [.init(positionFrame: 0, value: 0.25), .init(positionFrame: 4, value: 0.75)], sustainFrame: 4),
+            panEnvelope: .init(points: [.init(positionFrame: 0, value: 0), .init(positionFrame: 3, value: 0)], sustainFrame: 3),
+            keyOffFrame: 2, fadeoutFrameDecrement: 0.0625)
+        let reset = MixerPlaybackReset(volumeEnvelope: true, panEnvelope: true, keyOn: true, fadeout: true)
+        var plan = PlaybackSongSyntheticPlan(timingConfig: baseline.timingConfig, pattern: .init(rowCount: 40, events: [event]), diagnostics: baseline.diagnostics)
+        plan.playbackStateEvents = [
+            .init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 7, change: .reset(reset)),
+            .init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 13, change: .keyOff(fadeoutDecrement: 0.0625)),
+            .init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 31, change: .reset(reset))]
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100, preparedPlan: plan)
+        XCTAssertEqual(runtime.events.map(\.scheduledFrame), [0, 7, 13, 31])
+        XCTAssertEqual(runtime.events.map(\.activeEventIndex), [0, 0, 0, 0])
+        XCTAssertEqual(runtime.events.map(\.channelIndex), [0, 0, 0, 0])
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+        let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
+        let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: 40)
+        let bounded = renderer.render(request).block.interleavedPCM
+        XCTAssertEqual(renderer.renderWindowed(request, windowRows: 7).block.interleavedPCM, bounded)
+        let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 64,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+        core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+        let direct = CSoftwareMixer(config: config)
+        _ = SyntheticPatternScheduler(config: plan.timingConfig).schedule(plan.pattern, on: direct)
+        PlaybackSongOfflineRenderer.schedulePlaybackStateEvents(plan, voiceIndexByEventIndex: [0: 0], on: direct)
+        var frame = 0
+        for count in [2, 4, 1, 1, 5, 1, 2, 13, 3, 8] {
+            let pcm = renderRuntimePCM(core, frames: count)
+            XCTAssertEqual(pcm, Array(bounded[frame..<(frame + count)]))
+            XCTAssertEqual(pcm, direct.render(frames: count).interleavedPCM)
+            frame += count
+            let actual = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+            let expected = try XCTUnwrap(direct.voiceDiagnostic(forVoiceAt: 0))
+            XCTAssertEqual(actual.samplePosition, expected.samplePosition)
+            XCTAssertEqual(actual.sampleStep, expected.sampleStep)
+            XCTAssertEqual(actual.pingPongDirection, expected.pingPongDirection)
+            XCTAssertEqual(actual.volumeEnvelopePositionFrame, expected.volumeEnvelopePositionFrame)
+            XCTAssertEqual(actual.panEnvelopePositionFrame, expected.panEnvelopePositionFrame)
+            XCTAssertEqual(actual.keyOn, expected.keyOn)
+            XCTAssertEqual(actual.fadeoutValue, expected.fadeoutValue)
+            XCTAssertEqual(actual.active, expected.active)
+            if frame == 7 { XCTAssertEqual(actual.samplePosition, 2.75); XCTAssertFalse(actual.keyOn) }
+            if frame == 8 { XCTAssertEqual(actual.samplePosition, 2); XCTAssertTrue(actual.keyOn); XCTAssertEqual(actual.fadeoutValue, 1) }
+        }
+        let applied = core.drainAppliedAdapterEventDiagnostics()
+        XCTAssertEqual(applied.count, 4)
+        for (index, item) in applied.enumerated() {
+            XCTAssertEqual(item.plannedRuntimeFrame, runtime.events[index].scheduledFrame)
+            XCTAssertEqual(item.appliedFrame, UInt64(runtime.events[index].scheduledFrame))
+            XCTAssertEqual(item.eventFrameDelta, 0)
+            if index > 0 {
+                guard case let .playbackStateChange(voice, accepted) = item.result else { return XCTFail("Missing state transition") }
+                XCTAssertEqual(accepted, index < 3)
+                XCTAssertEqual(voice, index < 3 ? 0 : nil)
+                XCTAssertTrue(item.adapterChannelAssociationRetained)
+            }
+        }
+    }
+
+    func testNonretriggeringResetUsesCurrentRowTickAfterDelayedTriggerBeforeSameFrameLxx() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        let envelope = PlaybackVolumeEnvelope(enabled: true, points: [.init(tick: 0, value: 16), .init(tick: 4, value: 48)],
+            sustainPointIndex: nil, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: 1, fadeout: 0)
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2),
+            makePlaybackRow(index: 1, effectType: 0x15, effectParam: 1), makePlaybackRow(index: 2)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            initialTiming: .init(speed: 3, bpm: 125))
+        var plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        plan.playbackStateEvents = [.init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 6,
+            change: .reset(.init(volumeEnvelope: true, keyOn: true, fadeout: true)))]
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100, preparedPlan: plan)
+        let reset = try XCTUnwrap(runtime.events.first { if case .playbackStateChange = $0.action { return true }; return false })
+        XCTAssertEqual(reset.source.rowIndex, 1)
+        XCTAssertEqual(reset.syntheticTick, 0)
+        XCTAssertEqual(runtime.events.filter { $0.scheduledFrame == 6 }.map(\.primaryCategory), ["carried_playback_state", "lxx_set_envelope_position"])
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+        let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
+        let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: 18)
+        let expected = renderer.render(request).block.interleavedPCM
+        XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, expected)
+        let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 32,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+        core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+        XCTAssertEqual(renderRuntimePCM(core, frames: 18), expected)
+        XCTAssertTrue(core.drainAppliedAdapterEventDiagnostics().allSatisfy { $0.eventFrameDelta == 0 })
+    }
+
+    func testNonretriggeringResetRejectsStaleGenerationAroundReplacement() throws {
+        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 100, channelCount: 1), maximumRenderFrames: 64)
+        let reset = MixerPlaybackReset(volumeEnvelope: true, panEnvelope: true, keyOn: true, fadeout: true)
+        let old = SyntheticTrackerEvent(row: 0, sample: .init(monoPCM: Array(repeating: 1, count: 64)), playbackStep: 0.75)
+        let mapping = makeSyntheticEventMapping()
+        XCTAssertTrue(core.triggerAdapterEventWithDiagnostics(old, eventIndex: 0, mapping: mapping).succeeded)
+        let replacement = SyntheticTrackerEvent(row: 1, scheduledStartFrame: 4, sample: old.sample, playbackStep: 0.25,
+            keyOffFrame: 8, fadeoutFrameDecrement: 0.125)
+        let replacementMapping = makeSyntheticEventMapping(eventIndex: 1)
+        let actions: [(Int, RuntimeCMixerAdapterEventAction)] = [
+            (4, .noteTrigger(eventIndex: 1, event: replacement, mapping: replacementMapping)),
+            (4, .playbackStateChange(activeEventIndex: 0, change: .reset(reset))),
+            (5, .playbackStateChange(activeEventIndex: 0, change: .keyOff(fadeoutDecrement: 1))),
+            (6, .playbackStateChange(activeEventIndex: 1, change: .reset(reset)))]
+        core.configureAdapterEventScheduleForTesting(actions.enumerated().map { index, pair in
+            RuntimeCMixerAdapterEvent(id: index, source: mapping.source, channelIndex: 0, syntheticTick: 0,
+                scheduledFrame: pair.0, action: pair.1, categories: ["reset_test"])
+        }, runtimeFrameOffset: 0)
+        _ = renderRuntimePCM(core, frames: 8)
+        let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 1))
+        XCTAssertEqual(voice.samplePosition, 1)
+        XCTAssertEqual(voice.sampleStep, 0.25)
+        XCTAssertTrue(voice.keyOn)
+        XCTAssertEqual(voice.fadeoutValue, 1)
+        _ = renderRuntimePCM(core, frames: 1)
+        XCTAssertFalse(try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 1)).keyOn)
+        XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 1)?.fadeoutValue, 0.875)
+        let applied = core.drainAppliedAdapterEventDiagnostics()
+        XCTAssertEqual(applied.count, 4)
+        for (index, item) in applied.enumerated() {
+            XCTAssertEqual(item.eventFrameDelta, 0)
+            if index > 0 {
+                guard case let .playbackStateChange(_, accepted) = item.result else { return XCTFail("Missing state transition") }
+                XCTAssertEqual(accepted, index == 3)
+                XCTAssertEqual(item.adapterCurrentEventIndexAfter, 1)
+            }
+        }
+    }
+
     func testZeroStepPlannedHoldResumeMatchesOfflineAtExactFrames() throws {
         for mode in [MixerSampleLoopMode.none, .forward, .pingPong] {
             let config = MixerRenderConfig(sampleRate: 48_000, channelCount: 1)

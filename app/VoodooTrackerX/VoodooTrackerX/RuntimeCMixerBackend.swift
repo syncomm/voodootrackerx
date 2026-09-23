@@ -956,6 +956,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return "gain_pan_update"
         case .stepUpdate:
             return "step_pitch_update"
+        case .playbackStateChange:
+            return "carried_playback_state"
         case .envelopePositionUpdate:
             return "lxx_set_envelope_position"
         case .noteCut:
@@ -1170,6 +1172,13 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             if result.targetVoiceIndex == nil {
                 eventCounters.skippedUnmatchedPlannedEventCount &+= 1
             }
+
+        case let .playbackStateChange(_, accepted):
+            recordRuntimeEventWithoutRenderSnapshot(
+                action: "c_mixer_carried_playback_state", context: eventContext,
+                eventTiming: eventTimingTraceFields(for: diagnostic),
+                reason: accepted ? "scheduled" : "inactive_or_stale_voice")
+            if !accepted { eventCounters.skippedUnmatchedPlannedEventCount &+= 1 }
 
         case let .envelopePositionUpdate(result):
             recordRuntimeEvent(

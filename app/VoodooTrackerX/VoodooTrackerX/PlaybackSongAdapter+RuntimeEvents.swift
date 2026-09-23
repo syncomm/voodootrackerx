@@ -1,6 +1,20 @@
 import Foundation
 
 extension PlaybackSongSyntheticAdapter {
+    /// Carries only the panning clock. Zero offsets deliberately keep XM pan modulation deferred.
+    static func inertPanningEnvelopeClock(
+        from envelope: PlaybackPanningEnvelope, timingConfig: SyntheticTrackerTimingConfig
+    ) -> MixerEnvelope? {
+        let clock = PlaybackVolumeEnvelope(
+            enabled: envelope.enabled,
+            points: envelope.points.map { PlaybackEnvelopePoint(tick: $0.tick, value: 0) },
+            sustainPointIndex: envelope.sustainPointIndex,
+            loopStartPointIndex: envelope.loopStartPointIndex,
+            loopEndPointIndex: envelope.loopEndPointIndex,
+            typeFlags: envelope.typeFlags, fadeout: 0)
+        return mixerVolumeEnvelope(from: clock, timingConfig: timingConfig).envelope
+    }
+
     static func eventMapping(
         _ mapping: PlaybackSongSyntheticEventMapping,
         applying semantics: PlaybackSongSyntheticEnvelopeSemanticsDiagnostic

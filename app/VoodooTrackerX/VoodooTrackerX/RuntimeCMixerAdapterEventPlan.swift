@@ -11,6 +11,7 @@ enum RuntimeCMixerAdapterEventAction: Equatable {
     case gainPanUpdate(activeEventIndex: Int, gain: Float?, pan: Float?)
     case stepUpdate(activeEventIndex: Int, playbackStep: Double)
     case envelopePositionUpdate(activeEventIndex: Int, positionFrame: Int)
+    case playbackStateChange(activeEventIndex: Int, change: MixerPlaybackStateChange)
     case noteCut(activeEventIndex: Int?)
 }
 
@@ -60,7 +61,8 @@ struct RuntimeCMixerAdapterEvent: Equatable {
             return eventIndex
         case let .gainPanUpdate(activeEventIndex, _, _),
              let .stepUpdate(activeEventIndex, _),
-             let .envelopePositionUpdate(activeEventIndex, _):
+             let .envelopePositionUpdate(activeEventIndex, _),
+             let .playbackStateChange(activeEventIndex, _):
             return activeEventIndex
         case let .noteCut(activeEventIndex):
             return activeEventIndex
@@ -114,7 +116,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
     static func make(
         song: PlaybackSong?,
         sampleRate: Double,
-        profileSession: AdapterPlanProfileSession? = nil
+        profileSession: AdapterPlanProfileSession? = nil,
+        preparedPlan: PlaybackSongSyntheticPlan? = nil
     ) -> RuntimeCMixerAdapterEventPlan {
         let makeStart = profileSession?.beginPhase()
         guard let song else {
@@ -126,7 +129,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             )
             return unavailablePlan
         }
-        let adaptedPlan = PlaybackSongSyntheticAdapter.adapt(
+        let adaptedPlan = preparedPlan ?? PlaybackSongSyntheticAdapter.adapt(
             song,
             startOrderIndex: 0,
             orderCount: song.orders.count,
@@ -688,6 +691,18 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             ]
         )
 
+        let stateEvents = PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: adaptedPlan)
+        let statePositionResolver = stateEvents.isEmpty ? nil : PlaybackSongSampleTimePositionResolver(plan: adaptedPlan)
+        for update in stateEvents {
+            guard let mapping = eventMappingsByIndex[update.activeEventIndex] else { continue }
+            // A carried voice may have started on a different row/tick (including EDx).
+            let position = statePositionResolver?.position(atFrame: update.scheduledFrame)
+            events.append(RuntimeCMixerAdapterEvent(
+                id: events.count, source: position?.source ?? mapping.source, channelIndex: update.channelIndex,
+                syntheticTick: position?.tickInRow ?? mapping.syntheticTick, scheduledFrame: update.scheduledFrame,
+                action: .playbackStateChange(activeEventIndex: update.activeEventIndex, change: update.change),
+                categories: ["carried_playback_state"]))
+        }
         let sortingStart = profileSession?.beginPhase()
         let sortedEvents = events.sorted { lhs, rhs in
             if lhs.scheduledFrame != rhs.scheduledFrame {
@@ -833,8 +848,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             return 1
         case .noteTrigger:
             return 2
-        case .envelopePositionUpdate:
+        case .playbackStateChange:
             return 3
+        case .envelopePositionUpdate:
+            return 4
         }
     }
 

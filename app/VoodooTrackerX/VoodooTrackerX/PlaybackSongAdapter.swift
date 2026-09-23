@@ -734,20 +734,26 @@ enum PlaybackSongSyntheticAdapter {
             let hasValidImmediateNoteInstrument = (1...96).contains(cell.note) &&
                 cell.instrument > 0 &&
                 !hasNoteDelayEffect
+            // Resolve once through the existing keymap authority. Ordinary triggers
+            // load the new sample's default before same-cell volume writers; delayed,
+            // retrigger, key-off, and portamento paths retain their own contracts.
+            let explicitTriggerSelection: SampleSelection?
+            if hasValidImmediateNoteInstrument, !handlesTonePortamento, !hasRetriggerEffect,
+               !(hasKxxKeyOff && cell.effectParam == 0),
+               let instrument = song.instrumentsByIndex[Int(cell.instrument)] {
+                explicitTriggerSelection = selectSample(forNote: cell.note, from: instrument)
+            } else {
+                explicitTriggerSelection = nil
+            }
             prepareTremoloRow(
                 cell: cell, song: song, source: source, channelIndex: channelIndex,
                 syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
                 globalVolume: context.globalVolumeState.volumeValue,
+                initializesExplicitTriggerVolume: explicitTriggerSelection?.sample != nil,
                 channelState: &channelState, updates: &context.voiceStateUpdates
             )
-            let resetsInstrumentVolumeBeforeTrigger = hasValidImmediateNoteInstrument &&
-                !handlesTonePortamento &&
-                cell.effectType == 0 &&
-                cell.effectParam == 0 &&
-                cell.volumeColumn == 0 &&
-                channelState.volumeValueZeroedByAxy
-            if resetsInstrumentVolumeBeforeTrigger {
-                channelState.baseChannelVolume = 64
+            if let sample = explicitTriggerSelection?.sample {
+                channelState.baseChannelVolume = sampleVolumeRawEstimate(for: sample.volume)
                 channelState.volumeValueZeroedByAxy = false
             }
             let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && handlesTonePortamento
@@ -1367,7 +1373,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = channelState
                 continue
             }
-            let sampleSelection = selectSample(forNote: cell.note, from: instrument)
+            let sampleSelection = explicitTriggerSelection ?? selectSample(forNote: cell.note, from: instrument)
             guard let sample = sampleSelection.sample else {
                 if hasNoteCutEffect {
                     handleNoteCut(

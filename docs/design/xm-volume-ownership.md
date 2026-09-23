@@ -50,6 +50,29 @@ At full global volume, these cases are independently representable:
 
 Equal final gains therefore do not imply equal tracker or sample state.
 
+## Ordinary explicit note and instrument initialization
+
+An ordinary immediate `note + instrument` resolves its sample once through the
+existing canonical keymap resolver. Before same-cell volume commands, it writes
+that newly selected sample's default (`PlaybackSample.volume * 64`, rounded and
+clamped to `0...64`) to base volume; output follows immediately. A stale zero,
+reduced base, or held tremolo output cannot silence or scale the new trigger.
+The trigger refreshes its active instrument/sample association through the
+existing event-creation path. Editor sample selection is not a routing input.
+
+The [pinned FT2 trigger](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L537-L590)
+selects the new note's mapped sample and caches its default in `oldVol`;
+`getNewNote` then calls `resetVolumes` before tick-zero volume/effect handling.
+Explicit volume-column and `Cxx` writes still override the default. VTX retains
+its independent sample factor: default/header 16 initializes base/output 16
+and produces gain `0.0625` at full global volume without envelope/fadeout.
+FT2's different sample-multiplier ownership remains a separate compatibility gap.
+
+Specialized delayed, retrigger, portamento, and immediate key-off paths retain
+their existing volume contracts. Instrument-only reset dispatch and note-only
+routing remain deferred. This initialization does not alter envelope/reset
+operations, gain ramps, replacement ramps, or downstream headroom policy.
+
 ## Runtime, offline, and diagnostics
 
 `RuntimeCMixerAdapterEventPlan` and bounded/windowed offline rendering consume
@@ -156,9 +179,10 @@ Empty rows retain the last output. For base 32 and `748`, tick-0 through tick-5
 outputs are `32, 32, 44, 54, 61, 63`; a following empty row retains 63. `C20`
 replaces it with 32 even though base was already 32. Supported positive volume
 writers operate on base and replace output at their existing command times.
-After tremolo activation, supported explicit instrument resets restore the
-neutral tracker multiplier before same-cell volume commands; sample scaling
-continues downstream. This does not add instrument-memory or trigger routing.
+Ordinary explicit note+instrument triggers load the mapped sample default before
+same-cell volume commands, including after tremolo activation. Other existing
+instrument/reset paths retain their neutral tracker-multiplier behavior; sample
+scaling continues downstream. This does not add instrument-memory or trigger routing.
 Nonzero tremolo ticks are planned after all row-start channel/global writers,
 so a later channel's `Gxx` cannot see an earlier channel's future tremolo output.
 

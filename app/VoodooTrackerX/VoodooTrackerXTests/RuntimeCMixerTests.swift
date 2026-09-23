@@ -3,6 +3,72 @@ import AudioToolbox
 import XCTest
 
 final class RuntimeCMixerTests: XCTestCase {
+    func testExplicitTriggerDefaultsIgnoreEditorFocusAndApplyAtExactRuntimeFrames() throws {
+        let full = makePlaybackSample(pcm: Array(repeating: 1, count: 256))
+        let quiet = makePlaybackSample(sampleIndex: 1, pcm: Array(repeating: 1, count: 256), volume: 0.25)
+        let second = makePlaybackSample(instrumentIndex: 2, pcm: Array(repeating: 1, count: 256), volume: 0.5)
+        let instrument = PlaybackInstrument(index: 1, samples: [quiet, full],
+            noteSampleMap: Array(repeating: 0, count: 48) + Array(repeating: 1, count: 48))
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 6, channels: 1)
+        pattern.rows[0][0] = .init(note: 0, instrument: 1, volumeColumn: 0, effectType: 12, effectParam: 0)
+        pattern.rows[1][0] = .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        pattern.rows[2][0] = .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 12, effectParam: 4)
+        pattern.rows[3][0] = .init(note: 37, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        pattern.rows[4][0] = .init(note: 49, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0)
+        var document = BlankTrackerDocument(title: "Explicit trigger defaults", songLength: 1, currentPosition: 0,
+            restartPosition: 0, currentPatternIndex: 0, tempo: 250, speed: 1, orderTable: [0],
+            selection: .init(selectedInstrument: 1, selectedSample: 1),
+            instrumentPalette: [1: instrument, 2: .init(index: 2, samples: [second], noteSampleMap: Array(repeating: 0, count: 96))],
+            patterns: [pattern])
+        let song = EditablePlaybackSongBuilder.build(from: document)
+        document.selection = .init(selectedInstrument: 1, selectedSample: 2)
+        XCTAssertEqual(EditablePlaybackSongBuilder.build(from: document), song)
+        let config = MixerRenderConfig(sampleRate: 48_000, channelCount: 1)
+        let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 6)
+        let renderer = PlaybackSongOfflineRenderer()
+        let offline = renderer.render(request)
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        XCTAssertEqual(runtime.plan, offline.plan)
+        XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, offline.block.interleavedPCM)
+        XCTAssertEqual(offline.diagnostics.eventMappings.map(\.instrumentIndex), [1, 1, 2])
+        XCTAssertEqual(offline.diagnostics.eventMappings.map(\.sampleIndex), [1, 0, 0])
+        XCTAssertEqual(offline.diagnostics.eventMappings.map(\.sampleVolumeRawEstimate), [16, 64, 32])
+        XCTAssertEqual(offline.diagnostics.eventMappings.map(\.effectiveVolumeValue), [16, 64, 32])
+        let triggers = runtime.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+        XCTAssertEqual(triggers.map(\.scheduledFrame), [480, 1440, 1920])
+        XCTAssertEqual(triggers.map(\.activeEventIndex), [0, 1, 2])
+        XCTAssertEqual(offline.plan.pattern.events.map(\.gain), [0.0625, 1, 0.25])
+        let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+        core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+        var frame = 0
+        for boundary in [480, 481, 1440, 1441, 1920, 1921, 2880] {
+            while frame < boundary {
+                let count = min(997, boundary - frame)
+                XCTAssertEqual(renderRuntimePCM(core, frames: count), Array(offline.block.interleavedPCM[frame..<(frame + count)]))
+                frame += count
+            }
+            if let index = [481, 1441, 1921].firstIndex(of: boundary) {
+                let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: index))
+                XCTAssertTrue(voice.active)
+                XCTAssertEqual(voice.gain, offline.plan.pattern.events[index].gain)
+                XCTAssertEqual(voice.samplePosition, offline.plan.pattern.events[index].playbackStep)
+            }
+        }
+        XCTAssertTrue(offline.block.interleavedPCM[..<480].allSatisfy { $0 == 0 })
+        XCTAssertEqual(offline.block.interleavedPCM[480], 0.0625)
+        let applied = core.drainAppliedAdapterEventDiagnostics().filter { if case .noteTrigger = $0.result { return true }; return false }
+        XCTAssertEqual(applied.count, 3)
+        for (actual, planned) in zip(applied, triggers) {
+            XCTAssertEqual(actual.plannedRuntimeFrame, planned.scheduledFrame)
+            XCTAssertEqual(actual.appliedFrame, UInt64(planned.scheduledFrame))
+            XCTAssertEqual(actual.eventFrameDelta, 0)
+            guard case let .noteTrigger(result) = actual.result else { return XCTFail("Missing trigger application") }
+            XCTAssertTrue(result.succeeded)
+            XCTAssertNotNil(result.newVoiceIndex)
+        }
+    }
+
     func testNonretriggeringResetPlanMatchesBoundedWindowedAndRuntimeAtExactFrames() throws {
         let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
         let song = makePlaybackSong(orderPatternIndices: [0],
@@ -3153,7 +3219,7 @@ final class RuntimeCMixerTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
-                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x50),
                 makePlaybackRow(index: 1, effectType: 0x0C, effectParam: 0x10),
                 makePlaybackRow(index: 2, volumeColumn: 0x30),
                 makePlaybackRow(index: 3, effectType: 0x0A, effectParam: 0x02),

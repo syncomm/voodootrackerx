@@ -118,8 +118,10 @@ final class XMVolumeOwnershipTests: XCTestCase {
             return [0, 8, 16, 24].map { UInt8(truncatingIfNeeded: bits >> $0) }
         }
         let hash = SHA256.hash(data: Data(bytes)).map { String(format: "%02x", $0) }.joined()
-        // Updated only for 6xy nonzero-tick scheduling; all other volume writers stay frozen.
-        XCTAssertEqual(hash, "aefa0b51fe32f99c13754ab048c86b8623c92f12e06b43abdd0bf078c543bd09")
+        // The final explicit note now reloads its quiet sample's default 16.
+        XCTAssertEqual(bounded.diagnostics.eventMappings.last?.effectiveVolumeValue, 16)
+        XCTAssertEqual(bounded.plan.pattern.events.last?.gain, 0.02734375)
+        XCTAssertEqual(hash, "acd65b8b03982779b0c22b39454f8ff811d70c2d339b21681b6b87a0a4b0ccc9")
         XCTAssertEqual(bounded.block.frameCount, 56)
     }
 

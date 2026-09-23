@@ -12,6 +12,7 @@ enum RuntimeCMixerAdapterEventAction: Equatable {
     case stepUpdate(activeEventIndex: Int, playbackStep: Double)
     case envelopePositionUpdate(activeEventIndex: Int, positionFrame: Int)
     case playbackStateChange(activeEventIndex: Int, change: MixerPlaybackStateChange)
+    case envelopeSemanticUpdate(activeEventIndex: Int, state: MixerEnvelopeSemanticState)
     case noteCut(activeEventIndex: Int?)
 }
 
@@ -62,7 +63,8 @@ struct RuntimeCMixerAdapterEvent: Equatable {
         case let .gainPanUpdate(activeEventIndex, _, _),
              let .stepUpdate(activeEventIndex, _),
              let .envelopePositionUpdate(activeEventIndex, _),
-             let .playbackStateChange(activeEventIndex, _):
+             let .playbackStateChange(activeEventIndex, _),
+             let .envelopeSemanticUpdate(activeEventIndex, _):
             return activeEventIndex
         case let .noteCut(activeEventIndex):
             return activeEventIndex
@@ -694,6 +696,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         let stateEvents = PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: adaptedPlan)
         let statePositionResolver = stateEvents.isEmpty ? nil : PlaybackSongSampleTimePositionResolver(plan: adaptedPlan)
         for update in stateEvents {
+            guard adaptedPlan.xmEnvelopeTimeline?.updatesByEvent[update.activeEventIndex] == nil else { continue }
             guard let mapping = eventMappingsByIndex[update.activeEventIndex] else { continue }
             // A carried voice may have started on a different row/tick (including EDx).
             let position = statePositionResolver?.position(atFrame: update.scheduledFrame)
@@ -702,6 +705,12 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 syntheticTick: position?.tickInRow ?? mapping.syntheticTick, scheduledFrame: update.scheduledFrame,
                 action: .playbackStateChange(activeEventIndex: update.activeEventIndex, change: update.change),
                 categories: ["carried_playback_state"]))
+        }
+        for update in adaptedPlan.xmEnvelopeTimeline?.updates ?? [] {
+            events.append(RuntimeCMixerAdapterEvent(id: events.count, source: update.source,
+                channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
+                action: .envelopeSemanticUpdate(activeEventIndex: update.eventIndex, state: update.state),
+                categories: ["xm_envelope_semantic_tick"]))
         }
         let sortingStart = profileSession?.beginPhase()
         let sortedEvents = events.sorted { lhs, rhs in
@@ -852,6 +861,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             return 3
         case .envelopePositionUpdate:
             return 4
+        case .envelopeSemanticUpdate:
+            return 5
         }
     }
 

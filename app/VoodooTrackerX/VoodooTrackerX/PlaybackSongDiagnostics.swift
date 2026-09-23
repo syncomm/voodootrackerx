@@ -291,7 +291,9 @@ extension PlaybackSongSyntheticPlan {
         PlaybackSongSyntheticPlan(
             timingConfig: timingConfig,
             pattern: pattern,
-            diagnostics: diagnostics.replacingEventCoverage(eventCoverage)
+            diagnostics: diagnostics.replacingEventCoverage(eventCoverage),
+            playbackStateEvents: playbackStateEvents,
+            xmEnvelopeTimeline: xmEnvelopeTimeline
         )
     }
 }
@@ -651,6 +653,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case volumeColumn(PlaybackSongSyntheticVolumeColumnCommand)
     case instrumentDefaultVolume(value: Int)
     case cxxSetVolume(value: Int)
+    case keyOffWithoutEnvelope
     case effect8xxSetPanning(value: Int)
     case axyVolumeSlide(up: Int, down: Int)
     case gxxSetGlobalVolume(value: Int)
@@ -672,6 +675,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "instrument default volume"
         case .cxxSetVolume:
             return "Cxx set volume"
+        case .keyOffWithoutEnvelope:
+            return "key-off without volume envelope"
         case .effect8xxSetPanning:
             return "8xx set panning"
         case .axyVolumeSlide:

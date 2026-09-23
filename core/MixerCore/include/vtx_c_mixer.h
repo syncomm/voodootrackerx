@@ -27,8 +27,8 @@ extern "C" {
 #define VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES 32u
 #define VTX_C_MIXER_REPLACEMENT_STOP_RAMP_FRAMES VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES
 
-// Synthetic offline envelopes use copied fixed-size point storage. XM instruments are
-// not wired into this C-backed path yet.
+// Generic frame envelopes use copied fixed-size point storage. XM semantic targets
+// arrive through the caller-owned tick-state import boundary below.
 #define VTX_C_MIXER_MAX_ENVELOPE_POINTS 12u
 
 typedef enum {
@@ -101,6 +101,17 @@ typedef struct {
     int enabled;
 } VTXCMixerEnvelopeState;
 
+// Caller-owned semantic clock. Importing a target never moves the sample cursor,
+// changes an audible ramp, or reactivates a completed voice.
+typedef struct {
+    uint32_t volume_tick;
+    uint32_t pan_tick;
+    uint32_t fadeout_accumulator;
+    int key_on;
+    float volume_value;
+    float fadeout_value;
+} VTXCMixerEnvelopeSemanticState;
+
 typedef struct {
     float *sample_pcm;
     VTXCMixerSharedSamplePayload *shared_sample_payload;
@@ -136,6 +147,8 @@ typedef struct {
     int key_on;
     float fadeout_value;
     float fadeout_decrement_per_frame;
+    int has_external_envelope_state;
+    VTXCMixerEnvelopeSemanticState external_envelope_state;
     int has_channel_tag;
     uint32_t channel_tag;
     int active;
@@ -157,6 +170,8 @@ typedef struct {
     int ping_pong_direction;
     int key_on;
     float fadeout_value;
+    int has_external_envelope_state;
+    VTXCMixerEnvelopeSemanticState external_envelope_state;
     int gain_ramp_active;
     float gain_ramp_start;
     float gain_ramp_target;
@@ -207,6 +222,11 @@ typedef struct {
     VTXCMixerVoice voices[VTX_C_MIXER_MAX_VOICES];
     VTXCMixerVoiceStateEvent voice_state_events[VTX_C_MIXER_MAX_VOICE_STATE_EVENTS];
 } VTXCMixerState;
+
+// Applies a held target at the current frame; callers supply the semantic timeline.
+VTXCMixerStatus vtx_c_mixer_set_voice_envelope_semantic_state(
+    VTXCMixerState *state, uint32_t voice_index, VTXCMixerEnvelopeSemanticState semantic
+);
 
 // Schedule state transitions on an existing voice; never create or reactivate it.
 VTXCMixerStatus vtx_c_mixer_schedule_voice_playback_reset(

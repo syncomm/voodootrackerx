@@ -99,6 +99,31 @@ Run these before changes that touch the bounded XM render tool, render/export
 policy, CLI argument handling, or render diagnostics JSON. The same filtered
 suite runs in `basic-checks` CI.
 
+## XM Envelope Semantic Targets
+
+Run the focused tick, release, fadeout, reset and window-import tests with:
+
+```bash
+swift test --filter XMEnvelopeSemanticTests
+swift test --filter NonretriggeringResetTests
+```
+
+`envelope-release-fadeout-timing.xm` covers a carried voice across `FFA` and
+`F03`, sustain/release, no-envelope key-off with a later volume write, and an
+envelope loop. The app `RuntimeCMixerTests` compare its runtime plan/application
+with offline targets at 48 and 44.1 kHz, including source coordinates, generation,
+key state, exact integer fadeout and zero planned/applied frame delta. Window
+imports compare exact semantic state. Constant-source PCM is exact; the public
+sine case permits `1e-7` PCM error from existing fractional source-cursor
+reconstruction. Audible XM pan envelopes remain inert.
+
+For manual listening, compare matching public-source before/after renders for
+sustain → release → fadeout, no-envelope key-off, and an active voice crossing
+a BPM change. Confirm ordinary pitch/timing and the shorter corrected fadeout;
+do not use reset-click or whole-WAV reference parity as acceptance for semantic
+targets. Final-output ramps remain deferred. Keep all renders and reference
+observations outside git, and record listening only after maintainer confirmation.
+
 ## Render / Export Performance Timing Policy
 
 Correctness tests and Debug app smoke runs are not performance benchmarks. Any

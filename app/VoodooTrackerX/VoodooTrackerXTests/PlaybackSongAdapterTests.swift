@@ -314,7 +314,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(baselineAdapterPlan.pattern.events.map(\.pan), candidateAdapterPlan.pattern.events.map(\.pan))
         XCTAssertTrue(baselineAdapterPlan.pattern.events.allSatisfy { $0.panEnvelope == nil })
         XCTAssertTrue(candidateAdapterPlan.pattern.events.allSatisfy { $0.panEnvelope?.points.map(\.value) == [0, 0] })
-        XCTAssertEqual(baselineRuntimePlan.events.map(\.scheduledFrame), candidateRuntimePlan.events.map(\.scheduledFrame))
+        let audibleEvents = candidateRuntimePlan.events.filter {
+            if case .envelopeSemanticUpdate = $0.action { return false }; return true
+        }
+        XCTAssertEqual(baselineRuntimePlan.events.map(\.scheduledFrame), audibleEvents.map(\.scheduledFrame))
         XCTAssertEqual(baselineRender.block.interleavedPCM.map(\.bitPattern), candidateRender.block.interleavedPCM.map(\.bitPattern))
     }
 
@@ -948,7 +951,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ]))
         XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
         XCTAssertEqual(result.diagnostics.rowTiming[1].effectiveBPM, 125)
-        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 1, 0.75, 0.5])
+        // The frame between canonical ticks holds the previous semantic target.
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 1, 1, 0.5])
     }
 
     func testPlaybackSongAdapterPitchStepSplitAndResetRemainDeterministicWithFxxTiming() throws {
@@ -4734,7 +4738,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0.5, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0, 0, 0])
         XCTAssertEqual(result.plan.pattern.events.first?.initialSourceFrame, 256)
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.keyOffApplied)
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.fadeoutApplied)
@@ -6011,7 +6015,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.25, 0.5, 0.25])
+        // XM wraps on the loop-end tick before publishing its target.
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.5, 0.5, 0.5])
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.loopApplied)
         XCTAssertFalse(mapping.volumeEnvelopeSemantics.keyOffEncountered)
     }
@@ -6130,7 +6135,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0.5, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0, 0, 0])
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.keyOffApplied)
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.fadeoutApplied)
         XCTAssertEqual(mapping.volumeEnvelopeSemantics.fadeoutValue, 65_536)
@@ -6281,7 +6286,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ], samplePCM: Array(repeating: Float(1), count: 6), volumeEnvelope: makePlaybackVolumeEnvelope(enabled: false, points: [], typeFlags: 0, fadeout: 65_536), frames: 4)
         let fadeoutMapping = try XCTUnwrap(fadeout.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(fadeout.block.interleavedPCM, [1, 1, 0.5, 0])
+        XCTAssertEqual(fadeout.block.interleavedPCM, [1, 0, 0, 0])
         XCTAssertTrue(fadeoutMapping.volumeEnvelopeSemantics.keyOffApplied)
         XCTAssertTrue(fadeoutMapping.volumeEnvelopeSemantics.fadeoutApplied)
         XCTAssertEqual(fadeout.diagnostics.keyOffEvents.first?.effectType, 0x14)
@@ -6322,7 +6327,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         session.reset()
         let resetSecond = session.render(frames: 4)
 
-        XCTAssertEqual(single.block.interleavedPCM, [1, 1, 0.5, 0])
+        XCTAssertEqual(single.block.interleavedPCM, [1, 0, 0, 0])
         XCTAssertEqual(split.block, single.block)
         XCTAssertEqual(resetFirst, resetSecond)
         XCTAssertEqual(resetFirst, single.block)

@@ -2781,6 +2781,308 @@
       "xm_output": "generated/effect-memory.xm",
       "xm_sha256": "0e20804e0bbf9aba449c58b76ab97ba93ec02429c5fa056ed26d8a118c43f168",
       "xm_size_bytes": 1261
+    },
+    {
+      "id": "envelope-release-fadeout-timing",
+      "intended_tests": [
+        "canonical tick semantic targets",
+        "release and fadeout",
+        "window and runtime parity"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 4,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 1024,
+            "name": "SUSTAIN RELEASE",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": true,
+              "loop_end_point": 1,
+              "loop_start_point": 0,
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  4,
+                  64
+                ]
+              ],
+              "sustain_point": null,
+              "type_flags": 5
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC SINE",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "cae21393f8ec176e125faa194b4dd6ea44fbeb9de5cf0536e21cf8eb2913288d",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "loop_end_point": null,
+              "loop_start_point": null,
+              "points": [
+                [
+                  0,
+                  16
+                ],
+                [
+                  4,
+                  64
+                ],
+                [
+                  8,
+                  32
+                ],
+                [
+                  24,
+                  0
+                ]
+              ],
+              "sustain_point": 2,
+              "type_flags": 3
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 1024,
+            "name": "NO ENVELOPE",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC SINE",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "cae21393f8ec176e125faa194b4dd6ea44fbeb9de5cf0536e21cf8eb2913288d",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "ENVELOPE LOOP",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC SINE",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "cae21393f8ec176e125faa194b4dd6ea44fbeb9de5cf0536e21cf8eb2913288d",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "loop_end_point": 2,
+              "loop_start_point": 1,
+              "points": [
+                [
+                  0,
+                  16
+                ],
+                [
+                  2,
+                  32
+                ],
+                [
+                  6,
+                  64
+                ],
+                [
+                  8,
+                  16
+                ]
+              ],
+              "sustain_point": null,
+              "type_flags": 5
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 0
+              },
+              {
+                "channel": 1,
+                "instrument": 2,
+                "note": "C-4",
+                "row": 0
+              },
+              {
+                "channel": 2,
+                "instrument": 3,
+                "note": "C-4",
+                "row": 0
+              },
+              {
+                "channel": 3,
+                "effect_parameter": 250,
+                "effect_type": 15,
+                "note": 0,
+                "row": 2
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 3
+              },
+              {
+                "channel": 1,
+                "note": "key-off",
+                "row": 3
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 64,
+                "effect_type": 12,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 3,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 2,
+                "note": "key-off",
+                "row": 5
+              }
+            ],
+            "rows": 16
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX ENV RELEASE",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "envelope-release-fadeout-timing.xm",
+      "purpose": "Isolated generated voices for tick-domain envelope, release, fadeout, and carried Fxx timing.",
+      "significant_rows": [
+        "row 0: three instrument triggers",
+        "row 2: BPM 250",
+        "row 3: envelope and no-envelope key-off",
+        "row 4: speed 3 and volume restore",
+        "row 5: looped envelope release"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "audible envelope ramps",
+        "audible panning envelopes"
+      ],
+      "xm_output": "generated/envelope-release-fadeout-timing.xm",
+      "xm_sha256": "a83c9bc00d869b1415c886877ddc57094ec049db2d67b7973af4523b5712a60e",
+      "xm_size_bytes": 2869
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

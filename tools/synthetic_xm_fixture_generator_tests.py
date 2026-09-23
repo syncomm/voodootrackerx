@@ -23,6 +23,7 @@ ALL_FIXTURES = [
     "vibrato-semantics.xm",
     "amiga-vibrato.xm",
     "effect-memory.xm",
+    "envelope-release-fadeout-timing.xm",
 ]
 
 
@@ -507,6 +508,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "vibrato-semantics.xm").resolve(),
                     (output_dir / "generated" / "amiga-vibrato.xm").resolve(),
                     (output_dir / "generated" / "effect-memory.xm").resolve(),
+                    (output_dir / "generated" / "envelope-release-fadeout-timing.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -515,6 +517,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/effect-memory.xm",
+                    "generated/envelope-release-fadeout-timing.xm",
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
@@ -585,6 +588,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/effect-memory.xm",
+                    "generated/envelope-release-fadeout-timing.xm",
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
@@ -655,6 +659,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:vibrato-semantics.xm": "generated/vibrato-semantics.xm",
                     "xm:amiga-vibrato.xm": "generated/amiga-vibrato.xm",
                     "xm:effect-memory.xm": "generated/effect-memory.xm",
+                    "xm:envelope-release-fadeout-timing.xm": "generated/envelope-release-fadeout-timing.xm",
                 },
             )
 

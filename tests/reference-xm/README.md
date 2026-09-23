@@ -319,6 +319,23 @@ VTX holds the preceding output through tick 0 while FT2 restores the note base.
 Their subsequent vibrato ticks and phase continuation match; this fixture does
 not promote note-only trigger parity or broaden the shared vibrato contract.
 
+`generated/envelope-release-fadeout-timing.xm` (2,869 bytes) isolates shared XM
+semantic targets. Four Linear channels and 16 rows start at speed 6/BPM 125.
+Three instruments use the original project-generated 256-frame, 16-bit sine
+at amplitude 8192, with a forward loop. SHA-256:
+`a83c9bc00d869b1415c886877ddc57094ec049db2d67b7973af4523b5712a60e`.
+
+| Channel / rows | Case |
+| --- | --- |
+| 0, trigger at 0 / key-off at 3 | Rising/falling volume envelope, sustain at tick 8, fadeout 1024; a neutral pan-envelope loop shares the clock. |
+| 1, trigger at 0 / key-off at 3 / `C40` at 4 | No volume envelope; immediate semantic mute, continued fadeout/source, then volume restoration. |
+| 2, trigger at 0 / key-off at 5 | Exclusive-end envelope loop with fadeout zero, continuing after release. |
+| 3, `FFA` at 2 / `F03` at 4 | BPM then speed changes while the three voices remain active. |
+
+The fixture is 0.72 seconds at the specified tempo sequence. Exact semantic
+state/frame assertions are primary; reference output ramps are a separate
+contract. Any longer listening variants and reference WAVs stay outside git.
+
 `generated/effect-memory.xm` (1,261 bytes) isolates shared `Axy`/`5xy`/`6xy`
 volume-slide memory and `6xy`/`600` tick timing. Two Linear channels, one neutral
 sustained project sine, 18 rows, speed 6/BPM 125, with speed-1 controls at rows

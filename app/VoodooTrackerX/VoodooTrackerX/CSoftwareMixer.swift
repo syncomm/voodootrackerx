@@ -228,6 +228,8 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
     let deactivateAfterGainRamp: Bool
     let panRamp: CSoftwareMixerValueRampRuntimeState?
 
+    let envelopeSemanticState: MixerEnvelopeSemanticState?
+
     init(_ diagnostic: VTXCMixerVoiceDiagnostic) {
         loaded = diagnostic.loaded != 0
         active = diagnostic.active != 0
@@ -240,6 +242,10 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
         effectivePan = diagnostic.effective_pan
         keyOn = diagnostic.key_on != 0
         fadeoutValue = diagnostic.fadeout_value
+        let semantic = diagnostic.external_envelope_state
+        envelopeSemanticState = diagnostic.has_external_envelope_state == 0 ? nil : MixerEnvelopeSemanticState(
+            volumeTick: Int(semantic.volume_tick), panTick: Int(semantic.pan_tick), keyOn: semantic.key_on != 0,
+            fadeoutAccumulator: Int(semantic.fadeout_accumulator), volumeValue: semantic.volume_value)
         volumeEnvelopePositionFrame = Int(diagnostic.volume_envelope_position_frame)
         panEnvelopePositionFrame = Int(diagnostic.pan_envelope_position_frame)
         pingPongDirection = Int(diagnostic.ping_pong_direction)
@@ -346,6 +352,24 @@ final class CSoftwareMixer {
     private let recordsSamplePayloadUploads: Bool
     private var storedSamplePayloadUploadDiagnostics = CSoftwareMixerSamplePayloadUploadDiagnostics.zero
     private(set) var config: MixerRenderConfig
+    private var envelopeUpdates: [(frame: Int, voice: Int, state: MixerEnvelopeSemanticState)] = []
+    private var nextEnvelopeUpdate = 0
+
+    /// Installs a prepared offline stream; runtime applies these same targets at its planned event frames.
+    func setEnvelopeSemanticSchedule(_ updates: [(frame: Int, voice: Int, state: MixerEnvelopeSemanticState)]) {
+        envelopeUpdates = updates
+        nextEnvelopeUpdate = 0
+    }
+
+    /// Imports semantic state only. The C boundary rejects completed or retiring voices.
+    @discardableResult
+    func setEnvelopeSemanticState(_ semantic: MixerEnvelopeSemanticState, forVoiceAt voice: Int) -> Bool {
+        guard voice >= 0 else { return false }
+        let value = VTXCMixerEnvelopeSemanticState(volume_tick: UInt32(clamping: semantic.volumeTick),
+            pan_tick: UInt32(clamping: semantic.panTick), fadeout_accumulator: UInt32(clamping: semantic.fadeoutAccumulator),
+            key_on: semantic.keyOn ? 1 : 0, volume_value: semantic.volumeValue, fadeout_value: semantic.fadeoutValue)
+        return vtx_c_mixer_set_voice_envelope_semantic_state(state, UInt32(clamping: voice), value) == VTX_C_MIXER_STATUS_OK
+    }
 
     var loadedVoiceCount: Int {
         Int(vtx_c_mixer_loaded_voice_count(state))
@@ -959,6 +983,8 @@ final class CSoftwareMixer {
     /// Removes all loaded C-backed voices so subsequent renders produce silence.
     func clearVoices() {
         Self.requireOK(vtx_c_mixer_clear_voices(state))
+        envelopeUpdates.removeAll(keepingCapacity: true)
+        nextEnvelopeUpdate = 0
     }
 
     /// Removes all loaded and scheduled C-backed voices.
@@ -1009,14 +1035,27 @@ final class CSoftwareMixer {
             interleavedPCM.count >= frameCount * config.channelCount,
             "C mixer output buffer is smaller than the requested frame count"
         )
-        let status = vtx_c_mixer_render(state, interleavedPCM.baseAddress, UInt32(frameCount))
-        Self.requireOK(status)
+        var rendered = 0
+        while rendered < frameCount {
+            let frame = Int(currentFrame)
+            while nextEnvelopeUpdate < envelopeUpdates.count && envelopeUpdates[nextEnvelopeUpdate].frame <= frame {
+                let update = envelopeUpdates[nextEnvelopeUpdate]
+                setEnvelopeSemanticState(update.state, forVoiceAt: update.voice)
+                nextEnvelopeUpdate += 1
+            }
+            let nextFrame = nextEnvelopeUpdate < envelopeUpdates.count ? envelopeUpdates[nextEnvelopeUpdate].frame : Int.max
+            let count = min(frameCount - rendered, nextFrame - frame)
+            Self.requireOK(vtx_c_mixer_render(state,
+                interleavedPCM.baseAddress?.advanced(by: rendered * config.channelCount), UInt32(count)))
+            rendered += count
+        }
         return frameCount
     }
 
     /// Resets the C mixer state so repeated renders from the same inputs are deterministic.
     func reset() {
         Self.requireOK(vtx_c_mixer_reset(state))
+        nextEnvelopeUpdate = 0
     }
 
     private static func cConfig(from config: MixerRenderConfig) -> VTXCMixerConfig {

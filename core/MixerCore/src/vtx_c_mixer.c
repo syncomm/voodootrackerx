@@ -422,7 +422,7 @@ static void vtx_c_mixer_advance_envelope(VTXCMixerEnvelopeState *envelope, int k
 }
 
 static void vtx_c_mixer_advance_voice_envelopes(VTXCMixerVoice *voice) {
-    if (voice == NULL) {
+    if (voice == NULL || voice->has_external_envelope_state) {
         return;
     }
     vtx_c_mixer_advance_envelope(&voice->volume_envelope, voice->key_on);
@@ -460,7 +460,7 @@ static void vtx_c_mixer_advance_value_ramps(VTXCMixerState *state, VTXCMixerVoic
 }
 
 static void vtx_c_mixer_update_voice_key_state(VTXCMixerVoice *voice, uint64_t absolute_frame) {
-    if (voice == NULL || !voice->key_on || !voice->has_key_off_frame) {
+    if (voice == NULL || voice->has_external_envelope_state || !voice->key_on || !voice->has_key_off_frame) {
         return;
     }
     if (absolute_frame >= voice->key_off_frame) {
@@ -536,7 +536,7 @@ static void vtx_c_mixer_apply_voice_state_events(VTXCMixerState *state, uint64_t
 }
 
 static void vtx_c_mixer_advance_voice_fadeout(VTXCMixerVoice *voice) {
-    if (voice == NULL || voice->key_on || voice->fadeout_decrement_per_frame <= 0.0f) {
+    if (voice == NULL || voice->has_external_envelope_state || voice->key_on || voice->fadeout_decrement_per_frame <= 0.0f) {
         return;
     }
     voice->fadeout_value = vtx_c_mixer_clamp(
@@ -1202,6 +1202,8 @@ VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
     out_diagnostic->ping_pong_direction = voice->ping_pong_direction;
     out_diagnostic->key_on = voice->key_on ? 1 : 0;
     out_diagnostic->fadeout_value = voice->fadeout_value;
+    out_diagnostic->has_external_envelope_state = voice->has_external_envelope_state;
+    out_diagnostic->external_envelope_state = voice->external_envelope_state;
     out_diagnostic->gain_ramp_active = voice->gain_ramp_active ? 1 : 0;
     out_diagnostic->gain_ramp_start = voice->gain_ramp_start;
     out_diagnostic->gain_ramp_target = voice->gain_ramp_target;
@@ -1213,6 +1215,34 @@ VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
     out_diagnostic->pan_ramp_target = voice->pan_ramp_target;
     out_diagnostic->pan_ramp_total_frames = voice->pan_ramp_total_frames;
     out_diagnostic->pan_ramp_position_frame = voice->pan_ramp_position_frame;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
+VTXCMixerStatus vtx_c_mixer_set_voice_envelope_semantic_state(
+    VTXCMixerState *state, uint32_t voice_index, VTXCMixerEnvelopeSemanticState semantic
+) {
+    VTXCMixerVoice *voice;
+    if (state == NULL || voice_index >= state->voice_count ||
+        !isfinite(semantic.volume_value) || semantic.volume_value < 0.0f || semantic.volume_value > 1.0f ||
+        !isfinite(semantic.fadeout_value) || semantic.fadeout_value < 0.0f || semantic.fadeout_value > 1.0f ||
+        semantic.fadeout_accumulator > 32768u) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    voice = &state->voices[voice_index];
+    if (!voice->active || voice->deactivate_after_gain_ramp || state->current_frame < voice->scheduled_start_frame) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    voice->has_external_envelope_state = 1;
+    voice->external_envelope_state = semantic;
+    voice->key_on = semantic.key_on != 0;
+    voice->fadeout_value = semantic.fadeout_value;
+    // A constant envelope uses the existing output multiplication unchanged.
+    // Its semantic position is stored separately from this generic frame envelope.
+    voice->volume_envelope.enabled = 1;
+    voice->volume_envelope.point_count = 1u;
+    voice->volume_envelope.points[0].position_frame = 0u;
+    voice->volume_envelope.points[0].value = semantic.volume_value;
+    voice->pan_envelope.enabled = 0;
     return VTX_C_MIXER_STATUS_OK;
 }
 
@@ -1659,7 +1689,7 @@ VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
     voice->active = voice->sample_frame_count > 0 &&
         voice->sample_pcm != NULL &&
         voice->sample_position < (double)voice->sample_frame_count &&
-        voice->fadeout_value > 0.0f;
+        (voice->has_external_envelope_state || voice->fadeout_value > 0.0f);
     return VTX_C_MIXER_STATUS_OK;
 }
 

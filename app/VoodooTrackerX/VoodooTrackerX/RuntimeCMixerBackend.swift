@@ -958,6 +958,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return "step_pitch_update"
         case .playbackStateChange:
             return "carried_playback_state"
+        case .envelopeSemanticUpdate:
+            return "xm_envelope_semantic_tick"
         case .envelopePositionUpdate:
             return "lxx_set_envelope_position"
         case .noteCut:

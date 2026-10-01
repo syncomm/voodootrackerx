@@ -131,11 +131,13 @@ updates. Same-cell note `5xy` rows set the tone-portamento target without
 retriggering, empty-note rows continue an existing target when available, and
 `500` reuses shared Axy-style volume-slide memory when available. Missing
 `500` volume-slide memory remains a diagnosed no-op/deferred case.
-Same-cell `6xy` note triggers keep effect metadata and trigger with the
-row-level volume-slide adjustment. `600` replays the last same-channel nonzero
+Same-cell `6xy` note triggers keep effect metadata without a tick-zero slide.
+`6xy`/`600` apply vibrato then the shared volume slide on ticks `1..<speed`;
+`600` replays the last same-channel nonzero
 `Axy`/`5xy`/`6xy` parameter; unseeded memory supplies zero amount. Speed-1 rows
-neither seed slide memory nor replay `600`. Nonzero `6xy` still applies once at
-row start, including speed 1; full tick timing remains parity-watch debt.
+neither slide, restore output, seed slide memory nor replay `600`. The former
+row-level timing gap is closed; gain scaling and other-effect interactions
+remain separately tracked in the [closure matrix](ft2-xm-closure-matrix.md).
 The existing `volume_panning_state_updates` fields carry `effect_param: 0`,
 `effect_memory_reused`, `memory_source`, the resolved `volume_slide_up/down`,
 output volume before/after, and planned gain/frame. Join source/channel/tick

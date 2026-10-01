@@ -54,6 +54,9 @@ Keeping a candidate visible does not promise that it must ship. The command
 tables below remain authoritative, and this planning definition changes none of
 their support statuses.
 
+The [FT2/XM closure matrix](ft2-xm-closure-matrix.md) separates bounded closed
+contracts from remaining timing, memory, output and frequency-mode differences.
+
 Each effect-family slice uses the smallest sufficient project-generated public
 XM fixture and a deterministic automated regression. An ft2-clone WAV rendered
 from that same fixture is the primary FT2-style comparison; a secondary
@@ -108,7 +111,7 @@ FT2's 5 ms onset ramp remains separate. See
 
 | Command | Name | Status | Effect memory | Runtime support | Offline support | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `0xy` | Arpeggio | Implemented, parity-watch | Deferred for broad memory | Yes | Yes | Deterministic tick-cycle sample-step updates; `000` is a no-op. |
+| `0xy` | Arpeggio | Implemented, parity-watch | Not applicable; `000` is inert | Yes | Yes | Linear tick-cycle sample-step updates are supported, but their order differs from FT2's speed-dependent remaining-tick order. Amiga arpeggio remains deferred. |
 | `1xx` | Portamento up | Implemented, parity-watch | `100` memory supported | Yes | Yes | Linear slides subtract `4 * xx` period units per tick after tick 0; Amiga-table `1xx` remains deferred. |
 | `2xx` | Portamento down | Implemented, parity-watch | `200` memory supported | Yes | Yes | Linear slides add `4 * xx` period units per tick after tick 0; the existing narrow Amiga-table period/sample-step path is preserved. |
 | `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and target-clamped updates after tick 0 (Linear `4 * xx` period units); Amiga targets use the FT2-compatible quantized period lookup. No-active/no-target/no-speed/missing-memory residuals remain parity-watch. |
@@ -127,20 +130,20 @@ FT2's 5 ms onset ramp remains separate. See
 | `E2x` | Fine portamento down | Implemented, parity-watch | `E20` deferred/no-op | Yes | Yes | One tick-0 Linear adjustment of `4 * x` period units (including same-cell note triggers). |
 | `E3x` | Glissando control | Deferred | Deferred | No | No | No current C mixer adapter behavior. |
 | `E4x` | Vibrato control | Implemented | Channel-local control stored for later vibrato | Yes | Yes | All 16 values: low two bits select sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 is ignored. |
-| `E5x` | Set finetune | Implemented, parity-watch | No-note memory deferred | Yes | Yes | Same-cell note triggers only; non-linear table behavior deferred. |
-| `E6x` | Pattern loop | Implemented, parity-watch | Loop state supported for focused traversal | Yes | Yes | Missing loop starts are diagnosed without inventing playback; broader traversal quirks remain tracked. |
+| `E5x` | Set finetune | Implemented, parity-watch | No-note E5x is inert in the pinned FT2 control | Yes | Yes | Same-cell Linear note triggers only; Amiga behavior deferred. The diagnostic no-note deferral does not establish a missing FT2 memory behavior. |
+| `E6x` | Pattern loop | Implemented, parity-watch | Loop state supported for focused traversal | Yes | Yes | Explicit loop starts are supported. FT2's implicit initial start when E6x has no prior E60 is not implemented; broader traversal ordering remains tracked. |
 | `E7x` | Tremolo control | Implemented, parity-watch | Channel-local control stored for later tremolo | Yes | Yes | All nibble values follow FT2: low two bits select sine/ramp/square/square, bit 2 suppresses phase reset, bit 3 is ignored. Ramp reproduces the vibrato-phase sign quirk without changing vibrato playback. |
-| `E8x` | Set panning | Deferred | Deferred | No | No | `8xx` is the currently supported panning command. |
-| `E9x` | Retrigger note | Implemented, parity-watch | `E90` deferred | Yes | Yes | Retrigger volume-change variants remain deferred. |
+| `E8x` | Set panning | Deferred | Deferred | No | No | Recognized without playback; pinned FT2 XM dispatch is inert. Adding an audible panning alias is outside that target; `8xx` is supported. |
+| `E9x` | Retrigger note | Implemented, parity-watch | `E90` deferred | Yes | Yes | Nonzero intervals trigger within the row. The missing `E90` behavior is tick-zero retrigger, not interval-memory replay; `Rxy` is separate. |
 | `EAx` | Fine volume slide up | Implemented, parity-watch | `EA0` deferred/no-op | Yes | Yes | Row-level channel-volume adjustment. |
 | `EBx` | Fine volume slide down | Implemented, parity-watch | `EB0` deferred/no-op | Yes | Yes | Row-level channel-volume adjustment. |
-| `ECx` | Note cut | Implemented | Not applicable | Yes | Yes | Hard cut at requested row tick. |
+| `ECx` | Note cut | Implemented, parity-watch | Not applicable | Yes | Yes | VTX hard-cuts the source at the requested row tick. FT2's quick zero-volume transition retains the source/cursor; audible parity remains deferred. |
 | `EDx` | Note delay | Implemented | Not applicable | Yes | Yes | Delays same-cell normal note triggers; no-note residuals are diagnostic. |
 | `EEx` | Pattern delay | Deferred | Deferred | No | No | Recognized as a traversal/timing hazard. |
 | `EFx` | Invert loop / funk repeat | Deferred | Deferred | No | No | Not a current playback target. |
 | `Fxx` | Speed / BPM | Implemented | Not applicable | Yes | Yes | `F01...F1F` sets the command row's tick count; `F20...FFF` sets its tick duration starting at tick 0. Channels are processed left to right; the last speed and last BPM commands each win. `F00` remains an ignored no-op. |
 | `Gxx` | Global volume | Implemented | Not applicable | Yes | Yes | Clamped `0...64` global-volume state. |
-| `Hxy` | Global volume slide | Implemented, parity-watch | `H00` no-op | Yes | Yes | Both-nibble parameters use diagnosed up-nibble precedence. |
+| `Hxy` | Global volume slide | Implemented, parity-watch | `H00` no-op | Yes | Yes | Current adapter adjusts once at row start with diagnosed up-nibble precedence. FT2 nonzero-tick scheduling and channel-local `H00` memory remain gaps. |
 | `Kxx` | Key off | Implemented | Not applicable | Yes | Yes | `K00` releases at row start; later valid ticks use the canonical Fxx plan. Release advances integer fadeout per tick; without an enabled volume envelope it also zeros base/output volume while retaining the source, except that instrument-only K00 retains its restored/explicit volume. See [semantic targets](design/xm-reset-output-ramp.md#shared-xm-semantic-tick-contract). |
 | `Lxx` | Set envelope position | Implemented, parity-watch | Not applicable | Yes | Yes | Effect-column `Lxx` sets the active mapped volume-envelope position; a declared silent channel retains its clock; uninitialized and no-envelope cases are diagnosed no-ops. Panning-envelope behavior remains deferred. |
 | `Pxy` | Panning slide | Deferred | Deferred | No | No | Legacy handler support exists, but the default C mixer adapter path has no implementation yet. |
@@ -160,12 +163,12 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
 | Command family | Status | Runtime support | Offline support | Notes |
 | --- | --- | --- | --- | --- |
 | Set volume (`10...50`) | Implemented | Yes | Yes | Sets channel volume for triggers and active voices. |
-| Volume slide down/up (`60...7F`) | Implemented, parity-watch | Yes | Yes | Row-level approximation in the adapter path. |
-| Fine volume slide down/up (`80...9F`) | Implemented, parity-watch | Yes | Yes | Row-level approximation in the adapter path. |
+| Volume slide down/up (`60...7F`) | Implemented, parity-watch | Yes | Yes | Once at tick 0 in VTX; FT2 slides on nonzero ticks. |
+| Fine volume slide down/up (`80...9F`) | Implemented, parity-watch | Yes | Yes | One tick-0 adjustment, matching FT2 scheduling; gain/output interactions remain parity-watch. |
 | Vibrato speed (`A0...AF`) | Deferred | No | No | Decoded for diagnostics only. |
 | Vibrato depth (`B0...BF`) | Deferred | No | No | Decoded for diagnostics only. |
-| Set panning (`C0...CF`) | Implemented | Yes | Yes | Maps XM panning to the C mixer pan range. |
-| Panning slide left/right (`D0...EF`) | Implemented, parity-watch | Yes | Yes | Row-level approximation in the adapter path. |
+| Set panning (`C0...CF`) | Implemented, parity-watch | Yes | Yes | VTX uses `17 * nibble`; pinned FT2 uses `16 * nibble`. |
+| Panning slide left/right (`D0...EF`) | Implemented, parity-watch | Yes | Yes | VTX adjusts once at tick 0; FT2 uses nonzero ticks, including the D0 left-edge quirk. E0 has no displacement. |
 | Tone portamento (`F0...FF`) | Implemented, parity-watch | Yes | Yes | Linear `Fx` uses `3x0`-equivalent speed (`64 * x` period units per tick after tick 0); `F0` retains existing speed memory and no-retrigger target handling. Amiga-table volume-column tone portamento remains deferred. |
 | Unsupported / unknown volume-column bytes | Classification-only | No | No | Kept visible in diagnostics when encountered. |
 

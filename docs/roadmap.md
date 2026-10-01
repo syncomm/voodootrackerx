@@ -15,9 +15,9 @@ The baseline is closed. Current work proceeds in this order:
 COMPLETE  documentation authority/context consolidation
 COMPLETE  diagnostic-tool consolidation
 COMPLETE  focused Fxx timing correction
-NOW       focused Linear/Amiga portamento scaling correction
-THEN      fixture-backed FT2/XM effect closure and C-engine correctness
-          focused CoreAudio callback RT safety
+COMPLETE  focused Linear/Amiga portamento scaling correction
+NOW       fixture-backed FT2/XM effect closure and C-engine correctness
+THEN      focused CoreAudio callback RT safety
 LATER     native editable Amiga-frequency mode
           remaining pre-v1 product milestones
 ```
@@ -80,16 +80,12 @@ row from tick 0. Public fixture tests cover exact timing, runtime/offline parity
 and sample-time follow; ft2-clone comparison uses matching Precise BPM settings.
 See `docs/xm-effect-support.md` and `docs/audio-comparison.md`.
 
-### 2. Linear/Amiga portamento scaling (`VTX-CS-002`)
+### 2. COMPLETE — Linear/Amiga portamento scaling (`VTX-CS-002`)
 
-Correct regular, fine, and extra-fine portamento units across Linear and Amiga
-frequency tables using explicit reference-derived expectations. Keep it
-separate from Fxx so pitch-rate changes and timing changes can be reviewed and
-compared independently.
-
-Do not silently broaden editable Amiga admission or combine this with native
-Amiga document creation. Update `docs/xm-effect-support.md` for any support or
-parity status that changes.
+Public scaling fixtures and tests pin Linear regular/fine/tone units, extra-fine
+units and volume-column tone speed. Supported Amiga `2xx`/`3xx` deltas retain
+their correct 4x period representation. Deferred Amiga families and editable
+Amiga admission remain separate; see `docs/xm-effect-support.md`.
 
 ### 3. Fixture-backed FT2/XM effect closure and C-engine correctness
 
@@ -101,10 +97,12 @@ This is a milestone, not one PR. Its exit criterion is:
 
 Use the consolidated diagnostic surface and canonical effect table to rank and
 deliver one evidence-backed behavior family at a time. Known candidates remain
-visible without becoming promises: `7xy` tremolo with its likely companion
-`E7x` control, `Pxy` panning slide, `Txy` tremor, `EEx` pattern delay, remaining
-relevant E-command gaps, volume-column vibrato, effect-memory gaps, and broader
-Amiga-table pitch parity that remains in v1 scope.
+visible without becoming promises: `Pxy` panning slide, `Txy` tremor, `EEx`
+pattern delay, relevant E-command gaps, volume-column vibrato, effect-memory
+gaps, and broader Amiga-table pitch parity that remains in v1 scope.
+`7xy`/`E7x` are implemented, parity-watch. The
+[closure matrix](ft2-xm-closure-matrix.md) records current evidence, dependencies
+and one recommended behavioral slice without creating a second roadmap.
 
 Each family uses the smallest sufficient public synthetic XM fixture and a
 deterministic automated regression. A local ft2-clone WAV from that same

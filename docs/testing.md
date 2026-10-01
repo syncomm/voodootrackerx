@@ -115,13 +115,18 @@ with offline targets at 48 and 44.1 kHz, including source coordinates, generatio
 key state, exact integer fadeout and zero planned/applied frame delta. Window
 imports compare exact semantic state. Constant-source PCM is exact; the public
 sine case permits `1e-7` PCM error from existing fractional source-cursor
-reconstruction. Audible XM pan envelopes remain inert.
+reconstruction. `XMAudibleOutputTests` additionally pins exact stereo interiors,
+previous-target interruption, redundant-target holds, typed quick-volume intent,
+no double ramps, and continuation inside ordinary/replacement transitions.
+Runtime tests cover mono/stereo and both mix profiles. Audible XM pan envelopes
+remain inert.
 
 For manual listening, compare matching public-source before/after renders for
 sustain → release → fadeout, no-envelope key-off, and an active voice crossing
-a BPM change. Confirm ordinary pitch/timing and the shorter corrected fadeout;
-do not use reset-click or whole-WAV reference parity as acceptance for semantic
-targets. Final-output ramps remain deferred. Keep all renders and reference
+a BPM change. Compare FT2/VTX for unexpected ordinary-boundary clicks, pumping,
+lag, incorrect fadeout cadence, tempo-change lag, and stereo motion. Reset-click
+parity and whole-WAV correlation are not gates for ordinary target cadence.
+The dedicated 5 ms reset ramp remains deferred. Keep all renders and reference
 observations outside git, and record listening only after maintainer confirmation.
 
 ## Render / Export Performance Timing Policy

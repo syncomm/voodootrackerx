@@ -394,6 +394,7 @@ struct PlaybackSongWindowContinuation: Equatable {
     let carriedTonePortamentoActive: Bool
     var fadeoutDecrement: Float? = nil
     var envelopeSemanticState: MixerEnvelopeSemanticState? = nil
+    var audibleOutputState: MixerAudibleOutputState? = nil
 }
 
 struct PlaybackSongWindowBucket: Equatable {
@@ -857,7 +858,8 @@ final class PlaybackSongOfflineRenderer {
             pattern: SyntheticPattern(rowCount: plan.pattern.rowCount, events: events),
             diagnostics: plan.diagnostics,
             playbackStateEvents: plan.playbackStateEvents,
-            xmEnvelopeTimeline: plan.xmEnvelopeTimeline
+            xmEnvelopeTimeline: plan.xmEnvelopeTimeline,
+            xmAudibleTimeline: plan.xmAudibleTimeline
         )
     }
 
@@ -983,7 +985,8 @@ final class PlaybackSongOfflineRenderer {
         for plan: PlaybackSongSyntheticPlan,
         totalFrames: Int,
         windowRows: Int,
-        includedEventIndices: Set<Int>?
+        includedEventIndices: Set<Int>?,
+        config: MixerRenderConfig = .init()
     ) -> PlaybackSongWindowedRenderIndex {
         let buildStartTime = VTXPerformanceClock.now()
         let safeWindowRows = max(1, windowRows)
@@ -1003,7 +1006,8 @@ final class PlaybackSongOfflineRenderer {
             windowRows: safeWindowRows,
             includedEventIndices: includedEventIndices,
             sameChannelLifetime: sameChannelLifetime,
-            buildStartTime: buildStartTime
+            buildStartTime: buildStartTime,
+            config: config
         )
     }
 
@@ -1013,7 +1017,8 @@ final class PlaybackSongOfflineRenderer {
         windowRows: Int,
         includedEventIndices: Set<Int>?,
         sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics,
-        buildStartTime: UInt64
+        buildStartTime: UInt64,
+        config: MixerRenderConfig
     ) -> PlaybackSongWindowedRenderIndex {
         let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
         let mappingsByEventIndex = Dictionary(
@@ -1052,7 +1057,8 @@ final class PlaybackSongOfflineRenderer {
                 plan: plan,
                 scheduler: scheduler,
                 sameChannelLifetime: sameChannelLifetime,
-                includedEventIndices: includedEventIndices
+                includedEventIndices: includedEventIndices,
+                config: config
             )
             continuations[spec.index] = windowContinuations
             continuationBuckets[spec.index] = windowContinuations.map { continuation in
@@ -1122,7 +1128,8 @@ final class PlaybackSongOfflineRenderer {
         for plan: PlaybackSongSyntheticPlan,
         totalFrames: Int,
         windowRows: Int,
-        includedEventIndices: Set<Int>?
+        includedEventIndices: Set<Int>?,
+        config: MixerRenderConfig = .init()
     ) -> [PlaybackSongWindowBucket] {
         let specs = Self.windowSpecs(for: plan, totalFrames: max(0, totalFrames), windowRows: max(1, windowRows))
         let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
@@ -1142,7 +1149,8 @@ final class PlaybackSongOfflineRenderer {
                 plan: plan,
                 scheduler: scheduler,
                 sameChannelLifetime: lifetime,
-                includedEventIndices: includedEventIndices
+                includedEventIndices: includedEventIndices,
+                config: config
             )
             let continuationCandidates = windowContinuations.map {
                 Self.windowContinuationCandidate($0, scheduler: scheduler, mappingsByEventIndex: mappings)
@@ -1229,7 +1237,8 @@ final class PlaybackSongOfflineRenderer {
                 windowRows: safeWindowRows,
                 includedEventIndices: includedEventIndices,
                 sameChannelLifetime: sameChannelLifetime,
-                buildStartTime: indexBuildStartTime
+                buildStartTime: indexBuildStartTime,
+                config: effectiveRequest.config
             )
         case .scanPerWindowReference:
             windowedRenderIndex = nil
@@ -1292,7 +1301,8 @@ final class PlaybackSongOfflineRenderer {
                     plan: adaptedPlan,
                     scheduler: scheduler,
                     sameChannelLifetime: sameChannelLifetime,
-                    includedEventIndices: includedEventIndices
+                    includedEventIndices: includedEventIndices,
+                    config: effectiveRequest.config
                 )
             }
             var continuationResults = [CSoftwareMixerScheduledVoiceResult]()
@@ -1908,6 +1918,12 @@ final class PlaybackSongOfflineRenderer {
         _ plan: PlaybackSongSyntheticPlan, voiceIndexByEventIndex: [Int: Int], on mixer: CSoftwareMixer,
         includedEventIndices: Set<Int>? = nil, windowStartFrame: Int = 0, windowEndFrame: Int = Int.max
     ) {
+        mixer.setAudibleOutputSchedule((plan.xmAudibleTimeline?.updates ?? []).compactMap { update in
+            guard update.scheduledFrame >= windowStartFrame, update.scheduledFrame < windowEndFrame,
+                  includesEvent(update.eventIndex, includedEventIndices: includedEventIndices),
+                  let voice = voiceIndexByEventIndex[update.eventIndex] else { return nil }
+            return (frame: update.scheduledFrame - windowStartFrame, voice: voice, target: update)
+        })
         let semanticUpdates = plan.xmEnvelopeTimeline?.updates ?? []
         mixer.setEnvelopeSemanticSchedule(semanticUpdates.compactMap { update in
             guard update.scheduledFrame >= windowStartFrame, update.scheduledFrame < windowEndFrame,
@@ -2367,6 +2383,8 @@ final class PlaybackSongOfflineRenderer {
     private struct GainPanStateAtBoundary: Equatable {
         let gain: Float
         let pan: Float
+        let effectiveGain: Float
+        let effectivePan: Float
         let gainRamp: CSoftwareMixerValueRampRuntimeState?
         let panRamp: CSoftwareMixerValueRampRuntimeState?
     }
@@ -2445,7 +2463,8 @@ final class PlaybackSongOfflineRenderer {
         plan: PlaybackSongSyntheticPlan,
         scheduler: SyntheticTrackerScheduler,
         sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics,
-        includedEventIndices: Set<Int>? = nil
+        includedEventIndices: Set<Int>? = nil,
+        config: MixerRenderConfig
     ) -> [PlaybackSongWindowContinuation] {
         let windowStartFrame = window.startFrame
         guard windowStartFrame > 0 else {
@@ -2521,9 +2540,18 @@ final class PlaybackSongOfflineRenderer {
                 plan: plan,
                 gainRamp: replacementGainRamp ?? gainPanState.gainRamp,
                 panRamp: gainPanState.panRamp,
-                carriedTonePortamentoActive: stepState.carriedTonePortamentoActive
+                carriedTonePortamentoActive: stepState.carriedTonePortamentoActive,
+                audibleOutputState: plan.xmAudibleTimeline?.state(eventIndex: eventIndex, before: windowStartFrame,
+                    config: config, replacementFrame: replacementRampEvent?.replacementFrame)
             )
         }
+    }
+
+    /// Reuses the existing generic-ramp reconstruction only until release activates final output.
+    static func audibleActivationSeed(for event: SyntheticTrackerEvent, eventIndex: Int,
+                                      plan: PlaybackSongSyntheticPlan, before frame: Int) -> MixerAudibleOutputSeed {
+        let state = gainPanStateAtBoundary(for: event, eventIndex: eventIndex, plan: plan, before: frame)
+        return MixerAudibleOutputSeed(amplitude: state.effectiveGain, pan: state.effectivePan)
     }
 
     private static func gainPanStateAtBoundary(
@@ -2580,6 +2608,8 @@ final class PlaybackSongOfflineRenderer {
         return GainPanStateAtBoundary(
             gain: gainRamp?.runtimeState(at: boundaryFrame)?.target ?? effectiveGain,
             pan: panRamp?.runtimeState(at: boundaryFrame)?.target ?? effectivePan,
+            effectiveGain: effectiveGain,
+            effectivePan: effectivePan,
             gainRamp: gainRamp?.runtimeState(at: boundaryFrame),
             panRamp: panRamp?.runtimeState(at: boundaryFrame)
         )
@@ -2998,7 +3028,8 @@ final class PlaybackSongOfflineRenderer {
         plan: PlaybackSongSyntheticPlan,
         gainRamp: CSoftwareMixerValueRampRuntimeState?,
         panRamp: CSoftwareMixerValueRampRuntimeState?,
-        carriedTonePortamentoActive: Bool
+        carriedTonePortamentoActive: Bool,
+        audibleOutputState: MixerAudibleOutputState?
     ) -> PlaybackSongWindowContinuation? {
         let elapsedFrames = max(0, boundaryFrame - eventStartFrame)
         guard elapsedFrames > 0,
@@ -3062,13 +3093,14 @@ final class PlaybackSongOfflineRenderer {
                 panEnvelopePositionFrame: panEnvelopePosition,
                 keyOn: keyOn,
                 fadeoutValue: fadeoutValue,
-                gainRamp: gainRamp,
-                panRamp: panRamp
+                gainRamp: audibleOutputState == nil || gainRamp?.deactivateAfterRamp == true ? gainRamp : nil,
+                panRamp: audibleOutputState == nil ? panRamp : nil
             ),
             keyOffFrame: localKeyOffFrame,
             carriedTonePortamentoActive: carriedTonePortamentoActive,
             fadeoutDecrement: resetState?.decrement ?? event.fadeoutFrameDecrement,
-            envelopeSemanticState: semanticState
+            envelopeSemanticState: semanticState,
+            audibleOutputState: audibleOutputState
         )
     }
 
@@ -3095,6 +3127,9 @@ final class PlaybackSongOfflineRenderer {
             mixer.setFadeoutDecrement(continuation.fadeoutDecrement ?? event.fadeoutFrameDecrement, forVoiceAt: voiceIndex)
             if let semantic = continuation.envelopeSemanticState {
                 mixer.setEnvelopeSemanticState(semantic, forVoiceAt: voiceIndex)
+            }
+            if let output = continuation.audibleOutputState {
+                mixer.setAudibleOutputState(output, forVoiceAt: voiceIndex)
             }
             mixer.setRuntimeState(continuation.runtimeState, forVoiceAt: voiceIndex)
             if continuation.playbackStep == 0 {

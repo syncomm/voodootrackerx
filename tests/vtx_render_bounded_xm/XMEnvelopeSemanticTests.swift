@@ -12,9 +12,11 @@ final class XMEnvelopeSemanticTests: XCTestCase {
             XCTAssertEqual(Array(updates.prefix(9)).map(\.state.volumeTick), Array(0...8))
             XCTAssertEqual(Array(updates.prefix(9)).map(\.state.volumeValue), [0.25, 0.4375, 0.625, 0.8125, 1, 0.875, 0.75, 0.625, 0.5])
             let (mixer, voice) = direct(plan, rate: rate)
-            for update in updates.prefix(9) {
+            for (index, update) in updates.prefix(9).enumerated() {
                 let pcm = mixer.render(frames: frames).interleavedPCM
-                XCTAssertTrue(pcm.allSatisfy { $0 == update.state.volumeValue })
+                let start = index == 0 ? update.state.volumeValue : updates[index - 1].state.volumeValue
+                XCTAssertEqual(pcm.first, start)
+                XCTAssertEqual(pcm.last!, start + (update.state.volumeValue - start) * Float(frames - 1) / Float(frames), accuracy: 0.0000001)
                 XCTAssertEqual(mixer.voiceDiagnostic(forVoiceAt: voice)?.envelopeSemanticState, update.state)
             }
         }
@@ -91,9 +93,9 @@ final class XMEnvelopeSemanticTests: XCTestCase {
         let updates = result.diagnostics.voiceStateUpdates.filter(\.applied)
         XCTAssertEqual(updates.map(\.effectiveVolumeAfter), [0, 64])
         XCTAssertTrue(updates.allSatisfy { $0.activeEventIndex == 0 })
-        XCTAssertEqual(result.block.interleavedPCM[5760 + 32], 0)
-        XCTAssertEqual(result.block.interleavedPCM[11520 + 32], 25.0 / 32)
-        XCTAssertTrue(result.block.interleavedPCM[35520...].allSatisfy { $0 == 0 })
+        XCTAssertEqual(result.block.interleavedPCM[5760 + 240], 0)
+        XCTAssertEqual(result.block.interleavedPCM[11520 + 240], 25.0 / 32)
+        XCTAssertTrue(result.block.interleavedPCM[36480...].allSatisfy { $0 == 0 })
         XCTAssertEqual(result.plan.pattern.events.count, 1)
         XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, result.block.interleavedPCM)
     }
@@ -160,7 +162,7 @@ final class XMEnvelopeSemanticTests: XCTestCase {
             let target = try XCTUnwrap(result.plan.xmEnvelopeTimeline?.updates.first { $0.scheduledFrame == releaseFrame })
             XCTAssertEqual(target.state.fadeoutAccumulator, 31_744)
             XCTAssertFalse(target.state.keyOn)
-            XCTAssertTrue(result.block.interleavedPCM[(releaseFrame + 32)...].allSatisfy { $0 == 0 })
+            XCTAssertTrue(result.block.interleavedPCM[(releaseFrame + 240)...].allSatisfy { $0 == 0 })
             if tick == 0 { XCTAssertTrue(result.block.interleavedPCM.allSatisfy { $0 == 0 }) }
             XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, result.block.interleavedPCM)
         }

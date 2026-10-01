@@ -229,6 +229,7 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
     let panRamp: CSoftwareMixerValueRampRuntimeState?
 
     let envelopeSemanticState: MixerEnvelopeSemanticState?
+    let audibleOutputState: MixerAudibleOutputState?
 
     init(_ diagnostic: VTXCMixerVoiceDiagnostic) {
         loaded = diagnostic.loaded != 0
@@ -243,6 +244,7 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
         keyOn = diagnostic.key_on != 0
         fadeoutValue = diagnostic.fadeout_value
         let semantic = diagnostic.external_envelope_state
+        audibleOutputState = diagnostic.output.enabled == 0 ? nil : MixerAudibleOutputState(raw: diagnostic.output)
         envelopeSemanticState = diagnostic.has_external_envelope_state == 0 ? nil : MixerEnvelopeSemanticState(
             volumeTick: Int(semantic.volume_tick), panTick: Int(semantic.pan_tick), keyOn: semantic.key_on != 0,
             fadeoutAccumulator: Int(semantic.fadeout_accumulator), volumeValue: semantic.volume_value)
@@ -354,6 +356,33 @@ final class CSoftwareMixer {
     private(set) var config: MixerRenderConfig
     private var envelopeUpdates: [(frame: Int, voice: Int, state: MixerEnvelopeSemanticState)] = []
     private var nextEnvelopeUpdate = 0
+    private var audibleUpdates: [(frame: Int, voice: Int, target: PlaybackXMAudibleUpdate)] = []
+    private var nextAudibleUpdate = 0
+
+    /// Installs offline publications; runtime uses the same C transition at the same event frame.
+    func setAudibleOutputSchedule(_ updates: [(frame: Int, voice: Int, target: PlaybackXMAudibleUpdate)]) {
+        audibleUpdates = updates
+        nextAudibleUpdate = 0
+    }
+
+    /// Applies a prepared final-output target to a currently active C voice.
+    @discardableResult
+    func publishAudibleOutput(_ target: PlaybackXMAudibleUpdate, forVoiceAt voice: Int) -> Bool {
+        guard voice >= 0 else { return false }
+        if let seed = target.activation, voiceDiagnostic(forVoiceAt: voice)?.audibleOutputState == nil {
+            guard vtx_c_mixer_publish_voice_output(state, UInt32(clamping: voice), seed.amplitude,
+                seed.pan, 0) == VTX_C_MIXER_STATUS_OK else { return false }
+        }
+        return vtx_c_mixer_publish_voice_output(state, UInt32(clamping: voice), target.amplitude,
+            target.pan, UInt32(clamping: target.durationFrames)) == VTX_C_MIXER_STATUS_OK
+    }
+
+    /// Restores an in-flight final-output transition without creating or reviving a voice.
+    @discardableResult
+    func setAudibleOutputState(_ output: MixerAudibleOutputState, forVoiceAt voice: Int) -> Bool {
+        guard voice >= 0 else { return false }
+        return vtx_c_mixer_set_voice_output_state(state, UInt32(clamping: voice), output.raw) == VTX_C_MIXER_STATUS_OK
+    }
 
     /// Installs a prepared offline stream; runtime applies these same targets at its planned event frames.
     func setEnvelopeSemanticSchedule(_ updates: [(frame: Int, voice: Int, state: MixerEnvelopeSemanticState)]) {
@@ -985,6 +1014,8 @@ final class CSoftwareMixer {
         Self.requireOK(vtx_c_mixer_clear_voices(state))
         envelopeUpdates.removeAll(keepingCapacity: true)
         nextEnvelopeUpdate = 0
+        audibleUpdates.removeAll(keepingCapacity: true)
+        nextAudibleUpdate = 0
     }
 
     /// Removes all loaded and scheduled C-backed voices.
@@ -1043,7 +1074,13 @@ final class CSoftwareMixer {
                 setEnvelopeSemanticState(update.state, forVoiceAt: update.voice)
                 nextEnvelopeUpdate += 1
             }
-            let nextFrame = nextEnvelopeUpdate < envelopeUpdates.count ? envelopeUpdates[nextEnvelopeUpdate].frame : Int.max
+            while nextAudibleUpdate < audibleUpdates.count && audibleUpdates[nextAudibleUpdate].frame <= frame {
+                let update = audibleUpdates[nextAudibleUpdate]
+                publishAudibleOutput(update.target, forVoiceAt: update.voice)
+                nextAudibleUpdate += 1
+            }
+            let nextFrame = min(nextEnvelopeUpdate < envelopeUpdates.count ? envelopeUpdates[nextEnvelopeUpdate].frame : Int.max,
+                nextAudibleUpdate < audibleUpdates.count ? audibleUpdates[nextAudibleUpdate].frame : Int.max)
             let count = min(frameCount - rendered, nextFrame - frame)
             Self.requireOK(vtx_c_mixer_render(state,
                 interleavedPCM.baseAddress?.advanced(by: rendered * config.channelCount), UInt32(count)))
@@ -1056,6 +1093,7 @@ final class CSoftwareMixer {
     func reset() {
         Self.requireOK(vtx_c_mixer_reset(state))
         nextEnvelopeUpdate = 0
+        nextAudibleUpdate = 0
     }
 
     private static func cConfig(from config: MixerRenderConfig) -> VTXCMixerConfig {

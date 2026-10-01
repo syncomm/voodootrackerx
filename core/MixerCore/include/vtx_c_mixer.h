@@ -112,6 +112,28 @@ typedef struct {
     float fadeout_value;
 } VTXCMixerEnvelopeSemanticState;
 
+// Final voice multipliers, before mix/profile output scale and downstream headroom.
+typedef struct { float mono; float left; float right; } VTXCMixerOutputGains;
+typedef struct {
+    int enabled;
+    VTXCMixerOutputGains start;
+    VTXCMixerOutputGains target;
+    uint32_t duration_frames;
+    uint32_t position_frame;
+    int retiring;
+} VTXCMixerOutputState;
+
+/// Composes pre-headroom output gains using the existing static pan law.
+VTXCMixerOutputGains vtx_c_mixer_output_gains(VTXCMixerPanLaw pan_law, float amplitude, float pan);
+/// Returns the next frame's multiplier without changing the fixed-size state.
+VTXCMixerOutputGains vtx_c_mixer_output_value(VTXCMixerOutputState output);
+/// Publishes a changed target; exact duplicates hold and interruptions use the previous target.
+VTXCMixerStatus vtx_c_mixer_output_publish(VTXCMixerOutputState *output, VTXCMixerOutputGains target, uint32_t duration);
+/// Advances output progress with a clamped endpoint, also used for window reconstruction.
+void vtx_c_mixer_output_advance(VTXCMixerOutputState *output, uint32_t frames);
+/// Snapshots current output for the established replacement-tail endpoint convention.
+void vtx_c_mixer_output_retire(VTXCMixerOutputState *output, uint32_t duration);
+
 typedef struct {
     float *sample_pcm;
     VTXCMixerSharedSamplePayload *shared_sample_payload;
@@ -149,6 +171,7 @@ typedef struct {
     float fadeout_decrement_per_frame;
     int has_external_envelope_state;
     VTXCMixerEnvelopeSemanticState external_envelope_state;
+    VTXCMixerOutputState output;
     int has_channel_tag;
     uint32_t channel_tag;
     int active;
@@ -172,6 +195,7 @@ typedef struct {
     float fadeout_value;
     int has_external_envelope_state;
     VTXCMixerEnvelopeSemanticState external_envelope_state;
+    VTXCMixerOutputState output;
     int gain_ramp_active;
     float gain_ramp_start;
     float gain_ramp_target;
@@ -227,6 +251,13 @@ typedef struct {
 VTXCMixerStatus vtx_c_mixer_set_voice_envelope_semantic_state(
     VTXCMixerState *state, uint32_t voice_index, VTXCMixerEnvelopeSemanticState semantic
 );
+
+/// Publishes output without moving a source cursor or reviving a voice.
+VTXCMixerStatus vtx_c_mixer_publish_voice_output(VTXCMixerState *state, uint32_t voice_index,
+    float amplitude, float pan, uint32_t duration);
+/// Imports carried output into an active voice without changing its lifetime.
+VTXCMixerStatus vtx_c_mixer_set_voice_output_state(VTXCMixerState *state, uint32_t voice_index,
+    VTXCMixerOutputState output);
 
 // Schedule state transitions on an existing voice; never create or reactivate it.
 VTXCMixerStatus vtx_c_mixer_schedule_voice_playback_reset(

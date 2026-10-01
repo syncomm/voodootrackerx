@@ -11,7 +11,10 @@ struct PlaybackSongSyntheticPlan: Equatable {
             xmEnvelopeTimeline = timeline
         }
     }
-    var xmEnvelopeTimeline: PlaybackXMEnvelopeTimeline? = nil
+    var xmEnvelopeTimeline: PlaybackXMEnvelopeTimeline? = nil {
+        didSet { xmAudibleTimeline = xmEnvelopeTimeline == nil ? nil : PlaybackXMAudibleTimeline(plan: self) }
+    }
+    var xmAudibleTimeline: PlaybackXMAudibleTimeline? = nil
 }
 
 /// Targets the existing trigger event identity, never a reusable mixer slot.

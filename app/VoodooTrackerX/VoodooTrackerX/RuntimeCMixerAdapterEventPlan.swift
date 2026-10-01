@@ -13,6 +13,7 @@ enum RuntimeCMixerAdapterEventAction: Equatable {
     case envelopePositionUpdate(activeEventIndex: Int, positionFrame: Int)
     case playbackStateChange(activeEventIndex: Int, change: MixerPlaybackStateChange)
     case envelopeSemanticUpdate(activeEventIndex: Int, state: MixerEnvelopeSemanticState)
+    case audibleTargetUpdate(PlaybackXMAudibleUpdate)
     case noteCut(activeEventIndex: Int?)
 }
 
@@ -68,6 +69,8 @@ struct RuntimeCMixerAdapterEvent: Equatable {
             return activeEventIndex
         case let .noteCut(activeEventIndex):
             return activeEventIndex
+        case let .audibleTargetUpdate(target):
+            return target.eventIndex
         }
     }
 }
@@ -712,6 +715,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 action: .envelopeSemanticUpdate(activeEventIndex: update.eventIndex, state: update.state),
                 categories: ["xm_envelope_semantic_tick"]))
         }
+        for update in adaptedPlan.xmAudibleTimeline?.updates ?? [] {
+            events.append(RuntimeCMixerAdapterEvent(id: events.count, source: update.source,
+                channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
+                action: .audibleTargetUpdate(update), categories: ["xm_audible_output_target"]))
+        }
         let sortingStart = profileSession?.beginPhase()
         let sortedEvents = events.sorted { lhs, rhs in
             if lhs.scheduledFrame != rhs.scheduledFrame {
@@ -863,6 +871,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             return 4
         case .envelopeSemanticUpdate:
             return 5
+        case .audibleTargetUpdate:
+            return 6
         }
     }
 

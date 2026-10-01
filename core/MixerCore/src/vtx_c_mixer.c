@@ -191,6 +191,16 @@ static void vtx_c_mixer_start_gain_ramp_with_frame_count(
         return;
     }
     target = vtx_c_mixer_sanitized_gain(target);
+    if (voice->output.enabled) {
+        if (deactivate_after_ramp) {
+            vtx_c_mixer_output_retire(&voice->output, frame_count);
+        } else {
+            // Managed XM factors feed one final target; do not multiply two ramps.
+            voice->gain = target;
+            vtx_c_mixer_clear_gain_ramp(voice);
+            return;
+        }
+    }
     voice->gain_ramp_start = vtx_c_mixer_effective_gain(voice);
     voice->gain_ramp_target = target;
     voice->gain_ramp_total_frames = frame_count;
@@ -214,6 +224,11 @@ static void vtx_c_mixer_start_pan_ramp(VTXCMixerVoice *voice, float target) {
         return;
     }
     target = vtx_c_mixer_sanitized_pan(target);
+    if (voice->output.enabled) {
+        voice->pan = target;
+        vtx_c_mixer_clear_pan_ramp(voice);
+        return;
+    }
     voice->pan_ramp_start = vtx_c_mixer_effective_pan(voice);
     voice->pan_ramp_target = target;
     voice->pan_ramp_total_frames = VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES;
@@ -227,6 +242,11 @@ static void vtx_c_mixer_set_gain_immediate(VTXCMixerVoice *voice, float gain) {
         return;
     }
     voice->gain = vtx_c_mixer_sanitized_gain(gain);
+    if (voice->output.enabled && gain == 0.0f) {
+        // Preserve the existing immediate hard-cut path, independently of ordinary targets.
+        memset(&voice->output, 0, sizeof(voice->output));
+        voice->output.enabled = 1;
+    }
     vtx_c_mixer_clear_gain_ramp(voice);
     voice->deactivate_after_gain_ramp = 0;
 }
@@ -1129,6 +1149,7 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
         voice->pan_envelope.position_frame = 0u;
         voice->key_on = 1;
         voice->fadeout_value = 1.0f;
+        memset(&voice->output, 0, sizeof(voice->output));
         voice->active = voice->sample_frame_count > 0 &&
             voice->sample_pcm != NULL &&
             voice->initial_sample_frame < voice->sample_frame_count;
@@ -1204,6 +1225,7 @@ VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
     out_diagnostic->fadeout_value = voice->fadeout_value;
     out_diagnostic->has_external_envelope_state = voice->has_external_envelope_state;
     out_diagnostic->external_envelope_state = voice->external_envelope_state;
+    out_diagnostic->output = voice->output;
     out_diagnostic->gain_ramp_active = voice->gain_ramp_active ? 1 : 0;
     out_diagnostic->gain_ramp_start = voice->gain_ramp_start;
     out_diagnostic->gain_ramp_target = voice->gain_ramp_target;
@@ -1215,6 +1237,94 @@ VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
     out_diagnostic->pan_ramp_target = voice->pan_ramp_target;
     out_diagnostic->pan_ramp_total_frames = voice->pan_ramp_total_frames;
     out_diagnostic->pan_ramp_position_frame = voice->pan_ramp_position_frame;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
+VTXCMixerOutputGains vtx_c_mixer_output_gains(VTXCMixerPanLaw pan_law, float amplitude, float pan) {
+    VTXCMixerOutputGains gains = {amplitude,
+        amplitude * vtx_c_mixer_pan_left_gain(pan_law, pan),
+        amplitude * vtx_c_mixer_pan_right_gain(pan_law, pan)};
+    return gains;
+}
+
+VTXCMixerOutputGains vtx_c_mixer_output_value(VTXCMixerOutputState output) {
+    uint64_t position = (uint64_t)output.position_frame + (output.retiring ? 1u : 0u);
+    if (output.duration_frames == 0u || position >= output.duration_frames) { return output.target; }
+    float fraction = (float)position / (float)output.duration_frames;
+    VTXCMixerOutputGains value = {
+        output.start.mono + (output.target.mono - output.start.mono) * fraction,
+        output.start.left + (output.target.left - output.start.left) * fraction,
+        output.start.right + (output.target.right - output.start.right) * fraction};
+    return value;
+}
+
+static int vtx_c_mixer_output_gains_valid(VTXCMixerOutputGains gains) {
+    return isfinite(gains.mono) && gains.mono >= 0.0f && gains.mono <= 1.0f &&
+        isfinite(gains.left) && gains.left >= 0.0f && gains.left <= 1.0f &&
+        isfinite(gains.right) && gains.right >= 0.0f && gains.right <= 1.0f;
+}
+
+VTXCMixerStatus vtx_c_mixer_output_publish(VTXCMixerOutputState *output, VTXCMixerOutputGains target, uint32_t duration) {
+    if (output == NULL || !vtx_c_mixer_output_gains_valid(target) || output->retiring) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    if (output->enabled && output->target.mono == target.mono &&
+        output->target.left == target.left && output->target.right == target.right) {
+        return VTX_C_MIXER_STATUS_OK;
+    }
+    // Independent interrupted-tick observations establish previous-target rebasing.
+    // First publication initializes immediately, preserving the existing note onset.
+    output->start = output->enabled ? output->target : target;
+    output->target = target;
+    output->duration_frames = output->enabled ? duration : 0u;
+    output->position_frame = 0u;
+    output->enabled = 1;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
+void vtx_c_mixer_output_advance(VTXCMixerOutputState *output, uint32_t frames) {
+    if (output == NULL || !output->enabled) { return; }
+    uint64_t position = (uint64_t)output->position_frame + frames;
+    output->position_frame = position >= output->duration_frames ? output->duration_frames : (uint32_t)position;
+}
+
+void vtx_c_mixer_output_retire(VTXCMixerOutputState *output, uint32_t duration) {
+    if (output == NULL || !output->enabled || output->retiring) { return; }
+    output->start = vtx_c_mixer_output_value(*output);
+    output->target = (VTXCMixerOutputGains){0.0f, 0.0f, 0.0f};
+    output->duration_frames = duration;
+    output->position_frame = 0u;
+    // Retirement keeps the existing (k + 1) / 32 endpoint and lifetime convention.
+    output->retiring = 1;
+}
+
+VTXCMixerStatus vtx_c_mixer_publish_voice_output(VTXCMixerState *state, uint32_t voice_index,
+    float amplitude, float pan, uint32_t duration) {
+    if (state == NULL || voice_index >= state->voice_count || !isfinite(amplitude) || !isfinite(pan)) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    VTXCMixerVoice *voice = &state->voices[voice_index];
+    if (!voice->active || voice->deactivate_after_gain_ramp || state->current_frame < voice->scheduled_start_frame) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    VTXCMixerStatus status = vtx_c_mixer_output_publish(&voice->output,
+        vtx_c_mixer_output_gains(state->config.pan_law, amplitude, pan), duration);
+    if (status == VTX_C_MIXER_STATUS_OK) {
+        vtx_c_mixer_clear_gain_ramp(voice);
+        vtx_c_mixer_clear_pan_ramp(voice);
+    }
+    return status;
+}
+
+VTXCMixerStatus vtx_c_mixer_set_voice_output_state(VTXCMixerState *state, uint32_t voice_index,
+    VTXCMixerOutputState output) {
+    if (state == NULL || voice_index >= state->voice_count || !state->voices[voice_index].active ||
+        state->voices[voice_index].deactivate_after_gain_ramp ||
+        !vtx_c_mixer_output_gains_valid(output.start) || !vtx_c_mixer_output_gains_valid(output.target) ||
+        output.position_frame > output.duration_frames) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    state->voices[voice_index].output = output;
     return VTX_C_MIXER_STATUS_OK;
 }
 
@@ -2079,22 +2189,34 @@ VTXCMixerStatus vtx_c_mixer_render(
                 continue;
             }
 
-            mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index) *
-                vtx_c_mixer_effective_gain(voice) *
-                vtx_c_mixer_evaluate_envelope(&voice->volume_envelope, 1.0f) *
-                voice->fadeout_value;
-            if (channel_count_size == 1) {
-                output_interleaved_float32[frame_offset] += mono_sample;
+            if (voice->output.enabled) {
+                VTXCMixerOutputGains gains = vtx_c_mixer_output_value(voice->output);
+                mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index);
+                if (channel_count_size == 1) {
+                    output_interleaved_float32[frame_offset] += mono_sample * gains.mono;
+                } else {
+                    output_interleaved_float32[frame_offset] += mono_sample * gains.left;
+                    output_interleaved_float32[frame_offset + 1] += mono_sample * gains.right;
+                }
             } else {
-                float effective_pan = vtx_c_mixer_sanitized_pan(
-                    vtx_c_mixer_effective_pan(voice) +
-                    vtx_c_mixer_evaluate_envelope(&voice->pan_envelope, 0.0f)
-                );
-                output_interleaved_float32[frame_offset] += mono_sample * vtx_c_mixer_pan_left_gain(state->config.pan_law, effective_pan);
-                output_interleaved_float32[frame_offset + 1] += mono_sample * vtx_c_mixer_pan_right_gain(state->config.pan_law, effective_pan);
+                mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index) *
+                    vtx_c_mixer_effective_gain(voice) *
+                    vtx_c_mixer_evaluate_envelope(&voice->volume_envelope, 1.0f) *
+                    voice->fadeout_value;
+                if (channel_count_size == 1) {
+                    output_interleaved_float32[frame_offset] += mono_sample;
+                } else {
+                    float effective_pan = vtx_c_mixer_sanitized_pan(
+                        vtx_c_mixer_effective_pan(voice) +
+                        vtx_c_mixer_evaluate_envelope(&voice->pan_envelope, 0.0f)
+                    );
+                    output_interleaved_float32[frame_offset] += mono_sample * vtx_c_mixer_pan_left_gain(state->config.pan_law, effective_pan);
+                    output_interleaved_float32[frame_offset + 1] += mono_sample * vtx_c_mixer_pan_right_gain(state->config.pan_law, effective_pan);
+                }
             }
 
             vtx_c_mixer_advance_sample_position(voice);
+            vtx_c_mixer_output_advance(&voice->output, 1u);
             vtx_c_mixer_advance_voice_envelopes(voice);
             vtx_c_mixer_advance_value_ramps(state, voice);
             vtx_c_mixer_advance_voice_fadeout(voice);

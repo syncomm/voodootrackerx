@@ -146,23 +146,19 @@ and normalization details.
 
 ## Accepted post-alpha debt
 
-These accepted items retain separate focused contracts:
+This accepted item retains a separate focused contract:
 
-- `VTX-CS-002` — portamento units: Linear regular/fine/tone slides use FT2
-  `4 * parameter` period units; volume-column tone uses `64 * nibble`.
-  Extra-fine remains `parameter`. Existing Amiga `16 * parameter` deltas are
-  consistent with its additional 4x table representation and remain unchanged.
 - `VTX-D1-001` — CoreAudio callback real-time safety: the render callback still
   performs allocation/copy and other work that must move outside the real-time
   boundary.
 
-These are post-alpha correctness debts, not reasons to reopen alpha.2.
+This is post-alpha correctness debt, not a reason to reopen alpha.2.
 Documentation/context authority and diagnostic-tool consolidation are complete.
-The immediate next behavioral PR is focused Linear/Amiga portamento scaling
-correction, followed by fixture-backed FT2/XM
-effect closure and C-engine correctness, focused callback RT safety, and later
-native editable Amiga-frequency mode. `docs/roadmap.md` is the sole sequencing
-authority.
+Nonzero Fxx timing and the supported Linear/Amiga portamento units are corrected.
+Current work is fixture-backed FT2/XM effect closure and C-engine correctness;
+the [closure matrix](ft2-xm-closure-matrix.md) distinguishes remaining gaps from
+closed foundations. Focused callback RT safety and native editable Amiga mode
+remain later contracts. `docs/roadmap.md` is the sole sequencing authority.
 
 ## Focused context pointers
 

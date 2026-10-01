@@ -16,6 +16,12 @@ Run the app test action with:
 xcodebuild -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj -scheme VoodooTrackerX -configuration Debug -destination 'platform=macOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO test
 ```
 
+For optimized app verification, replace `-configuration Debug` with
+`-configuration Release` and add `SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG` to
+the Xcode test command; the suite requires existing DEBUG-only inspection hooks.
+Then run ordinary Release and canonical Debug `build` actions without that
+override, using the same repo-root Derived Data directory.
+
 Run the repo hygiene check with:
 
 ```bash
@@ -107,7 +113,16 @@ Run the focused tick, release, fadeout, reset and window-import tests with:
 swift test --filter XMEnvelopeSemanticTests
 swift test --filter NonretriggeringResetTests
 swift test --filter XMResetOutputTests
+swift test --filter InstrumentOnlyVolumeTests
 ```
+
+`instrument-only-volume-semantics.xm` adds cached defaults, carried versus
+sounding instrument identity, cold/completed sources, K00 ordering, and real
+adapter reset dispatch. `InstrumentOnlyVolumeTests` pins same-cell writers,
+modulation/memory preservation, 5 ms completion/hold/resume and window boundaries.
+Runtime tests check generation/cursor preservation, exact application frames and
+a twelve-channel stress case under unchanged fixed headroom. Listening includes
+baseline/reference/candidate and identifies the deferred final note-only row.
 
 `envelope-release-fadeout-timing.xm` covers a carried voice across `FFA` and
 `F03`, sustain/release, no-envelope key-off with a later volume write, and an

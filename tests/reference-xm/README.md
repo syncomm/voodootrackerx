@@ -353,8 +353,9 @@ sustained project sine, 18 rows, speed 6/BPM 125, with speed-1 controls at rows
 
 At 48 kHz each tick is 960 frames; the one-pass plan ends at frame 88320 (1.84 s). `VolumeSlideMemoryTests`
 pins memory origins and bounded/windowed output; `RuntimeCMixerTests` checks
-exact runtime gain frames. Row 8 explicitly sets volume 64 because instrument-only default-volume reset
-parity is separate from slide timing. The fixture introduces no other memory family.
+exact runtime gain frames. Row 8 explicitly sets volume 64 to isolate slide
+timing from instrument-only default restoration. The fixture introduces no other
+memory family.
 For FT2 reference use pinned commit `87be42543dac82cf802b5bddad917bda62ace131`,
 48000 Hz stereo Float32, Linear interpolation/frequencies, amplification 10,
 master 256, ramping on, Precise BPM off. Compare exact tick volumes and frames:
@@ -365,3 +366,30 @@ For a listening sanity check, play rows 0–2: the seeded channel continues
 sliding on `600`, while the unseeded control retains volume. Then check rows
 4–11 for shared-family replay and 16–17 for speed-3 cadence. Compare the within-row
 stair steps with ft2-clone. Listening requires an explicit maintainer report.
+
+`generated/instrument-only-volume-semantics.xm` (2,603 bytes) covers instrument-only
+cached defaults and non-retriggering resets. It has two Linear channels, 24 rows
+at speed 6/BPM 125 (2.88 seconds), and three independently generated
+16-bit sine samples (256-frame loops and a 257-frame one-shot ending at zero).
+SHA-256:
+`780564b2b56046ea092f3d2a109e5de57cde98f2ea0cabc6d6bd1810b1d8c6a2`.
+
+Instrument 1 maps notes 1–48 to default 64/pan 64 and notes 49–96 to default
+24/pan 192. Both loop. Its volume envelope falls from 64 to 16 in three ticks;
+fadeout is 1024, and a neutral pan-envelope loop exercises clock reset.
+Instrument 2 is a default-48 one-shot used for the cold/completed control.
+
+| Rows | Case |
+| --- | --- |
+| 0–4 | Establish full sample, reduce volume, same/different instrument-only resets; cold channel later explicitly triggers, then receives a completed-voice reset. |
+| 5–6 | Key-off followed by same-generation reset. |
+| 7–9 | Trigger mapped quiet sample, reduce, restore cached quiet default with a different instrument number. |
+| 10–12 | Same-cell volume/pan override, K00 exception, then ordinary reset. |
+| 13 | Note-only characterization: FT2 retriggers; VTX intentionally remains deferred. |
+| 14–23 | Final key-off, natural fadeout and silence. |
+
+At 48 kHz channel 0 resets at frames 11520, 23040, 34560, 51840, 57600 and
+69120, with 240-frame ramps. At 44.1 kHz the corresponding ramps last 220
+frames. Source generation/cursor and exact semantic state are primary evidence;
+quiet-sample/header ownership and final note-only output remain known reference
+differences. Reference audio and diagnostic artifacts remain outside git.

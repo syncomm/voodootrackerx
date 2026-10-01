@@ -71,11 +71,47 @@ and produces gain `0.0625` at full global volume without envelope/fadeout.
 FT2's different sample-multiplier ownership remains a separate compatibility gap.
 
 Specialized delayed, retrigger and portamento paths retain their existing volume
-contracts. Key-off without an enabled volume envelope zeros base/output while
-retaining the active source association; later volume writes can expose its
-remaining fadeout. Instrument-only reset dispatch and note-only
-routing remain deferred. This initialization does not alter envelope/reset
-operations, gain ramps, replacement ramps, or downstream headroom policy.
+contracts. Ordinary key-off without an enabled volume envelope zeros base/output
+while retaining the active source association; later volume writes can expose its
+remaining fadeout. Instrument-only uses the cached-default contract below;
+note-only routing remains deferred. Explicit initialization does not alter
+envelope/reset operations, gain ramps, replacement ramps, or downstream headroom
+policy.
+
+## Instrument-only cached defaults and reset
+
+An ordinary valid instrument number with no note updates carried instrument
+memory, then restores base/output volume and static pan from the last actually
+triggered mapped sample's cached defaults. A different instrument number does not select
+its sample or change the sounding generation. Canonical note+instrument routing
+alone resolves the exact 96-note keymap; editor sample selection is never an
+input. The independent sample/header factor is unchanged: cached default 24
+restores tracker volume 24, retaining sample factor `24/64` and gain `0.140625`.
+
+For an existing voice generation, the adapter publishes the existing
+volume-envelope/pan-clock/key-on/fadeout reset at the row's canonical tick-zero
+frame. The shared semantic timeline and current-output 5 ms authority own all
+reset math, completion, hold and ordinary-target continuation. No sample trigger, cursor
+rewind, fractional-position change, loop-direction change or new voice occurs.
+Cold defaults are volume 0 and pan 128. Completed/cut voices cannot resurrect;
+cached defaults survive source completion/cut, and a later explicit mapped
+trigger refreshes them and remains audible.
+
+Same-cell volume-column/Cxx/fine-volume and static-pan writers follow default
+restoration. Existing volume-column pan quantization remains unchanged. Prior
+vibrato/tremolo controls govern phase reset before a same-cell E4x/E7x write;
+speeds, depths, slide/portamento/offset memories persist.
+
+Instrument-only K00 restores defaults and same-cell volume overrides but
+releases without resetting envelopes, modulation phases or fadeout. Its volume
+restoration wins the no-envelope release's usual zero-volume write; the shared
+quick-volume publication uses 5 ms. Volume-column portamento retains its K00
+precedence and ordinary reset. K01 resets at tick zero, then releases at tick
+one. Delayed instrument-only ED1...EDF remains deferred.
+
+`instrument-only-volume-semantics.xm` and direct/runtime tests cover this
+contract. Note-only routing, audible pan envelopes, ECx quick-volume parity,
+sample/header ownership parity and full FT2 mixer parity remain separate.
 
 ## Runtime, offline, and diagnostics
 
@@ -104,8 +140,8 @@ Its reset has four independent presence flags: restart the enabled volume
 envelope, restart the enabled panning clock, restore key-on, and restore unity
 fadeout. The operation changes neither tracker/sample volume nor pan, pitch,
 sample identity, fractional cursor, loop state, or ping-pong direction. It
-creates no voice. Instrument-only default-volume/reset dispatch and note-only
-routing remain separate, deferred work.
+creates no voice. Instrument-only dispatch reuses this operation; note-only
+routing remains deferred.
 
 The [pinned FT2 instrument reset](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L348-L407)
 sets enabled clocks to 65535 and their point cursors to zero; envelope handling
@@ -157,7 +193,7 @@ semantic operation from its implemented audible transition. A changed reset
 target rebases from current audible mono/L/R through the existing shared C state
 over `floor(sampleRate * 0.005)` frames, then holds until the next ordinary
 target. Same-frame factor writes, window continuation and exact-frame runtime
-application use that same authority. Instrument-only dispatch remains deferred.
+application use that same authority, including instrument-only dispatch.
 
 ## Tremolo output, memory, and controls
 
@@ -195,9 +231,9 @@ outputs are `32, 32, 44, 54, 61, 63`; a following empty row retains 63. `C20`
 replaces it with 32 even though base was already 32. Supported positive volume
 writers operate on base and replace output at their existing command times.
 Ordinary explicit note+instrument triggers load the mapped sample default before
-same-cell volume commands, including after tremolo activation. Other existing
-instrument/reset paths retain their neutral tracker-multiplier behavior; sample
-scaling continues downstream. This does not add instrument-memory or trigger routing.
+same-cell volume commands, including after tremolo activation. Instrument-only
+restores its cached triggered-sample default; specialized portamento/retrigger
+paths retain their existing contracts. Sample scaling continues downstream.
 Nonzero tremolo ticks are planned after all row-start channel/global writers,
 so a later channel's `Gxx` cannot see an earlier channel's future tremolo output.
 
@@ -220,9 +256,9 @@ all tremolo update states. This is not a waveform-identical rendering claim:
 - Generic C-mixer gain-update ramps remain 32 frames. Managed XM envelope/release
   voices use the shared final-output cadence; FT2 ordinarily ramps across a tick. [FT2 ramp selection](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_audio.c#L270-L283)
   explains another rendering difference without changing the modulation target.
-- Instrument-associated note 97 / `K00` retain their separate default-volume
-  dispatch boundary. The shared no-envelope release rule still zeros output;
-  this does not implement the deferred instrument-only/default-volume policy.
+- Instrument-associated note 97 and note-plus-instrument `K00` retain their
+  separate default-volume dispatch boundary. Ordinary no-envelope release zeros
+  output; instrument-only K00 follows the cached-default/release ordering above.
 - Initial missing-memory `A00`, `EA0`/`EB0`, `R00`, and other deferred cases
   retain their documented status. Existing volume-column and `Hxy`
   timing approximations remain. Tremolo does not broaden those families.

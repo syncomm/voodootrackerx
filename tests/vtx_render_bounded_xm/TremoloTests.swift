@@ -131,14 +131,14 @@ final class TremoloTests: XCTestCase {
                 cell(0x0E, 0x70 | control),
                 cell(7, 0x48, note: 49, instrument: 1, volume: 0x30), cell(instrument: 1),
             ], sample: 0.25))
-            XCTAssertEqual(states[2].baseChannelVolume, 64)
-            XCTAssertEqual(states[2].outputChannelVolume, 64)
+            XCTAssertEqual(states[2].baseChannelVolume, 16)
+            XCTAssertEqual(states[2].outputChannelVolume, 16)
             XCTAssertEqual(states[2].activeSampleVolume, 0.25)
             XCTAssertEqual(states[2].tremolo.phase, control == 0 ? 0 : 80)
             XCTAssertEqual(context.events.count, 1)
             let update = context.voiceStateUpdates.first { $0.source.rowIndex == 2 && $0.activeVoiceUpdated }
             XCTAssertEqual(update?.gainBefore, 63 / 256)
-            XCTAssertEqual(update?.gainAfter, 0.25)
+            XCTAssertEqual(update?.gainAfter, 0.0625)
         }
     }
 

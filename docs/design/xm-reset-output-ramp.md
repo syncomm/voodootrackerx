@@ -3,8 +3,9 @@
 This note owns the implemented XM semantic tick, ordinary audible final-L/R,
 and non-retriggering 5 ms reset contracts.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
-[XM volume ownership](xm-volume-ownership.md). Instrument-only dispatch,
-note-only routing, and audible XM panning envelopes remain deferred.
+[XM volume ownership](xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
+Instrument-only dispatch reuses these contracts. Note-only routing and audible
+XM panning envelopes remain deferred.
 
 ## Current gain path
 
@@ -46,7 +47,8 @@ target**, even if interrupted. Valid ordinary ticks finish the previous ramp.
 Exact duplicate targets remain no-ops under VTX's explicit deduplication rule;
 the artificial early-delivery unchanged-target reference quirk is not adopted.
 
-Typed `Cxx`, volume-column set-volume, and no-envelope key-off writes select
+Typed `Cxx`, volume-column set-volume, instrument-only default restoration
+(including K00), and no-envelope key-off writes select
 `max(1, floor(sampleRate * 0.005))` frames (240/220 at 48/44.1 kHz). A coincident
 envelope/pan change shares that one final target. Other existing factor writes
 on managed voices join the ordinary tick target; no effect handler, memory or
@@ -65,8 +67,8 @@ above. Each side renders `start + (target - start) * k / D`, reaching the target
 at `N + D`, then holding until the next changed publication. Exact duplicates
 do not restart a ramp. The next ordinary target retains its established
 previous-target rule and tick duration through this same authority; no reset
-overlay or return to a second output path exists. No instrument-only or note-only
-dispatch is added.
+overlay or return to a second output path exists. Instrument-only dispatch
+publishes this existing reset; note-only routing remains deferred.
 
 Runtime applies targets after trigger/reset/`Lxx` and semantic state, at the
 planned C mixer frame. Offline rendering splits at those same frames. Both use
@@ -185,8 +187,8 @@ Independent XM probes use a generated constant sample (`8192 / 32768`), a
 ramping on, amplification 10, master volume 256, and Precise BPM off. BPM 125
 and 250 have integral tick lengths at both tested rates. An ordinary native
 instrument-only cell at row 3 supplies the non-retriggering reference reset.
-VTX probes inject the merged reset primitive into a prepared plan; they do not
-enable instrument-only dispatch.
+The initial VTX probes injected the reset primitive into a prepared plan,
+before the adapter gained instrument-only dispatch.
 
 Cases cover descending and ascending envelopes, a released/faded voice,
 unchanged base volume, same-cell `C20`, sample default 24, global volume 32,
@@ -320,7 +322,8 @@ volume or channel traversal.
 An instrument-only cell with `K00` does not exercise an envelope reset in the
 reference: the envelope retains its position and release/fadeout runs. Do not
 use that cell to infer ordering for an explicitly injected reset plus release,
-or implement deferred instrument-only behavior from this characterization.
+or infer note-only behavior from this characterization. The instrument-only
+K00 contract is now documented in the volume-ownership note.
 
 ### Interruption is not an assumed continuity rule
 
@@ -377,5 +380,6 @@ the `EC0` volume command.
 Generic 32-frame gain/pan ramps, replacement timing, onset behavior, generic
 frame envelopes, headroom policies, and explicit-trigger default-volume behavior
 retain their contracts. Managed XM factor updates use the single final-output
-state described above for ordinary and reset transitions. Instrument-only,
-note-only, audible pan envelopes, and full FT2 mixer parity remain separate work.
+state described above for ordinary and reset transitions, including instrument-only
+restoration. Note-only, audible pan envelopes, and full FT2 mixer parity remain
+separate work.

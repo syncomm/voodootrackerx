@@ -3,6 +3,97 @@ import AudioToolbox
 import XCTest
 
 final class RuntimeCMixerTests: XCTestCase {
+    func testInstrumentOnlyFixturePreservesGenerationsAtExactRuntimeFramesAndHeadroom() throws {
+        let fixture = try referenceXMFixtureURL("generated/instrument-only-volume-semantics.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        for rate in [44_100.0, 48_000] {
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan)
+            XCTAssertEqual(plan.pattern.events.count, 3) // The final note-only row remains deferred.
+            let config = MixerRenderConfig(sampleRate: rate)
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 24)
+            let offline = PlaybackSongOfflineRenderer().render(request).block.interleavedPCM
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var cursor = 0, applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            for reset in plan.playbackStateEvents {
+                while cursor < reset.scheduledFrame {
+                    let count = min(997, reset.scheduledFrame - cursor)
+                    XCTAssertEqual(renderRuntimePCM(core, frames: count), Array(offline[(cursor * 2)..<((cursor + count) * 2)]))
+                    cursor += count
+                    applied += core.drainAppliedAdapterEventDiagnostics()
+                }
+                if cursor > reset.scheduledFrame { continue } // Another channel at this same frame.
+                let before = core.adapterVoiceDiagnosticForTesting(eventIndex: reset.activeEventIndex)
+                XCTAssertEqual(renderRuntimePCM(core, frames: 1), Array(offline[(cursor * 2)..<(cursor * 2 + 2)]))
+                cursor += 1
+                applied += core.drainAppliedAdapterEventDiagnostics()
+                if reset.channelIndex == 0 {
+                    let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: reset.activeEventIndex))
+                    XCTAssertEqual(after.samplePosition, before!.samplePosition + before!.sampleStep, accuracy: 1e-8)
+                    XCTAssertEqual(after.pingPongDirection, before?.pingPongDirection)
+                    XCTAssertEqual(after.audibleOutputState?.start, before?.audibleOutputState?.current)
+                    XCTAssertEqual(after.audibleOutputState?.durationFrames, Int(rate * 0.005))
+                    XCTAssertTrue(after.keyOn)
+                    XCTAssertEqual(after.fadeoutValue, 1)
+                }
+                if reset.scheduledFrame == Int(rate * 0.48) {
+                    XCTAssertNotEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 1)?.active, true)
+                }
+            }
+            while cursor < offline.count / 2 {
+                let count = min(997, offline.count / 2 - cursor)
+                XCTAssertEqual(renderRuntimePCM(core, frames: count), Array(offline[(cursor * 2)..<((cursor + count) * 2)]))
+                cursor += count
+                applied += core.drainAppliedAdapterEventDiagnostics()
+            }
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            let output = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [:]))
+            output.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var pcm = [Float]()
+            while pcm.count < offline.count {
+                pcm += renderRuntimePCM(output, frames: min(997, (offline.count - pcm.count) / 2))
+            }
+            XCTAssertEqual(pcm.map(abs).max() ?? 0,
+                (offline.map(abs).max() ?? 0) * Float(pow(10.0, -12.0 / 20.0)), accuracy: 1e-7)
+            XCTAssertLessThan(pcm.map(abs).max() ?? 0, 1)
+            XCTAssertEqual(output.snapshot().overrangeSampleCount, 0)
+            XCTAssertEqual(output.snapshot().clippingSampleCount, 0)
+        }
+    }
+
+    func testInstrumentOnlyStressKeepsFixedRuntimeHeadroomWithoutClipping() throws {
+        let fixture = try referenceXMFixtureURL("generated/instrument-only-volume-semantics.xm")
+        let source = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        let rows = try XCTUnwrap(source.patternsByIndex[0]).rows.map {
+            PlaybackRow(index: $0.index, cells: Array(repeating: $0.cells[0], count: 12))
+        }
+        let song = PlaybackSong(title: "Instrument-only stress", orders: source.orders,
+            patternsByIndex: [0: .init(index: 0, rows: rows)], instrumentsByIndex: source.instrumentsByIndex,
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: source.initialTiming, usesLinearFrequencyTable: true)
+        let config = MixerRenderConfig(sampleRate: 48_000)
+        let raw = PlaybackSongOfflineRenderer().render(.init(song: song, config: config, rows: rows.count)).block.interleavedPCM
+        let rawPeak = raw.map(abs).max() ?? 0
+        XCTAssertGreaterThan(rawPeak, 1)
+        let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [:]))
+        core.configureAdapterEventScheduleForTesting(RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000).events, runtimeFrameOffset: 0)
+        var peak: Float = 0, frames = 0
+        while frames < raw.count / 2 {
+            let count = min(997, raw.count / 2 - frames)
+            peak = max(peak, renderRuntimePCM(core, frames: count).map(abs).max() ?? 0)
+            frames += count
+        }
+        XCTAssertEqual(peak, rawPeak * Float(pow(10.0, -12.0 / 20.0)), accuracy: 1e-6)
+        XCTAssertLessThan(peak, 1)
+        XCTAssertEqual(core.snapshot().runtimeFixedHeadroomDB, -12)
+        XCTAssertFalse(core.snapshot().runtimeAutoHeadroomEnabled)
+        XCTAssertEqual(core.snapshot().clippingSampleCount, 0)
+        XCTAssertEqual(core.snapshot().overrangeSampleCount, 0)
+    }
+
     func testNonretriggeringAudibleResetUsesCurrentOutputAtExactRuntimeFrames() throws {
         let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 256), baseSampleRate: 100,
             loopStart: 0, loopLength: 256, loopType: 1)
@@ -3536,7 +3627,11 @@ final class RuntimeCMixerTests: XCTestCase {
         let slides = offline.diagnostics.voiceStateUpdates.filter { if case .effect6xyVolumeSlide = $0.command { return true }; return false }
         XCTAssertEqual(slides.filter(\.effectMemoryReused).count, 52)
         XCTAssertTrue(slides.allSatisfy { $0.syntheticTick > 0 })
-        XCTAssertTrue(runtime.events.filter { $0.effectType == 6 && $0.categories.contains("gain_pan_update") }
+        // Instrument-only defaults on the same 600 cell are valid tick-zero
+        // writes; only the independent slide component must wait until tick 1.
+        XCTAssertTrue(runtime.events.filter {
+            $0.categories.contains("gain_pan_update") && $0.categories.contains("vibrato_volume_slide_6xy")
+        }
             .allSatisfy { $0.syntheticTick > 0 })
         let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 48_000)
         harness.engine.load(song: song)

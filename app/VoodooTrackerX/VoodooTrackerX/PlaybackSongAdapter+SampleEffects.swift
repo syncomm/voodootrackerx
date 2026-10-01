@@ -30,7 +30,8 @@ extension PlaybackSongSyntheticAdapter {
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
         eventCoverage: inout EventCoverageBuilder,
         effectType: UInt8? = nil,
-        effectParam: UInt8? = nil
+        effectParam: UInt8? = nil,
+        instrumentOnlyVolumeRestored: Bool = false
     ) {
         let activeEventIndexBefore = channelState.activeEventIndex
         guard let activeEventIndex = channelState.activeEventIndex,
@@ -93,7 +94,9 @@ extension PlaybackSongSyntheticAdapter {
             events[activeEventIndex] = events[activeEventIndex].withKeyOffFrame(
                 scheduledFrame, fadeoutFrameDecrement: fadeoutDecrement)
         }
-        if events[activeEventIndex].volumeEnvelope == nil {
+        // Same-cell instrument-only K00 restores defaults (and explicit volume
+        // overrides) after the no-envelope release's volume-zero operation.
+        if events[activeEventIndex].volumeEnvelope == nil && !instrumentOnlyVolumeRestored {
             let before = channelState
             channelState.baseChannelVolume = 0
             if events[activeEventIndex].scheduledStartFrame == scheduledFrame {
@@ -160,7 +163,8 @@ extension PlaybackSongSyntheticAdapter {
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
-        eventCoverage: inout EventCoverageBuilder
+        eventCoverage: inout EventCoverageBuilder,
+        instrumentOnlyVolumeRestored: Bool = false
     ) {
         guard isKxxKeyOffEffect(cell) else {
             return
@@ -210,7 +214,8 @@ extension PlaybackSongSyntheticAdapter {
             deferredCellFields: &deferredCellFields,
             eventCoverage: &eventCoverage,
             effectType: cell.effectType,
-            effectParam: cell.effectParam
+            effectParam: cell.effectParam,
+            instrumentOnlyVolumeRestored: instrumentOnlyVolumeRestored && requestedTick == 0
         )
     }
 

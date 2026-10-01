@@ -52,6 +52,11 @@ enum PlaybackSongSyntheticAdapter {
             didSet { outputChannelVolume = baseChannelVolume }
         }
         var outputChannelVolume = 64
+        // Carried instrument memory is independent of the sounding generation.
+        // Only an actual mapped sample trigger refreshes these defaults.
+        var carriedInstrumentIndex: Int?
+        var triggeredSampleDefaultVolume = 0
+        var triggeredSampleDefaultPan: UInt8 = 128
         var volumeValueZeroedByAxy = false
         var panningValue = 127.5
         var pan: Float = 0
@@ -396,6 +401,7 @@ enum PlaybackSongSyntheticAdapter {
         var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
         var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
         var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
+        var playbackStateEvents = [PlaybackVoiceStateEvent]()
         var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
         var setFinetuneEffects = [PlaybackSongSyntheticSetFinetuneDiagnostic]()
         var envelopePositionEffects = [PlaybackSongSyntheticEnvelopePositionDiagnostic]()
@@ -626,6 +632,7 @@ enum PlaybackSongSyntheticAdapter {
                 eventCoverage: context.eventCoverage.summary
             )
         )
+        plan.playbackStateEvents = context.playbackStateEvents
         plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
@@ -756,11 +763,23 @@ enum PlaybackSongSyntheticAdapter {
             } else {
                 explicitTriggerSelection = nil
             }
+            if cell.instrument > 0, song.instrumentsByIndex[Int(cell.instrument)] != nil {
+                channelState.carriedInstrumentIndex = Int(cell.instrument)
+            }
+            let restoresInstrumentOnlyDefaults = cell.note == 0 && cell.instrument > 0 &&
+                song.instrumentsByIndex[Int(cell.instrument)] != nil &&
+                !(hasNoteDelayEffect && cell.effectParam & 15 != 0)
+            if restoresInstrumentOnlyDefaults {
+                restoreInstrumentOnlyDefaults(cell: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
+                    globalVolume: context.globalVolumeState.volumeValue, channelState: &channelState,
+                    updates: &context.voiceStateUpdates, resets: &context.playbackStateEvents)
+            }
             prepareTremoloRow(
                 cell: cell, song: song, source: source, channelIndex: channelIndex,
                 syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
                 globalVolume: context.globalVolumeState.volumeValue,
-                initializesExplicitTriggerVolume: explicitTriggerSelection?.sample != nil,
+                initializesInstrumentVolume: explicitTriggerSelection?.sample != nil || restoresInstrumentOnlyDefaults,
                 channelState: &channelState, updates: &context.voiceStateUpdates
             )
             if let sample = explicitTriggerSelection?.sample {
@@ -1155,7 +1174,8 @@ enum PlaybackSongSyntheticAdapter {
                         eventMappings: &context.eventMappings,
                         ignoredCells: &context.ignoredCells,
                         deferredCellFields: &context.deferredCellFields,
-                        eventCoverage: &context.eventCoverage
+                        eventCoverage: &context.eventCoverage,
+                        instrumentOnlyVolumeRestored: restoresInstrumentOnlyDefaults
                     )
                     context.channelStates[channelIndex] = channelState
                     continue
@@ -1841,6 +1861,8 @@ enum PlaybackSongSyntheticAdapter {
             channelState.activeInstrumentIndex = instrumentIndex
             channelState.activeSampleIndex = sample.sampleIndex
             channelState.activeSampleVolume = sample.volume
+            channelState.triggeredSampleDefaultVolume = sampleVolumeRawEstimate(for: sample.volume)
+            channelState.triggeredSampleDefaultPan = sample.panning
             channelState.activePlaybackStep = pitchMapping.playbackStep
             channelState.activeLinearPeriod = pitchMapping.linearPeriod
             channelState.vibratoOutputLinearPeriod = nil

@@ -33,10 +33,8 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
         }
     }
 
-    func testColdInstrumentOnlyLikeZeroStateThenExplicitTriggerIsAudible() throws {
-        // C00 expresses the stopped candidate's exact zero-volume/no-voice state
-        // on current main, without implementing instrument-only reset behavior.
-        let module = song([cell(instrument: 1, effect: 12, parameter: 0), cell(note: 49, instrument: 1), cell()])
+    func testColdInstrumentOnlyZeroStateThenExplicitTriggerIsAudible() throws {
+        let module = song([cell(instrument: 1), cell(note: 49, instrument: 1), cell()])
         let (context, states) = inspect(module)
         XCTAssertEqual(states.map(\.baseChannelVolume), [0, 16, 16])
         XCTAssertEqual(states.map(\.outputChannelVolume), [0, 16, 16])
@@ -99,9 +97,10 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
         XCTAssertFalse(context.ignoredCells[0].firstPlayableSampleFallbackUsed)
     }
 
-    func testInstrumentOnlyAndNoteOnlyRemainDeferred() {
+    func testColdInstrumentOnlyRestoresZeroWhileNoteOnlyRemainsDeferred() {
         let (context, states) = inspect(song([cell(effect: 12, parameter: 7), cell(instrument: 1), cell(note: 49)]))
-        XCTAssertEqual(states.map(\.baseChannelVolume), [7, 7, 7])
+        XCTAssertEqual(states.map(\.baseChannelVolume), [7, 0, 0])
+        XCTAssertEqual(states.last?.carriedInstrumentIndex, 1)
         XCTAssertTrue(context.events.isEmpty)
     }
 

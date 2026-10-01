@@ -765,7 +765,7 @@ Offline-adapter event rows may include:
 - `runtimeEventCategory`: normalized categories such as `note_trigger`,
   `replacement_stop_ramp`, `gain_pan_update`, `step_pitch_update`,
   `lxx_set_envelope_position`, `ecx_edx_e9x`, `hxy_global_volume`,
-  `key_off_fadeout`, and
+  `key_off_fadeout`, `xm_envelope_semantic_tick`, `xm_audible_output_target`, and
   `row_transition`
 - `eventApplicationTiming`: `exact_frame`, `callback_start`, `late`,
   `tick_boundary`, `row_boundary`, or `unknown`
@@ -774,7 +774,8 @@ Within the runtime C mixer render queue, same-frame planned events are
 applied in a deterministic order that matches the offline C mixer frame
 boundary: gain/pan and sample-step voice-state updates first, note cuts next,
 note triggers next, and same-frame envelope-position updates after note triggers
-so same-cell note+`Lxx` targets the newly triggered voice. Same-channel replacement ramps remain part of the note
+so same-cell note+`Lxx` targets the newly triggered voice. Shared semantic state
+and final audible targets follow at that same frame. Same-channel replacement ramps remain part of the note
 trigger path and are traced with the burst diagnostics above.
 
 When a precomputed adapter plan is available, runtime trace rows also resolve

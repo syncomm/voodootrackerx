@@ -293,7 +293,8 @@ extension PlaybackSongSyntheticPlan {
             pattern: pattern,
             diagnostics: diagnostics.replacingEventCoverage(eventCoverage),
             playbackStateEvents: playbackStateEvents,
-            xmEnvelopeTimeline: xmEnvelopeTimeline
+            xmEnvelopeTimeline: xmEnvelopeTimeline,
+            xmAudibleTimeline: xmAudibleTimeline
         )
     }
 }

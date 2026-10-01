@@ -134,6 +134,7 @@ let package = Package(
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+SampleEffects.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+Timing.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackXMEnvelopeSemantics.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/PlaybackXMAudibleTargets.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+Traversal.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+VolumeColumn.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+VolumeEffects.swift",

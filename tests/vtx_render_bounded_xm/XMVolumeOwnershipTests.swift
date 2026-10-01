@@ -99,8 +99,8 @@ final class XMVolumeOwnershipTests: XCTestCase {
         XCTAssertEqual(states.map(\.baseChannelVolume), [32, 32, 32, 32])
         XCTAssertEqual(context.events.map(\.gain), [0.125])
         let result = render(module)
-        // The oversized fadeout clamps to zero on the release tick; sample/channel ownership is unchanged.
-        XCTAssertEqual(result.block.interleavedPCM, [0.0625, 0, 0, 0])
+        // The semantic clamp is immediate; audible output reaches zero one tick later.
+        XCTAssertEqual(result.block.interleavedPCM, [0.0625, 0.0625, 0, 0])
         XCTAssertEqual(result.diagnostics.eventMappings.first?.volumeEnvelopeSemantics.fadeoutApplied, true)
     }
 

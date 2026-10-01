@@ -952,7 +952,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
         XCTAssertEqual(result.diagnostics.rowTiming[1].effectiveBPM, 125)
         // The frame between canonical ticks holds the previous semantic target.
-        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 1, 1, 0.5])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 1, 1, 1])
     }
 
     func testPlaybackSongAdapterPitchStepSplitAndResetRemainDeterministicWithFxxTiming() throws {
@@ -4738,7 +4738,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0, 0])
         XCTAssertEqual(result.plan.pattern.events.first?.initialSourceFrame, 256)
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.keyOffApplied)
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.fadeoutApplied)
@@ -5796,7 +5796,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             frames: 4
         ))
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0.75, 0.5, 0.5])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0.75, 0.5])
         XCTAssertLessThan(result.block.interleavedPCM[2], result.block.interleavedPCM[0])
     }
 
@@ -5828,7 +5828,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(mapping.playbackStep, 2, accuracy: 0.000000001)
         XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0.75, 0.5, 0.5])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0.75, 0.5])
     }
 
     func testPlaybackSongAdapterAscendingVolumeEnvelopeRaisesLaterFrames() {
@@ -5852,7 +5852,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             frames: 4
         ))
 
-        XCTAssertEqual(result.block.interleavedPCM, [0.25, 0.625, 1, 1])
+        XCTAssertEqual(result.block.interleavedPCM, [0.25, 0.25, 0.625, 1])
         XCTAssertGreaterThan(result.block.interleavedPCM[2], result.block.interleavedPCM[0])
     }
 
@@ -5978,7 +5978,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.5, 0.5, 0.5])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0.5, 0.5, 0.5])
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.sustainApplied)
         XCTAssertFalse(mapping.volumeEnvelopeSemantics.keyOffEncountered)
     }
@@ -6016,7 +6016,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
         // XM wraps on the loop-end tick before publishing its target.
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.5, 0.5, 0.5])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0.5, 0.5, 0.5])
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.loopApplied)
         XCTAssertFalse(mapping.volumeEnvelopeSemantics.keyOffEncountered)
     }
@@ -6054,7 +6054,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.5])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0.5])
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.sustainDeferred)
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.loopDeferred)
         XCTAssertNil(result.plan.pattern.events.first?.volumeEnvelope?.sustainFrame)
@@ -6098,7 +6098,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
         let keyOff = try XCTUnwrap(result.diagnostics.keyOffEvents.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 1, 0])
         XCTAssertEqual(result.plan.pattern.events.first?.keyOffFrame, 1)
         XCTAssertTrue(keyOff.applied)
         XCTAssertEqual(keyOff.releaseFrame, 1)
@@ -6135,7 +6135,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0, 0])
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.keyOffApplied)
         XCTAssertTrue(mapping.volumeEnvelopeSemantics.fadeoutApplied)
         XCTAssertEqual(mapping.volumeEnvelopeSemantics.fadeoutValue, 65_536)
@@ -6275,7 +6275,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ], samplePCM: Array(repeating: Float(1), count: 4), volumeEnvelope: sustainEnvelope, frames: 4)
         let sustainMapping = try XCTUnwrap(sustain.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(sustain.block.interleavedPCM, [1, 1, 0, 0])
+        XCTAssertEqual(sustain.block.interleavedPCM, [1, 1, 1, 0])
         XCTAssertTrue(sustainMapping.volumeEnvelopeSemantics.sustainApplied)
         XCTAssertTrue(sustainMapping.volumeEnvelopeSemantics.keyOffApplied)
         XCTAssertEqual(sustain.diagnostics.keyOffEvents.first?.effectType, 0x14)
@@ -6286,7 +6286,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ], samplePCM: Array(repeating: Float(1), count: 6), volumeEnvelope: makePlaybackVolumeEnvelope(enabled: false, points: [], typeFlags: 0, fadeout: 65_536), frames: 4)
         let fadeoutMapping = try XCTUnwrap(fadeout.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(fadeout.block.interleavedPCM, [1, 0, 0, 0])
+        XCTAssertEqual(fadeout.block.interleavedPCM, [1, 1, 0, 0])
         XCTAssertTrue(fadeoutMapping.volumeEnvelopeSemantics.keyOffApplied)
         XCTAssertTrue(fadeoutMapping.volumeEnvelopeSemantics.fadeoutApplied)
         XCTAssertEqual(fadeout.diagnostics.keyOffEvents.first?.effectType, 0x14)
@@ -6327,7 +6327,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         session.reset()
         let resetSecond = session.render(frames: 4)
 
-        XCTAssertEqual(single.block.interleavedPCM, [1, 0, 0, 0])
+        XCTAssertEqual(single.block.interleavedPCM, [1, 1, 0, 0])
         XCTAssertEqual(split.block, single.block)
         XCTAssertEqual(resetFirst, resetSecond)
         XCTAssertEqual(resetFirst, single.block)
@@ -6373,8 +6373,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(try XCTUnwrap(forward.diagnostics.eventMappings.first).loopMode, .forward)
         XCTAssertEqual(try XCTUnwrap(pingPong.diagnostics.eventMappings.first).loopMode, .pingPong)
-        XCTAssertEqual(forward.block.interleavedPCM, [1, 0.25, 0.125, 0.5, 0.25])
-        XCTAssertEqual(pingPong.block.interleavedPCM, [1, 0.25, 0.125, 0.25, 0.5])
+        XCTAssertEqual(forward.block.interleavedPCM, [1, 0.5, 0.125, 0.5, 0.25])
+        XCTAssertEqual(pingPong.block.interleavedPCM, [1, 0.5, 0.125, 0.25, 0.5])
     }
 
     func testPlaybackSongAdapterNoVolumeColumnLoadsSampleDefault() {
@@ -6907,7 +6907,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(lxx.requestedPositionFrame, 2)
         XCTAssertEqual(lxx.appliedPositionFrame, 2)
         XCTAssertFalse(lxx.clamped)
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0])
     }
 
     func testPlaybackSongAdapterLxxClampsOutOfRangeEnvelopePosition() throws {
@@ -6946,7 +6946,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(lxx.requestedPositionFrame, 255)
         XCTAssertEqual(lxx.appliedPositionFrame, 2)
         XCTAssertTrue(lxx.clamped)
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1])
     }
 
     func testPlaybackSongAdapterLxxNoEnvelopeIsNoOp() throws {
@@ -7059,7 +7059,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let split = renderer.render(request, splitFrameCounts: [1, 1, 2])
         let windowed = renderer.renderWindowed(request, windowRows: 2)
 
-        XCTAssertFloatArrayEqual(full.block.interleavedPCM, [1, 1, 0.5, 0])
+        XCTAssertFloatArrayEqual(full.block.interleavedPCM, [1, 1, 1, 0.5])
         XCTAssertEqual(split.block, full.block)
         XCTAssertEqual(windowed.block, full.block)
     }

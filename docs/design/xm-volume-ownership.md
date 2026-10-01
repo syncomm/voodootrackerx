@@ -14,7 +14,7 @@ owned by [XM effect support](../xm-effect-support.md).
 | Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` and the existing row-level `Hxy` approximation update the global state and active gains. Future triggers use the current global multiplier. |
 | Volume envelope | Point values `0...64` normalized to `0...1`; voice-local progression | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
 | Fadeout | Voice-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
-| Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `adaptedGain` combines output, sample, and global factors. The C mixer applies its existing gain-update ramps, envelope, fadeout, and panning. |
+| Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `adaptedGain` combines output, sample, and global factors. Managed XM envelope/release voices combine it with semantic factors in one final-output target; generic voices retain existing gain/pan ramps. |
 | Mix/output gain | Render/host/export policy; independent of channel state | Existing mix profile, runtime headroom, and export gain policies apply downstream. Summed Float32 PCM may exceed unity; encoded PCM16 clamps at the export boundary. |
 
 The owning implementation is
@@ -32,7 +32,9 @@ clock, and existing trigger-selection policies remain separate.
 base write -> output follows
 planned gain = clamp01(sampleVolume * clamp64(outputChannelVolume)/64
                                    * clamp64(globalVolume)/64)
-voice amplitude = PCM * ramped gain * envelope * fadeout
+XM amplitude target = planned gain * semantic envelope * semantic fadeout
+XM stereo PCM = PCM * interpolated final L/R target
+generic voice amplitude = PCM * ramped gain * envelope * fadeout
 ```
 
 Existing volume writers clamp integer state; gain construction also normalizes
@@ -141,8 +143,9 @@ logical clocks, key-on, integer fadeout and target directly, including zero
 fadeout on a still-running source. It never reconstructs them from startup BPM
 or reschedules a historical release at zero. Generic frame-envelope histories
 retain their Float32 subtraction reconstruction. Source-position reconstruction
-and replacement ramps keep their existing ownership. Final audible L/R
-ramp/hold state remains a separate, unimplemented output contract.
+and replacement lifetime keep their existing ownership. Final audible mono/L/R
+start/target, duration/progress and retirement state are independently carried
+using the same C transition operations as rendering.
 
 Direct C, Swift, window, and runtime tests cover partial resets, cursor identity,
 completion, stale generations, and exact application frames. Product WAV
@@ -150,11 +153,10 @@ auto-headroom and fixed runtime `-12 dB` headroom are independent of this state
 operation; runtime auto-headroom remains disabled.
 
 The [reset output characterization](xm-reset-output-ramp.md) distinguishes this
-semantic operation from FT2's audible final-L/R ramp and records the unresolved
-handoff to ongoing envelope/fadeout output. Reset smoothing is not implemented.
-That note also pins ordinary tick-length output ramps and the implemented
-shared semantic targets that supply their inputs. Final-output continuation
-and transition intent remain separate work.
+semantic operation from FT2's audible final-L/R reset ramp. Reset smoothing is
+not implemented. The note owns the implemented ordinary target cadence, typed
+transition intent and final-output continuation, including test-level proof of
+the future quick-reset handoff.
 
 ## Tremolo output, memory, and controls
 
@@ -214,8 +216,8 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   missing-instrument routing skips their sample retrigger. FT2 reuses the
   remembered instrument and resolves the new note through its keymap. This
   separate boundary creates phase differences in WAVs.
-- Existing C-mixer gain-update ramps remain 32 frames; FT2 ordinarily ramps
-  across a tick. [FT2 ramp selection](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_audio.c#L270-L283)
+- Generic C-mixer gain-update ramps remain 32 frames. Managed XM envelope/release
+  voices use the shared final-output cadence; FT2 ordinarily ramps across a tick. [FT2 ramp selection](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_audio.c#L270-L283)
   explains another rendering difference without changing the modulation target.
 - Instrument-associated note 97 / `K00` retain their separate default-volume
   dispatch boundary. The shared no-envelope release rule still zeros output;

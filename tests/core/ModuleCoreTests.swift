@@ -3,6 +3,20 @@ import XCTest
 import ModuleCore
 
 final class ModuleCoreTests: XCTestCase {
+    func testNoteOnlyRoutingFixturePreservesAbsentInstrumentFields() throws {
+        let info = mc_parse_file(try referenceXMFixturePath("generated/note-only-routing.xm"))
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(info.instruments, 3)
+        XCTAssertEqual(info.channels, 2)
+        XCTAssertEqual(patternRows(info).first, 48)
+        for row: UInt16 in [2, 3, 6, 8, 10, 12, 14, 18] {
+            XCTAssertGreaterThan(xmEvent(info, pattern: 0, row: row, channel: 0)?.note ?? 0, 0)
+            XCTAssertEqual(xmEvent(info, pattern: 0, row: row, channel: 0)?.instrument, 0)
+        }
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 5, channel: 0)?.instrument, 2)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 5, channel: 0)?.note, 0)
+    }
+
     func testEmptySlotPublicFixtureKeepsExactNotesAndSilentResetCells() throws {
         let info = mc_parse_file(try referenceXMFixturePath("generated/empty-slot-playback-state.xm"))
         XCTAssertEqual(info.ok, 1)

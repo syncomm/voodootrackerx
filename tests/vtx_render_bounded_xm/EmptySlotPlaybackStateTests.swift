@@ -118,7 +118,7 @@ final class EmptySlotPlaybackStateTests: XCTestCase {
         }
     }
 
-    func testStaleResetCannotTargetAnEmptyRouteAndNormalNoteOnlyStaysDeferred() throws {
+    func testStaleResetCannotTargetAnEmptyRouteAndLaterNoteOnlyCarriesSilentState() throws {
         let source = try fixture()
         var rows = source.patternsByIndex[0]!.rows
         rows[6] = .init(index: 6, cells: [.init(note: 37, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0), rows[6].cells[1]])
@@ -129,7 +129,7 @@ final class EmptySlotPlaybackStateTests: XCTestCase {
         plan.playbackStateEvents.append(.init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 31_680,
             change: .reset(.init(volumeEnvelope: true, panEnvelope: true, keyOn: true, fadeout: true))))
         XCTAssertFalse(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan).contains { $0.activeEventIndex == 0 })
-        XCTAssertFalse(plan.diagnostics.eventMappings.contains { $0.channelIndex == 0 && $0.source.rowIndex == 6 })
+        XCTAssertTrue(plan.diagnostics.eventMappings.contains { $0.channelIndex == 0 && $0.source.rowIndex == 6 })
         XCTAssertEqual(plan.xmChannelRows.first { $0.channelIndex == 0 && $0.syntheticRow == 6 }?.controls.baseChannelVolume, 40)
         XCTAssertEqual(plan.xmEnvelopeTimeline?.channelState(channelIndex: 0, atOrBefore: 31_680)?.state.volumeTick, 12)
     }

@@ -82,9 +82,8 @@ final class TremoloTests: XCTestCase {
             XCTAssertEqual(states[3].tremolo.control, control)
             XCTAssertEqual(tremolo(context, row: 2).first?.1.phaseBefore, resetSuppressed ? 80 : 0)
             XCTAssertEqual(tremolo(context, row: 3).first?.1.phaseBefore, resetSuppressed ? 160 : 80)
-            // The existing adapter skips instrument-less note retriggers; tremolo still
-            // continues on the active voice. That separate trigger boundary is unchanged.
-            XCTAssertEqual(context.events.count, 2)
+            // Note-only restarts the source while preserving modulation phase.
+            XCTAssertEqual(context.events.count, 3)
             XCTAssertFalse(Adapter.hasDeferredEffect(cell(0x0E, 0x70 | UInt8(control))))
         }
     }

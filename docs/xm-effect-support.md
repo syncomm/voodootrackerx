@@ -82,8 +82,27 @@ silent interval. Cold channels stay silent and completed voices stay stopped.
 Same-cell volume/pan
 overrides and K00 release ordering are covered by the public fixture; see
 [volume ownership](design/xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
-Note-only routing, audible pan envelopes, sample/header ownership parity and ECx
+Audible pan envelopes, sample/header ownership parity and ECx
 quick-volume parity remain deferred.
+
+## Note-only routing
+
+Ordinary notes with no instrument field use the carried instrument and resolve
+the new note through its exact 96-entry keymap. A represented route restarts a
+source at the canonical frame; a declared empty route consumes source-only
+header defaults/tuning and retires the old source without creating a voice.
+Tracker volume/static pan, envelope segment/release/fadeout and modulation
+state carry. A silent instrument-only reset can restore an empty header's
+cached volume 40; the next playable note-only retains 40 and the progressed
+envelope. No owner or absent keymap yields no fallback trigger.
+
+`3xx`, `5xy` and volume-column `Fx` retain their no-retrigger target paths.
+K00 suppresses a normal note-only trigger; ED0 carries ordinary state, valid
+nonzero EDx resets at its delayed tick, and out-of-row EDx does not trigger.
+E9x retains repeat resets; Rxy keeps its existing repeat scheduler, with FT2
+repeat timing/state parity deferred. VTX's immediate new-source onset versus
+FT2's 5 ms onset ramp remains separate. See
+[volume ownership](design/xm-volume-ownership.md#note-only-routing-and-state-carry).
 
 ## Effect Column Commands
 
@@ -211,8 +230,8 @@ family restores the base. The public `vibrato-semantics.xm` fixture and
 `VibratoFoundationTests` pin this contract against the
 [pinned FT2 replayer](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1836-L1866).
 
-Existing note-only sample retrigger/tick-zero pitch restoration limitations and
-Linear range-edge behavior remain parity boundaries.
+Note-only triggers restore the mapped note's pitch at tick zero without
+resetting modulation phase. Linear range-edge behavior remains a parity boundary.
 
 Amiga `4xy` and the vibrato half of `6xy` apply the same signed delta using
 `resultFT2 = (baseFT2 + signedDelta) mod 65536`, then

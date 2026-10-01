@@ -718,7 +718,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         for route in adaptedPlan.xmEmptyRoutes {
             guard let old = route.stoppedEventIndex else { continue }
             events.append(.init(id: events.count, source: route.source, channelIndex: route.channelIndex,
-                syntheticTick: 0, scheduledFrame: route.scheduledFrame, action: .sourceStop(activeEventIndex: old),
+                syntheticTick: route.tick, scheduledFrame: route.scheduledFrame, action: .sourceStop(activeEventIndex: old),
                 categories: ["empty_route_source_stop"]))
         }
         let sourceFreeChannels = Set(adaptedPlan.xmEmptyRoutes.map(\.channelIndex))

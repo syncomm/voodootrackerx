@@ -314,10 +314,9 @@ Compare the first three windows for ordinary vibrato, controls/triggers, and
 seeded `6xy`; the final extreme-pitch window corroborates numeric zero delivery.
 All WAVs/diagnostics stay outside git. Maintainer listening remains a separate
 gate; optional real-corpus listening follows only after the public gate passes.
-The note-only cells at rows 15 and 19 retain the existing trigger limitation:
-VTX holds the preceding output through tick 0 while FT2 restores the note base.
-Their subsequent vibrato ticks and phase continuation match; this fixture does
-not promote note-only trigger parity or broaden the shared vibrato contract.
+The note-only cells at rows 15 and 19 restart the exact mapped source and
+restore the note base at tick 0 while preserving vibrato phase. Subsequent
+vibrato ticks retain the same shared modulation contract.
 
 `generated/envelope-release-fadeout-timing.xm` (2,869 bytes) isolates shared XM
 semantic targets. Four Linear channels and 16 rows start at speed 6/BPM 125.
@@ -385,14 +384,14 @@ Instrument 2 is a default-48 one-shot used for the cold/completed control.
 | 5–6 | Key-off followed by same-generation reset. |
 | 7–9 | Trigger mapped quiet sample, reduce, restore cached quiet default with a different instrument number. |
 | 10–12 | Same-cell volume/pan override, K00 exception, then ordinary reset. |
-| 13 | Note-only characterization: FT2 retriggers; VTX intentionally remains deferred. |
+| 13 | Note-only retriggers the carried instrument's mapped sample and continues semantic state. |
 | 14–23 | Final key-off, natural fadeout and silence. |
 
 At 48 kHz channel 0 resets at frames 11520, 23040, 34560, 51840, 57600 and
 69120, with 240-frame ramps. At 44.1 kHz the corresponding ramps last 220
 frames. Source generation/cursor and exact semantic state are primary evidence;
-quiet-sample/header ownership and final note-only output remain known reference
-differences. Reference audio and diagnostic artifacts remain outside git.
+quiet-sample/header ownership remains a known reference difference.
+Reference audio and diagnostic artifacts remain outside git.
 
 ### Empty-slot playback state
 
@@ -413,4 +412,29 @@ zero-frame recipes only with unflagged 8-bit encoding and no loop.
 `EmptySlotPlaybackStateTests`, runtime application tests, and editable-copy tests
 pin metadata ownership, no voice for empty routes, canonical clocks and windows,
 source retirement, stale/completed safety, and ADR 014's conservative refusal.
-Normal note-only routing and audible pan envelopes remain deferred.
+Audible pan envelopes remain deferred. Note-only continuation is covered below.
+
+### Note-only routing
+
+`generated/note-only-routing.xm` (4,062 bytes) uses 48 rows, two Linear channels,
+speed 6/BPM 125 and project-generated PCM. Three instruments provide exact
+split keymaps, neutral panning clocks, envelope/release carry and a one-shot.
+The second instrument also declares an empty S03 with volume 40, pan 128,
+finetune +64 and relative note +12; only G-4 maps to that identity.
+
+| Rows | Control |
+| --- | --- |
+| 0–3 | Explicit I01, then same-sample and different-sample note-only restarts. |
+| 5–8 | I02-only carries a new owner while I01 sounds; subsequent notes resolve I02/S01 and S02. |
+| 10/12/14 | 3xx, 5xy and volume-column Fx retain the existing source. |
+| 16–18 | Release followed by a note-only source restart that stays released. |
+| Channel 2: 0/2/4/8/10 | No owner, cold selection, zero-volume note-only, explicit one-shot, completed-source restart. |
+| 24–29 | Start I02/S01, set volume 16, select empty S03, restore 40 while silent, then play S01 at carried volume 40 and envelope tick 6. |
+| 34–47 | Natural release/fadeout ending for an unambiguous repeated listening comparison. |
+
+Tests pin source identity, cursor restart, cached defaults, exact empty-route
+retirement, silent channel clocks, tuning, and shared runtime/offline/window
+frames at 44.1/48 kHz. Listening must contain both represented routing and the
+later playable consequence of the empty-slot chain. VTX retains immediate
+new-source onset versus FT2's 5 ms ramp. Audible pan envelopes, independent
+sample/header scaling, and FT2 Rxy repeat timing/state parity remain separate.

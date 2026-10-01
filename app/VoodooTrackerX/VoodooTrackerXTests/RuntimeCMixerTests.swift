@@ -3,6 +3,75 @@ import AudioToolbox
 import XCTest
 
 final class RuntimeCMixerTests: XCTestCase {
+    func testNoteOnlyRoutingAppliesNewGenerationsAndSourceCursorsAtExactFrames() throws {
+        let fixture = try referenceXMFixtureURL("generated/note-only-routing.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        for rate in [44_100.0, 48_000] {
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), config = MixerRenderConfig(sampleRate: rate)
+            let mappings = plan.diagnostics.eventMappings.filter { $0.channelIndex == 0 }
+            XCTAssertEqual(mappings.map(\.source.rowIndex), [0, 2, 3, 6, 8, 18, 24, 29])
+            XCTAssertEqual(mappings.map(\.instrumentIndex), [1, 1, 1, 2, 2, 2, 2, 2])
+            XCTAssertEqual(mappings.map(\.sampleIndex), [0, 0, 1, 0, 1, 1, 0, 0])
+            XCTAssertEqual(mappings.map(\.mappedSampleIndex), [0, 0, 1, 0, 1, 1, 0, 0])
+            let renderer = PlaybackSongOfflineRenderer()
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 48)
+            let offline = renderer.render(request)
+            XCTAssertEqual(offline.plan, plan)
+            for rows in [1, 2, 3, 5, 7] {
+                let windowed = renderer.renderWindowed(request, windowRows: rows).block.interleavedPCM
+                XCTAssertLessThanOrEqual(zip(windowed, offline.block.interleavedPCM).map { abs($0 - $1) }.max() ?? 0, 1e-7)
+            }
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var cursor = 0, applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            let boundaries = Set((plan.xmEnvelopeTimeline?.channelUpdates.map { $0.scheduledFrame + 1 } ?? []) + plan.pattern.events.compactMap(\.scheduledStartFrame).map { $0 + 1 } + [offline.block.frameCount]).sorted()
+            for boundary in boundaries {
+                while cursor < boundary {
+                    let count = min(997, boundary - cursor)
+                    XCTAssertEqual(renderRuntimePCM(core, frames: count), Array(offline.block.interleavedPCM[(cursor * 2)..<((cursor + count) * 2)]))
+                    cursor += count
+                    applied += core.drainAppliedAdapterEventDiagnostics()
+                }
+                if let update = plan.xmEnvelopeTimeline?.channelState(channelIndex: 0, atOrBefore: boundary - 1) {
+                    XCTAssertEqual(core.channelSemanticStateForTesting(0), update)
+                    if (27...28).contains(update.source.rowIndex) {
+                        XCTAssertNil(update.sourceEventIndex)
+                        XCTAssertEqual(core.snapshot().activeVoiceCount, 0)
+                        XCTAssertEqual(update.cachedDefaultVolume, 40)
+                        XCTAssertEqual(update.cachedDefaultPan, 128)
+                    }
+                    if update.source.rowIndex == 29 && update.tick == 0 {
+                        XCTAssertEqual(update.state.volumeTick, 6)
+                        XCTAssertEqual(update.state.volumeValue, 0.75)
+                    }
+                }
+                for mapping in plan.diagnostics.eventMappings {
+                    let event = plan.pattern.events[mapping.eventIndex]
+                    guard event.scheduledStartFrame == boundary - 1 else { continue }
+                    let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: mapping.eventIndex))
+                    XCTAssertTrue(voice.active)
+                    XCTAssertEqual(voice.samplePosition, event.playbackStep, accuracy: 1e-8)
+                    XCTAssertEqual(voice.channelTag, mapping.channelIndex)
+                    XCTAssertEqual(voice.envelopeSemanticState, plan.xmEnvelopeTimeline?.updatesByEvent[mapping.eventIndex]?.first?.state)
+                }
+            }
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            let triggers = applied.filter { if case .noteTrigger = $0.result { return true }; return false }
+            XCTAssertEqual(triggers.count, 11)
+            XCTAssertEqual(triggers.map(\.adapterCurrentEventIndexAfter), plan.diagnostics.eventMappings.map { Optional($0.eventIndex) })
+            for trigger in triggers {
+                guard case let .noteTrigger(result) = trigger.result else { return XCTFail("Missing trigger") }
+                XCTAssertTrue(result.succeeded)
+                XCTAssertNotNil(result.newVoiceIndex)
+                XCTAssertEqual(trigger.appliedFrame, UInt64(trigger.event.scheduledFrame))
+            }
+            XCTAssertEqual(core.snapshot().clippingSampleCount, 0)
+            XCTAssertEqual(core.snapshot().overrangeSampleCount, 0)
+        }
+    }
+
     func testEmptySlotRuntimeAppliesSilentStateWithoutCVoiceAndMatchesOfflineWindows() throws {
         let fixture = try referenceXMFixtureURL("generated/empty-slot-playback-state.xm")
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
@@ -102,7 +171,7 @@ final class RuntimeCMixerTests: XCTestCase {
         for rate in [44_100.0, 48_000] {
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
             let plan = try XCTUnwrap(runtime.plan)
-            XCTAssertEqual(plan.pattern.events.count, 3) // The final note-only row remains deferred.
+            XCTAssertEqual(plan.pattern.events.count, 4) // The final note-only row now retriggers.
             let config = MixerRenderConfig(sampleRate: rate)
             let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 24)
             let offline = PlaybackSongOfflineRenderer().render(request).block.interleavedPCM

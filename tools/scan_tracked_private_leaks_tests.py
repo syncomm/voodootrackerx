@@ -28,6 +28,7 @@ class ScanTrackedPrivateLeaksTests(unittest.TestCase):
                 "tests/reference-xm/generated/envelope-release-fadeout-timing.xm",
                 "tests/reference-xm/generated/instrument-only-volume-semantics.xm",
                 "tests/reference-xm/generated/empty-slot-playback-state.xm",
+                "tests/reference-xm/generated/note-only-routing.xm",
                 "tests/fixtures/minimal.mod",
             ]:
                 self.write_file(repo, path, b"synthetic public fixture")

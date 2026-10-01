@@ -260,23 +260,32 @@ extension PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig,
         finetuneOverride: Int? = nil
     ) -> PlaybackStepMapping {
+        playbackStepMapping(note: note, relativeNote: sample.relativeNote, finetune: sample.finetune,
+            baseSampleRate: sample.baseSampleRate, usesLinearFrequencyTable: usesLinearFrequencyTable,
+            timingConfig: timingConfig, finetuneOverride: finetuneOverride)
+    }
+
+    /// Period mapping needs header controls, not represented PCM or a source voice.
+    static func playbackStepMapping(note: UInt8, relativeNote: Int, finetune: Int, baseSampleRate: Double,
+        usesLinearFrequencyTable: Bool, timingConfig: SyntheticTrackerTimingConfig,
+        finetuneOverride: Int? = nil) -> PlaybackStepMapping {
         let outputSampleRate = timingConfig.sampleRate
         guard usesLinearFrequencyTable else {
             guard let target = amigaPitchTarget(
                 note: note,
-                relativeNote: sample.relativeNote,
-                finetune: finetuneOverride ?? sample.finetune,
-                baseSampleRate: sample.baseSampleRate,
+                relativeNote: relativeNote,
+                finetune: finetuneOverride ?? finetune,
+                baseSampleRate: baseSampleRate,
                 outputSampleRate: outputSampleRate
             ) else {
-                let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: sample.relativeNote)
+                let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: relativeNote)
                 let effectiveNoteIndex = effectiveNoteValue - 1
                 return PlaybackStepMapping(
                     playbackStep: 1,
                     outputSampleRate: outputSampleRate,
                     effectiveNoteValue: effectiveNoteValue,
                     effectiveNoteIndex: effectiveNoteIndex,
-                    effectiveFinetune: clampedFinetune(finetuneOverride ?? sample.finetune),
+                    effectiveFinetune: clampedFinetune(finetuneOverride ?? finetune),
                     linearPeriod: nil,
                     linearFrequency: nil,
                     amigaPeriod: nil,
@@ -310,7 +319,6 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        let baseSampleRate = sample.baseSampleRate
         guard outputSampleRate.isFinite,
               outputSampleRate > 0,
               baseSampleRate.isFinite,
@@ -337,19 +345,19 @@ extension PlaybackSongSyntheticAdapter {
 
         guard let target = linearPitchTarget(
             note: note,
-            relativeNote: sample.relativeNote,
-            finetune: finetuneOverride ?? sample.finetune,
+            relativeNote: relativeNote,
+            finetune: finetuneOverride ?? finetune,
             baseSampleRate: baseSampleRate,
             outputSampleRate: outputSampleRate
         ) else {
-            let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: sample.relativeNote)
+            let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: relativeNote)
             let effectiveNoteIndex = effectiveNoteValue - 1
             return PlaybackStepMapping(
                 playbackStep: 1,
                 outputSampleRate: outputSampleRate,
                 effectiveNoteValue: effectiveNoteValue,
                 effectiveNoteIndex: effectiveNoteIndex,
-                effectiveFinetune: clampedFinetune(finetuneOverride ?? sample.finetune),
+                effectiveFinetune: clampedFinetune(finetuneOverride ?? finetune),
                 linearPeriod: nil,
                 linearFrequency: nil,
                 amigaPeriod: nil,

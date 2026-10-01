@@ -12,8 +12,8 @@ owned by [XM effect support](../xm-effect-support.md).
 | `outputChannelVolume` | Integer `0...64`; channel-local output retained between writes | Follows each base write. `7xy` writes output independently; empty rows retain it. Trigger and active-voice gain construction consume output. |
 | `PlaybackSample.volume` / `activeSampleVolume` | Header `0...64` normalized to Float `0...1`; immutable sample metadata plus channel-local active selection | The builder normalizes the header. Existing trigger/instrument-selection paths select the active sample factor; channel-volume commands do not rewrite it. |
 | Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` and the existing row-level `Hxy` approximation update the global state and active gains. Future triggers use the current global multiplier. |
-| Volume envelope | Point values `0...64` normalized to `0...1`; voice-local progression | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
-| Fadeout | Voice-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
+| Volume envelope | Point values `0...64` normalized to `0...1`; channel-local progression, projected to a live source when present | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
+| Fadeout | Channel-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
 | Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `adaptedGain` combines output, sample, and global factors. Managed XM envelope/release voices combine it with semantic factors in one final-output target; generic voices retain existing gain/pan ramps. |
 | Mix/output gain | Render/host/export policy; independent of channel state | Existing mix profile, runtime headroom, and export gain policies apply downstream. Summed Float32 PCM may exceed unity; encoded PCM16 clamps at the export boundary. |
 
@@ -81,8 +81,8 @@ policy.
 ## Instrument-only cached defaults and reset
 
 An ordinary valid instrument number with no note updates carried instrument
-memory, then restores base/output volume and static pan from the last actually
-triggered mapped sample's cached defaults. A different instrument number does not select
+memory, then restores base/output volume and static pan from the last selected
+declared header's cached defaults. A different instrument number does not select
 its sample or change the sounding generation. Canonical note+instrument routing
 alone resolves the exact 96-note keymap; editor sample selection is never an
 input. The independent sample/header factor is unchanged: cached default 24
@@ -93,7 +93,8 @@ volume-envelope/pan-clock/key-on/fadeout reset at the row's canonical tick-zero
 frame. The shared semantic timeline and current-output 5 ms authority own all
 reset math, completion, hold and ordinary-target continuation. No sample trigger, cursor
 rewind, fractional-position change, loop-direction change or new voice occurs.
-Cold defaults are volume 0 and pan 128. Completed/cut voices cannot resurrect;
+Cold defaults are volume 0 and pan 128; an explicitly selected canonical
+empty header caches zero volume and zero pan. Completed/cut voices cannot resurrect;
 cached defaults survive source completion/cut, and a later explicit mapped
 trigger refreshes them and remains audible.
 
@@ -112,6 +113,35 @@ one. Delayed instrument-only ED1...EDF remains deferred.
 `instrument-only-volume-semantics.xm` and direct/runtime tests cover this
 contract. Note-only routing, audible pan envelopes, ECx quick-volume parity,
 sample/header ownership parity and full FT2 mixer parity remain separate.
+
+## Declared empty slots and silent channel state
+
+A declared zero-payload XM header retains source-only volume, pan, finetune and
+relative note in `XMSourceSampleSlotProvenance`. The canonical resolver still
+returns no represented sample for that exact map entry. Ordinary explicit
+selection updates the cached defaults, tracker volume/static pan and period
+controls, then same-cell writers apply. It retires the prior source at the exact
+frame; it creates no PCM, sample, cursor or C voice. Undeclared/unavailable
+slots do not acquire invented header defaults. Editable playback projects the
+unchanged sparse writer's all-zero empty-route contract without storing source
+metadata in the editable document.
+
+`PlaybackXMEnvelopeTimeline` owns channel clocks, key/release and integer fadeout
+through these silent intervals, on the same Fxx tick frames. Instrument-only
+restoration reuses its existing cache/phase/memory behavior; its silent reset
+updates this timeline without an audible target. Release and volume-envelope
+position writes can likewise address the silent channel. Completed sources stay
+completed, and a stale event cannot update a replacement. The runtime stores
+channel publications independently of C slots; offline windows query the same
+plan. Only a matching live source receives C semantic/audible publications.
+
+Empty-header tuning enters the existing supported period/effect calculations;
+portamento targets and channel effect memories can persist without a source.
+A later explicit playable note refreshes its own mapped defaults and restarts
+its semantic envelope as before. Ordinary note-only routing/retrigger remains
+deferred and its preserved candidate is not part of this foundation. Audible
+panning-envelope offsets, sample/header multiplication, ECx, onset, Rxy timing,
+and delayed instrument-only behavior keep their separate boundaries.
 
 ## Runtime, offline, and diagnostics
 

@@ -41,6 +41,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/effect-memory.xm | \
     tests/reference-xm/generated/envelope-release-fadeout-timing.xm | \
     tests/reference-xm/generated/instrument-only-volume-semantics.xm | \
+    tests/reference-xm/generated/empty-slot-playback-state.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

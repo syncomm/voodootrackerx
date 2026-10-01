@@ -152,6 +152,22 @@ natural release tail so repeating a bounded clip does not confuse its ending
 with reset behavior. Keep all renders and reference observations outside git,
 and record listening only after maintainer confirmation.
 
+## Empty-slot playback state
+
+Run `swift test --filter EmptySlotPlaybackStateTests` and the app
+`RuntimeCMixerTests` / `LoadedModuleEditableCopyCoordinatorTests` suites.
+`empty-slot-playback-state.xm` covers separate volume, pan and tuning metadata,
+source-free release/reset, Fxx clocks, completed sources and explicit default
+refresh. Tests compare single-pass/windowed PCM and semantic publications,
+exact runtime frames, zero active voices during silent intervals, stale source
+and silent-selection generations, and canonical/cosmetic copy playback across
+unchanged Export XM/reopen.
+
+This prerequisite does not require a new listening gate when represented-route
+PCM is unchanged and empty intervals produce no PCM. Reference/candidate state
+checks are primary; any later-route listening is optional corroboration. Normal
+note-only routing must rerun its own full acceptance matrix in its separate PR.
+
 ## Render / Export Performance Timing Policy
 
 Correctness tests and Debug app smoke runs are not performance benchmarks. Any

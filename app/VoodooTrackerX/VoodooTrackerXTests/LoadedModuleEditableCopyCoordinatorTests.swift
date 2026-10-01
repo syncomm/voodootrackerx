@@ -1187,7 +1187,45 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(try EditableXMWriter().data(from: document), sourceData)
     }
 
-    func testProfileV1InertRequiredEmptyHeadersPlanNormalizedAndReachCurrentAction() throws {
+    func testCanonicalAndInertEmptyRoutesKeepPlaybackAcrossCopyAndUnchangedWriter() throws {
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.25, count: 256),
+            volume: 0.75, panning: 32, relativeNote: 0, finetune: 0, baseSampleRate: 8_363,
+            loopStart: 0, loopLength: 256, loopType: 1, sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true, sourceIsDeltaEncoded: true)
+        let instrument = PlaybackInstrument(index: 1, samples: [sample],
+            noteSampleMap: Array(repeating: 0, count: 48) + Array(repeating: 1, count: 48))
+        var document = sparseSourceDocument(instrument: instrument)
+        for (row, note): (Int, UInt8) in [(0, 37), (1, 49), (2, 0), (3, 37)] {
+            document.patterns[0].rows[row][0] = .init(note: note, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        }
+        let canonical = try EditableXMWriter().data(from: document)
+        let header = firstInstrumentSampleHeaderOffset(in: canonical, sampleIndex: 1)
+        XCTAssertTrue(canonical[header..<header + 40].allSatisfy { $0 == 0 })
+        let editableSong = EditablePlaybackSongBuilder.build(from: document)
+        let expected = PlaybackSongOfflineRenderer().render(.init(song: editableSong, config: .init(sampleRate: 48_000), rows: 4))
+        XCTAssertEqual(expected.plan.xmEmptyRoutes.count, 1)
+        XCTAssertTrue(expected.block.interleavedPCM[(5_760 * 2)..<(17_280 * 2)].allSatisfy { $0 == 0 })
+        for cosmetic in [false, true] {
+            var data = canonical
+            if cosmetic { data[header + 17] = 173; data[header + 18] = 78 }
+            let context = try loadedContext(from: data, filename: "empty-playback-copy.xm")
+            let copy: BlankTrackerDocument
+            switch LoadedModuleEditableCopyPlanner.plan(context: context) {
+            case let .exact(value): XCTAssertFalse(cosmetic); copy = value
+            case let .normalized(value, _): XCTAssertTrue(cosmetic); copy = value
+            case .unavailable: return XCTFail("safe canonical/cosmetic header must remain available")
+            }
+            XCTAssertEqual(copy.instrumentPalette[1], instrument)
+            XCTAssertEqual(try EditableXMWriter().data(from: copy), canonical)
+            for song in [try XCTUnwrap(context.loadedPlaybackSong), EditablePlaybackSongBuilder.build(from: copy)] {
+                let actual = PlaybackSongOfflineRenderer().render(.init(song: song, config: .init(sampleRate: 48_000), rows: 4))
+                XCTAssertEqual(actual.block.interleavedPCM, expected.block.interleavedPCM)
+                XCTAssertEqual(actual.plan.xmEnvelopeTimeline?.channelUpdates, expected.plan.xmEnvelopeTimeline?.channelUpdates)
+            }
+        }
+    }
+
+    func testProfileV1RequiredEmptyHeadersDistinguishPlaybackMetadataFromCosmeticState() throws {
         let first = makePlaybackSample(
             name: "Only S01",
             pcm: [-0.5, 0.5],
@@ -1230,6 +1268,17 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
                 isPlaybackActive: false
             )
 
+            if [12, 13, 15, 16].contains(fieldOffset) {
+                XCTAssertEqual(LoadedModuleEditableCopyPlanner.plan(context: context),
+                    .unavailable(.playbackSignificantEmptySampleMetadata), name)
+                XCTAssertEqual(LoadedModuleEditableCopyPlanner.plan(context: context),
+                    LoadedModuleEditableCopyPlanner.plan(context: context), name)
+                XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData, name)
+                XCTAssertEqual(song.instrumentsByIndex[1]?.samples.map(\.sampleIndex), [0], name)
+                XCTAssertEqual(song.instrumentsByIndex[1]?.noteSampleMap, noteSampleMap, name)
+                continue
+            }
+
             guard case let .normalized(document, summary) = LoadedModuleEditableCopyPlanner.plan(context: context) else {
                 return XCTFail("expected Profile-v1 normalized plan for \(name)")
             }
@@ -1267,7 +1316,11 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         var data = try EditableXMWriter().data(from: source)
         let instrumentOffset = firstInstrumentOffset(in: data)
         data.replaceSubrange(instrumentOffset + 33..<instrumentOffset + 129, with: repeatElement(0, count: 96))
-        data[firstInstrumentSampleHeaderOffset(in: data, sampleIndex: 2) + 12] = 32
+        let trailingHeader = firstInstrumentSampleHeaderOffset(in: data, sampleIndex: 2)
+        data[trailingHeader + 12] = 40
+        data[trailingHeader + 13] = 64
+        data[trailingHeader + 15] = 224
+        data[trailingHeader + 16] = 12
         let context = try loadedContext(from: data, filename: "planner-trailing-normalized.xm")
 
         guard case let .normalized(document, summary) = LoadedModuleEditableCopyPlanner.plan(context: context) else {
@@ -1295,7 +1348,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         let instrumentOffset = firstInstrumentOffset(in: data)
         data.replaceSubrange(instrumentOffset + 33..<instrumentOffset + 129, with: repeatElement(0, count: 96))
         data[instrumentOffset + 33 + 48] = 1
-        data[firstInstrumentSampleHeaderOffset(in: data, sampleIndex: 1) + 15] = 64
+        data[firstInstrumentSampleHeaderOffset(in: data, sampleIndex: 1) + 17] = 64
         data[firstInstrumentSampleHeaderOffset(in: data, sampleIndex: 2) + 18] = 0x42
         let context = try loadedContext(from: data, filename: "planner-combined-normalized.xm")
 

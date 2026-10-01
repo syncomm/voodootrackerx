@@ -716,8 +716,8 @@ enum PlaybackEndBehavior: Equatable {
     case restartFromBeginning
 }
 
-/// Source-only structural facts for one XM sample-header slot. The editable model still represents
-/// only nonempty `PlaybackSample` values; this metadata exists solely to avoid guessing at copy time.
+/// Immutable source-slot facts, independent of represented PCM and editable sample ownership.
+/// Empty headers can affect channel playback state without providing an audio source.
 struct XMSourceSampleSlotProvenance: Equatable {
     let sampleIndex: Int
     let declaredPayloadLength: Int
@@ -727,6 +727,11 @@ struct XMSourceSampleSlotProvenance: Equatable {
     let loopLength: Int
     let typeFlags: UInt8
     let isCanonicalEmptySlotHeader: Bool
+    // Playback fields belong here only for zero payload; represented samples own theirs.
+    let volume: UInt8
+    let panning: UInt8
+    let finetune: Int
+    let relativeNote: Int
 
     init(
         sampleIndex: Int,
@@ -736,7 +741,11 @@ struct XMSourceSampleSlotProvenance: Equatable {
         sampleHeaderSize: Int = 40,
         loopStart: Int = 0,
         loopLength: Int = 0,
-        typeFlags: UInt8 = 0
+        typeFlags: UInt8 = 0,
+        volume: UInt8 = 0,
+        panning: UInt8 = 0,
+        finetune: Int = 0,
+        relativeNote: Int = 0
     ) {
         self.sampleIndex = sampleIndex
         self.declaredPayloadLength = declaredPayloadLength ?? decodedPayloadLength
@@ -746,10 +755,14 @@ struct XMSourceSampleSlotProvenance: Equatable {
         self.loopLength = loopLength
         self.typeFlags = typeFlags
         self.isCanonicalEmptySlotHeader = isCanonicalEmptySlotHeader
+        self.volume = volume
+        self.panning = panning
+        self.finetune = finetune
+        self.relativeNote = relativeNote
     }
 
     /// Profile v1 permits only ordinary 40-byte, zero-length, non-looping, non-16-bit empty headers.
-    /// Remaining fields are inert because this source slot has no represented PCM value.
+    /// Required slots must additionally have canonical playback fields (ADR 014 amendment).
     var isProfileV1NormalizableEmptySlotHeader: Bool {
         declaredPayloadLength == 0 &&
             decodedPayloadLength == 0 &&
@@ -757,6 +770,10 @@ struct XMSourceSampleSlotProvenance: Equatable {
             loopStart == 0 &&
             loopLength == 0 &&
             typeFlags == 0
+    }
+
+    var hasNoncanonicalPlaybackMetadata: Bool {
+        volume != 0 || panning != 0 || finetune != 0 || relativeNote != 0
     }
 }
 

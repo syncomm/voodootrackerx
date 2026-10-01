@@ -2473,7 +2473,16 @@ enum EditablePlaybackSongBuilder {
                 speed: document.speed > 0 ? document.speed : PlaybackTiming.xmDefault.speed,
                 bpm: document.tempo > 0 ? document.tempo : PlaybackTiming.xmDefault.bpm
             ),
-            usesLinearFrequencyTable: true
+            usesLinearFrequencyTable: true,
+            xmSampleSlotProvenanceByInstrument: document.instrumentPalette.mapValues { instrument in
+                // Canonical editable empties have the writer's all-zero header semantics.
+                // This playback projection retains no loaded-source metadata in the document.
+                guard let map = instrument.noteSampleMap, map.count == 96,
+                      map.allSatisfy({ (0..<16).contains($0) }) else { return [] }
+                return Set(map).sorted().filter { instrument.sample(mappedSampleIndex: $0) == nil }.map {
+                    XMSourceSampleSlotProvenance(sampleIndex: $0, decodedPayloadLength: 0, isCanonicalEmptySlotHeader: true)
+                }
+            }
         )
     }
 

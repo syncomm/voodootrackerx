@@ -3,6 +3,99 @@ import AudioToolbox
 import XCTest
 
 final class RuntimeCMixerTests: XCTestCase {
+    func testEmptySlotRuntimeAppliesSilentStateWithoutCVoiceAndMatchesOfflineWindows() throws {
+        let fixture = try referenceXMFixtureURL("generated/empty-slot-playback-state.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        for rate in [44_100.0, 48_000] {
+            let config = MixerRenderConfig(sampleRate: rate)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan)
+            let offline = PlaybackSongOfflineRenderer().render(.init(song: song, config: config, rows: 24))
+            XCTAssertEqual(offline.plan.xmEnvelopeTimeline?.channelUpdates, plan.xmEnvelopeTimeline?.channelUpdates)
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var cursor = 0, applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            for update in plan.xmEnvelopeTimeline!.channelUpdates {
+                while cursor <= update.scheduledFrame {
+                    let count = min(997, update.scheduledFrame + 1 - cursor)
+                    let pcm = renderRuntimePCM(core, frames: count)
+                    let expected = offline.block.interleavedPCM[(cursor * 2)..<((cursor + count) * 2)]
+                    XCTAssertLessThan(zip(pcm, expected).map { abs($0 - $1) }.max() ?? 0, 1e-7)
+                    cursor += count
+                    applied += core.drainAppliedAdapterEventDiagnostics()
+                }
+                XCTAssertEqual(core.channelSemanticStateForTesting(update.channelIndex), update)
+                if update.channelIndex == 0 && [2, 4, 5].contains(update.source.rowIndex) {
+                    XCTAssertEqual(core.snapshot().activeVoiceCount, 0)
+                    XCTAssertNil(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                }
+                if update.channelIndex == 1 && update.source.rowIndex == 4 {
+                    XCTAssertNotEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 1)?.active, true)
+                    XCTAssertEqual(update.instrumentIndex, 2) // Carried I01 does not replace the source owner.
+                }
+            }
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            let stopped = applied.filter { $0.event.categories.contains("empty_route_source_stop") }
+            XCTAssertEqual(stopped.map(\.event.scheduledFrame), plan.xmEmptyRoutes.filter { $0.stoppedEventIndex != nil }.map(\.scheduledFrame))
+            XCTAssertEqual(applied.filter { $0.event.primaryCategory == "note_trigger" }.count, plan.pattern.events.count)
+        }
+    }
+
+    func testAnOlderSilentSelectionCannotOverwriteItsSilentReplacement() throws {
+        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 100, channelCount: 1), maximumRenderFrames: 64)
+        let position = PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0)
+        let old = PlaybackXMChannelUpdate(channelIndex: 0, instrumentIndex: 1, sampleIndex: 1, sourceEventIndex: nil,
+            source: position, tick: 0, scheduledFrame: 0, bpm: 125, speed: 6, state: .init(), selectionFrame: 0)
+        let current = PlaybackXMChannelUpdate(channelIndex: 0, instrumentIndex: 2, sampleIndex: 2, sourceEventIndex: nil,
+            source: position, tick: 0, scheduledFrame: 2, bpm: 125, speed: 6, state: .init(volumeValue: 0.25), selectionFrame: 2)
+        core.configureAdapterEventScheduleForTesting([(0, old), (2, current), (3, old)].enumerated().map { index, item in
+            .init(id: index, source: position, channelIndex: 0, syntheticTick: 0, scheduledFrame: item.0,
+                action: .channelSemanticUpdate(item.1), categories: ["silent_generation"])
+        }, runtimeFrameOffset: 0)
+        XCTAssertTrue(renderRuntimePCM(core, frames: 4).allSatisfy { $0 == 0 })
+        XCTAssertEqual(core.snapshot().activeVoiceCount, 0)
+        XCTAssertEqual(core.channelSemanticStateForTesting(0), current)
+        let last = try XCTUnwrap(core.drainAppliedAdapterEventDiagnostics().last)
+        guard case let .playbackStateChange(_, accepted) = last.result else { return XCTFail("expected semantic result") }
+        XCTAssertFalse(accepted)
+    }
+
+    func testEmptySlotSemanticAndStopEventsRejectStaleGenerationsAndCannotReviveCompletedVoice() throws {
+        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 100, channelCount: 1), maximumRenderFrames: 64)
+        let mapping = makeSyntheticEventMapping()
+        let event = SyntheticTrackerEvent(row: 0, sample: .init(monoPCM: [1, 1, 1]), playbackStep: 1)
+        XCTAssertTrue(core.triggerAdapterEventWithDiagnostics(event, eventIndex: 0, mapping: mapping).succeeded)
+        let state = MixerEnvelopeSemanticState(volumeTick: 8, panTick: 4, keyOn: false, fadeoutAccumulator: 16_384, volumeValue: 0.25)
+        let silent = PlaybackXMChannelUpdate(channelIndex: 0, instrumentIndex: 1, sampleIndex: 1, sourceEventIndex: nil,
+            source: mapping.source, tick: 0, scheduledFrame: 3, bpm: 125, speed: 6, state: state)
+        let actions: [(Int, RuntimeCMixerAdapterEventAction)] = [
+            (3, .envelopeSemanticUpdate(activeEventIndex: 0, state: state)),
+            (3, .sourceStop(activeEventIndex: 0)), (3, .channelSemanticUpdate(silent)),
+            (4, .noteTrigger(eventIndex: 1, event: event, mapping: makeSyntheticEventMapping(eventIndex: 1))),
+            (5, .sourceStop(activeEventIndex: 0)), (5, .channelSemanticUpdate(silent)),
+            (5, .envelopeSemanticUpdate(activeEventIndex: 0, state: state)),
+        ]
+        core.configureAdapterEventScheduleForTesting(actions.enumerated().map { index, action in
+            .init(id: index, source: mapping.source, channelIndex: 0, syntheticTick: 0,
+                scheduledFrame: action.0, action: action.1, categories: ["empty_state_safety"])
+        }, runtimeFrameOffset: 0)
+        _ = renderRuntimePCM(core, frames: 4)
+        XCTAssertEqual(core.snapshot().activeVoiceCount, 0)
+        XCTAssertNil(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+        XCTAssertEqual(core.channelSemanticStateForTesting(0), silent)
+        _ = core.drainAppliedAdapterEventDiagnostics()
+        _ = renderRuntimePCM(core, frames: 2)
+        XCTAssertEqual(core.snapshot().activeVoiceCount, 1)
+        XCTAssertTrue(try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 1)).active)
+        let rejected = core.drainAppliedAdapterEventDiagnostics().filter { $0.plannedRuntimeFrame == 5 }
+        XCTAssertEqual(rejected.count, 3)
+        for item in rejected {
+            guard case let .playbackStateChange(_, accepted) = item.result else { return XCTFail("expected state rejection") }
+            XCTAssertFalse(accepted)
+        }
+    }
+
     func testInstrumentOnlyFixturePreservesGenerationsAtExactRuntimeFramesAndHeadroom() throws {
         let fixture = try referenceXMFixtureURL("generated/instrument-only-volume-semantics.xm")
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)

@@ -358,6 +358,21 @@ final class CSoftwareMixer {
     private var nextEnvelopeUpdate = 0
     private var audibleUpdates: [(frame: Int, voice: Int, target: PlaybackXMAudibleUpdate)] = []
     private var nextAudibleUpdate = 0
+    private var sourceStops: [(frame: Int, voice: Int)] = []
+    private var nextSourceStop = 0
+
+    /// Installs exact source retirement frames for unavailable routes, independently of ECx.
+    func setSourceStopSchedule(_ stops: [(frame: Int, voice: Int)]) {
+        sourceStops = stops.sorted { $0.frame < $1.frame }
+        nextSourceStop = 0
+    }
+
+    /// Releases one known source slot. Callers validate logical generation ownership.
+    @discardableResult
+    func stopVoice(at voice: Int) -> Bool {
+        guard voice >= 0 else { return false }
+        return vtx_c_mixer_stop_voice(state, UInt32(clamping: voice)) == VTX_C_MIXER_STATUS_OK
+    }
 
     /// Installs offline publications; runtime uses the same C transition at the same event frame.
     func setAudibleOutputSchedule(_ updates: [(frame: Int, voice: Int, target: PlaybackXMAudibleUpdate)]) {
@@ -1069,6 +1084,10 @@ final class CSoftwareMixer {
         var rendered = 0
         while rendered < frameCount {
             let frame = Int(currentFrame)
+            while nextSourceStop < sourceStops.count && sourceStops[nextSourceStop].frame <= frame {
+                stopVoice(at: sourceStops[nextSourceStop].voice)
+                nextSourceStop += 1
+            }
             while nextEnvelopeUpdate < envelopeUpdates.count && envelopeUpdates[nextEnvelopeUpdate].frame <= frame {
                 let update = envelopeUpdates[nextEnvelopeUpdate]
                 setEnvelopeSemanticState(update.state, forVoiceAt: update.voice)
@@ -1081,7 +1100,8 @@ final class CSoftwareMixer {
             }
             let nextFrame = min(nextEnvelopeUpdate < envelopeUpdates.count ? envelopeUpdates[nextEnvelopeUpdate].frame : Int.max,
                 nextAudibleUpdate < audibleUpdates.count ? audibleUpdates[nextAudibleUpdate].frame : Int.max)
-            let count = min(frameCount - rendered, nextFrame - frame)
+            let nextStop = nextSourceStop < sourceStops.count ? sourceStops[nextSourceStop].frame : Int.max
+            let count = min(frameCount - rendered, min(nextFrame, nextStop) - frame)
             Self.requireOK(vtx_c_mixer_render(state,
                 interleavedPCM.baseAddress?.advanced(by: rendered * config.channelCount), UInt32(count)))
             rendered += count
@@ -1094,6 +1114,7 @@ final class CSoftwareMixer {
         Self.requireOK(vtx_c_mixer_reset(state))
         nextEnvelopeUpdate = 0
         nextAudibleUpdate = 0
+        nextSourceStop = 0
     }
 
     private static func cConfig(from config: MixerRenderConfig) -> VTXCMixerConfig {

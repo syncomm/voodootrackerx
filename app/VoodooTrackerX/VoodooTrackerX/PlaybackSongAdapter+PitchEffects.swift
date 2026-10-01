@@ -76,7 +76,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        guard hasActiveVoice else {
+        guard hasActiveVoice || channelState.semanticInstrumentIndex != nil else {
             return portamentoSlideDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -134,7 +134,7 @@ extension PlaybackSongSyntheticAdapter {
                         timingConfig: timingConfig,
                         cell: cell,
                         status: .outOfRange,
-                        activeVoiceFound: true,
+                        activeVoiceFound: hasActiveVoice,
                         activeEventIndex: channelState.activeEventIndex,
                         activeEventMappingIndex: channelState.activeEventMappingIndex,
                         direction: direction,
@@ -184,7 +184,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 status: .applied,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 direction: direction,
@@ -219,7 +219,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 status: .unsupportedFrequencyTable,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 direction: direction,
@@ -265,7 +265,7 @@ extension PlaybackSongSyntheticAdapter {
                     timingConfig: timingConfig,
                     cell: cell,
                     status: .outOfRange,
-                    activeVoiceFound: true,
+                    activeVoiceFound: hasActiveVoice,
                     activeEventIndex: channelState.activeEventIndex,
                     activeEventMappingIndex: channelState.activeEventMappingIndex,
                     direction: direction,
@@ -313,7 +313,7 @@ extension PlaybackSongSyntheticAdapter {
             timingConfig: timingConfig,
             cell: cell,
             status: .applied,
-            activeVoiceFound: true,
+            activeVoiceFound: hasActiveVoice,
             activeEventIndex: channelState.activeEventIndex,
             activeEventMappingIndex: channelState.activeEventMappingIndex,
             direction: direction,
@@ -442,7 +442,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        guard hasActiveVoice else {
+        guard hasActiveVoice || channelState.semanticInstrumentIndex != nil else {
             return finePortamentoUpDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -477,7 +477,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 status: .unsupportedFrequencyTable,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 fineAmount: amount,
@@ -508,7 +508,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 status: .outOfRange,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 fineAmount: amount,
@@ -544,7 +544,7 @@ extension PlaybackSongSyntheticAdapter {
             timingConfig: timingConfig,
             cell: cell,
             status: .applied,
-            activeVoiceFound: true,
+            activeVoiceFound: hasActiveVoice,
             activeEventIndex: channelState.activeEventIndex,
             activeEventMappingIndex: channelState.activeEventMappingIndex,
             fineAmount: amount,
@@ -799,7 +799,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        guard hasActiveVoice else {
+        guard hasActiveVoice || channelState.semanticInstrumentIndex != nil else {
             return finePortamentoDownDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -834,7 +834,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 status: .unsupportedFrequencyTable,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 fineAmount: amount,
@@ -865,7 +865,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 status: .outOfRange,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 fineAmount: amount,
@@ -901,7 +901,7 @@ extension PlaybackSongSyntheticAdapter {
             timingConfig: timingConfig,
             cell: cell,
             status: .applied,
-            activeVoiceFound: true,
+            activeVoiceFound: hasActiveVoice,
             activeEventIndex: channelState.activeEventIndex,
             activeEventMappingIndex: channelState.activeEventMappingIndex,
             fineAmount: amount,
@@ -1188,7 +1188,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        guard hasActiveVoice else {
+        guard hasActiveVoice || channelState.semanticInstrumentIndex != nil else {
             return extraFinePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -1225,7 +1225,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 status: .unsupportedFrequencyTable,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 subcommand: subcommand,
@@ -1260,7 +1260,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 status: .outOfRange,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 subcommand: subcommand,
@@ -1298,7 +1298,7 @@ extension PlaybackSongSyntheticAdapter {
             timingConfig: timingConfig,
             cell: cell,
             status: .applied,
-            activeVoiceFound: true,
+            activeVoiceFound: hasActiveVoice,
             activeEventIndex: channelState.activeEventIndex,
             activeEventMappingIndex: channelState.activeEventMappingIndex,
             subcommand: subcommand,
@@ -1581,7 +1581,7 @@ extension PlaybackSongSyntheticAdapter {
         let currentLinearPeriodBefore = channelState.activeLinearPeriod
         let currentPlaybackStepBefore = channelState.activePlaybackStep
 
-        guard hasActiveVoice else {
+        guard hasActiveVoice || channelState.semanticInstrumentIndex != nil else {
             return arpeggioDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -1614,7 +1614,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 status: .unsupportedFrequencyTable,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 xSemitoneOffset: xSemitoneOffset,
@@ -1660,7 +1660,7 @@ extension PlaybackSongSyntheticAdapter {
                     timingConfig: timingConfig,
                     cell: cell,
                     status: .outOfRange,
-                    activeVoiceFound: true,
+                    activeVoiceFound: hasActiveVoice,
                     activeEventIndex: channelState.activeEventIndex,
                     activeEventMappingIndex: channelState.activeEventMappingIndex,
                     xSemitoneOffset: xSemitoneOffset,
@@ -1711,7 +1711,7 @@ extension PlaybackSongSyntheticAdapter {
             timingConfig: timingConfig,
             cell: cell,
             status: .applied,
-            activeVoiceFound: true,
+            activeVoiceFound: hasActiveVoice,
             activeEventIndex: channelState.activeEventIndex,
             activeEventMappingIndex: channelState.activeEventMappingIndex,
             xSemitoneOffset: xSemitoneOffset,
@@ -2145,7 +2145,7 @@ extension PlaybackSongSyntheticAdapter {
                 (activeUsesAmigaFrequencyTable ? 1 : 16)
         }
 
-        guard hasActiveVoice else {
+        guard hasActiveVoice || channelState.semanticInstrumentIndex != nil else {
             return tonePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -2190,7 +2190,7 @@ extension PlaybackSongSyntheticAdapter {
                     commandSource: commandSource,
                     rawVolumeColumn: volumeColumn?.rawValue,
                     status: .unsupportedFrequencyTable,
-                    activeVoiceFound: true,
+                    activeVoiceFound: hasActiveVoice,
                     activeEventIndex: channelState.activeEventIndex,
                     activeEventMappingIndex: channelState.activeEventMappingIndex,
                     targetExistsBefore: targetExistsBefore,
@@ -2229,7 +2229,7 @@ extension PlaybackSongSyntheticAdapter {
                         commandSource: commandSource,
                         rawVolumeColumn: volumeColumn?.rawValue,
                         status: .outOfRange,
-                        activeVoiceFound: true,
+                        activeVoiceFound: hasActiveVoice,
                         activeEventIndex: channelState.activeEventIndex,
                         activeEventMappingIndex: channelState.activeEventMappingIndex,
                         targetExistsBefore: targetExistsBefore,
@@ -2273,7 +2273,7 @@ extension PlaybackSongSyntheticAdapter {
                         commandSource: commandSource,
                         rawVolumeColumn: volumeColumn?.rawValue,
                         status: .outOfRange,
-                        activeVoiceFound: true,
+                        activeVoiceFound: hasActiveVoice,
                         activeEventIndex: channelState.activeEventIndex,
                         activeEventMappingIndex: channelState.activeEventMappingIndex,
                         targetExistsBefore: targetExistsBefore,
@@ -2308,7 +2308,7 @@ extension PlaybackSongSyntheticAdapter {
                     commandSource: commandSource,
                     rawVolumeColumn: volumeColumn?.rawValue,
                     status: .unsupportedFrequencyTable,
-                    activeVoiceFound: true,
+                    activeVoiceFound: hasActiveVoice,
                     activeEventIndex: channelState.activeEventIndex,
                     activeEventMappingIndex: channelState.activeEventMappingIndex,
                     targetExistsBefore: targetExistsBefore,
@@ -2346,7 +2346,7 @@ extension PlaybackSongSyntheticAdapter {
                 commandSource: commandSource,
                 rawVolumeColumn: volumeColumn?.rawValue,
                 status: .noTarget,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 targetExistsBefore: targetExistsBefore,
@@ -2384,7 +2384,7 @@ extension PlaybackSongSyntheticAdapter {
                 commandSource: commandSource,
                 rawVolumeColumn: volumeColumn?.rawValue,
                 status: .noSpeed,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 targetExistsBefore: targetExistsBefore,
@@ -2420,7 +2420,7 @@ extension PlaybackSongSyntheticAdapter {
                 commandSource: commandSource,
                 rawVolumeColumn: volumeColumn?.rawValue,
                 status: .unsupportedFrequencyTable,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 targetExistsBefore: targetExistsBefore,
@@ -2454,7 +2454,7 @@ extension PlaybackSongSyntheticAdapter {
                     commandSource: commandSource,
                     rawVolumeColumn: volumeColumn?.rawValue,
                     status: .unsupportedFrequencyTable,
-                    activeVoiceFound: true,
+                    activeVoiceFound: hasActiveVoice,
                     activeEventIndex: channelState.activeEventIndex,
                     activeEventMappingIndex: channelState.activeEventMappingIndex,
                     targetExistsBefore: targetExistsBefore,
@@ -2530,7 +2530,7 @@ extension PlaybackSongSyntheticAdapter {
                 commandSource: commandSource,
                 rawVolumeColumn: volumeColumn?.rawValue,
                 status: .applied,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 sameCellNote: sameCellNote,
@@ -2585,7 +2585,7 @@ extension PlaybackSongSyntheticAdapter {
                 commandSource: commandSource,
                 rawVolumeColumn: volumeColumn?.rawValue,
                 status: .unsupportedFrequencyTable,
-                activeVoiceFound: true,
+                activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 targetExistsBefore: targetExistsBefore,
@@ -2658,7 +2658,7 @@ extension PlaybackSongSyntheticAdapter {
             commandSource: commandSource,
             rawVolumeColumn: volumeColumn?.rawValue,
             status: .applied,
-            activeVoiceFound: true,
+            activeVoiceFound: hasActiveVoice,
             activeEventIndex: channelState.activeEventIndex,
             activeEventMappingIndex: channelState.activeEventMappingIndex,
             sameCellNote: sameCellNote,

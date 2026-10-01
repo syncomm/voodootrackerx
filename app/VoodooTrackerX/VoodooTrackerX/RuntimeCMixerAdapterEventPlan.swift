@@ -13,6 +13,8 @@ enum RuntimeCMixerAdapterEventAction: Equatable {
     case envelopePositionUpdate(activeEventIndex: Int, positionFrame: Int)
     case playbackStateChange(activeEventIndex: Int, change: MixerPlaybackStateChange)
     case envelopeSemanticUpdate(activeEventIndex: Int, state: MixerEnvelopeSemanticState)
+    case channelSemanticUpdate(PlaybackXMChannelUpdate)
+    case sourceStop(activeEventIndex: Int)
     case audibleTargetUpdate(PlaybackXMAudibleUpdate)
     case noteCut(activeEventIndex: Int?)
 }
@@ -69,6 +71,10 @@ struct RuntimeCMixerAdapterEvent: Equatable {
             return activeEventIndex
         case let .noteCut(activeEventIndex):
             return activeEventIndex
+        case let .sourceStop(activeEventIndex):
+            return activeEventIndex
+        case let .channelSemanticUpdate(update):
+            return update.sourceEventIndex
         case let .audibleTargetUpdate(target):
             return target.eventIndex
         }
@@ -709,6 +715,18 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 action: .playbackStateChange(activeEventIndex: update.activeEventIndex, change: update.change),
                 categories: ["carried_playback_state"]))
         }
+        for route in adaptedPlan.xmEmptyRoutes {
+            guard let old = route.stoppedEventIndex else { continue }
+            events.append(.init(id: events.count, source: route.source, channelIndex: route.channelIndex,
+                syntheticTick: 0, scheduledFrame: route.scheduledFrame, action: .sourceStop(activeEventIndex: old),
+                categories: ["empty_route_source_stop"]))
+        }
+        let sourceFreeChannels = Set(adaptedPlan.xmEmptyRoutes.map(\.channelIndex))
+        for update in adaptedPlan.xmEnvelopeTimeline?.channelUpdates ?? [] where sourceFreeChannels.contains(update.channelIndex) {
+            events.append(.init(id: events.count, source: update.source, channelIndex: update.channelIndex,
+                syntheticTick: update.tick, scheduledFrame: update.scheduledFrame, action: .channelSemanticUpdate(update),
+                categories: ["xm_channel_semantic_tick"]))
+        }
         for update in adaptedPlan.xmEnvelopeTimeline?.updates ?? [] {
             events.append(RuntimeCMixerAdapterEvent(id: events.count, source: update.source,
                 channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
@@ -861,7 +879,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         switch action {
         case .gainPanUpdate, .stepUpdate:
             return 0
-        case .noteCut:
+        case .noteCut, .sourceStop:
             return 1
         case .noteTrigger:
             return 2
@@ -869,7 +887,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             return 3
         case .envelopePositionUpdate:
             return 4
-        case .envelopeSemanticUpdate:
+        case .envelopeSemanticUpdate, .channelSemanticUpdate:
             return 5
         case .audibleTargetUpdate:
             return 6

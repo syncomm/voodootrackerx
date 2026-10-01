@@ -1051,6 +1051,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var voiceStateByChannel = [Int: RuntimeCMixerChannelVoiceState]()
     private var adapterVoiceStateByEventIndex = [Int: RuntimeCMixerAdapterVoiceState]()
     private var adapterEventIndexByChannel = [Int: Int]()
+    private var channelSemanticState = [Int: PlaybackXMChannelUpdate]()
+    private var channelSemanticGenerationFrame = [Int: Int]()
     private var controlStateByChannel = [Int: RuntimeCMixerChannelControlState]()
     private var stoppedFrameByChannel = [Int: UInt64]()
     private var renderCallCount: UInt64 = 0
@@ -2657,7 +2659,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         switch event.action {
         case .gainPanUpdate, .stepUpdate:
             return 0
-        case .noteCut:
+        case .noteCut, .sourceStop:
             return 1
         case .noteTrigger:
             return 2
@@ -2665,7 +2667,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             return 3
         case .envelopePositionUpdate:
             return 4
-        case .envelopeSemanticUpdate:
+        case .envelopeSemanticUpdate, .channelSemanticUpdate:
             return 5
         case .audibleTargetUpdate:
             return 6
@@ -3160,6 +3162,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         voiceStateByChannel.removeAll()
         adapterVoiceStateByEventIndex.removeAll()
         adapterEventIndexByChannel.removeAll()
+        channelSemanticState.removeAll()
+        channelSemanticGenerationFrame.removeAll()
         stoppedFrameByChannel.removeAll()
         nextAdapterEventScheduleIndex = adapterEventSchedule.count
         if eventQueueExhaustedFrame == nil {
@@ -3356,9 +3360,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 gainPanUpdateCount += 1
             case .stepUpdate:
                 stepUpdateCount += 1
-            case .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate, .audibleTargetUpdate:
+            case .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate, .channelSemanticUpdate, .audibleTargetUpdate:
                 break
-            case .noteCut:
+            case .noteCut, .sourceStop:
                 noteCutCount += 1
             }
             if event.categories.contains("key_off") {
@@ -3465,6 +3469,30 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             } else {
                 result = .playbackStateChange(targetVoiceIndex: nil, accepted: false)
             }
+        case let .channelSemanticUpdate(update):
+            // A silent publication has no voice target. Reject an old silent interval
+            // or source generation after a replacement, without changing C state.
+            let current = adapterEventIndexByChannel[update.channelIndex]
+            let selectionFrame = queuedEvent.plannedRuntimeFrame - queuedEvent.event.scheduledFrame + update.selectionFrame
+            let accepted = update.sourceEventIndex == current &&
+                selectionFrame >= (channelSemanticGenerationFrame[update.channelIndex] ?? Int.min)
+            if accepted {
+                channelSemanticState[update.channelIndex] = update
+                channelSemanticGenerationFrame[update.channelIndex] = selectionFrame
+            }
+            result = .playbackStateChange(targetVoiceIndex: nil, accepted: accepted)
+        case let .sourceStop(activeEventIndex):
+            let channel = queuedEvent.event.channelIndex
+            if adapterEventIndexByChannel[channel] == activeEventIndex,
+               let voice = adapterVoiceStateByEventIndex[activeEventIndex], voice.channel == channel,
+               mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex)?.channelTag == channel {
+                let accepted = mixer.stopVoice(at: voice.voiceIndex)
+                adapterVoiceStateByEventIndex.removeValue(forKey: activeEventIndex)
+                adapterEventIndexByChannel.removeValue(forKey: channel)
+                result = .playbackStateChange(targetVoiceIndex: voice.voiceIndex, accepted: accepted)
+            } else {
+                result = .playbackStateChange(targetVoiceIndex: nil, accepted: false)
+            }
         case let .envelopeSemanticUpdate(activeEventIndex, semantic):
             if adapterEventIndexByChannel[queuedEvent.event.channelIndex] == activeEventIndex,
                let voice = adapterVoiceStateByEventIndex[activeEventIndex],
@@ -3496,7 +3524,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             adapterCurrentEventIndexBefore == adapterCurrentEventIndexAfter
         let sustainedVoiceUpdate: Bool
         switch queuedEvent.event.action {
-        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate, .audibleTargetUpdate, .noteCut:
+        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate, .channelSemanticUpdate, .audibleTargetUpdate, .sourceStop, .noteCut:
             sustainedVoiceUpdate = adapterActiveEventIndex != nil &&
                 adapterActiveEventIndex == adapterCurrentEventIndexBefore
         case .noteTrigger:
@@ -3585,6 +3613,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         voiceStateByChannel.removeAll()
         adapterVoiceStateByEventIndex.removeAll()
         adapterEventIndexByChannel.removeAll()
+        channelSemanticState.removeAll()
+        channelSemanticGenerationFrame.removeAll()
         controlStateByChannel.removeAll()
         stoppedFrameByChannel.removeAll()
         adapterEventSchedule.removeAll(keepingCapacity: true)
@@ -3807,6 +3837,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
 #if DEBUG
+    func channelSemanticStateForTesting(_ channel: Int) -> PlaybackXMChannelUpdate? {
+        lock.lock()
+        defer { lock.unlock() }
+        return channelSemanticState[channel]
+    }
+
     func withRenderLockHeldForTesting(_ body: () -> Void) {
         lock.lock()
         defer {
@@ -4339,7 +4375,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             effectType = event.effectType ?? mapping.effectType
             effectParam = event.effectParam ?? mapping.effectParam
             volumeColumn = mapping.volumeColumn.rawValue
-        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate, .audibleTargetUpdate, .noteCut:
+        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate, .channelSemanticUpdate, .audibleTargetUpdate, .sourceStop, .noteCut:
             noteValue = nil
             instrumentIndex = nil
             effectType = event.effectType

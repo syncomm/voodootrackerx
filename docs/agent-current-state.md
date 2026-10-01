@@ -35,9 +35,12 @@ host.
   targets over the current tick and carries in-flight window progress.
   Non-retriggering resets use a 5 ms transition from current audible output
   through that same state. Ordinary instrument-only cells restore the last
-  triggered sample's cached volume/pan and reset the same voice without retriggering;
-  carried instrument memory stays separate from the sounding sample. Note-only
-  routing and audible pan envelopes remain deferred.
+  selected declared header's cached volume/pan and reset channel semantics;
+  a live source receives the reset without retriggering.
+  Carried instrument memory stays separate from the sounding sample. Declared
+  empty slots retain source-only defaults/tuning and silent channel clocks, with
+  no fabricated sample or voice. Note-only routing and audible pan envelopes
+  remain deferred.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.
@@ -60,6 +63,9 @@ Use `docs/audio-comparison.md` for reference-render work,
   editable-copy planning. Its results are `exact`,
   Profile-v1 `normalized`, or `unavailable`. Exact and approved normalized plans
   create untitled documents; the loaded source remains read-only and untouched.
+  Required empty headers with nonzero volume, pan or tuning are unavailable for
+  copying because the editable writer cannot preserve those playback semantics.
+  Proven inert cosmetic/trailing cases remain normalized.
   A normalized later export may differ structurally. Amiga frequency mode is
   never silently converted to Linear.
 - Save and Save As are disabled. `File > Export XM...` is the persistence

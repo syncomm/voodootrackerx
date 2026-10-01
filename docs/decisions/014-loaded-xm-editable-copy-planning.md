@@ -6,6 +6,8 @@ Accepted and implemented across both pre-alpha compatibility slices. This supers
 ADR 012 only where it treated loaded-XM editable-copy admission as exact or
 unavailable; its canonical editable sample/keymap model remains in force.
 
+The explicit amendment below narrows Profile v1's original inert-header premise.
+
 ## Problem
 
 The strict loaded-XM copy gate cannot distinguish an unsafe conversion from a
@@ -55,3 +57,53 @@ normalization that changes represented musical or source state requires its own
 approved profile plus explicit explanation and confirmation before conversion; it
 must not use the silent Profile-v1 path. No file format, parser architecture,
 runtime/DSP behavior, source mutability, Save behavior, or writer semantics change.
+
+## Amendment: playback state in zero-payload headers
+
+Independent generated-XM observations of pinned ft2-clone revision
+`87be42543dac82cf802b5bddad917bda62ace131` falsify the original blanket claim
+that ordinary zero-payload header fields are inert. Selecting an exact mapped
+empty slot changes cached default volume/pan and period state despite producing
+no PCM. A later instrument-only cell restores those cached defaults and resets
+the silent channel's envelope/release state. A later playable note-only trigger
+can expose the carried volume and pan. Normal note-only routing remains a
+separate VTX implementation task; it is not needed to establish this source-state
+loss.
+
+Isolated controls establish volume, panning, finetune, and relative note as
+playback-significant fields. At C-4 in Linear mode, a canonical empty header
+sets period 4608; finetune +64 sets 4576, relative note +12 sets 3840, and both
+set 3808. Relative note also changes a subsequent tone-portamento target.
+Volume 40 survives an empty selection and silent instrument-only reset; the
+all-zero control restores zero. Same-cell volume/pan writers override restored
+channel values without rewriting cached defaults. Cosmetic name/padding and
+reserved-byte controls leave observed playback state and PCM unchanged.
+
+This amendment **narrows Profile v1**, preserving the same three outcomes:
+
+- `exact`: canonical all-zero required empty headers retain their existing
+  sparse identity and routing contract.
+- `normalized`: ordinary 40-byte zero-payload, zero-loop/type required headers
+  may discard cosmetic name/padding/reserved data only when volume, pan,
+  finetune, and relative note are all zero. Structurally eligible unreferenced
+  trailing empty slots remain discardable; independent controls with each
+  nonzero field produced identical state and PCM when the map never selected
+  those slots.
+- `unavailable`: any required slot in the represented/keymap sparse span with
+  nonzero volume, pan, finetune, or relative note receives the deterministic
+  `playbackSignificantEmptySampleMetadata` reason. Conservatively retain this
+  refusal even for tuning bytes whose individual quantization is unproven.
+
+Loaded playback retains those four fields as immutable slot metadata, without
+raw source buffers/paths, a represented sample, PCM, or an editor palette entry.
+Channel envelope/release state survives source absence in the shared semantic
+timeline; a C voice is never its storage. Canonical editable playback projects
+only the existing all-zero empty-route semantics so playback agrees with
+Export XM/reopen. The document acquires no nonrepresented sample metadata.
+
+The canonical editable model and sparse writer remain unchanged. Required
+empty writer headers are still all zero; source metadata that they cannot
+preserve is refused at copy time. No new normalization profile, confirmation
+UI, source mutation, Save/Save As support, or Amiga-to-Linear conversion is
+introduced. The public `empty-slot-playback-state.xm` fixture and direct
+copy/playback tests pin this clarification.

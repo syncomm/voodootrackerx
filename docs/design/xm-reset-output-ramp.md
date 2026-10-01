@@ -129,9 +129,11 @@ interrupted, stale/completed and ping-pong cursor cases preserve their contracts
 ## Shared XM semantic tick contract
 
 `PlaybackXMEnvelopeTimeline` consumes `PlaybackSongFxxTimingPlan`; it does not
-compute a second tempo or elapsed-seconds clock. Each active trigger generation
-owns logical volume/pan positions, key-on, a fadeout accumulator, and held
-envelope/fadeout factors. Runtime events and offline render splits import the
+compute a second tempo or elapsed-seconds clock. Each channel owns logical
+volume/pan positions, key-on, a fadeout accumulator, and held envelope/fadeout
+factors independently of source activity. Declared empty routes retain this
+state with no C voice; only a valid source generation receives audible targets.
+Runtime events and offline render splits import the
 same snapshot through a small C state boundary. Generic synthetic frame
 envelopes and their reset queue retain their separate established behavior.
 

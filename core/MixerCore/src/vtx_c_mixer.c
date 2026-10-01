@@ -1359,6 +1359,15 @@ VTXCMixerStatus vtx_c_mixer_set_voice_envelope_semantic_state(
     return VTX_C_MIXER_STATUS_OK;
 }
 
+VTXCMixerStatus vtx_c_mixer_stop_voice(VTXCMixerState *state, uint32_t voice_index) {
+    if (state == NULL || voice_index >= state->voice_count) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    vtx_c_mixer_remove_voice_state_events_for_voice(state, voice_index);
+    vtx_c_mixer_release_voice(&state->voices[voice_index]);
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 VTXCMixerStatus vtx_c_mixer_stop_voices_for_channel_tag(
     VTXCMixerState *state,
     uint32_t channel_tag,

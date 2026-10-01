@@ -123,6 +123,7 @@ enum LoadedModuleEditableCopyPlanUnavailableReason: Error, Equatable {
     case missingPlaybackSong
     case nonLinearFrequencyTable
     case unsupportedSampleOrKeymapBoundary
+    case playbackSignificantEmptySampleMetadata
     case representedLoopStateUnsupported
     case representedInstrumentStateUnstable
     case instrumentIdentityUnstable
@@ -136,6 +137,8 @@ enum LoadedModuleEditableCopyPlanUnavailableReason: Error, Equatable {
             explanation = "This XM uses Amiga frequency mode. VTX can play it, but current editable documents use Linear frequency mode. Creating an editable copy would change pitch and frequency semantics, so conversion is not available yet."
         case .unsupportedSampleOrKeymapBoundary:
             explanation = "This XM contains sample-slot or note-mapping state that the current editable document model cannot preserve safely. VTX will not silently repair or change it."
+        case .playbackSignificantEmptySampleMetadata:
+            explanation = "This XM uses empty sample-slot volume, pan, or tuning that affects playback. The editable document and XM export cannot preserve that state, so an editable copy is unavailable."
         case .representedLoopStateUnsupported:
             explanation = "This XM contains represented sample loop state that VTX cannot currently preserve safely in an editable copy and later export."
         case .representedInstrumentStateUnstable:
@@ -338,6 +341,9 @@ enum LoadedModuleEditableCopyPlanner {
                     return .unavailable(.unsupportedSampleOrKeymapBoundary)
                 }
                 let isRequired = sourceSlot.sampleIndex < requiredSpanCount
+                if isRequired && sourceSlot.hasNoncanonicalPlaybackMetadata {
+                    return .unavailable(.playbackSignificantEmptySampleMetadata)
+                }
                 if sourceSlot.isCanonicalEmptySlotHeader {
                     if !isRequired {
                         instrumentTrailingCount += 1

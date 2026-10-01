@@ -33,7 +33,7 @@ extension PlaybackSongSyntheticAdapter {
         channelState: inout ChannelState,
         updates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
         resets: inout [PlaybackVoiceStateEvent]
-    ) {
+    ) -> MixerPlaybackStateChange? {
         let before = channelState
         channelState.baseChannelVolume = channelState.triggeredSampleDefaultVolume
         channelState.volumeValueZeroedByAxy = false
@@ -49,11 +49,14 @@ extension PlaybackSongSyntheticAdapter {
         // K00 releases without restarting envelopes. Volume-column portamento
         // takes precedence over K00; phase reset uses the same existing gate.
         let releasesImmediately = cell.effectType == 0x14 && cell.effectParam == 0 && cell.volumeColumn >> 4 != 0x0F
-        if !releasesImmediately, let event = channelState.activeEventIndex {
+        guard !releasesImmediately else { return nil }
+        let reset = MixerPlaybackStateChange.reset(.init(volumeEnvelope: true, panEnvelope: true, keyOn: true, fadeout: true))
+        if let event = channelState.activeEventIndex {
             resets.append(.init(activeEventIndex: event, channelIndex: channelIndex,
-                scheduledFrame: scheduledFrame,
-                change: .reset(.init(volumeEnvelope: true, panEnvelope: true, keyOn: true, fadeout: true))))
+                scheduledFrame: scheduledFrame, change: reset))
         }
+        // The channel timeline consumes this same decision when no source exists.
+        return reset
     }
 
     static func prepareTremoloRow(
@@ -196,7 +199,7 @@ extension PlaybackSongSyntheticAdapter {
         let status: PlaybackSongSyntheticEnvelopePositionDiagnostic.Status
         let appliedPositionFrame: Int?
         let clamped: Bool
-        if !activeVoiceFound {
+        if !activeVoiceFound && channelState.semanticInstrumentIndex == nil {
             status = .noActiveVoice
             appliedPositionFrame = nil
             clamped = false

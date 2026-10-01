@@ -200,7 +200,11 @@ enum PlaybackSongBuilder {
                     sampleHeaderSize: declaredSampleHeaderSize,
                     loopStart: header.loopStart,
                     loopLength: header.loopLength,
-                    typeFlags: header.type
+                    typeFlags: header.type,
+                    volume: header.length == 0 ? header.volume : 0,
+                    panning: header.length == 0 ? header.panning : 0,
+                    finetune: header.length == 0 ? header.finetune : 0,
+                    relativeNote: header.length == 0 ? header.relativeNote : 0
                 ))
             }
 

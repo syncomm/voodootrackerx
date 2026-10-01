@@ -393,3 +393,24 @@ At 48 kHz channel 0 resets at frames 11520, 23040, 34560, 51840, 57600 and
 frames. Source generation/cursor and exact semantic state are primary evidence;
 quiet-sample/header ownership and final note-only output remain known reference
 differences. Reference audio and diagnostic artifacts remain outside git.
+
+### Empty-slot playback state
+
+`generated/empty-slot-playback-state.xm` (2,310 bytes) contains one generated
+represented loop, six declared zero-payload ordinary headers, and a generated
+one-shot control. Its 96-note map preserves each empty identity. No reference
+PCM, private modules or imported assets are included. The generator permits
+zero-frame recipes only with unflagged 8-bit encoding and no loop.
+
+| Rows | Control |
+| --- | --- |
+| 0–4 | Represented source to volume-40 empty slot, silent release/reset; second channel starts empty and later completes a one-shot. |
+| 5–7 | FFA tick-duration change, silent K01, then instrument-only volume/pan overrides. |
+| 8 | Explicit represented note refreshes its own volume/pan defaults. |
+| 9–13 | Canonical zero, pan 224, finetune +64, relative note +12, and combined headers. |
+| 14–17 | Silent tone portamento, silent reset, explicit represented trigger, release. |
+
+`EmptySlotPlaybackStateTests`, runtime application tests, and editable-copy tests
+pin metadata ownership, no voice for empty routes, canonical clocks and windows,
+source retirement, stale/completed safety, and ADR 014's conservative refusal.
+Normal note-only routing and audible pan envelopes remain deferred.

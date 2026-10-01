@@ -960,6 +960,10 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return "carried_playback_state"
         case .envelopeSemanticUpdate:
             return "xm_envelope_semantic_tick"
+        case .channelSemanticUpdate:
+            return "xm_channel_semantic_tick"
+        case .sourceStop:
+            return "empty_route_source_stop"
         case .audibleTargetUpdate:
             return "xm_audible_output_target"
         case .envelopePositionUpdate:

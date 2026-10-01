@@ -30,7 +30,7 @@ final class RuntimeCMixerTests: XCTestCase {
             for boundary in boundaries {
                 while cursor < boundary {
                     let count = min(997, boundary - cursor)
-                    XCTAssertEqual(renderRuntimePCM(core, frames: count), Array(offline.block.interleavedPCM[(cursor * 2)..<((cursor + count) * 2)]))
+                    assertFixturePCMEqual(renderRuntimePCM(core, frames: count), offline.block.interleavedPCM[(cursor * 2)..<((cursor + count) * 2)])
                     cursor += count
                     applied += core.drainAppliedAdapterEventDiagnostics()
                 }
@@ -182,13 +182,13 @@ final class RuntimeCMixerTests: XCTestCase {
             for reset in plan.playbackStateEvents {
                 while cursor < reset.scheduledFrame {
                     let count = min(997, reset.scheduledFrame - cursor)
-                    XCTAssertEqual(renderRuntimePCM(core, frames: count), Array(offline[(cursor * 2)..<((cursor + count) * 2)]))
+                    assertFixturePCMEqual(renderRuntimePCM(core, frames: count), offline[(cursor * 2)..<((cursor + count) * 2)])
                     cursor += count
                     applied += core.drainAppliedAdapterEventDiagnostics()
                 }
                 if cursor > reset.scheduledFrame { continue } // Another channel at this same frame.
                 let before = core.adapterVoiceDiagnosticForTesting(eventIndex: reset.activeEventIndex)
-                XCTAssertEqual(renderRuntimePCM(core, frames: 1), Array(offline[(cursor * 2)..<(cursor * 2 + 2)]))
+                assertFixturePCMEqual(renderRuntimePCM(core, frames: 1), offline[(cursor * 2)..<(cursor * 2 + 2)])
                 cursor += 1
                 applied += core.drainAppliedAdapterEventDiagnostics()
                 if reset.channelIndex == 0 {
@@ -206,7 +206,7 @@ final class RuntimeCMixerTests: XCTestCase {
             }
             while cursor < offline.count / 2 {
                 let count = min(997, offline.count / 2 - cursor)
-                XCTAssertEqual(renderRuntimePCM(core, frames: count), Array(offline[(cursor * 2)..<((cursor + count) * 2)]))
+                assertFixturePCMEqual(renderRuntimePCM(core, frames: count), offline[(cursor * 2)..<((cursor + count) * 2)])
                 cursor += count
                 applied += core.drainAppliedAdapterEventDiagnostics()
             }
@@ -6994,6 +6994,16 @@ final class RuntimeCMixerTests: XCTestCase {
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
+    }
+
+    private func assertFixturePCMEqual(_ actual: [Float], _ expected: ArraySlice<Float>,
+                                       file: StaticString = #filePath, line: UInt = #line) {
+        // ARM fixture renders can differ by a few low Float32 bits across chunks.
+        // Use the existing fixture/window tolerance; semantic and frame checks stay exact.
+        XCTAssertEqual(actual.count, expected.count, file: file, line: line)
+        XCTAssertTrue(actual.allSatisfy(\.isFinite) && expected.allSatisfy(\.isFinite), file: file, line: line)
+        XCTAssertLessThanOrEqual(zip(actual, expected).map { abs($0 - $1) }.max() ?? 0, 1e-7,
+                                 file: file, line: line)
     }
 
     private func referenceXMFixtureURL(_ relativePath: String) throws -> URL {

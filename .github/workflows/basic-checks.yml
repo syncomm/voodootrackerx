@@ -37,6 +37,14 @@ jobs:
           -derivedDataPath .derivedData
           CODE_SIGNING_ALLOWED=NO
           test
+      - name: Report unit test failures
+        if: failure()
+        run: |
+          for vtx_test_result in .derivedData/Logs/Test/*.xcresult; do
+            if [ -d "$vtx_test_result" ]; then
+              xcrun xcresulttool get test-results summary --path "$vtx_test_result"
+            fi
+          done
       - name: Run core parser tests
         run: swift test --filter ModuleCoreTests
       - name: Run render tool tests

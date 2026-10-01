@@ -1,7 +1,12 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from tools.vtx_diag import residual_scan
 
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_module():
@@ -148,7 +153,8 @@ class XMResidualEffectScanTests(unittest.TestCase):
                 scan.Pattern(rows=[
                     [cell(scan, note=48, instrument=1)],
                     [cell(scan, effect_type=0x02, effect_param=0x04)],
-                    [cell(scan, effect_type=0x03, effect_param=0x04)],
+                    [cell(scan, note=50, effect_type=0x03, effect_param=0x04)],
+                    [cell(scan, note=52, effect_type=0x05, effect_param=0x01)],
                     [cell(scan, effect_type=0x21, effect_param=0x21)],
                     [cell(scan, volume=0xF4)],
                 ])
@@ -164,11 +170,130 @@ class XMResidualEffectScanTests(unittest.TestCase):
         self.assertEqual(bucket.count("amiga_3xx_count"), 1)
         self.assertEqual(bucket.count("amiga_xxy_count"), 1)
         self.assertEqual(bucket.count("amiga_volume_column_fxx_count"), 1)
-        self.assertEqual(group.bucket("3xx").count("unsupported_frequency_table_count"), 1)
+        self.assertEqual(group.bucket("3xx").count("unsupported_frequency_table_count"), 0)
+        self.assertEqual(group.bucket("3xx").count("applied_or_applyable_count"), 1)
+        self.assertEqual(bucket.count("amiga_5xy_count"), 1)
+        self.assertEqual(group.bucket("5xy").count("unsupported_frequency_table_count"), 1)
+
+    def test_public_tremolo_fixture_reports_implemented_parent_and_controls(self):
+        scan = load_module()
+        module = scan.parse_xm_module(
+            REPO_ROOT / "tests/reference-xm/generated/tremolo-effects.xm",
+            "xm-corpus-001",
+            "linear",
+        )
+        group = scan.ScanGroup("linear")
+        scan.scan_module(module, [group])
+
+        bucket = group.bucket("7xy")
+        self.assertEqual(bucket.count("7xy_count"), 37)
+        self.assertEqual(bucket.count("e7x_control_count"), 8)
+        self.assertEqual(bucket.count("700_count"), 26)
+        self.assertEqual(bucket.count("zero_nibble_memory_case_count"), 28)
+        self.assertEqual(set(bucket.family_counts), {f"E7{x:X}" for x in range(8)})
+        note = scan.status_note("7xy", dict(bucket.counts))
+        self.assertIn("Implemented, parity-watch", note)
+        self.assertIn("memory", note)
+        self.assertNotIn("deferred", note.lower())
+
+    def test_all_tremolo_controls_and_cold_zero_memory_remain_occurrence_counts(self):
+        scan = load_module()
+        rows = [[cell(scan, effect_type=0x07, effect_param=0)]]
+        for control in range(16):
+            rows.extend([
+                [cell(scan, effect_type=0x0E, effect_param=0x70 | control)],
+                [cell(scan, effect_type=0x07, effect_param=0x48)],
+            ])
+        group = scan.ScanGroup("linear")
+        scan.scan_module(module_with_rows(scan, rows), [group])
+
+        counts = group.bucket("7xy").counts
+        self.assertEqual(counts["7xy_count"], 17)
+        self.assertEqual(counts["e7x_control_count"], 16)
+        self.assertEqual(counts["700_count"], 1)
+        self.assertEqual(counts["zero_nibble_memory_case_count"], 1)
+        self.assertNotIn("applied_count", counts)
+
+    def test_public_amiga_3xx_fixture_keeps_300_memory_without_unsupported_gate(self):
+        scan = load_module()
+        module = scan.parse_xm_module(
+            REPO_ROOT / "tests/reference-xm/generated/portamento-scaling-amiga.xm",
+            "xm-corpus-001",
+            "amiga",
+        )
+        group = scan.ScanGroup("amiga")
+        scan.scan_module(module, [group])
+
+        bucket = group.bucket("3xx")
+        self.assertEqual(bucket.count("nonzero_3xx_count"), 1)
+        self.assertEqual(bucket.count("zero_300_count"), 1)
+        self.assertEqual(bucket.count("applied_or_applyable_count"), 2)
+        self.assertEqual(bucket.count("zero_300_memory_reuse_count"), 1)
+        self.assertEqual(bucket.count("unsupported_frequency_table_count"), 0)
+        self.assertEqual(group.bucket("amiga").count("amiga_3xx_count"), 2)
+
+    def test_3xx_residual_states_are_preserved_in_both_supported_frequency_modes(self):
+        scan = load_module()
+        rows = [
+            [cell(scan, effect_type=0x03)],
+            [cell(scan, note=48, instrument=1)],
+            [cell(scan, effect_type=0x03)],
+            [cell(scan, note=50, effect_type=0x03)],
+            [cell(scan, note=52, effect_type=0x03, effect_param=0x04)],
+            [cell(scan, effect_type=0x03)],
+        ]
+        for frequency_table in ("linear", "amiga"):
+            with self.subTest(frequency_table=frequency_table):
+                group = scan.ScanGroup(frequency_table)
+                scan.scan_module(module_with_rows(scan, rows, frequency_table), [group])
+                bucket = group.bucket("3xx")
+                self.assertEqual(bucket.count("no_active_count"), 1)
+                self.assertEqual(bucket.count("no_target_count"), 1)
+                self.assertEqual(bucket.count("missing_memory_count"), 1)
+                self.assertEqual(bucket.count("applied_or_applyable_count"), 2)
+                self.assertEqual(bucket.count("zero_300_memory_reuse_count"), 1)
+                self.assertEqual(bucket.count("unsupported_frequency_table_count"), 0)
+
+        group = scan.ScanGroup("unknown")
+        scan.scan_module(module_with_rows(scan, rows, "unknown"), [group])
+        self.assertEqual(group.bucket("3xx").count("unsupported_frequency_table_count"), 4)
+
+    def test_gap_triage_recognizes_tremolo_without_promoting_other_parents(self):
+        scan = load_module()
+        with tempfile.TemporaryDirectory() as directory:
+            label_map = Path(directory) / "public-map.json"
+            label_map.write_text(json.dumps({"entries": [{
+                "label": "xm-corpus-001",
+                "path": str(REPO_ROOT / "tests/reference-xm/generated/tremolo-effects.xm"),
+            }]}), encoding="utf-8")
+            report = scan.build_scan(label_map)
+        triage = scan.build_gap_triage(report, REPO_ROOT / "docs/xm-effect-support.md")
+        targets = {target["key"]: target for target in triage["targets"]}
+
+        for key in ("7xy", "e7x"):
+            with self.subTest(key=key):
+                self.assertEqual(targets[key]["c_mixer_adapter_implementation_exists"], "yes")
+                self.assertEqual(targets[key]["recommended_priority"], "implemented/parity-watch")
+                self.assertEqual(targets[key]["current_adapter_summary"], "coverage not provided")
+        for key in ("pxy", "vol_a", "vol_b", "eex", "txy"):
+            self.assertEqual(targets[key]["c_mixer_adapter_implementation_exists"], "no")
+        self.assertEqual(triage["schema_version"], 1)
+        self.assertNotIn("7xy/E7x,", triage["answers"]["surgical_legacy_ports"])
+        self.assertIn("Amiga", triage["answers"]["three_xx_memory_gap"])
+        self.assertIn("implemented", triage["answers"]["seven_xy_before_amiga"])
 
 
 def cell(module, note=0, instrument=0, volume=0, effect_type=0, effect_param=0):
     return module.Cell(note=note, instrument=instrument, volume=volume, effect_type=effect_type, effect_param=effect_param)
+
+
+def module_with_rows(scan, rows, frequency_table="linear"):
+    return scan.ModuleData(
+        label="xm-corpus-001", frequency_table=frequency_table, channels=1,
+        song_length=1, default_speed=6, default_bpm=125, order_table=[0],
+        patterns=[scan.Pattern(rows=rows)],
+        instruments=[scan.InstrumentEnvelope(), scan.InstrumentEnvelope()],
+    )
 
 
 if __name__ == "__main__":

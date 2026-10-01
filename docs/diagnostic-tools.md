@@ -329,6 +329,12 @@ compatibility wrapper with its existing arguments, outputs, helper imports, and
 exit behavior. Corpus-map creation and updates remain a separate command family
 owned by `corpus_map update`.
 
+Residual classification recognizes `7xy`/`E7x` and effect-column `3xx` in
+Linear and Amiga as implemented, parity-watch. Stored occurrences alone do not
+prove applied audio; no-active, no-target and missing-memory counts remain
+distinct. Amiga `5xy` and volume-column `Fx` retain their separate deferred
+boundaries from `docs/xm-effect-support.md`.
+
 The package-owned `runtime_trace summarize` and `runtime_trace correlate-window`
 modes preserve the existing JSONL/WAV inputs, CLI defaults, JSON and Markdown
 schemas, trace interpretation, alignment, recommendation text, basename-only

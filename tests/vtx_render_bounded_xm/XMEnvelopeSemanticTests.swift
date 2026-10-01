@@ -183,7 +183,9 @@ final class XMEnvelopeSemanticTests: XCTestCase {
         let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
         let request = PlaybackSongOfflineRenderRequest(song: module, config: .init(sampleRate: 48_000, channelCount: 1), rows: 16)
         let pcm = renderer.render(request).block.interleavedPCM
-        XCTAssertEqual(pcm[6001], 0.25)
+        // Reset semantics publish immediately; output starts at the interrupted audible value.
+        XCTAssertEqual(pcm[6001], 0.9375 + (0.875 * 31 / 32 - 0.9375) * 241 / 960, accuracy: 1e-7)
+        XCTAssertEqual(pcm[6241], 0.25)
         XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, pcm)
     }
 

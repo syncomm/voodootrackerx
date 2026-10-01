@@ -1,7 +1,7 @@
 # XM Non-retriggering Reset Output Contract
 
-This note owns the implemented XM semantic tick and ordinary audible final-L/R
-contracts, plus the independently measured, still deferred 5 ms reset ramp.
+This note owns the implemented XM semantic tick, ordinary audible final-L/R,
+and non-retriggering 5 ms reset contracts.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
 [XM volume ownership](xm-volume-ownership.md). Instrument-only dispatch,
 note-only routing, and audible XM panning envelopes remain deferred.
@@ -18,11 +18,11 @@ note-only routing, and audible XM panning envelopes remain deferred.
 | Stereo output | Targets use the existing static pan law. Sample pan initializes channel pan. Parsed XM pan-envelope metadata advances a neutral clock with no audible offset. A neutral pan clock alone does not enable final-output management. |
 | Output policy | Mixer profile scaling follows voice summation. Runtime fixed `-12 dB` headroom and product WAV auto-headroom to `-1 dB` remain separate downstream policies; runtime auto-headroom is disabled. |
 
-Plain voices retain generic gain/pan behavior until their first release, even
-when a future key-off is already in the plan. At that boundary, existing generic
-ramp reconstruction supplies the current audible factors to the shared C state.
-This preserves earlier audio and handles release inside an unfinished 32-frame
-ramp without creating another final-output interpolation formula.
+Plain voices retain generic gain/pan behavior until their first release or a
+reset with changed audible factor inputs. Neutral resets leave unfinished
+generic ramps untouched. At activation, existing generic ramp reconstruction
+supplies the current audible factors to the shared C state, preserving earlier
+audio without creating another final-output interpolation formula.
 
 The target amplitude is `sample/header * output/64 * global/64 * envelope *
 fadeout`; L/R additionally multiply the existing pan-law factors. Mono retains
@@ -55,10 +55,18 @@ clamp policy changes. Same-channel `Gxx` is visible immediately; a later-channel
 channel-turn ordering. The adapter's global semantic state is unchanged.
 
 First publication initializes immediately, preserving VTX trigger onset and
-source position. Explicit semantic resets also publish immediately: the
-non-retriggering 5 ms reset selection is **not wired**. Tests prove a future
-quick publication can complete, hold, then accept the next ordinary target
-through this same state. No instrument-only or note-only dispatch is added.
+source position. A later explicit non-retriggering reset changes semantic state
+at frame `N` and publishes through the same C output state with
+`D = floor(sampleRate * 0.005)`: 240 frames at 48 kHz, 220 at 44.1 kHz, and 160
+at 32 kHz, independent of BPM/speed. Its start is the **current audible** mono/L/R
+value before publication, including unfinished ordinary interpolation. Same-frame
+accepted volume/pan/global writes contribute to its target with the ordering
+above. Each side renders `start + (target - start) * k / D`, reaching the target
+at `N + D`, then holding until the next changed publication. Exact duplicates
+do not restart a ramp. The next ordinary target retains its established
+previous-target rule and tick duration through this same authority; no reset
+overlay or return to a second output path exists. No instrument-only or note-only
+dispatch is added.
 
 Runtime applies targets after trigger/reset/`Lxx` and semantic state, at the
 planned C mixer frame. Offline rendering splits at those same frames. Both use
@@ -88,6 +96,33 @@ ramp durations matched the pinned reference, maximum VTX linear-gain error was
 `9.14e-8`, and constant-source window error was zero. Fractional envelope point
 arithmetic and Precise-BPM-off absolute-frame differences remain the known
 semantic/timing boundaries below, not reasons to rewrite this foundation.
+
+### Reset verification
+
+Independent public controls cover 28 reset transitions in 26 rate/case pairs at
+48/44.1 kHz and BPM 125/250, including release, coincident volume/pan, quiet
+headers and later tempo changes. All durations match the pinned reference.
+Maximum constant-source linear PCM error is `6.24e-9` for VTX and `1.34e-7` for
+the reference's Float32 accumulation. Known sample/header and non-center pan
+endpoint differences remain outside this contract.
+
+For the center-pan falling control at 48000/125, L and R PCM before downstream
+headroom are identical: `N = 17280`, `D = 240`, start `0.013810679`, target
+`0.055242717`. Quarter/half/three-quarter values are
+`0.024168687 / 0.034526698 / 0.044884704`; completion is frame 17520. The target
+holds through 18239 and starts the next ordinary ramp at 18240 unchanged.
+The largest adjacent jump near reset falls from baseline `0.04143204` to
+`0.000172634` (reference `0.000172633`); completion is `0.000172637` and ordinary
+resume `0.000014387`, without the rejected rejoin jump. At 44.1 kHz, reset,
+completion and resume are 15876/16096/16758, with a 220-frame transition.
+Baseline/candidate peaks are unchanged across these controls.
+
+Tests import the existing shared state before/on reset, inside the transition,
+at completion, during hold and at ordinary resume; another case crosses a row
+boundary mid-transition. Constant-source windows and runtime/offline PCM match
+exactly, with zero planned/applied runtime frame delta. The public sine control's
+maximum window error is `7.46e-9`, within the existing `1e-7` tolerance. Duplicate,
+interrupted, stale/completed and ping-pong cursor cases preserve their contracts.
 
 ## Shared XM semantic tick contract
 
@@ -204,8 +239,8 @@ acceptance. FT2 holds its initial target until the next tick, then ramps toward
 envelope. Extending that isolated ramp only moved the return boundary.
 
 That rejection required one carried final-output authority alongside the semantic
-clock. The implementation above now supplies it; the focused reset transition
-can follow without returning to a second envelope-output mode.
+clock. The shared implementation above now carries both ordinary and reset
+transitions without returning to a second envelope-output mode.
 
 ## Ordinary target cadence: measured contract
 
@@ -257,7 +292,7 @@ envelope at 17520. Semantic advancement must remain independent of this hold.
 Measured reference targets combine the channel's current output volume,
 envelope, released fadeout, the global volume visible while processing that
 channel, and static pan. FT2 does not multiply sample/header volume a second
-time. VTX's proposed target must retain its own composition:
+time. VTX retains its own target composition:
 
 ```text
 plannedGain = sample/header * outputChannelVolume/64 * globalVolume/64
@@ -342,5 +377,5 @@ the `EC0` volume command.
 Generic 32-frame gain/pan ramps, replacement timing, onset behavior, generic
 frame envelopes, headroom policies, and explicit-trigger default-volume behavior
 retain their contracts. Managed XM factor updates use the single final-output
-state described above. Reset smoothing, instrument-only, note-only, audible pan
-envelopes, and full FT2 mixer parity remain separate work.
+state described above for ordinary and reset transitions. Instrument-only,
+note-only, audible pan envelopes, and full FT2 mixer parity remain separate work.

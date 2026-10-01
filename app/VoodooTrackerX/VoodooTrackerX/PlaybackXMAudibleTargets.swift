@@ -25,10 +25,10 @@ struct MixerAudibleOutputState: Equatable {
     mutating func publish(_ update: PlaybackXMAudibleUpdate, config: MixerRenderConfig) {
         let law = config.panLaw == .linear ? VTX_C_MIXER_PAN_LAW_LINEAR : VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER
         if !enabled, let seed = update.activation {
-            _ = vtx_c_mixer_output_publish(&raw, vtx_c_mixer_output_gains(law, seed.amplitude, seed.pan), 0)
+            _ = vtx_c_mixer_output_publish(&raw, vtx_c_mixer_output_gains(law, seed.amplitude, seed.pan), 0, 0)
         }
         let target = vtx_c_mixer_output_gains(law, update.amplitude, update.pan)
-        _ = vtx_c_mixer_output_publish(&raw, target, UInt32(clamping: update.durationFrames))
+        _ = vtx_c_mixer_output_publish(&raw, target, UInt32(clamping: update.durationFrames), update.rebaseFromCurrent ? 1 : 0)
     }
 
     mutating func advance(_ frames: Int) {
@@ -40,7 +40,7 @@ struct MixerAudibleOutputState: Equatable {
     }
 }
 
-/// Existing generic gain/pan at the boundary where a plain voice first enters release output.
+/// Existing generic gain/pan where a plain voice first enters release/reset output.
 struct MixerAudibleOutputSeed: Equatable {
     let amplitude: Float
     let pan: Float
@@ -59,6 +59,7 @@ struct PlaybackXMAudibleUpdate: Equatable {
     let durationFrames: Int
     let intent: String
     var activation: MixerAudibleOutputSeed? = nil
+    var rebaseFromCurrent = false
 }
 
 /// Coalesces existing typed factor writes with semantic targets without changing effect handlers.
@@ -74,8 +75,6 @@ struct PlaybackXMAudibleTimeline: Equatable {
         for (index, history) in plan.xmEnvelopeTimeline?.updatesByEvent ?? [:] {
             guard plan.pattern.events.indices.contains(index), !history.isEmpty else { continue }
             let event = plan.pattern.events[index]
-            // A neutral pan clock alone must not change audible behavior.
-            guard event.volumeEnvelope != nil || history.contains(where: { !$0.state.keyOn }) else { continue }
             let writes = (changes[index] ?? []).enumerated().sorted {
                 $0.element.scheduledFrame == $1.element.scheduledFrame ? $0.offset < $1.offset :
                     $0.element.scheduledFrame < $1.element.scheduledFrame
@@ -83,12 +82,15 @@ struct PlaybackXMAudibleTimeline: Equatable {
             let resetFrames = Set((resets[index] ?? []).compactMap { update -> Int? in
                 if case .reset = update.change { return update.scheduledFrame }; return nil
             })
+            // A neutral pan clock alone must not change audible behavior.
+            guard event.volumeEnvelope != nil || history.contains(where: { !$0.state.keyOn }) || !resetFrames.isEmpty else { continue }
             var gain = event.gain
             var pan = event.pan
             var writeIndex = 0
             var managesOutput = event.volumeEnvelope != nil
             for (offset, semantic) in history.enumerated() {
                 let frame = semantic.scheduledFrame
+                let priorGain = gain, priorPan = pan
                 var visibleGain = gain
                 var quickVolume = false
                 while writeIndex < writes.count && writes[writeIndex].scheduledFrame <= frame {
@@ -113,24 +115,28 @@ struct PlaybackXMAudibleTimeline: Equatable {
                 }
                 var activation: MixerAudibleOutputSeed?
                 if !managesOutput {
-                    // A future release must never change the earlier generic gain/pan audio.
-                    guard !semantic.state.keyOn else { continue }
+                    // A future release/reset must never change the earlier generic gain/pan audio.
+                    // A neutral reset must also leave an unfinished generic ramp untouched.
+                    let changedReset = resetFrames.contains(frame) && (visibleGain != priorGain || pan != priorPan)
+                    guard !semantic.state.keyOn || changedReset else { continue }
                     managesOutput = true
                     if offset > 0 {
                         activation = PlaybackSongOfflineRenderer.audibleActivationSeed(
                             for: event, eventIndex: index, plan: plan, before: frame)
                     }
                 }
-                let immediate = offset == 0 || resetFrames.contains(frame)
-                let duration = immediate ? 0 : max(1, Int((plan.timingConfig.sampleRate *
-                    (quickVolume ? 0.005 : 2.5 / Double(semantic.bpm))).rounded(.down)))
+                let initial = offset == 0
+                let reset = !initial && resetFrames.contains(frame)
+                let duration = initial ? 0 : reset ? Int((plan.timingConfig.sampleRate * 0.005).rounded(.down)) :
+                    max(1, Int((plan.timingConfig.sampleRate * (quickVolume ? 0.005 : 2.5 / Double(semantic.bpm))).rounded(.down)))
                 all.append(PlaybackXMAudibleUpdate(eventIndex: index, channelIndex: semantic.channelIndex,
                     source: semantic.source, tick: semantic.tick, scheduledFrame: frame,
                     bpm: semantic.bpm, speed: semantic.speed,
                     amplitude: visibleGain * semantic.state.volumeValue * semantic.state.fadeoutValue,
                     pan: pan, durationFrames: duration,
-                    intent: immediate ? (offset == 0 ? "initial" : "semantic_reset_immediate") :
-                        (quickVolume ? "quick_volume" : "ordinary_tick"), activation: activation))
+                    intent: initial ? "initial" : reset ? "nonretriggering_reset" :
+                        (quickVolume ? "quick_volume" : "ordinary_tick"), activation: activation,
+                    rebaseFromCurrent: reset))
             }
         }
         updates = all.sorted { $0.scheduledFrame == $1.scheduledFrame ? $0.eventIndex < $1.eventIndex : $0.scheduledFrame < $1.scheduledFrame }

@@ -1264,7 +1264,8 @@ static int vtx_c_mixer_output_gains_valid(VTXCMixerOutputGains gains) {
         isfinite(gains.right) && gains.right >= 0.0f && gains.right <= 1.0f;
 }
 
-VTXCMixerStatus vtx_c_mixer_output_publish(VTXCMixerOutputState *output, VTXCMixerOutputGains target, uint32_t duration) {
+VTXCMixerStatus vtx_c_mixer_output_publish(VTXCMixerOutputState *output, VTXCMixerOutputGains target,
+    uint32_t duration, int rebase_from_current) {
     if (output == NULL || !vtx_c_mixer_output_gains_valid(target) || output->retiring) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }
@@ -1273,8 +1274,10 @@ VTXCMixerStatus vtx_c_mixer_output_publish(VTXCMixerOutputState *output, VTXCMix
         return VTX_C_MIXER_STATUS_OK;
     }
     // Independent interrupted-tick observations establish previous-target rebasing.
+    // A non-retriggering reset instead preserves the currently audible value.
     // First publication initializes immediately, preserving the existing note onset.
-    output->start = output->enabled ? output->target : target;
+    output->start = output->enabled ?
+        (rebase_from_current ? vtx_c_mixer_output_value(*output) : output->target) : target;
     output->target = target;
     output->duration_frames = output->enabled ? duration : 0u;
     output->position_frame = 0u;
@@ -1299,7 +1302,7 @@ void vtx_c_mixer_output_retire(VTXCMixerOutputState *output, uint32_t duration) 
 }
 
 VTXCMixerStatus vtx_c_mixer_publish_voice_output(VTXCMixerState *state, uint32_t voice_index,
-    float amplitude, float pan, uint32_t duration) {
+    float amplitude, float pan, uint32_t duration, int rebase_from_current) {
     if (state == NULL || voice_index >= state->voice_count || !isfinite(amplitude) || !isfinite(pan)) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }
@@ -1308,7 +1311,7 @@ VTXCMixerStatus vtx_c_mixer_publish_voice_output(VTXCMixerState *state, uint32_t
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }
     VTXCMixerStatus status = vtx_c_mixer_output_publish(&voice->output,
-        vtx_c_mixer_output_gains(state->config.pan_law, amplitude, pan), duration);
+        vtx_c_mixer_output_gains(state->config.pan_law, amplitude, pan), duration, rebase_from_current);
     if (status == VTX_C_MIXER_STATUS_OK) {
         vtx_c_mixer_clear_gain_ramp(voice);
         vtx_c_mixer_clear_pan_ramp(voice);

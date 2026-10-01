@@ -127,8 +127,9 @@ typedef struct {
 VTXCMixerOutputGains vtx_c_mixer_output_gains(VTXCMixerPanLaw pan_law, float amplitude, float pan);
 /// Returns the next frame's multiplier without changing the fixed-size state.
 VTXCMixerOutputGains vtx_c_mixer_output_value(VTXCMixerOutputState output);
-/// Publishes a changed target; exact duplicates hold and interruptions use the previous target.
-VTXCMixerStatus vtx_c_mixer_output_publish(VTXCMixerOutputState *output, VTXCMixerOutputGains target, uint32_t duration);
+/// Publishes a changed target; duplicates hold. Resets rebase from current output, ordinary targets from the previous target.
+VTXCMixerStatus vtx_c_mixer_output_publish(VTXCMixerOutputState *output, VTXCMixerOutputGains target,
+    uint32_t duration, int rebase_from_current);
 /// Advances output progress with a clamped endpoint, also used for window reconstruction.
 void vtx_c_mixer_output_advance(VTXCMixerOutputState *output, uint32_t frames);
 /// Snapshots current output for the established replacement-tail endpoint convention.
@@ -254,7 +255,7 @@ VTXCMixerStatus vtx_c_mixer_set_voice_envelope_semantic_state(
 
 /// Publishes output without moving a source cursor or reviving a voice.
 VTXCMixerStatus vtx_c_mixer_publish_voice_output(VTXCMixerState *state, uint32_t voice_index,
-    float amplitude, float pan, uint32_t duration);
+    float amplitude, float pan, uint32_t duration, int rebase_from_current);
 /// Imports carried output into an active voice without changing its lifetime.
 VTXCMixerStatus vtx_c_mixer_set_voice_output_state(VTXCMixerState *state, uint32_t voice_index,
     VTXCMixerOutputState output);

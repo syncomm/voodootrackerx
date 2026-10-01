@@ -152,11 +152,12 @@ completion, stale generations, and exact application frames. Product WAV
 auto-headroom and fixed runtime `-12 dB` headroom are independent of this state
 operation; runtime auto-headroom remains disabled.
 
-The [reset output characterization](xm-reset-output-ramp.md) distinguishes this
-semantic operation from FT2's audible final-L/R reset ramp. Reset smoothing is
-not implemented. The note owns the implemented ordinary target cadence, typed
-transition intent and final-output continuation, including test-level proof of
-the future quick-reset handoff.
+The [reset output contract](xm-reset-output-ramp.md) distinguishes the immediate
+semantic operation from its implemented audible transition. A changed reset
+target rebases from current audible mono/L/R through the existing shared C state
+over `floor(sampleRate * 0.005)` frames, then holds until the next ordinary
+target. Same-frame factor writes, window continuation and exact-frame runtime
+application use that same authority. Instrument-only dispatch remains deferred.
 
 ## Tremolo output, memory, and controls
 

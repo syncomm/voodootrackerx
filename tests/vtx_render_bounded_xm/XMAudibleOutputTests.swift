@@ -88,6 +88,15 @@ final class XMAudibleOutputTests: XCTestCase {
             XCTAssertEqual(history[6].amplitude, 0.75 * (writerFirst ? 0.5 : 1))
             XCTAssertEqual(history[7].amplitude, 0.625 * 0.5)
             XCTAssertEqual(history[6].durationFrames, 960)
+            var resetPlan = plan
+            let channel = history[6].channelIndex
+            resetPlan.playbackStateEvents = [.init(activeEventIndex: 0, channelIndex: channel, scheduledFrame: 5760,
+                change: .reset(.init(volumeEnvelope: true, keyOn: true, fadeout: true)))]
+            let resetHistory = try XCTUnwrap(resetPlan.xmAudibleTimeline?.updatesByEvent[0])
+            XCTAssertEqual(resetHistory[6].amplitude, 0.25 * (writerFirst ? 0.5 : 1))
+            XCTAssertEqual(resetHistory[7].amplitude, 0.4375 * 0.5)
+            XCTAssertEqual(resetHistory[6].durationFrames, 240)
+            XCTAssertTrue(resetHistory[6].rebaseFromCurrent)
         }
     }
 
@@ -194,7 +203,7 @@ final class XMAudibleOutputTests: XCTestCase {
         XCTAssertTrue(tails.allSatisfy { $0.audibleOutputState?.raw.retiring == 1 })
     }
 
-    func testHardECxAndResetFoundationRemainImmediateAndFutureQuickHandoffUsesSameState() throws {
+    func testHardECxRemainsImmediateAndQuickHandoffUsesSameState() throws {
         let module = song(commands: [1: cell(effect: 14, param: 0xC2)])
         let request = PlaybackSongOfflineRenderRequest(song: module, config: .init(sampleRate: 48_000), rows: 8)
         let renderer = PlaybackSongOfflineRenderer()

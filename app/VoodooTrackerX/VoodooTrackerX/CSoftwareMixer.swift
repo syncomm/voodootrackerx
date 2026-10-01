@@ -371,10 +371,10 @@ final class CSoftwareMixer {
         guard voice >= 0 else { return false }
         if let seed = target.activation, voiceDiagnostic(forVoiceAt: voice)?.audibleOutputState == nil {
             guard vtx_c_mixer_publish_voice_output(state, UInt32(clamping: voice), seed.amplitude,
-                seed.pan, 0) == VTX_C_MIXER_STATUS_OK else { return false }
+                seed.pan, 0, 0) == VTX_C_MIXER_STATUS_OK else { return false }
         }
         return vtx_c_mixer_publish_voice_output(state, UInt32(clamping: voice), target.amplitude,
-            target.pan, UInt32(clamping: target.durationFrames)) == VTX_C_MIXER_STATUS_OK
+            target.pan, UInt32(clamping: target.durationFrames), target.rebaseFromCurrent ? 1 : 0) == VTX_C_MIXER_STATUS_OK
     }
 
     /// Restores an in-flight final-output transition without creating or reviving a voice.

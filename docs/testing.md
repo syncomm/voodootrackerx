@@ -106,6 +106,7 @@ Run the focused tick, release, fadeout, reset and window-import tests with:
 ```bash
 swift test --filter XMEnvelopeSemanticTests
 swift test --filter NonretriggeringResetTests
+swift test --filter XMResetOutputTests
 ```
 
 `envelope-release-fadeout-timing.xm` covers a carried voice across `FFA` and
@@ -118,16 +119,23 @@ sine case permits `1e-7` PCM error from existing fractional source-cursor
 reconstruction. `XMAudibleOutputTests` additionally pins exact stereo interiors,
 previous-target interruption, redundant-target holds, typed quick-volume intent,
 no double ramps, and continuation inside ordinary/replacement transitions.
-Runtime tests cover mono/stereo and both mix profiles. Audible XM pan envelopes
-remain inert.
+Runtime tests cover mono/stereo and both mix profiles. `XMResetOutputTests` pins
+current-audible reset rebasing, exact truncated 5 ms duration, stereo interiors,
+completion/hold/resume, same-frame factors, unchanged targets, fractional
+ping-pong cursor preservation and continuation across every reset boundary.
+Runtime reset tests pin generation safety and zero application-frame delta.
+Audible XM pan envelopes remain inert.
 
 For manual listening, compare matching public-source before/after renders for
 sustain → release → fadeout, no-envelope key-off, and an active voice crossing
 a BPM change. Compare FT2/VTX for unexpected ordinary-boundary clicks, pumping,
 lag, incorrect fadeout cadence, tempo-change lag, and stereo motion. Reset-click
 parity and whole-WAV correlation are not gates for ordinary target cadence.
-The dedicated 5 ms reset ramp remains deferred. Keep all renders and reference
-observations outside git, and record listening only after maintainer confirmation.
+The reset transition requires its own baseline/VTX/FT2 listening check at reset
+start, 5 ms completion, ordinary resume and release/fadeout reset. Include a
+natural release tail so repeating a bounded clip does not confuse its ending
+with reset behavior. Keep all renders and reference observations outside git,
+and record listening only after maintainer confirmation.
 
 ## Render / Export Performance Timing Policy
 

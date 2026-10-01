@@ -859,7 +859,8 @@ final class PlaybackSongOfflineRenderer {
             diagnostics: plan.diagnostics,
             playbackStateEvents: plan.playbackStateEvents,
             xmEnvelopeTimeline: plan.xmEnvelopeTimeline,
-            xmAudibleTimeline: plan.xmAudibleTimeline
+            xmAudibleTimeline: plan.xmAudibleTimeline,
+            xmChannelRows: plan.xmChannelRows, xmEmptyRoutes: plan.xmEmptyRoutes
         )
     }
 
@@ -1918,6 +1919,12 @@ final class PlaybackSongOfflineRenderer {
         _ plan: PlaybackSongSyntheticPlan, voiceIndexByEventIndex: [Int: Int], on mixer: CSoftwareMixer,
         includedEventIndices: Set<Int>? = nil, windowStartFrame: Int = 0, windowEndFrame: Int = Int.max
     ) {
+        mixer.setSourceStopSchedule(plan.xmEmptyRoutes.compactMap { route in
+            guard route.scheduledFrame >= windowStartFrame, route.scheduledFrame < windowEndFrame,
+                  let event = route.stoppedEventIndex, includesEvent(event, includedEventIndices: includedEventIndices),
+                  let voice = voiceIndexByEventIndex[event] else { return nil }
+            return (frame: route.scheduledFrame - windowStartFrame, voice: voice)
+        })
         mixer.setAudibleOutputSchedule((plan.xmAudibleTimeline?.updates ?? []).compactMap { update in
             guard update.scheduledFrame >= windowStartFrame, update.scheduledFrame < windowEndFrame,
                   includesEvent(update.eventIndex, includedEventIndices: includedEventIndices),
@@ -2709,6 +2716,7 @@ final class PlaybackSongOfflineRenderer {
         before boundaryFrame: Int,
         plan: PlaybackSongSyntheticPlan
     ) -> Bool {
+        plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == eventIndex && $0.scheduledFrame < boundaryFrame } ||
         plan.diagnostics.noteCutEffects.contains { cut in
             cut.applied &&
                 cut.activeEventIndex == eventIndex &&
@@ -2721,6 +2729,7 @@ final class PlaybackSongOfflineRenderer {
         atOrBefore boundaryFrame: Int,
         plan: PlaybackSongSyntheticPlan
     ) -> Bool {
+        plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == eventIndex && $0.scheduledFrame <= boundaryFrame } ||
         plan.diagnostics.noteCutEffects.contains { cut in
             cut.applied &&
                 cut.activeEventIndex == eventIndex &&

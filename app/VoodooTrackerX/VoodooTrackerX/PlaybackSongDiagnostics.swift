@@ -294,7 +294,8 @@ extension PlaybackSongSyntheticPlan {
             diagnostics: diagnostics.replacingEventCoverage(eventCoverage),
             playbackStateEvents: playbackStateEvents,
             xmEnvelopeTimeline: xmEnvelopeTimeline,
-            xmAudibleTimeline: xmAudibleTimeline
+            xmAudibleTimeline: xmAudibleTimeline,
+            xmChannelRows: xmChannelRows, xmEmptyRoutes: xmEmptyRoutes
         )
     }
 }
@@ -340,6 +341,7 @@ struct PlaybackSongSyntheticRowTimingDiagnostic: Equatable {
 struct PlaybackSongSyntheticKeyOffDiagnostic: Equatable {
     enum Reason: Equatable {
         case releasedActiveVoice
+        case releasedSilentChannel
         case noActiveVoice
         case outOfRowNoOp
     }

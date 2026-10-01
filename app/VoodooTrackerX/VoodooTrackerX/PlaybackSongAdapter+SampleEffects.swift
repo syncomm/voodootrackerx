@@ -34,6 +34,18 @@ extension PlaybackSongSyntheticAdapter {
         instrumentOnlyVolumeRestored: Bool = false
     ) {
         let activeEventIndexBefore = channelState.activeEventIndex
+        if activeEventIndexBefore == nil, channelState.semanticInstrumentIndex != nil {
+            if !channelState.semanticVolumeEnvelopeEnabled && !instrumentOnlyVolumeRestored {
+                channelState.baseChannelVolume = 0
+            }
+            keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
+                source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: syntheticTick,
+                effectType: effectType, effectParam: effectParam, detected: true, releaseFrame: scheduledFrame,
+                scheduledFrame: scheduledFrame, applied: true, deferred: false, reason: .releasedSilentChannel,
+                requestedTick: syntheticTick, rowSpeed: rowSpeed, rowBPM: rowBPM, activeVoiceFound: false,
+                activeVoiceReleased: false, activeEventIndex: nil))
+            return
+        }
         guard let activeEventIndex = channelState.activeEventIndex,
               let activeEventMappingIndex = channelState.activeEventMappingIndex,
               events.indices.contains(activeEventIndex),

@@ -74,9 +74,12 @@ authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 ## Instrument-only cells
 
 Ordinary valid instrument-only cells restore cached defaults from the last
-actually triggered mapped sample and reuse the shared semantic and 5 ms audible reset.
+selected declared header and reuse the shared semantic and 5 ms audible reset.
 They update carried instrument memory without selecting or retriggering a sample.
-Cold channels stay silent and completed voices stay stopped. Same-cell volume/pan
+Declared empty routes retain header defaults/tuning and channel envelope/release
+state without creating a voice. Instrument-only resets also work during this
+silent interval. Cold channels stay silent and completed voices stay stopped.
+Same-cell volume/pan
 overrides and K00 release ordering are covered by the public fixture; see
 [volume ownership](design/xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
 Note-only routing, audible pan envelopes, sample/header ownership parity and ECx
@@ -120,7 +123,7 @@ quick-volume parity remain deferred.
 | `Gxx` | Global volume | Implemented | Not applicable | Yes | Yes | Clamped `0...64` global-volume state. |
 | `Hxy` | Global volume slide | Implemented, parity-watch | `H00` no-op | Yes | Yes | Both-nibble parameters use diagnosed up-nibble precedence. |
 | `Kxx` | Key off | Implemented | Not applicable | Yes | Yes | `K00` releases at row start; later valid ticks use the canonical Fxx plan. Release advances integer fadeout per tick; without an enabled volume envelope it also zeros base/output volume while retaining the source, except that instrument-only K00 retains its restored/explicit volume. See [semantic targets](design/xm-reset-output-ramp.md#shared-xm-semantic-tick-contract). |
-| `Lxx` | Set envelope position | Implemented, parity-watch | Not applicable | Yes | Yes | Effect-column `Lxx` sets the active mapped volume-envelope position; no-active and no-envelope cases are diagnosed no-ops. Panning-envelope behavior remains deferred. |
+| `Lxx` | Set envelope position | Implemented, parity-watch | Not applicable | Yes | Yes | Effect-column `Lxx` sets the active mapped volume-envelope position; a declared silent channel retains its clock; uninitialized and no-envelope cases are diagnosed no-ops. Panning-envelope behavior remains deferred. |
 | `Pxy` | Panning slide | Deferred | Deferred | No | No | Legacy handler support exists, but the default C mixer adapter path has no implementation yet. |
 | `Rxy` | Multi retrigger | Implemented, parity-watch | `R00` deferred/no-op | Yes | Yes | Reuses the retrigger scheduler for active voices and applies a common-XM volume-change table with channel volume clamped to `0...64`. |
 | `Txy` | Tremor | Deferred | Deferred | No | No | No current C mixer adapter behavior. |

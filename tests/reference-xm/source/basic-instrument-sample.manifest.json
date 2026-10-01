@@ -3397,6 +3397,509 @@
       "xm_output": "generated/instrument-only-volume-semantics.xm",
       "xm_sha256": "780564b2b56046ea092f3d2a109e5de57cde98f2ea0cabc6d6bd1810b1d8c6a2",
       "xm_size_bytes": 2603
+    },
+    {
+      "id": "empty-slot-playback-state",
+      "intended_tests": [
+        "source-only empty-slot metadata",
+        "silent reset, release, fadeout and Fxx clocks",
+        "exact routing with no empty voice",
+        "ADR 014 conservative copy admission"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 512,
+            "name": "EMPTY SLOT STATE",
+            "note_sample_map": [
+              {
+                "end_note": 48,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 49,
+                "sample": 2,
+                "start_note": 49
+              },
+              {
+                "end_note": 50,
+                "sample": 1,
+                "start_note": 50
+              },
+              {
+                "end_note": 51,
+                "sample": 3,
+                "start_note": 51
+              },
+              {
+                "end_note": 52,
+                "sample": 4,
+                "start_note": 52
+              },
+              {
+                "end_note": 53,
+                "sample": 5,
+                "start_note": 53
+              },
+              {
+                "end_note": 54,
+                "sample": 6,
+                "start_note": 54
+              },
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 55
+              }
+            ],
+            "panning_envelope": {
+              "enabled": true,
+              "loop_end_point": 1,
+              "loop_start_point": 0,
+              "points": [
+                [
+                  0,
+                  32
+                ],
+                [
+                  4,
+                  32
+                ]
+              ],
+              "sustain_point": null,
+              "type_flags": 5
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "REPRESENTED",
+                "panning": 32,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "ca6a786f61898c464e7b96528294d5b21d03d044b1ef44b10f494ba9731a5cd2",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 48
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "",
+                "panning": 0,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 0
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "",
+                "panning": 0,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 2,
+                "volume": 40
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "",
+                "panning": 224,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 3,
+                "volume": 0
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 64,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "",
+                "panning": 0,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 4,
+                "volume": 0
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "",
+                "panning": 0,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 12,
+                "slot": 5,
+                "volume": 0
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 64,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "",
+                "panning": 224,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 12,
+                "slot": 6,
+                "volume": 40
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "loop_end_point": null,
+              "loop_start_point": null,
+              "points": [
+                [
+                  0,
+                  32
+                ],
+                [
+                  4,
+                  64
+                ],
+                [
+                  40,
+                  64
+                ]
+              ],
+              "sustain_point": null,
+              "type_flags": 1
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "COLD ONE SHOT",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "ONE SHOT",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 257,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "20b6128e0e51bd48890a4abd5c3cb39a741abd265b632811648a04f31d396590",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-3",
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 12,
+                "instrument": 0,
+                "note": 0,
+                "row": 1
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 2
+              },
+              {
+                "channel": 0,
+                "instrument": 0,
+                "note": "key-off",
+                "row": 3
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 250,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 5
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 20,
+                "instrument": 0,
+                "note": 0,
+                "row": 6
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 224,
+                "effect_type": 8,
+                "instrument": 1,
+                "note": 0,
+                "row": 7,
+                "volume_column": 48
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-3",
+                "row": 8
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C#-4",
+                "row": 9
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "D-4",
+                "row": 10
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "D#-4",
+                "row": 11
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "E-4",
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "F-4",
+                "row": 13
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 4,
+                "effect_type": 3,
+                "instrument": 0,
+                "note": "G-4",
+                "row": 14
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 0,
+                "row": 15
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-3",
+                "row": 16
+              },
+              {
+                "channel": 0,
+                "instrument": 0,
+                "note": "key-off",
+                "row": 17
+              },
+              {
+                "channel": 1,
+                "instrument": 1,
+                "note": "F-4",
+                "row": 0
+              },
+              {
+                "channel": 1,
+                "instrument": 0,
+                "note": "key-off",
+                "row": 1
+              },
+              {
+                "channel": 1,
+                "instrument": 1,
+                "note": 0,
+                "row": 2
+              },
+              {
+                "channel": 1,
+                "instrument": 2,
+                "note": "C-3",
+                "row": 3
+              },
+              {
+                "channel": 1,
+                "instrument": 1,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 1,
+                "instrument": 1,
+                "note": "C-3",
+                "row": 6
+              },
+              {
+                "channel": 1,
+                "instrument": 0,
+                "note": "key-off",
+                "row": 7
+              }
+            ],
+            "rows": 24
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX EMPTY SLOT",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "empty-slot-playback-state.xm",
+      "purpose": "Declared empty-header playback defaults and silent channel clocks without represented PCM; explicit triggers retain their own defaults.",
+      "significant_rows": [
+        "0: represented channel 0 and cold combined-metadata empty channel 1",
+        "2: channel 0 selects volume-40 empty S03; channel 1 resets while silent",
+        "3/4: silent release then instrument-only reset; one-shot source on channel 1 completes",
+        "5/6: FFA changes tick duration; silent K01 release",
+        "7: silent instrument-only reset with volume/pan overrides",
+        "8: explicit represented trigger refreshes its own defaults",
+        "9...13: canonical, pan, finetune, relative-note and combined empty headers",
+        "14: silent tone portamento retains tuning and target memory",
+        "15/16: silent reset then explicit represented trigger",
+        "17: release followed by natural tail"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "normal note-only routing/retrigger",
+        "audible panning envelopes",
+        "sample/header ownership parity"
+      ],
+      "xm_output": "generated/empty-slot-playback-state.xm",
+      "xm_sha256": "230b3ee70ee50368ca96171cdc1daddd44e6202071e3eabb34370d4ff9aaeaee",
+      "xm_size_bytes": 2310
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

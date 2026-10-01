@@ -218,9 +218,11 @@ Canonical map values are emitted directly; no dense-output remap exists.
 Every missing position inside the span emits one ordinary 40-byte XM sample
 header containing all zeros and no PCM payload. This deterministic structural
 placeholder claims no sample name, volume, pan, tuning, loop, source depth, or
-provenance and never becomes a `PlaybackSample`. Normal reopen drops the
-zero-length header, retains later represented indices and all map bytes, and
-therefore keeps a missing mapped route unavailable without fallback. Interior
+provenance and never becomes a `PlaybackSample`. Normal reopen retains the
+zero-length header as source-only metadata, later represented indices and all
+map bytes. A missing mapped route remains unavailable without fallback. The editable
+playback builder projects those same all-zero empty-route semantics into the
+playback plan without adding metadata to the editable value. Interior
 S02 gaps, trailing mapped empty slots, and a represented instrument whose only
 mapped S01 is empty all round-trip semantically. Dense alpha.1 output is pinned
 byte-identically.
@@ -241,8 +243,9 @@ The normal XM instrument walker records immutable source-only facts for each
 sample-header index: declared and decoded payload lengths, declared sample-header
 size, loop coordinates and type flags, plus whether the ordinary 40-byte header
 is all zero. Header presence is represented by the indexed provenance entry; the
-raw module, source path, and inert empty-header values are not retained, and an
-empty slot never becomes a `PlaybackSample`.
+raw module and source path are not retained. Zero-payload slots additionally retain
+immutable volume, pan, finetune and relative-note fields for loaded playback;
+cosmetic bytes remain discarded. An empty slot never becomes a `PlaybackSample`.
 
 ### Loaded-XM editable-copy plans
 
@@ -258,11 +261,15 @@ One authoritative planner now produces one of three internal outcomes:
 Profile v1 accepts a noncanonical empty header only when both declared and decoded
 payload lengths are zero, its declared size is exactly 40 bytes, loop start and
 length are zero, and its type byte carries no loop, 16-bit, or other flags. For
-such an unrepresented slot, name bytes and padding, volume, panning, finetune,
-relative note, and the reserved byte are inert and may be discarded. A required
+such an unrepresented required slot, only name bytes, padding and the reserved
+byte may be discarded, and only when volume, pan, finetune and relative note
+are all zero. Nonzero playback fields make a required slot unavailable with
+`playbackSignificantEmptySampleMetadata`: they can affect later channel state
+even without PCM. See the explicit amendment in ADR 014. A required
 slot inside the represented/keymap sparse span keeps its exact Sxx identity and
 all 96 map references, remains absent from the sample palette, and receives no
-fabricated PCM. An unreferenced zero-payload slot above that span is dropped.
+fabricated PCM. An unreferenced zero-payload slot above that span is dropped; independent
+reference controls prove its metadata unreachable through the exact map.
 Either action makes the plan normalized, and the summary counts required slots,
 trailing slots, and affected instruments.
 

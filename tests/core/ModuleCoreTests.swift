@@ -3,6 +3,19 @@ import XCTest
 import ModuleCore
 
 final class ModuleCoreTests: XCTestCase {
+    func testEmptySlotPublicFixtureKeepsExactNotesAndSilentResetCells() throws {
+        let info = mc_parse_file(try referenceXMFixturePath("generated/empty-slot-playback-state.xm"))
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(info.instruments, 2)
+        XCTAssertEqual(info.channels, 2)
+        XCTAssertEqual(patternRows(info).first, 24)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 2, channel: 0)?.note, 49)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 4, channel: 0)?.note, 0)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 4, channel: 0)?.instrument, 1)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 5, channel: 0)?.effect_param, 250)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 13, channel: 0)?.note, 54)
+    }
+
     func testInstrumentOnlyPublicFixtureRetainsAbsentNotesAndCanonicalInstrumentCells() throws {
         let info = mc_parse_file(try referenceXMFixturePath("generated/instrument-only-volume-semantics.xm"))
         XCTAssertEqual(info.ok, 1)

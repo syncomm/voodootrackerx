@@ -25,6 +25,7 @@ ALL_FIXTURES = [
     "effect-memory.xm",
     "envelope-release-fadeout-timing.xm",
     "instrument-only-volume-semantics.xm",
+    "empty-slot-playback-state.xm",
 ]
 
 
@@ -410,6 +411,23 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                          [(6, 0), (6, 2), (6, 0), (6, 0x20), (6, 0), (6, 0)])
         self.assertEqual([cells[(16, 0)], cells[(16, 1)], cells[(17, 0)]], [(6, 2), (15, 3), (6, 0)])
 
+    def test_declared_zero_payload_headers_are_unflagged_and_have_no_pcm(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        fixture = next(f for f in manifest["fixtures"] if f["id"] == "empty-slot-playback-state")
+        payload = generator.fixture_xm_bytes(manifest, fixture["name"])
+        self.assertEqual(len(payload), 2310)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(),
+                         "230b3ee70ee50368ca96171cdc1daddd44e6202071e3eabb34370d4ff9aaeaee")
+        samples = fixture["module"]["instruments"][0]["samples"]
+        self.assertEqual([s["volume"] for s in samples[1:]], [0, 40, 0, 0, 0, 40])
+        self.assertTrue(all(s["pcm_recipe"]["frame_count"] == 0 for s in samples[1:]))
+        for field, value in [("encoding", "signed_16_bit_delta_pcm"), ("loop", dict(mode="forward", start_frame=0, length_frames=1))]:
+            invalid = copy.deepcopy(manifest)
+            invalid["fixtures"][-1]["module"]["instruments"][0]["samples"][1][field] = value
+            with self.assertRaises(ValueError):
+                generator.validate_manifest(invalid, verify_derived=False)
+
     def test_advanced_instrument_validation_rejects_invalid_indices_keymaps_and_partial_fields(self):
         generator = load_module()
         manifest = generator.fixture_manifest()
@@ -511,6 +529,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "effect-memory.xm").resolve(),
                     (output_dir / "generated" / "envelope-release-fadeout-timing.xm").resolve(),
                     (output_dir / "generated" / "instrument-only-volume-semantics.xm").resolve(),
+                    (output_dir / "generated" / "empty-slot-playback-state.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -519,6 +538,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/effect-memory.xm",
+                    "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
@@ -591,6 +611,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/effect-memory.xm",
+                    "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
@@ -665,6 +686,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:effect-memory.xm": "generated/effect-memory.xm",
                     "xm:envelope-release-fadeout-timing.xm": "generated/envelope-release-fadeout-timing.xm",
                     "xm:instrument-only-volume-semantics.xm": "generated/instrument-only-volume-semantics.xm",
+                    "xm:empty-slot-playback-state.xm": "generated/empty-slot-playback-state.xm",
                 },
             )
 

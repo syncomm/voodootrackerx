@@ -142,7 +142,9 @@ def _validate_sample(sample: dict[str, Any], expected_slot: int, label: str) -> 
         raise ValueError(f"{label} PCM waveform is unsupported")
     if recipe["period_frames"] != 16:
         raise ValueError(f"{label} PCM period_frames must be 16")
-    frames = _require_int(recipe["frame_count"], 1, 1_000_000, f"{label} PCM frame count")
+    frames = _require_int(recipe["frame_count"], 0, 1_000_000, f"{label} PCM frame count")
+    if frames == 0 and bits != 8:
+        raise ValueError(f"{label} empty header must use the unflagged 8-bit encoding")
     _require_int(recipe["amplitude"], 1, 127 if bits == 8 else 32_767, f"{label} PCM amplitude")
     loop = sample["loop"]
     if set(loop) != {"length_frames", "mode", "start_frame"} or loop["mode"] not in LOOP_TYPES:

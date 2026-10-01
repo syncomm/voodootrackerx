@@ -5427,6 +5427,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         switch reason {
         case .releasedActiveVoice:
             return "released_active_voice"
+        case .releasedSilentChannel:
+            return "released_silent_channel"
         case .noActiveVoice:
             return "no_active_voice"
         case .outOfRowNoOp:

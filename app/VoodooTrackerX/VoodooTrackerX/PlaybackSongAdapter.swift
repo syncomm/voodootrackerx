@@ -15,6 +15,8 @@ struct PlaybackSongSyntheticPlan: Equatable {
         didSet { xmAudibleTimeline = xmEnvelopeTimeline == nil ? nil : PlaybackXMAudibleTimeline(plan: self) }
     }
     var xmAudibleTimeline: PlaybackXMAudibleTimeline? = nil
+    var xmChannelRows: [PlaybackXMChannelRow] = []
+    var xmEmptyRoutes: [PlaybackXMEmptyRoute] = []
 }
 
 /// Targets the existing trigger event identity, never a reusable mixer slot.
@@ -53,8 +55,11 @@ enum PlaybackSongSyntheticAdapter {
         }
         var outputChannelVolume = 64
         // Carried instrument memory is independent of the sounding generation.
-        // Only an actual mapped sample trigger refreshes these defaults.
+        // A declared empty header also refreshes defaults, without an audio source.
         var carriedInstrumentIndex: Int?
+        var semanticInstrumentIndex: Int?
+        var semanticSampleIndex: Int?
+        var semanticVolumeEnvelopeEnabled = false
         var triggeredSampleDefaultVolume = 0
         var triggeredSampleDefaultPan: UInt8 = 128
         var volumeValueZeroedByAxy = false
@@ -65,6 +70,8 @@ enum PlaybackSongSyntheticAdapter {
         var activeInstrumentIndex: Int?
         var activeSampleIndex: Int?
         var activeSampleVolume: Float?
+        // Period/envelope controls can belong to a silent channel. Only the event
+        // association and represented sample factor authorize source-voice updates.
         var activePlaybackStep: Double?
         var activeLinearPeriod: Double?
         var activeAmigaPeriod: Double?
@@ -402,6 +409,8 @@ enum PlaybackSongSyntheticAdapter {
         var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
         var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         var playbackStateEvents = [PlaybackVoiceStateEvent]()
+        var xmChannelRows = [PlaybackXMChannelRow]()
+        var xmEmptyRoutes = [PlaybackXMEmptyRoute]()
         var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
         var setFinetuneEffects = [PlaybackSongSyntheticSetFinetuneDiagnostic]()
         var envelopePositionEffects = [PlaybackSongSyntheticEnvelopePositionDiagnostic]()
@@ -633,6 +642,8 @@ enum PlaybackSongSyntheticAdapter {
             )
         )
         plan.playbackStateEvents = context.playbackStateEvents
+        plan.xmChannelRows = context.xmChannelRows
+        plan.xmEmptyRoutes = context.xmEmptyRoutes
         plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
@@ -714,7 +725,11 @@ enum PlaybackSongSyntheticAdapter {
                 context.effectCommandDiagnostics.append(effectCommandDiagnostic)
             }
             var channelState = context.channelStates[channelIndex]
+            var instrumentOnlyReset: MixerPlaybackStateChange?
             defer {
+                context.xmChannelRows.append(.init(source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame, controls: channelState,
+                    instrumentOnlyReset: instrumentOnlyReset))
                 let axyUpdates = applyEffectColumnVolumeSlide(
                     from: cell,
                     source: source,
@@ -763,6 +778,17 @@ enum PlaybackSongSyntheticAdapter {
             } else {
                 explicitTriggerSelection = nil
             }
+            var selectedEmptyPitch: PlaybackStepMapping?
+            if let selection = explicitTriggerSelection, selection.sample == nil,
+               let slot = selection.mappedSampleIndex,
+               let header = song.xmSampleSlotProvenanceByInstrument[Int(cell.instrument)]?.first(where: {
+                   $0.sampleIndex == slot && $0.declaredPayloadLength == 0 && $0.decodedPayloadLength == 0
+               }) {
+                context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
+                    scheduledFrame: scheduledStartFrame, instrumentIndex: Int(cell.instrument), sampleIndex: slot,
+                    stoppedEventIndex: channelState.activeEventIndex))
+                selectedEmptyPitch = selectEmptyHeader(header, cell: cell, song: song, timingConfig: timingConfig, state: &channelState)
+            }
             if cell.instrument > 0, song.instrumentsByIndex[Int(cell.instrument)] != nil {
                 channelState.carriedInstrumentIndex = Int(cell.instrument)
             }
@@ -770,7 +796,7 @@ enum PlaybackSongSyntheticAdapter {
                 song.instrumentsByIndex[Int(cell.instrument)] != nil &&
                 !(hasNoteDelayEffect && cell.effectParam & 15 != 0)
             if restoresInstrumentOnlyDefaults {
-                restoreInstrumentOnlyDefaults(cell: cell, source: source, channelIndex: channelIndex,
+                instrumentOnlyReset = restoreInstrumentOnlyDefaults(cell: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
                     globalVolume: context.globalVolumeState.volumeValue, channelState: &channelState,
                     updates: &context.voiceStateUpdates, resets: &context.playbackStateEvents)
@@ -779,7 +805,7 @@ enum PlaybackSongSyntheticAdapter {
                 cell: cell, song: song, source: source, channelIndex: channelIndex,
                 syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
                 globalVolume: context.globalVolumeState.volumeValue,
-                initializesInstrumentVolume: explicitTriggerSelection?.sample != nil || restoresInstrumentOnlyDefaults,
+                initializesInstrumentVolume: explicitTriggerSelection?.sample != nil || selectedEmptyPitch != nil || restoresInstrumentOnlyDefaults,
                 channelState: &channelState, updates: &context.voiceStateUpdates
             )
             if let sample = explicitTriggerSelection?.sample {
@@ -1431,11 +1457,12 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
-                        status: .noActiveVoice,
+                        status: selectedEmptyPitch.map { song.usesLinearFrequencyTable ? setFinetuneStatus(for: $0) : .unsupportedFrequencyTable } ?? .noActiveVoice,
                         activeVoiceFound: false,
                         activeEventIndex: nil,
                         activeEventMappingIndex: nil,
-                        sampleFinetune: sampleSelection.diagnosticSample?.finetune
+                        sampleFinetune: sampleSelection.diagnosticSample?.finetune,
+                        pitchMapping: selectedEmptyPitch
                     ))
                 }
                 if hasFinePortamentoUpEffect {
@@ -1860,6 +1887,9 @@ enum PlaybackSongSyntheticAdapter {
             channelState.activeEventMappingIndex = context.eventMappings.count
             channelState.activeInstrumentIndex = instrumentIndex
             channelState.activeSampleIndex = sample.sampleIndex
+            channelState.semanticInstrumentIndex = instrumentIndex
+            channelState.semanticSampleIndex = sample.sampleIndex
+            channelState.semanticVolumeEnvelopeEnabled = instrument.volumeEnvelope.enabled
             channelState.activeSampleVolume = sample.volume
             channelState.triggeredSampleDefaultVolume = sampleVolumeRawEstimate(for: sample.volume)
             channelState.triggeredSampleDefaultPan = sample.panning

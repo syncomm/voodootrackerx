@@ -327,6 +327,9 @@ VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
     VTXCMixerVoiceDiagnostic *out_diagnostic
 );
 
+// Stops one caller-owned slot and removes its queued state transitions. Does not start a voice.
+VTXCMixerStatus vtx_c_mixer_stop_voice(VTXCMixerState *state, uint32_t voice_index);
+
 // Stops and releases loaded voices with a matching channel tag. Untagged voices
 // are never matched by this call. The stopped count reports released voices.
 VTXCMixerStatus vtx_c_mixer_stop_voices_for_channel_tag(

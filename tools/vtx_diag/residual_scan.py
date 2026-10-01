@@ -534,7 +534,9 @@ def scan_3xx(module: ModuleData, cell: Cell, coordinate: Coordinate, state: Chan
     if not state.active_voice:
         add_to_groups(groups, "3xx", module.label, coordinate, metric="no_active_count")
         return
-    if module.frequency_table != "linear":
+    # Effect-column 3xx has both target paths; 5xy and volume-column Fx
+    # retain their separate Amiga boundaries.
+    if module.frequency_table not in {"linear", "amiga"}:
         add_to_groups(groups, "3xx", module.label, coordinate, metric="unsupported_frequency_table_count")
         return
     if is_normal_note(cell.note):
@@ -880,7 +882,7 @@ def three_xx_status(counts: dict[str, Any]) -> str:
         f"300 reuse={counts.get('zero_300_memory_reuse_count', 0)}, "
         f"missing={counts.get('missing_memory_count', 0)}, "
         f"no-active={counts.get('no_active_count', 0)}, no-target={counts.get('no_target_count', 0)}, "
-        f"no-speed={counts.get('no_speed_count', 0)}, Amiga/unsupported={counts.get('unsupported_frequency_table_count', 0)}"
+        f"no-speed={counts.get('no_speed_count', 0)}, unsupported-frequency-table={counts.get('unsupported_frequency_table_count', 0)}"
     )
 
 
@@ -974,11 +976,11 @@ def status_note(key: str, counts: dict[str, Any]) -> str:
     if key == "lxx":
         return "Implemented, parity-watch; no-active/no-envelope cases are diagnostic no-ops."
     if key == "3xx":
-        return "Implemented, parity-watch; no-active/no-target/no-speed cases stay classified."
+        return "Implemented, parity-watch in Linear and Amiga; no-active/no-target/no-speed cases stay classified."
     if key == "axy":
         return "Implemented, parity-watch; A00 memory is supported where current policy applies."
     if key == "7xy":
-        return "Deferred by design during the backend freeze; E7x travels with tremolo only if promoted."
+        return "Implemented, parity-watch; independent zero-nibble memory and all E7x controls supported; stored occurrences are not applied-audio evidence."
     if key == "pxy":
         return "Deferred by design during the backend freeze; promote only with concrete corpus/reference evidence."
     if key == "e3x":
@@ -1016,8 +1018,8 @@ TRIAGE_COLUMNS = (
     "complexity", "risk", "priority", "docs_correction", "group", "prefer_coverage",
 )
 TRIAGE_ROWS = [
-    ("7xy", "7xy tremolo", ("7xy",), "7xy", ("7xy_count",), ("7xy tremolo",), "yes", "PlaybackEffectHandler.tremolo and applyTremolo", "yes", "no", "medium", "medium", "deferred by design during backend freeze", "no", "all", False),
-    ("e7x", "E7x tremolo control", ("E7x",), "7xy", ("e7x_control_count",), ("E7x tremolo control",), "no", "classic handler stores tremolo waveform; Swift legacy path does not expose E7x", "yes", "no", "small with 7xy", "low", "deferred by design with 7xy", "no", "all", False),
+    ("7xy", "7xy tremolo", ("7xy",), "7xy", ("7xy_count",), ("7xy tremolo",), "yes", "PlaybackEffectHandler.tremolo and applyTremolo", "yes", "yes", "none", "medium", "implemented/parity-watch", "no", "all", False),
+    ("e7x", "E7x tremolo control", ("E7x",), "7xy", ("e7x_control_count",), ("E7x tremolo control",), "no", "classic handler stores tremolo waveform; Swift legacy path does not expose E7x", "yes", "yes", "none", "low", "implemented/parity-watch", "no", "all", False),
     ("pxy", "Pxy panning slide", ("Pxy",), "pxy", ("detected_count",), ("Pxy panning slide",), "yes", "PlaybackEffectHandler.panningSlide and applyPanningSlide", "yes", "no", "small", "low", "deferred by design unless freeze-exit evidence promotes it", "no", "all", False),
     ("3xx", "3xx tone-portamento memory / 300", ("3xx",), "3xx", ("nonzero_3xx_count", "zero_300_count"), ("3xx tone portamento",), "yes", "PlaybackEffectHandler.tonePortamento has zero-param memory support", "yes", "yes", "none", "low", "implemented/parity-watch", "no", "all", True),
     ("5xy", "5xy tone portamento + volume slide memory", ("5xy",), "5xy", ("detected_count",), ("5xy tone portamento + volume slide",), "yes", "combinedTonePortamentoVolumeSlide exists", "yes", "yes", "none", "low", "covered", "no material correction", "all", True),
@@ -1257,7 +1259,6 @@ def target_by_key(targets: list[dict[str, Any]], key: str) -> dict[str, Any]:
 
 def build_triage_answers(targets: list[dict[str, Any]], legacy_doc_mentions: list[dict[str, Any]]) -> dict[str, Any]:
     pxy_count = int(target_by_key(targets, "pxy").get("corpus_count", 0))
-    tremolo_count = int(target_by_key(targets, "7xy").get("corpus_count", 0))
     vol_f_count = int(target_by_key(targets, "vol_f").get("corpus_count", 0))
     rxy_raw_counts = target_by_key(targets, "rxy").get("raw_counts", {})
     rxy_r00_count = int(rxy_raw_counts.get("no_op_effect_memory_deferred_count", 0)) if isinstance(rxy_raw_counts, dict) else 0
@@ -1268,12 +1269,9 @@ def build_triage_answers(targets: list[dict[str, Any]], legacy_doc_mentions: lis
     ]
     return {
         "legacy_docs_imply_current_support": "No: docs/xm-effect-support.md is the current support source; legacy handler evidence is not a recommendation to port behavior during the freeze.",
-        "surgical_legacy_ports": "No behavior-changing legacy-handler port is recommended during the backend freeze; Pxy, 7xy/E7x, and volume-column vibrato remain deferred unless freeze-exit evidence promotes them.",
-        "three_xx_memory_gap": "No broad linear 3xx memory gap is indicated; 300 target/speed memory is implemented for active linear voices, with residual no-active/no-target/no-speed caveats.",
-        "seven_xy_before_amiga": (
-            "No" if tremolo_count == 0
-            else "Only if maintainer-promoted under a freeze-exit criterion."
-        ),
+        "surgical_legacy_ports": "No behavior-changing legacy-handler port is recommended during the backend freeze; Pxy and volume-column vibrato remain deferred unless freeze-exit evidence promotes them. 7xy/E7x are implemented/parity-watch.",
+        "three_xx_memory_gap": "No broad effect-column 3xx memory gap is indicated; 300 target/speed memory is implemented for active Linear and Amiga voices, with residual no-active/no-target/no-speed caveats.",
+        "seven_xy_before_amiga": "No: 7xy/E7x are already implemented/parity-watch; no tremolo parent implementation is pending.",
         "pxy_present": pxy_count > 0,
         "pxy_count": pxy_count,
         "rxy_r00_count": rxy_r00_count,

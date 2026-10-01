@@ -26,6 +26,7 @@ ALL_FIXTURES = [
     "envelope-release-fadeout-timing.xm",
     "instrument-only-volume-semantics.xm",
     "empty-slot-playback-state.xm",
+    "note-only-routing.xm",
 ]
 
 
@@ -424,7 +425,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         self.assertTrue(all(s["pcm_recipe"]["frame_count"] == 0 for s in samples[1:]))
         for field, value in [("encoding", "signed_16_bit_delta_pcm"), ("loop", dict(mode="forward", start_frame=0, length_frames=1))]:
             invalid = copy.deepcopy(manifest)
-            invalid["fixtures"][-1]["module"]["instruments"][0]["samples"][1][field] = value
+            next(f for f in invalid["fixtures"] if f["id"] == "empty-slot-playback-state")["module"]["instruments"][0]["samples"][1][field] = value
             with self.assertRaises(ValueError):
                 generator.validate_manifest(invalid, verify_derived=False)
 
@@ -530,6 +531,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "envelope-release-fadeout-timing.xm").resolve(),
                     (output_dir / "generated" / "instrument-only-volume-semantics.xm").resolve(),
                     (output_dir / "generated" / "empty-slot-playback-state.xm").resolve(),
+                    (output_dir / "generated" / "note-only-routing.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -546,6 +548,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-only-volume-semantics.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
+                    "generated/note-only-routing.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/tremolo-effects.xm",
@@ -619,6 +622,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-only-volume-semantics.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
+                    "generated/note-only-routing.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/tremolo-effects.xm",
@@ -687,6 +691,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:envelope-release-fadeout-timing.xm": "generated/envelope-release-fadeout-timing.xm",
                     "xm:instrument-only-volume-semantics.xm": "generated/instrument-only-volume-semantics.xm",
                     "xm:empty-slot-playback-state.xm": "generated/empty-slot-playback-state.xm",
+                    "xm:note-only-routing.xm": "generated/note-only-routing.xm",
                 },
             )
 

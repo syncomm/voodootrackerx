@@ -40,8 +40,8 @@ final class InstrumentOnlyVolumeTests: XCTestCase {
         let (context, states) = inspect(module)
         XCTAssertEqual(states.map(\.baseChannelVolume), [0, 0, 48, 8, 48, 64])
         XCTAssertEqual(states.map(\.carriedInstrumentIndex), [1, 1, 2, 2, 1, 1])
-        XCTAssertEqual(states.map(\.activeInstrumentIndex), [nil, nil, 2, 2, 2, 1])
-        XCTAssertEqual(context.events.map(\.scheduledStartFrame), [11_520, 28_800])
+        XCTAssertEqual(states.map(\.activeInstrumentIndex), [nil, 1, 2, 2, 2, 1])
+        XCTAssertEqual(context.events.map(\.scheduledStartFrame), [5760, 11_520, 28_800])
         XCTAssertEqual(context.playbackStateEvents.map(\.scheduledFrame), [23_040])
         let pcm = PlaybackSongOfflineRenderer().render(.init(song: module, config: .init(sampleRate: 48_000), rows: 6)).block.interleavedPCM
         XCTAssertTrue(pcm[..<(11_520 * 2)].allSatisfy { $0 == 0 })

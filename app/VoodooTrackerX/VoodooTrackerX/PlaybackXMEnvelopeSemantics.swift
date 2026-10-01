@@ -10,7 +10,7 @@ struct PlaybackXMChannelRow: Equatable {
     let instrumentOnlyReset: MixerPlaybackStateChange?
 }
 
-/// An exact mapped header selection with no represented audio source.
+/// An exact mapped route with no represented audio source. Undeclared headers add no defaults.
 struct PlaybackXMEmptyRoute: Equatable {
     let source: PlaybackPosition
     let channelIndex: Int
@@ -18,6 +18,8 @@ struct PlaybackXMEmptyRoute: Equatable {
     let instrumentIndex: Int
     let sampleIndex: Int
     let stoppedEventIndex: Int?
+    var preservesChannelState = false
+    var tick = 0
 }
 
 /// One channel's canonical tick state. A nil source generation requires no mixer voice.
@@ -39,22 +41,30 @@ struct PlaybackXMChannelUpdate: Equatable {
 }
 
 extension PlaybackSongSyntheticAdapter {
-    /// Selects immutable header state without resolving or fabricating a PlaybackSample.
-    static func selectEmptyHeader(_ header: XMSourceSampleSlotProvenance, cell: PlaybackCell,
-        song: PlaybackSong, timingConfig: SyntheticTrackerTimingConfig, state: inout ChannelState) -> PlaybackStepMapping {
+    /// Retires source identity while keeping the channel's period and instrument controls.
+    static func clearSourceAssociation(_ state: inout ChannelState) {
         state.activeEventIndex = nil
         state.activeEventMappingIndex = nil
         state.activeInstrumentIndex = nil
         state.activeSampleIndex = nil
         state.activeSampleVolume = nil
-        state.semanticInstrumentIndex = Int(cell.instrument)
+    }
+
+    /// Selects immutable header state without resolving or fabricating a PlaybackSample.
+    static func selectEmptyHeader(_ header: XMSourceSampleSlotProvenance, cell: PlaybackCell,
+        instrumentIndex: Int, initializesDefaults: Bool = true,
+        song: PlaybackSong, timingConfig: SyntheticTrackerTimingConfig, state: inout ChannelState) -> PlaybackStepMapping {
+        clearSourceAssociation(&state)
+        state.semanticInstrumentIndex = instrumentIndex
         state.semanticSampleIndex = header.sampleIndex
         state.triggeredSampleDefaultVolume = clampedVolumeValue(Int(header.volume))
         state.triggeredSampleDefaultPan = header.panning
-        state.baseChannelVolume = state.triggeredSampleDefaultVolume
+        if initializesDefaults {
+            state.baseChannelVolume = state.triggeredSampleDefaultVolume
+            state.initializePanning(fromSampleHeader: header.panning)
+        }
         state.volumeValueZeroedByAxy = false
-        state.initializePanning(fromSampleHeader: header.panning)
-        let instrument = song.instrumentsByIndex[Int(cell.instrument)]!
+        let instrument = song.instrumentsByIndex[instrumentIndex]!
         state.semanticVolumeEnvelopeEnabled = instrument.volumeEnvelope.enabled
         applyActiveVolumeEnvelopeMapping(mixerVolumeEnvelope(from: instrument.volumeEnvelope, timingConfig: timingConfig), to: &state)
         let finetune = cell.effectType == 0x0E && cell.effectParam >> 4 == 5 && song.usesLinearFrequencyTable
@@ -106,6 +116,59 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         let pan: PlaybackPanningEnvelope
     }
 
+    /// A source restart carries the pending segment, not just a position on the new curve.
+    private struct Segment: Equatable {
+        var value: Float = 0
+        var slope: Float = 0
+        var pendingPoint = 0
+        var followsCurve = false
+
+        mutating func nextPosition(_ position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool, releasing: Bool) -> Int {
+            if !followsCurve {
+                guard envelope.points.indices.contains(pendingPoint),
+                      envelope.points[pendingPoint].tick == position + 1 else { return position + 1 }
+                followsCurve = true
+            }
+            return PlaybackXMEnvelopeTimeline.advance(position, envelope: envelope, keyOn: keyOn, releasing: releasing)
+        }
+
+        mutating func sample(_ position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool) {
+            value = envelope.value(at: position)
+            let points = envelope.points
+            guard !points.isEmpty else { return }
+            if keyOn && envelope.sustainEnabled, let index = envelope.sustainPointIndex,
+               points.indices.contains(index), points[index].tick == position {
+                pendingPoint = index
+                slope = 0
+            } else if let next = points.firstIndex(where: { $0.tick > position }), next > 0 {
+                pendingPoint = next
+                slope = Float(points[next].value - points[next - 1].value) /
+                    Float(64 * max(1, points[next].tick - points[next - 1].tick))
+            } else {
+                pendingPoint = points.count - 1
+                slope = 0
+            }
+            followsCurve = true
+        }
+
+        mutating func advance(from previous: Int, to position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool) {
+            if followsCurve || (envelope.points.indices.contains(pendingPoint) &&
+                envelope.points[pendingPoint].tick == position) {
+                sample(position, envelope: envelope, keyOn: keyOn)
+            } else if previous != position {
+                value = min(1, max(0, value + slope))
+            }
+        }
+    }
+
+    private struct CarriedState {
+        var semantic = MixerEnvelopeSemanticState()
+        var volume = Segment()
+        var pan = Segment()
+        var fadeoutDecrement = 0
+        var instrument: Instrument?
+    }
+
     let timing: PlaybackSongFxxTimingPlan
     let instruments: [Int: Instrument]
     let instrumentsByIdentity: [Int: Instrument]
@@ -141,7 +204,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         channelUpdates = []
         guard !plan.xmEmptyRoutes.isEmpty ||
                 plan.pattern.events.contains(where: { $0.volumeEnvelope != nil || $0.panEnvelope != nil }) ||
-                plan.diagnostics.keyOffEvents.contains(where: \.applied) || !plan.playbackStateEvents.isEmpty else { return }
+                plan.diagnostics.keyOffEvents.contains(where: \.applied) || !plan.playbackStateEvents.isEmpty ||
+                !plan.noteOnlyEventIndices.isEmpty else { return }
         let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
         let mappings = plan.diagnostics.eventMappings.sorted { $0.eventIndex < $1.eventIndex }
         struct Tick {
@@ -172,14 +236,17 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             let instrumentIndex: Int
             let sampleIndex: Int
             let frame: Int
+            let preservesChannelState: Bool
         }
         var routes = mappings.map { mapping in
             Route(eventIndex: mapping.eventIndex, channelIndex: mapping.channelIndex,
                 instrumentIndex: mapping.instrumentIndex, sampleIndex: mapping.sampleIndex,
-                frame: scheduler.frame(for: plan.pattern.events[mapping.eventIndex]))
+                frame: scheduler.frame(for: plan.pattern.events[mapping.eventIndex]),
+                preservesChannelState: plan.noteOnlyEventIndices.contains(mapping.eventIndex))
         }
         routes += plan.xmEmptyRoutes.map { Route(eventIndex: nil, channelIndex: $0.channelIndex,
-            instrumentIndex: $0.instrumentIndex, sampleIndex: $0.sampleIndex, frame: $0.scheduledFrame) }
+            instrumentIndex: $0.instrumentIndex, sampleIndex: $0.sampleIndex, frame: $0.scheduledFrame,
+            preservesChannelState: $0.preservesChannelState) }
         routes.sort { $0.frame == $1.frame ? ($0.eventIndex ?? -1) < ($1.eventIndex ?? -1) : $0.frame < $1.frame }
         let changes = PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan)
         let routesByChannel = Dictionary(grouping: routes, by: \.channelIndex)
@@ -193,6 +260,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             let change: MixerPlaybackStateChange
         }
         for (channel, channelRoutes) in routesByChannel {
+            var previous = CarriedState()
+            var hasPrevious = false
             let channelRows = rowsByChannel[channel] ?? []
             let controlsByRow = Dictionary(uniqueKeysWithValues: channelRows.map { ($0.syntheticRow, $0.controls) })
             for (routeIndex, route) in channelRoutes.enumerated() {
@@ -226,10 +295,28 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 let panEnabled = index.map { plan.pattern.events[$0].panEnvelope != nil }
                     ?? (instrument.pan.enabled && !instrument.pan.points.isEmpty)
                 let publishesToVoice = volumeEnabled || panEnabled || releases.contains { $0 < sourceEnd } ||
-                    resets.contains { $0.scheduledFrame < sourceEnd }
+                    resets.contains { $0.scheduledFrame < sourceEnd } || !plan.noteOnlyEventIndices.isEmpty
                 guard publishesToVoice || plan.xmEmptyRoutes.contains(where: { $0.channelIndex == channel }) else { continue }
                 let routeControls = channelRows.last { $0.scheduledFrame <= start }?.controls
-                var state = MixerEnvelopeSemanticState()
+                let carries = route.preservesChannelState
+                var carried = carries ? previous : CarriedState()
+                if carries && !hasPrevious && (index.map { plan.coldReleasedEventIndices.contains($0) }
+                    ?? (routeControls?.keyOffWithoutVoice == true)) {
+                    carried.semantic.keyOn = false
+                    carried.semantic.panTick = -1
+                }
+                if carries {
+                    if carried.instrument?.volume != instrument.volume { carried.volume.followsCurve = false }
+                    if carried.instrument?.pan != instrument.pan { carried.pan.followsCurve = false }
+                } else {
+                    carried.fadeoutDecrement = instrument.volume.fadeout
+                }
+                carried.instrument = instrument
+                var state = carried.semantic
+                let pan = instrument.pan
+                let panClock = PlaybackVolumeEnvelope(enabled: pan.enabled, points: pan.points,
+                    sustainPointIndex: pan.sustainPointIndex, loopStartPointIndex: pan.loopStartPointIndex,
+                    loopEndPointIndex: pan.loopEndPointIndex, typeFlags: pan.typeFlags, fadeout: 0)
                 var first = true
                 var history = [PlaybackXMEnvelopeUpdate]()
                 var low = 0
@@ -252,8 +339,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 for tick in clock {
                     let frame = tick.frame
                     guard frame >= start && frame < stop else { continue }
-                    var resetVolume = first
-                    var resetPan = first
+                    var resetVolume = first && !carries
+                    var resetPan = first && !carries
                     let wasKeyOn = state.keyOn
                     for reset in resets where reset.scheduledFrame == frame {
                         switch reset.change {
@@ -261,7 +348,10 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                             if dimensions.volumeEnvelope { state.volumeTick = 0; resetVolume = true }
                             if dimensions.panEnvelope { state.panTick = 0; resetPan = true }
                             if dimensions.keyOn { state.keyOn = true }
-                            if dimensions.fadeout { state.fadeoutAccumulator = 32_768 }
+                            if dimensions.fadeout {
+                                state.fadeoutAccumulator = 32_768
+                                carried.fadeoutDecrement = instrument.volume.fadeout
+                            }
                         case .keyOff:
                             // XM uses the instrument's tick fadeout; per-frame rates belong to generic synthetic voices.
                             state.keyOn = false
@@ -270,23 +360,37 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     if releases.contains(frame) { state.keyOn = false }
                     let releasing = wasKeyOn && !state.keyOn
                     if volumeEnabled {
+                        let previous = state.volumeTick
                         if let position = positions.last(where: { $0.scheduledFrame == frame }) {
                             state.volumeTick = Int(position.effectParam)
+                            resetVolume = true
                         } else if !resetVolume && tick.advances {
-                            state.volumeTick = Self.advance(state.volumeTick, envelope: instrument.volume,
+                            if carries && releasing && instrument.volume.points.indices.contains(carried.volume.pendingPoint),
+                               state.volumeTick >= instrument.volume.points[carried.volume.pendingPoint].tick {
+                                state.volumeTick = instrument.volume.points[carried.volume.pendingPoint].tick - 1
+                            }
+                            state.volumeTick = carried.volume.nextPosition(state.volumeTick, envelope: instrument.volume,
                                 keyOn: state.keyOn, releasing: releasing)
                         }
-                        state.volumeValue = instrument.volume.value(at: state.volumeTick)
+                        if resetVolume {
+                            carried.volume.sample(state.volumeTick, envelope: instrument.volume, keyOn: state.keyOn)
+                        } else {
+                            carried.volume.advance(from: previous, to: state.volumeTick, envelope: instrument.volume, keyOn: state.keyOn)
+                        }
+                        state.volumeValue = carried.volume.value
+                    } else {
+                        state.volumeValue = 1
                     }
-                    if panEnabled && !resetPan && tick.advances {
-                        let pan = instrument.pan
-                        let clock = PlaybackVolumeEnvelope(enabled: pan.enabled, points: pan.points,
-                            sustainPointIndex: pan.sustainPointIndex, loopStartPointIndex: pan.loopStartPointIndex,
-                            loopEndPointIndex: pan.loopEndPointIndex, typeFlags: pan.typeFlags, fadeout: 0)
-                        state.panTick = Self.advance(state.panTick, envelope: clock, keyOn: state.keyOn, releasing: releasing)
+                    if panEnabled {
+                        let previous = state.panTick
+                        if !resetPan && tick.advances {
+                            state.panTick = carried.pan.nextPosition(state.panTick, envelope: panClock, keyOn: state.keyOn, releasing: releasing)
+                        }
+                        if resetPan { carried.pan.sample(state.panTick, envelope: panClock, keyOn: state.keyOn) }
+                        else { carried.pan.advance(from: previous, to: state.panTick, envelope: panClock, keyOn: state.keyOn) }
                     }
                     if !state.keyOn && tick.advances {
-                        state.fadeoutAccumulator = max(0, state.fadeoutAccumulator - max(0, instrument.volume.fadeout))
+                        state.fadeoutAccumulator = max(0, state.fadeoutAccumulator - max(0, carried.fadeoutDecrement))
                     }
                     let sourceIndex = frame < sourceEnd ? index : nil
                     channelUpdates.append(.init(channelIndex: channel, instrumentIndex: route.instrumentIndex,
@@ -302,6 +406,9 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     }
                     first = false
                 }
+                carried.semantic = state
+                previous = carried
+                hasPrevious = true
                 if let index, !history.isEmpty { updatesByEvent[index] = history }
                 updates.append(contentsOf: history)
             }

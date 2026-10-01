@@ -122,7 +122,8 @@ adapter reset dispatch. `InstrumentOnlyVolumeTests` pins same-cell writers,
 modulation/memory preservation, 5 ms completion/hold/resume and window boundaries.
 Runtime tests check generation/cursor preservation, exact application frames and
 a twelve-channel stress case under unchanged fixed headroom. Listening includes
-baseline/reference/candidate and identifies the deferred final note-only row.
+baseline/reference/candidate; the separate note-only coverage below includes
+the fixture's final note-only row.
 
 `envelope-release-fadeout-timing.xm` covers a carried voice across `FFA` and
 `F03`, sustain/release, no-envelope key-off with a later volume write, and an
@@ -166,7 +167,26 @@ unchanged Export XM/reopen.
 This prerequisite does not require a new listening gate when represented-route
 PCM is unchanged and empty intervals produce no PCM. Reference/candidate state
 checks are primary; any later-route listening is optional corroboration. Normal
-note-only routing must rerun its own full acceptance matrix in its separate PR.
+note-only routing uses the separate acceptance matrix below.
+
+## Note-only routing
+
+Run `swift test --filter NoteOnlyRoutingTests` and the app `RuntimeCMixerTests`.
+`note-only-routing.xm` covers exact carried-instrument routing, represented
+restarts/replacements, cold/completed sources, tone-portamento exclusions,
+release carry and a volume-40 empty-header → silent reset → playable note-only
+chain. Direct controls cover K00, ED0/in-row/out-of-row EDx, E9x, existing Rxy,
+pending envelope segments, source-only tuning and a volume-zero counter-control.
+At 44.1/48 kHz, runtime checks exact application frames, source cursors, channel
+publications without C voices, and single-pass/window PCM agreement within
+`1e-7`. ADR 014 tests must continue to reject required significant empty headers
+while accepting canonical structure and approved inert normalization.
+
+Maintainer listening is required: use one FT2-then-VTX comparison containing
+represented routing and the audible later-valid empty-state consequence, with
+equal fixed gain and a natural release tail. Identify the retained immediate
+VTX onset versus FT2's 5 ms onset ramp separately. Keep reference code, WAVs,
+state traces and listening results outside git.
 
 ## Render / Export Performance Timing Policy
 

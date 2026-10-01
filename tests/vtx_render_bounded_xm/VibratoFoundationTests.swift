@@ -45,7 +45,7 @@ final class VibratoFoundationTests: XCTestCase {
             XCTAssertEqual(plan.diagnostics.vibratoControlEffects.first?.retriggerSuppressed, control & 4 != 0)
             XCTAssertEqual(effects.map(\.phaseBefore), control & 4 == 0 ? [0, 0, 80, 160] : [0, 80, 160, 240])
             XCTAssertEqual(effects.map(\.vibratoWaveform), Array(repeating: ["sine", "ramp_down", "square"][waveform], count: 4))
-            XCTAssertEqual(plan.pattern.events.count, 2) // Existing note-only trigger boundary is retained.
+            XCTAssertEqual(plan.pattern.events.count, 3) // Note-only restarts the sample while carrying phase.
         }
     }
 

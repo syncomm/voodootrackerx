@@ -666,7 +666,8 @@ extension PlaybackSongSyntheticAdapter {
             isE6xPatternLoopEffect(cell)
     }
 
-    static func selectSample(forNote note: UInt8, from instrument: PlaybackInstrument) -> SampleSelection {
+    static func selectSample(forNote note: UInt8, from instrument: PlaybackInstrument,
+        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .firstPlayableSample) -> SampleSelection {
         let mapPresent = instrument.noteSampleMap != nil
         let mappedSampleIndex = instrument.mappedSampleIndex(forNote: note)
         let mappedSample = mappedSampleIndex.flatMap { instrument.sample(mappedSampleIndex: $0) }
@@ -676,7 +677,7 @@ extension PlaybackSongSyntheticAdapter {
             instrumentIndex: instrument.index,
             note: note,
             instrument: instrument,
-            missingKeymapPolicy: .firstPlayableSample
+            missingKeymapPolicy: missingKeymapPolicy
         )
 
         if mapPresent {

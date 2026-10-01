@@ -857,6 +857,7 @@ final class PlaybackSongOfflineRenderer {
             timingConfig: plan.timingConfig,
             pattern: SyntheticPattern(rowCount: plan.pattern.rowCount, events: events),
             diagnostics: plan.diagnostics,
+            noteOnlyEventIndices: plan.noteOnlyEventIndices, coldReleasedEventIndices: plan.coldReleasedEventIndices,
             playbackStateEvents: plan.playbackStateEvents,
             xmEnvelopeTimeline: plan.xmEnvelopeTimeline,
             xmAudibleTimeline: plan.xmAudibleTimeline,

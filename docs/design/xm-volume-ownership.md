@@ -74,7 +74,7 @@ Specialized delayed, retrigger and portamento paths retain their existing volume
 contracts. Ordinary key-off without an enabled volume envelope zeros base/output
 while retaining the active source association; later volume writes can expose its
 remaining fadeout. Instrument-only uses the cached-default contract below;
-note-only routing remains deferred. Explicit initialization does not alter
+note-only uses the separate state-carry contract below. Explicit initialization does not alter
 envelope/reset operations, gain ramps, replacement ramps, or downstream headroom
 policy.
 
@@ -83,8 +83,8 @@ policy.
 An ordinary valid instrument number with no note updates carried instrument
 memory, then restores base/output volume and static pan from the last selected
 declared header's cached defaults. A different instrument number does not select
-its sample or change the sounding generation. Canonical note+instrument routing
-alone resolves the exact 96-note keymap; editor sample selection is never an
+its sample or change the sounding generation. Canonical note routing
+resolves the exact 96-note keymap; editor sample selection is never an
 input. The independent sample/header factor is unchanged: cached default 24
 restores tracker volume 24, retaining sample factor `24/64` and gain `0.140625`.
 
@@ -111,7 +111,7 @@ precedence and ordinary reset. K01 resets at tick zero, then releases at tick
 one. Delayed instrument-only ED1...EDF remains deferred.
 
 `instrument-only-volume-semantics.xm` and direct/runtime tests cover this
-contract. Note-only routing, audible pan envelopes, ECx quick-volume parity,
+contract. Audible pan envelopes, ECx quick-volume parity,
 sample/header ownership parity and full FT2 mixer parity remain separate.
 
 ## Declared empty slots and silent channel state
@@ -138,10 +138,46 @@ plan. Only a matching live source receives C semantic/audible publications.
 Empty-header tuning enters the existing supported period/effect calculations;
 portamento targets and channel effect memories can persist without a source.
 A later explicit playable note refreshes its own mapped defaults and restarts
-its semantic envelope as before. Ordinary note-only routing/retrigger remains
-deferred and its preserved candidate is not part of this foundation. Audible
+its semantic envelope as before. A later note-only route instead carries the
+progressed silent state and current tracker volume/pan. Audible
 panning-envelope offsets, sample/header multiplication, ECx, onset, Rxy timing,
 and delayed instrument-only behavior keep their separate boundaries.
+
+## Note-only routing and state carry
+
+An ordinary note with an empty instrument field resolves the carried instrument,
+then the new note's exact 96-entry keymap route. Sounding sample identity and
+editor selection do not supply an owner or fallback. No carried instrument or
+absent map creates no source. Represented samples restart through the normal
+event path, including same-sample, replacement and completed-source cases;
+the cursor starts at zero unless an existing offset command applies.
+
+Selection refreshes cached header volume/pan and mapped pitch/tuning, while
+current tracker base/output volume and static pan carry. Modulation phases,
+held output and effect memories also carry. Envelope carry includes the pending
+segment value/slope/point, not just its clock: selecting another instrument's
+curve must not resample it prematurely. Key/release state, fadeout accumulator
+and the initialized fadeout decrement carry until an existing reset changes
+them. A cold instrument-only selection followed by note-only can create a real
+but zero-volume source; it does not invent initialized envelope state.
+
+An empty note-only route consumes the retained zero-payload header and stops
+the prior source at the same canonical frame. It creates no `PlaybackSample`
+or C voice. The channel retains the same clocks, release, modulation and period
+authority while silent. The volume-40 regression selects empty metadata at
+tracker volume 16, restores cached 40 on a silent instrument-only row, then
+starts a playable note-only at volume 40 and envelope tick 6. Tests contrast
+header volume 0 and cover retained finetune/relative-note controls.
+
+Tone-portamento `3xx`, `5xy` and volume-column `Fx` remain target-only paths.
+K00 suppresses note-only selection; ED0 carries ordinary state, a valid delayed
+note resets at its nonzero tick, and an out-of-row delay does not trigger.
+E9 repeats reset channel semantics even for an empty route. Rxy retains its
+existing scheduler; its FT2 repeat timing/state parity is not promoted.
+The new public fixture and runtime tests share the adapter's exact frames and
+window state. New-source onset still initializes immediately in VTX versus
+FT2's 5 ms ramp; source replacement DSP and downstream sample scaling are
+unchanged.
 
 ## Runtime, offline, and diagnostics
 
@@ -170,8 +206,8 @@ Its reset has four independent presence flags: restart the enabled volume
 envelope, restart the enabled panning clock, restore key-on, and restore unity
 fadeout. The operation changes neither tracker/sample volume nor pan, pitch,
 sample identity, fractional cursor, loop state, or ping-pong direction. It
-creates no voice. Instrument-only dispatch reuses this operation; note-only
-routing remains deferred.
+creates no voice. Instrument-only dispatch reuses this operation; ordinary
+note-only carries its prior result into the new route.
 
 The [pinned FT2 instrument reset](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L348-L407)
 sets enabled clocks to 65535 and their point cursors to zero; envelope handling
@@ -252,7 +288,8 @@ deferred; the observer does not imply support for it. Ordinary explicit instrume
 using the previous control before a same-cell `E7x` write. A note alone does
 not reset tremolo phase. Note-off and `K00` preserve phase; the existing
 volume-column tone-portamento priority still takes precedence over `K00`.
-`ED0` resets immediately; successful nonzero delays reset at the scheduled
+Explicit-instrument `ED0` resets immediately; note-only ED0 carries phase.
+Successful nonzero delays reset at the scheduled
 trigger, and out-of-row delays leave phase unchanged. `E9x` resets phase
 without replacing held output, while `Rxy` volume writes replace output. See [FT2 trigger and row ordering](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1350-L1455).
 
@@ -279,10 +316,8 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   sample default. Sample-header 16 plus explicit tracker volume 32 therefore
   gives VTX gain 0.125 versus FT2 0.5 before other factors. Quiet-sample tests
   pin tremolo depth/clamping before this retained downstream multiplier.
-- The fixture's note-only cells preserve tremolo state, but existing VTX
-  missing-instrument routing skips their sample retrigger. FT2 reuses the
-  remembered instrument and resolves the new note through its keymap. This
-  separate boundary creates phase differences in WAVs.
+- The fixture's note-only cells preserve tremolo state while restarting the
+  carried instrument's exact mapped sample through the normal trigger path.
 - Generic C-mixer gain-update ramps remain 32 frames. Managed XM envelope/release
   voices use the shared final-output cadence; FT2 ordinarily ramps across a tick. [FT2 ramp selection](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_audio.c#L270-L283)
   explains another rendering difference without changing the modulation target.

@@ -97,11 +97,12 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
         XCTAssertFalse(context.ignoredCells[0].firstPlayableSampleFallbackUsed)
     }
 
-    func testColdInstrumentOnlyRestoresZeroWhileNoteOnlyRemainsDeferred() {
+    func testColdInstrumentOnlyRestoresZeroAndNoteOnlyTriggersSilently() {
         let (context, states) = inspect(song([cell(effect: 12, parameter: 7), cell(instrument: 1), cell(note: 49)]))
         XCTAssertEqual(states.map(\.baseChannelVolume), [7, 0, 0])
         XCTAssertEqual(states.last?.carriedInstrumentIndex, 1)
-        XCTAssertTrue(context.events.isEmpty)
+        XCTAssertEqual(context.events.count, 1)
+        XCTAssertEqual(context.events.first?.gain, 0)
     }
 
     func testRuntimePlanAndWindowedPCMMatchOfflineAcrossDefaultChanges() {

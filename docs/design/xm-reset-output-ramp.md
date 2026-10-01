@@ -4,8 +4,8 @@ This note owns the implemented XM semantic tick, ordinary audible final-L/R,
 and non-retriggering 5 ms reset contracts.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
 [XM volume ownership](xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
-Instrument-only dispatch reuses these contracts. Note-only routing and audible
-XM panning envelopes remain deferred.
+Instrument-only dispatch reuses these contracts. Ordinary note-only carries
+their semantic state into the new route. Audible XM panning envelopes remain deferred.
 
 ## Current gain path
 
@@ -68,7 +68,8 @@ at `N + D`, then holding until the next changed publication. Exact duplicates
 do not restart a ramp. The next ordinary target retains its established
 previous-target rule and tick duration through this same authority; no reset
 overlay or return to a second output path exists. Instrument-only dispatch
-publishes this existing reset; note-only routing remains deferred.
+publishes this existing reset; ordinary note-only instead carries semantic state
+and uses the unchanged immediate source-onset path.
 
 Runtime applies targets after trigger/reset/`Lxx` and semantic state, at the
 planned C mixer frame. Offline rendering splits at those same frames. Both use

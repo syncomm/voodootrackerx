@@ -27,10 +27,39 @@ extension PlaybackSongSyntheticAdapter {
         return phase & 128 == 0 ? delta : -delta
     }
 
+    static func restoreInstrumentOnlyDefaults(
+        cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        syntheticRow: Int, scheduledFrame: Int, globalVolume: Int,
+        channelState: inout ChannelState,
+        updates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
+        resets: inout [PlaybackVoiceStateEvent]
+    ) {
+        let before = channelState
+        channelState.baseChannelVolume = channelState.triggeredSampleDefaultVolume
+        channelState.volumeValueZeroedByAxy = false
+        channelState.initializePanning(fromSampleHeader: channelState.triggeredSampleDefaultPan)
+        updates.append(voiceStateUpdateDiagnostic(
+            source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+            scheduledFrame: scheduledFrame, cell: cell, commandSource: .instrumentState,
+            command: .instrumentDefaultVolume(value: channelState.baseChannelVolume), rawVolumeColumn: nil,
+            effectType: cell.effectType, effectParam: cell.effectParam, status: .applied,
+            behavior: nil, channelStateBefore: before, channelStateAfter: channelState,
+            globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume
+        ))
+        // K00 releases without restarting envelopes. Volume-column portamento
+        // takes precedence over K00; phase reset uses the same existing gate.
+        let releasesImmediately = cell.effectType == 0x14 && cell.effectParam == 0 && cell.volumeColumn >> 4 != 0x0F
+        if !releasesImmediately, let event = channelState.activeEventIndex {
+            resets.append(.init(activeEventIndex: event, channelIndex: channelIndex,
+                scheduledFrame: scheduledFrame,
+                change: .reset(.init(volumeEnvelope: true, panEnvelope: true, keyOn: true, fadeout: true))))
+        }
+    }
+
     static func prepareTremoloRow(
         cell: PlaybackCell, song: PlaybackSong, source: PlaybackPosition, channelIndex: Int,
         syntheticRow: Int, scheduledFrame: Int, globalVolume: Int,
-        initializesExplicitTriggerVolume: Bool,
+        initializesInstrumentVolume: Bool,
         channelState: inout ChannelState,
         updates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
     ) {
@@ -45,7 +74,7 @@ extension PlaybackSongSyntheticAdapter {
             if !(cell.effectType == 0x14 && cell.effectParam == 0) || cell.volumeColumn >> 4 == 0x0F {
                 resetTremoloTriggerPhases(state: &channelState)
             }
-            if !initializesExplicitTriggerVolume && (channelState.tremolo.activated || cell.effectType == 0x07) {
+            if !initializesInstrumentVolume && (channelState.tremolo.activated || cell.effectType == 0x07) {
                 let before = channelState
                 // In this adapter, the sample default remains an independent
                 // factor. Restore its neutral tracker multiplier, then let the

@@ -3083,6 +3083,320 @@
       "xm_output": "generated/envelope-release-fadeout-timing.xm",
       "xm_sha256": "a83c9bc00d869b1415c886877ddc57094ec049db2d67b7973af4523b5712a60e",
       "xm_size_bytes": 2869
+    },
+    {
+      "id": "instrument-only-volume-semantics",
+      "intended_tests": [
+        "instrument-only default restoration and semantic reset",
+        "shared 5 ms final-output reset",
+        "cold and completed voice lifetime",
+        "canonical mapped quiet sample and deferred note-only boundary"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 1024,
+            "name": "CACHED MAP",
+            "note_sample_map": [
+              {
+                "end_note": 48,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 96,
+                "sample": 1,
+                "start_note": 49
+              }
+            ],
+            "panning_envelope": {
+              "enabled": true,
+              "loop_end_point": 1,
+              "loop_start_point": 0,
+              "points": [
+                [
+                  0,
+                  32
+                ],
+                [
+                  4,
+                  32
+                ]
+              ],
+              "sustain_point": null,
+              "type_flags": 5
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "FULL LOOP",
+                "panning": 64,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "cae21393f8ec176e125faa194b4dd6ea44fbeb9de5cf0536e21cf8eb2913288d",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "QUIET LOOP",
+                "panning": 192,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "cae21393f8ec176e125faa194b4dd6ea44fbeb9de5cf0536e21cf8eb2913288d",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 24
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "loop_end_point": null,
+              "loop_start_point": null,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  3,
+                  16
+                ],
+                [
+                  40,
+                  16
+                ]
+              ],
+              "sustain_point": null,
+              "type_flags": 1
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "COLD ONE SHOT",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "ONE SHOT",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 257,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "20b6128e0e51bd48890a4abd5c3cb39a741abd265b632811648a04f31d396590",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-3",
+                "row": 0
+              },
+              {
+                "channel": 1,
+                "instrument": 2,
+                "note": 0,
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 8,
+                "effect_type": 12,
+                "note": 0,
+                "row": 1
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 0,
+                "row": 2
+              },
+              {
+                "channel": 1,
+                "instrument": 2,
+                "note": "C-4",
+                "row": 3
+              },
+              {
+                "channel": 0,
+                "instrument": 2,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 1,
+                "instrument": 1,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 5
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 0,
+                "row": 6
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": "C-4",
+                "row": 7
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 4,
+                "effect_type": 12,
+                "note": 0,
+                "row": 8
+              },
+              {
+                "channel": 0,
+                "instrument": 2,
+                "note": 0,
+                "row": 9
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 224,
+                "effect_type": 8,
+                "instrument": 1,
+                "note": 0,
+                "row": 10,
+                "volume_column": 48
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 20,
+                "instrument": 2,
+                "note": 0,
+                "row": 11
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 0,
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "note": "G-4",
+                "row": 13
+              },
+              {
+                "channel": 0,
+                "note": "key-off",
+                "row": 14
+              }
+            ],
+            "rows": 24
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX INSTR ONLY",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "instrument-only-volume-semantics.xm",
+      "purpose": "Cached triggered-sample defaults and non-retriggering instrument-only resets, with cold/completed and deferred note-only controls.",
+      "significant_rows": [
+        "0: C-3 instrument 1 on channel 0; cold instrument 2 on channel 1",
+        "1: C08 reduction",
+        "2: same instrument-only reset",
+        "3: cold channel explicitly triggers instrument 2, a one-shot ending at zero",
+        "4: different instrument-only, completed one-shot remains stopped",
+        "5/6: key-off then same-voice reset",
+        "7/8/9: mapped quiet C-4, C04 reduction, different instrument-only restore",
+        "10: same-cell volume/pan override",
+        "11/12: instrument-only K00 release then ordinary reset",
+        "13: note-only G-4 characterization, FT2 retriggers and VTX remains deferred",
+        "14: key-off followed by natural fadeout and silence"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "note-only routing/retrigger",
+        "audible panning envelopes",
+        "sample/header ownership parity"
+      ],
+      "xm_output": "generated/instrument-only-volume-semantics.xm",
+      "xm_sha256": "780564b2b56046ea092f3d2a109e5de57cde98f2ea0cabc6d6bd1810b1d8c6a2",
+      "xm_size_bytes": 2603
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

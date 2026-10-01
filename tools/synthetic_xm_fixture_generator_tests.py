@@ -24,6 +24,7 @@ ALL_FIXTURES = [
     "amiga-vibrato.xm",
     "effect-memory.xm",
     "envelope-release-fadeout-timing.xm",
+    "instrument-only-volume-semantics.xm",
 ]
 
 
@@ -509,6 +510,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "amiga-vibrato.xm").resolve(),
                     (output_dir / "generated" / "effect-memory.xm").resolve(),
                     (output_dir / "generated" / "envelope-release-fadeout-timing.xm").resolve(),
+                    (output_dir / "generated" / "instrument-only-volume-semantics.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -521,6 +523,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
+                    "generated/instrument-only-volume-semantics.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/portamento-scaling-amiga.xm",
@@ -592,6 +595,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/fxx-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
+                    "generated/instrument-only-volume-semantics.xm",
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/portamento-scaling-amiga.xm",
@@ -660,6 +664,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:amiga-vibrato.xm": "generated/amiga-vibrato.xm",
                     "xm:effect-memory.xm": "generated/effect-memory.xm",
                     "xm:envelope-release-fadeout-timing.xm": "generated/envelope-release-fadeout-timing.xm",
+                    "xm:instrument-only-volume-semantics.xm": "generated/instrument-only-volume-semantics.xm",
                 },
             )
 

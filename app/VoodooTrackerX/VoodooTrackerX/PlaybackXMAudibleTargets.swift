@@ -108,6 +108,7 @@ struct PlaybackXMAudibleTimeline: Equatable {
                     if write.scheduledFrame == frame {
                         switch write.command {
                         case .cxxSetVolume, .keyOffWithoutEnvelope, .volumeColumn(.setVolume): quickVolume = true
+                        case .instrumentDefaultVolume where write.cellNote == 0: quickVolume = true
                         default: break
                         }
                     }

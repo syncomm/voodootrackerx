@@ -3,6 +3,20 @@ import XCTest
 import ModuleCore
 
 final class ModuleCoreTests: XCTestCase {
+    func testInstrumentOnlyPublicFixtureRetainsAbsentNotesAndCanonicalInstrumentCells() throws {
+        let info = mc_parse_file(try referenceXMFixturePath("generated/instrument-only-volume-semantics.xm"))
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(info.instruments, 2)
+        XCTAssertEqual(info.channels, 2)
+        XCTAssertEqual(patternRows(info).first, 24)
+        for row: UInt16 in [2, 4, 6, 9, 10, 11, 12] {
+            XCTAssertEqual(xmEvent(info, pattern: 0, row: row, channel: 0)?.note, 0)
+            XCTAssertGreaterThan(xmEvent(info, pattern: 0, row: row, channel: 0)?.instrument ?? 0, 0)
+        }
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 7, channel: 0)?.note, 49)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 13, channel: 0)?.instrument, 0)
+    }
+
     func testParseSyntheticMODHeaderSelectedFields() throws {
         let info = mc_parse_file(try fixturePath("minimal.mod"))
 

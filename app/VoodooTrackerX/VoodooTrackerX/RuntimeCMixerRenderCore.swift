@@ -645,10 +645,13 @@ private struct RuntimeCMixerFieldUpdateDecision: Equatable {
     }
 }
 
-fileprivate struct RuntimeCMixerQueuedAdapterEvent: Equatable {
-    let event: RuntimeCMixerAdapterEvent
+/// A small queue reference into retained, immutable plan storage; never owns an event payload.
+struct RuntimeCMixerQueuedAdapterEvent: Equatable {
+    let planEventIndex: Int
     let plannedRuntimeFrame: Int
-    let runtimeFrame: UInt64
+    let usesLoopStorage: Bool
+
+    var runtimeFrame: UInt64 { UInt64(plannedRuntimeFrame) }
 }
 
 enum RuntimeCMixerAppliedAdapterEventResult: Equatable {
@@ -973,6 +976,14 @@ struct RuntimeCMixerAdapterEventScheduleConfigurationResult: Equatable {
     let queuedEventCount: Int
     let skippedNegativeRuntimeFrameCount: Int
     let skippedOverflowCount: Int
+    let descriptorStride: Int
+    let descriptorSortCount: Int
+    let planStorageShared: Bool
+    let conversionMS: Double?
+    let orderingMS: Double?
+    let installMS: Double?
+    let fullQueuedEventCopyCount = 0
+    let fullEventSortCount = 0
 }
 
 struct RuntimeCMixerThreadDiagnostics: Equatable {
@@ -1120,6 +1131,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     )
     private var overrangeSampleCount: UInt64 = 0
     private var clippingSampleCount: UInt64 = 0
+    private var adapterEventPlanEvents = [RuntimeCMixerAdapterEvent]()
     private var adapterEventSchedule = [RuntimeCMixerQueuedAdapterEvent]()
     private var nextAdapterEventScheduleIndex = 0
     private var adapterEventLoopRange: RuntimeCMixerAdapterEventLoopRange?
@@ -1183,7 +1195,22 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         _ events: [RuntimeCMixerAdapterEvent],
         runtimeFrameOffset: Int,
         plannedSongEndFrame: Int? = nil,
-        loopRange: RuntimeCMixerAdapterEventLoopRange? = nil
+        loopRange: RuntimeCMixerAdapterEventLoopRange? = nil,
+        measurePreparation: Bool = false
+    ) -> RuntimeCMixerAdapterEventScheduleConfigurationResult {
+        configureAdapterEventSchedule(RuntimeCMixerAdapterEventStorage(events: events),
+            runtimeFrameOffset: runtimeFrameOffset, plannedSongEndFrame: plannedSongEndFrame,
+            loopRange: loopRange, measurePreparation: measurePreparation)
+    }
+
+    /// Retains the exact storage paired with its once-built runtime ordering index.
+    @discardableResult
+    func configureAdapterEventSchedule(
+        _ storage: RuntimeCMixerAdapterEventStorage,
+        runtimeFrameOffset: Int,
+        plannedSongEndFrame: Int? = nil,
+        loopRange: RuntimeCMixerAdapterEventLoopRange? = nil,
+        measurePreparation: Bool = false
     ) -> RuntimeCMixerAdapterEventScheduleConfigurationResult {
         recordLifecycleChangeIfCallbackActive()
         lock.lock()
@@ -1192,11 +1219,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
 
         var queuedEvents = [RuntimeCMixerQueuedAdapterEvent]()
-        queuedEvents.reserveCapacity(events.count)
+        queuedEvents.reserveCapacity(storage.ordering.count)
         var skippedNegativeRuntimeFrameCount = 0
         var skippedOverflowCount = 0
+        let conversionStart = measurePreparation ? DispatchTime.now().uptimeNanoseconds : nil
         appendQueuedAdapterEvents(
-            events,
+            storage,
             runtimeFrameOffset: runtimeFrameOffset,
             loopFrameCount: 0,
             loopIteration: 0,
@@ -1204,8 +1232,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             skippedNegativeRuntimeFrameCount: &skippedNegativeRuntimeFrameCount,
             skippedOverflowCount: &skippedOverflowCount
         )
-
-        adapterEventSchedule = queuedEvents.sorted(by: Self.adapterEventScheduleSort)
+        let conversionMS = Self.preparationMilliseconds(since: conversionStart)
+        // A uniform offset and prefix/overflow rejection preserve the index's runtime order.
+        let orderingMS: Double? = measurePreparation ? 0 : nil
+        let installStart = measurePreparation ? DispatchTime.now().uptimeNanoseconds : nil
+        // Clear references before releasing their old storage, while the callback is excluded.
+        adapterEventSchedule.removeAll(keepingCapacity: true)
+        adapterEventPlanEvents = storage.events // Share immutable COW storage, including PCM.
+        adapterEventSchedule = queuedEvents
         nextAdapterEventScheduleIndex = 0
         adapterEventLoopRange = loopRange
         adapterEventLoopRuntimeFrameOffset = loopRange == nil ? nil : runtimeFrameOffset
@@ -1232,10 +1266,22 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         callbackBoundaryAppliedEventCount = 0
         latePlannedEventCount = 0
         maxPlannedVsAppliedDelta = 0
+        let installMS = Self.preparationMilliseconds(since: installStart)
+        let storageShared = storage.events.withUnsafeBufferPointer { source in
+            adapterEventPlanEvents.withUnsafeBufferPointer { retained in
+                source.baseAddress == retained.baseAddress
+            }
+        }
         return RuntimeCMixerAdapterEventScheduleConfigurationResult(
             queuedEventCount: adapterEventSchedule.count,
             skippedNegativeRuntimeFrameCount: skippedNegativeRuntimeFrameCount,
-            skippedOverflowCount: skippedOverflowCount
+            skippedOverflowCount: skippedOverflowCount,
+            descriptorStride: MemoryLayout<RuntimeCMixerQueuedAdapterEvent>.stride,
+            descriptorSortCount: 0,
+            planStorageShared: storageShared,
+            conversionMS: conversionMS,
+            orderingMS: orderingMS,
+            installMS: installMS
         )
     }
 
@@ -1246,6 +1292,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             lock.unlock()
         }
         adapterEventSchedule.removeAll(keepingCapacity: true)
+        adapterEventPlanEvents = []
         nextAdapterEventScheduleIndex = 0
         adapterEventLoopRange = nil
         adapterEventLoopRuntimeFrameOffset = nil
@@ -1293,18 +1340,27 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex)
     }
 
+    /// Shares a queue/storage snapshot outside rendering for exact equivalence and lifetime tests.
+    func adapterEventScheduleForTesting() -> (references: [RuntimeCMixerQueuedAdapterEvent],
+        events: [RuntimeCMixerAdapterEvent], loopEvents: [RuntimeCMixerAdapterEvent]) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (adapterEventSchedule, adapterEventPlanEvents, adapterEventLoopRange?.events ?? [])
+    }
+
     private func appendQueuedAdapterEvents(
-        _ events: [RuntimeCMixerAdapterEvent],
+        _ storage: RuntimeCMixerAdapterEventStorage,
         runtimeFrameOffset: Int,
         loopFrameCount: Int,
         loopIteration: Int,
+        usesLoopStorage: Bool = false,
         queuedEvents: inout [RuntimeCMixerQueuedAdapterEvent],
         skippedNegativeRuntimeFrameCount: inout Int,
         skippedOverflowCount: inout Int
     ) {
-        for event in events {
+        for entry in storage.ordering {
             guard let plannedRuntimeFrame = Self.plannedRuntimeFrame(
-                for: event,
+                for: entry,
                 runtimeFrameOffset: runtimeFrameOffset,
                 loopFrameCount: loopFrameCount,
                 loopIteration: loopIteration
@@ -1317,9 +1373,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 continue
             }
             queuedEvents.append(RuntimeCMixerQueuedAdapterEvent(
-                event: event,
+                planEventIndex: entry.eventIndex,
                 plannedRuntimeFrame: plannedRuntimeFrame,
-                runtimeFrame: UInt64(plannedRuntimeFrame)
+                usesLoopStorage: usesLoopStorage
             ))
         }
     }
@@ -1336,10 +1392,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         var skippedNegativeRuntimeFrameCount = 0
         var skippedOverflowCount = 0
         appendQueuedAdapterEvents(
-            adapterEventLoopRange.events,
+            adapterEventLoopRange.eventStorage,
             runtimeFrameOffset: adapterEventLoopRuntimeFrameOffset,
             loopFrameCount: adapterEventLoopRange.frameCount,
             loopIteration: nextAdapterEventLoopIteration,
+            usesLoopStorage: true,
             queuedEvents: &queuedEvents,
             skippedNegativeRuntimeFrameCount: &skippedNegativeRuntimeFrameCount,
             skippedOverflowCount: &skippedOverflowCount
@@ -1348,12 +1405,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         guard !queuedEvents.isEmpty else {
             return false
         }
-        let sortedQueuedEvents = queuedEvents.sorted(by: Self.adapterEventScheduleSort)
         if nextAdapterEventScheduleIndex >= adapterEventSchedule.count {
-            adapterEventSchedule = sortedQueuedEvents
+            adapterEventSchedule = queuedEvents
             nextAdapterEventScheduleIndex = 0
         } else {
-            adapterEventSchedule.append(contentsOf: sortedQueuedEvents)
+            adapterEventSchedule.append(contentsOf: queuedEvents)
         }
         eventQueueExhaustedFrame = nil
         return true
@@ -2638,40 +2694,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             : "runtime_c_mixer_update_applied_step"
     }
 
-    private static func adapterEventScheduleSort(
-        lhs: RuntimeCMixerQueuedAdapterEvent,
-        rhs: RuntimeCMixerQueuedAdapterEvent
-    ) -> Bool {
-        if lhs.runtimeFrame != rhs.runtimeFrame {
-            return lhs.runtimeFrame < rhs.runtimeFrame
-        }
-        let leftPriority = adapterEventPriority(lhs.event)
-        let rightPriority = adapterEventPriority(rhs.event)
-        if leftPriority != rightPriority {
-            return leftPriority < rightPriority
-        }
-        return lhs.event.id < rhs.event.id
+    private static func preparationMilliseconds(since start: UInt64?) -> Double? {
+        guard let start else { return nil }
+        return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
     }
 
-    private static func adapterEventPriority(_ event: RuntimeCMixerAdapterEvent) -> Int {
-        // Match the offline C mixer frame boundary: state updates and same-cell
-        // note/Lxx ordering are resolved before voices render at that frame.
-        switch event.action {
-        case .gainPanUpdate, .stepUpdate:
-            return 0
-        case .noteCut, .sourceStop:
-            return 1
-        case .noteTrigger:
-            return 2
-        case .playbackStateChange:
-            return 3
-        case .envelopePositionUpdate:
-            return 4
-        case .envelopeSemanticUpdate, .channelSemanticUpdate:
-            return 5
-        case .audibleTargetUpdate:
-            return 6
-        }
+    private func adapterEvent(for reference: RuntimeCMixerQueuedAdapterEvent) -> RuntimeCMixerAdapterEvent {
+        reference.usesLoopStorage
+            ? adapterEventLoopRange!.events[reference.planEventIndex]
+            : adapterEventPlanEvents[reference.planEventIndex]
     }
 
     private static func runtimeFrame(plannedFrame: Int?, offset: Int) -> UInt64? {
@@ -2687,7 +2718,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     private static func plannedRuntimeFrame(
-        for event: RuntimeCMixerAdapterEvent,
+        for entry: RuntimeCMixerAdapterEventStorage.OrderEntry,
         runtimeFrameOffset: Int,
         loopFrameCount: Int,
         loopIteration: Int
@@ -2703,7 +2734,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             }
             frameAdvance = multiplied.partialValue
         }
-        let advancedFrame = event.scheduledFrame.addingReportingOverflow(frameAdvance)
+        let advancedFrame = entry.scheduledFrame.addingReportingOverflow(frameAdvance)
         guard !advancedFrame.overflow else {
             return nil
         }
@@ -3349,7 +3380,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         var atOrderStart = false
         var atRowTransition = false
         for index in burstStartIndex..<burstEndIndex {
-            let event = adapterEventSchedule[index].event
+            let event = adapterEvent(for: adapterEventSchedule[index])
             affectedChannelSet.insert(event.channelIndex)
             atOrderStart = atOrderStart || (event.source.rowIndex == 0 && event.syntheticTick == 0)
             atRowTransition = atRowTransition || event.syntheticTick == 0
@@ -3404,6 +3435,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         callbackEndFrame: UInt64,
         sameFrameBurstSize: Int
     ) -> RuntimeCMixerAppliedAdapterEventDiagnostic {
+        // Both stores and their descriptors are replaced/cleared together under the render lock.
+        // The callback performs one bounded value lookup, with no new allocation or sorting.
+        let event = adapterEvent(for: queuedEvent)
         let appliedFrame = mixer.currentFrame
         let appliedFrameInt = appliedFrame <= UInt64(Int.max) ? Int(appliedFrame) : Int.max
         let eventFrameDelta = appliedFrameInt - queuedEvent.plannedRuntimeFrame
@@ -3426,10 +3460,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         appliedPlannedEventCount &+= 1
         maxPlannedVsAppliedDelta = max(maxPlannedVsAppliedDelta, abs(eventFrameDelta))
 
-        let adapterCurrentEventIndexBefore = adapterEventIndexByChannel[queuedEvent.event.channelIndex]
-        let adapterActiveEventIndex = queuedEvent.event.activeEventIndex
+        let adapterCurrentEventIndexBefore = adapterEventIndexByChannel[event.channelIndex]
+        let adapterActiveEventIndex = event.activeEventIndex
         let result: RuntimeCMixerAppliedAdapterEventResult
-        switch queuedEvent.event.action {
+        switch event.action {
         case let .noteTrigger(eventIndex, syntheticEvent, mapping):
             result = .noteTrigger(triggerAdapterEventWithDiagnosticsLocked(
                 syntheticEvent,
@@ -3438,28 +3472,28 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             ))
         case let .gainPanUpdate(activeEventIndex, gain, pan):
             result = .gainPanUpdate(applyAdapterGainPanUpdateWithDiagnosticsLocked(
-                channel: queuedEvent.event.channelIndex,
+                channel: event.channelIndex,
                 activeEventIndex: activeEventIndex,
                 gain: gain,
                 pan: pan
             ))
         case let .stepUpdate(activeEventIndex, playbackStep):
             result = .stepUpdate(applyAdapterStepUpdateWithDiagnosticsLocked(
-                channel: queuedEvent.event.channelIndex,
+                channel: event.channelIndex,
                 activeEventIndex: activeEventIndex,
                 playbackStep: playbackStep
             ))
         case let .envelopePositionUpdate(activeEventIndex, positionFrame):
             result = .envelopePositionUpdate(applyAdapterEnvelopePositionUpdateWithDiagnosticsLocked(
-                channel: queuedEvent.event.channelIndex,
+                channel: event.channelIndex,
                 activeEventIndex: activeEventIndex,
                 positionFrame: positionFrame
             ))
         case let .playbackStateChange(activeEventIndex, change):
             // Existing trigger identity and channel ownership protect reused C slots.
-            if adapterEventIndexByChannel[queuedEvent.event.channelIndex] == activeEventIndex,
+            if adapterEventIndexByChannel[event.channelIndex] == activeEventIndex,
                let voice = adapterVoiceStateByEventIndex[activeEventIndex],
-               voice.channel == queuedEvent.event.channelIndex,
+               voice.channel == event.channelIndex,
                let current = mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex),
                current.active, !current.deactivateAfterGainRamp,
                current.channelTag == voice.channel {
@@ -3473,7 +3507,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             // A silent publication has no voice target. Reject an old silent interval
             // or source generation after a replacement, without changing C state.
             let current = adapterEventIndexByChannel[update.channelIndex]
-            let selectionFrame = queuedEvent.plannedRuntimeFrame - queuedEvent.event.scheduledFrame + update.selectionFrame
+            let selectionFrame = queuedEvent.plannedRuntimeFrame - event.scheduledFrame + update.selectionFrame
             let accepted = update.sourceEventIndex == current &&
                 selectionFrame >= (channelSemanticGenerationFrame[update.channelIndex] ?? Int.min)
             if accepted {
@@ -3482,7 +3516,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             }
             result = .playbackStateChange(targetVoiceIndex: nil, accepted: accepted)
         case let .sourceStop(activeEventIndex):
-            let channel = queuedEvent.event.channelIndex
+            let channel = event.channelIndex
             if adapterEventIndexByChannel[channel] == activeEventIndex,
                let voice = adapterVoiceStateByEventIndex[activeEventIndex], voice.channel == channel,
                mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex)?.channelTag == channel {
@@ -3494,9 +3528,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 result = .playbackStateChange(targetVoiceIndex: nil, accepted: false)
             }
         case let .envelopeSemanticUpdate(activeEventIndex, semantic):
-            if adapterEventIndexByChannel[queuedEvent.event.channelIndex] == activeEventIndex,
+            if adapterEventIndexByChannel[event.channelIndex] == activeEventIndex,
                let voice = adapterVoiceStateByEventIndex[activeEventIndex],
-               voice.channel == queuedEvent.event.channelIndex,
+               voice.channel == event.channelIndex,
                mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex)?.channelTag == voice.channel {
                 let accepted = mixer.setEnvelopeSemanticState(semantic, forVoiceAt: voice.voiceIndex)
                 result = .playbackStateChange(targetVoiceIndex: voice.voiceIndex, accepted: accepted)
@@ -3504,9 +3538,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 result = .playbackStateChange(targetVoiceIndex: nil, accepted: false)
             }
         case let .audibleTargetUpdate(target):
-            if adapterEventIndexByChannel[queuedEvent.event.channelIndex] == target.eventIndex,
+            if adapterEventIndexByChannel[event.channelIndex] == target.eventIndex,
                let voice = adapterVoiceStateByEventIndex[target.eventIndex],
-               voice.channel == queuedEvent.event.channelIndex,
+               voice.channel == event.channelIndex,
                mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex)?.channelTag == voice.channel {
                 result = .playbackStateChange(targetVoiceIndex: voice.voiceIndex,
                     accepted: mixer.publishAudibleOutput(target, forVoiceAt: voice.voiceIndex))
@@ -3515,15 +3549,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             }
         case let .noteCut(activeEventIndex):
             result = .noteCut(applyAdapterNoteCutWithDiagnosticsLocked(
-                channel: queuedEvent.event.channelIndex,
+                channel: event.channelIndex,
                 activeEventIndex: activeEventIndex
             ))
         }
-        let adapterCurrentEventIndexAfter = adapterEventIndexByChannel[queuedEvent.event.channelIndex]
+        let adapterCurrentEventIndexAfter = adapterEventIndexByChannel[event.channelIndex]
         let associationRetained = adapterCurrentEventIndexBefore != nil &&
             adapterCurrentEventIndexBefore == adapterCurrentEventIndexAfter
         let sustainedVoiceUpdate: Bool
-        switch queuedEvent.event.action {
+        switch event.action {
         case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .playbackStateChange, .envelopeSemanticUpdate, .channelSemanticUpdate, .audibleTargetUpdate, .sourceStop, .noteCut:
             sustainedVoiceUpdate = adapterActiveEventIndex != nil &&
                 adapterActiveEventIndex == adapterCurrentEventIndexBefore
@@ -3532,8 +3566,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
 
         return RuntimeCMixerAppliedAdapterEventDiagnostic(
-            event: queuedEvent.event,
-            context: runtimeTraceContext(for: queuedEvent.event),
+            event: event,
+            context: runtimeTraceContext(for: event),
             plannedRuntimeFrame: queuedEvent.plannedRuntimeFrame,
             appliedFrame: appliedFrame,
             callbackIndex: callbackIndex,
@@ -3618,6 +3652,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         controlStateByChannel.removeAll()
         stoppedFrameByChannel.removeAll()
         adapterEventSchedule.removeAll(keepingCapacity: true)
+        adapterEventPlanEvents = []
         nextAdapterEventScheduleIndex = 0
         adapterEventLoopRange = nil
         adapterEventLoopRuntimeFrameOffset = nil

@@ -714,6 +714,20 @@ renders up to the event offset, applies the event, then continues the callback
 render. These fields are diagnostic-only outside the C mixer backend; they do
 not add a UI toggle or change offline render semantics.
 
+Runtime queues retain immutable adapter-event storage with a lightweight ordering
+index built once by frame, action priority and event identity. Identical keys
+retain writer order. Offset overflow and negative prefixes are rejected before
+installation. Loop references resolve through the retained loop range; queue
+replacement, clear and reset remove references before releasing their storage,
+under the existing render lock. Callback lookup is bounded and adds no allocation
+or sorting. Existing loop-continuation and callback-safety debt remain separate.
+
+Playback timing records split queue preparation into descriptor conversion,
+ordering reuse and installation; plan profiling times the once-built ordering
+index separately. Schedule fields report descriptor stride/sort count,
+shared plan storage, and zero full queued-event copies/full-event queue sorts.
+These counters and timings are recorded during preparation, outside rendering.
+
 Runtime snapshot rows may include:
 
 - `runtimeRenderedFrameCount`: cumulative C mixer frames rendered by the

@@ -134,6 +134,7 @@ final class PlaybackEngineTests: XCTestCase {
             "playback_song_synthetic_adapter_adapt_total",
             "adapter_diagnostic_indexing",
             "adapter_event_generation",
+            "runtime_adapter_queue_order_index",
             "event_sorting_grouping",
             "runtime_c_mixer_adapter_event_plan_make_total",
         ])
@@ -143,6 +144,8 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(output.contains("row_count=2"))
         XCTAssertTrue(output.contains("planned_event_count=1"))
         XCTAssertTrue(output.contains("category_count=1"))
+        XCTAssertTrue(output.contains("entry_count=1"))
+        XCTAssertTrue(output.contains("index_sort_count=1"))
         XCTAssertFalse(output.contains("private"))
         XCTAssertFalse(output.contains("/"))
     }

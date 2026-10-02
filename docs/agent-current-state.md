@@ -28,6 +28,9 @@ host.
   diagnostic reason; retired AVAudio runtime paths are not supported.
 - Swift playback/adapter code plans module events. The C mixer renders runtime
   playback and bounded offline work.
+- Runtime queues reuse immutable adapter-event storage through lightweight
+  ordered references. Queue replacement/reset keeps references and their storage
+  together under the existing render lock, including pattern-loop iterations.
 - Nonzero Fxx speed/BPM commands govern their own row from tick 0 through the
   shared frame plan, including runtime event application and sample-time follow.
 - XM envelope/release targets and integer fadeout consume that same tick plan

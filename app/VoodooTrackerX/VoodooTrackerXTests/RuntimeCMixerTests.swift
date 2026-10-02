@@ -2,6 +2,224 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+final class RuntimeCMixerQueueReferenceTests: XCTestCase {
+    private struct QueueValue: Equatable {
+        let event: RuntimeCMixerAdapterEvent
+        let frame: Int
+    }
+
+    func testAlreadyOrderedInputMatchesLegacyQueueWithoutFullEventCopies() {
+        let events = [event(0, 0), event(1, 4), event(2, 9)]
+        let core = makeCore()
+        let result = core.configureAdapterEventSchedule(events, runtimeFrameOffset: 0)
+        XCTAssertEqual(queue(core), legacyQueue(events, offset: 0))
+        XCTAssertEqual(result.fullQueuedEventCopyCount, 0)
+        XCTAssertEqual(result.fullEventSortCount, 0)
+        XCTAssertEqual(result.descriptorSortCount, 0)
+        XCTAssertLessThanOrEqual(result.descriptorStride, 64)
+        XCTAssertTrue(result.planStorageShared)
+    }
+
+    func testSmallInversionIsStillOrderedExactly() {
+        let events = [event(0, 4), event(1, 3), event(2, 5), event(3, 7)]
+        let core = makeCore()
+        core.configureAdapterEventSchedule(events, runtimeFrameOffset: 0)
+        XCTAssertEqual(queue(core), legacyQueue(events, offset: 0))
+        XCTAssertEqual(queue(core).map { $0.event.id }, [1, 0, 2, 3])
+    }
+
+    func testSameFrameActionsRetainRuntimePriorityBeforeIdentity() {
+        let actions: [RuntimeCMixerAdapterEventAction] = [
+            .envelopePositionUpdate(activeEventIndex: 0, positionFrame: 2),
+            triggerAction(), .noteCut(activeEventIndex: 0),
+            .gainPanUpdate(activeEventIndex: 0, gain: 0.5, pan: nil),
+            .stepUpdate(activeEventIndex: 0, playbackStep: 2),
+            .playbackStateChange(activeEventIndex: 0, change: .reset(.init(volumeEnvelope: true)))
+        ]
+        let events = actions.enumerated().map { event($0.offset, 0, action: $0.element) }
+        let core = makeCore()
+        core.configureAdapterEventSchedule(events, runtimeFrameOffset: 0)
+        XCTAssertEqual(queue(core), legacyQueue(events, offset: 0))
+        XCTAssertEqual(queue(core).map { $0.event.id }, [3, 4, 2, 1, 5, 0])
+    }
+
+    func testEqualFrameIdentityTiesRetainOriginalWriterOrder() {
+        let events = [8, 2, 2, 5].enumerated().map { event($0.element, 0, channel: $0.offset) }
+        let core = makeCore()
+        core.configureAdapterEventSchedule(events, runtimeFrameOffset: 0)
+        XCTAssertEqual(queue(core), legacyQueue(events, offset: 0))
+        XCTAssertEqual(queue(core).map { $0.event.channelIndex }, [1, 2, 3, 0])
+    }
+
+    func testNonzeroStartFiltersPrefixAndRetainsAllBoundaryEvents() {
+        let events = [event(0, 2), event(1, 10, action: triggerAction()),
+                      event(2, 10, action: .stepUpdate(activeEventIndex: 0, playbackStep: 2)), event(3, 12)]
+        let core = makeCore()
+        let result = core.configureAdapterEventSchedule(events, runtimeFrameOffset: -10)
+        XCTAssertEqual(queue(core), legacyQueue(events, offset: -10))
+        XCTAssertEqual(queue(core).map(\.frame), [0, 0, 2])
+        XCTAssertEqual(queue(core).map { $0.event.id }, [2, 1, 3])
+        XCTAssertEqual(result.skippedNegativeRuntimeFrameCount, 1)
+        XCTAssertEqual(result.skippedOverflowCount, 0)
+    }
+
+    func testPositiveAndNegativeOffsetOverflowIsRejectedBeforePrefixFiltering() {
+        let events = [event(0, Int.min), event(1, -1), event(2, 0), event(3, Int.max)]
+        for offset in [Int.max, Int.min] {
+            let core = makeCore()
+            let result = core.configureAdapterEventSchedule(events, runtimeFrameOffset: offset)
+            XCTAssertEqual(queue(core), legacyQueue(events, offset: offset))
+            XCTAssertEqual(result.skippedOverflowCount, offset == Int.max ? 1 : 2)
+            XCTAssertEqual(result.skippedNegativeRuntimeFrameCount, offset == Int.max ? 1 : 2)
+        }
+    }
+
+    func testSecondConfigurationSharesTheSameImmutablePlanStorage() {
+        let events = [event(0, 0), event(1, 3)]
+        let plan = RuntimeCMixerAdapterEventPlan(generated: true, sampleRate: 100, plannedSongEndFrame: 5,
+            plannedEventCount: events.count, events: events, categories: [], plan: nil)
+        let core = makeCore()
+        for _ in 0..<2 {
+            let result = core.configureAdapterEventSchedule(plan.eventStorage, runtimeFrameOffset: 0)
+            XCTAssertTrue(result.planStorageShared)
+            let snapshot = core.adapterEventScheduleForTesting()
+            plan.events.withUnsafeBufferPointer { source in
+                snapshot.events.withUnsafeBufferPointer { retained in
+                    XCTAssertEqual(source.baseAddress, retained.baseAddress)
+                }
+            }
+            XCTAssertEqual(queue(core), legacyQueue(plan.events, offset: 0))
+            core.clearAdapterEventSchedule()
+            XCTAssertTrue(core.adapterEventScheduleForTesting().events.isEmpty)
+        }
+    }
+
+    func testCallerMutationCannotChangeRetainedEventPayloads() {
+        var events = [event(7, 0, action: triggerAction())]
+        let expected = events
+        let core = makeCore()
+        core.configureAdapterEventSchedule(events, runtimeFrameOffset: 0)
+        events[0] = event(99, 4)
+        XCTAssertEqual(queue(core), legacyQueue(expected, offset: 0))
+        _ = renderRuntimePCM(core, frames: 1)
+        XCTAssertEqual(core.drainAppliedAdapterEventDiagnostics().map { $0.event }, expected)
+    }
+
+    func testGenerationReplacementAndClearInvalidateOldReferences() {
+        let core = makeCore()
+        core.configureAdapterEventSchedule([event(10, 1, action: triggerAction())], runtimeFrameOffset: 0)
+        let replacement = event(21, 2, action: triggerAction())
+        core.configureAdapterEventSchedule([replacement], runtimeFrameOffset: 0)
+        _ = renderRuntimePCM(core, frames: 3)
+        let applied = core.drainAppliedAdapterEventDiagnostics()
+        XCTAssertEqual(applied.map(\.event), [replacement])
+        XCTAssertEqual(applied.map(\.appliedFrame), [2])
+        core.configureAdapterEventSchedule([event(30, 4)], runtimeFrameOffset: 0)
+        core.clearAdapterEventSchedule()
+        _ = renderRuntimePCM(core, frames: 3)
+        XCTAssertTrue(core.drainAppliedAdapterEventDiagnostics().isEmpty)
+        XCTAssertTrue(core.adapterEventScheduleForTesting().references.isEmpty)
+    }
+
+    func testLoopReferencesUseTheirOwnStorageAndPreserveIterationBoundaries() {
+        let initial = [event(3, 0, action: triggerAction())]
+        let loopEvents = [event(4, 0, action: .gainPanUpdate(activeEventIndex: 0, gain: 0.5, pan: nil)), event(5, 2)]
+        let position = PlaybackPosition(orderIndex: 1, patternIndex: 2, rowIndex: 0)
+        let loop = RuntimeCMixerAdapterEventLoopRange(playbackRange: .init(
+            orderEntry: .init(orderIndex: 1, patternIndex: 2), firstPosition: position, lastPosition: position, rowCount: 1),
+            plannedStartFrame: 0, plannedEndFrame: 4, events: loopEvents)
+        let core = makeCore()
+        let result = core.configureAdapterEventSchedule(initial, runtimeFrameOffset: 0, loopRange: loop)
+        XCTAssertEqual(queue(core), legacyQueue(initial, offset: 0) + legacyQueue(loopEvents, offset: 4))
+        XCTAssertEqual(result.descriptorSortCount, 0)
+        _ = renderRuntimePCM(core, frames: 11)
+        let applied = core.drainAppliedAdapterEventDiagnostics()
+        XCTAssertEqual(applied.map { $0.event.id }, [3, 4, 5, 4, 5])
+        XCTAssertEqual(applied.map(\.plannedRuntimeFrame), [0, 4, 6, 8, 10])
+        XCTAssertEqual(applied.map(\.appliedFrame), [0, 4, 6, 8, 10])
+        XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+        core.clearAdapterEventSchedule()
+        _ = renderRuntimePCM(core, frames: 8)
+        XCTAssertTrue(core.drainAppliedAdapterEventDiagnostics().isEmpty)
+    }
+
+    func testRuntimeReferencesMatchOfflinePCMAndEveryAppliedFrame() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        let song = makePlaybackSong(orderPatternIndices: [0, 0], patternRowsByIndex: [0: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1, effectType: 12, effectParam: 32),
+            makePlaybackRow(index: 2, note: 53, instrument: 1)
+        ]], instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 1, bpm: 25))
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let core = makeCore()
+        core.configureAdapterEventSchedule(runtime.events, runtimeFrameOffset: 0)
+        let expected = legacyQueue(runtime.events, offset: 0)
+        XCTAssertEqual(queue(core), expected)
+        let offline = PlaybackSongOfflineRenderer().render(.init(song: song, startOrderIndex: 0, orderCount: song.orders.count, config: core.config, rows: 6))
+        var pcm = [Float](), applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+        while pcm.count < offline.block.interleavedPCM.count {
+            pcm += renderRuntimePCM(core, frames: min(7, offline.block.frameCount - pcm.count))
+            applied += core.drainAppliedAdapterEventDiagnostics()
+        }
+        XCTAssertEqual(applied.map(\.event), expected.map(\.event))
+        XCTAssertEqual(applied.map(\.plannedRuntimeFrame), expected.map(\.frame))
+        XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.plannedRuntimeFrame) && $0.eventFrameDelta == 0 })
+        XCTAssertEqual(pcm.count, offline.block.interleavedPCM.count)
+        XCTAssertLessThanOrEqual(zip(pcm, offline.block.interleavedPCM).map { abs($0 - $1) }.max() ?? 0, 1e-7)
+    }
+
+    private func event(_ id: Int, _ frame: Int, channel: Int = 0,
+                       action: RuntimeCMixerAdapterEventAction = .noteCut(activeEventIndex: nil)) -> RuntimeCMixerAdapterEvent {
+        .init(id: id, source: .init(orderIndex: 1, patternIndex: 2, rowIndex: id), channelIndex: channel,
+              syntheticTick: id % 3, scheduledFrame: frame, action: action, categories: ["queue_test"])
+    }
+
+    private func triggerAction() -> RuntimeCMixerAdapterEventAction {
+        .noteTrigger(eventIndex: 0, event: .init(row: 0, scheduledStartFrame: 0,
+            sample: .init(monoPCM: Array(repeating: 1, count: 64)), gain: 1), mapping: makeSyntheticEventMapping())
+    }
+
+    private func makeCore() -> RuntimeCMixerRenderCore {
+        .init(config: .init(sampleRate: 100, channelCount: 1), maximumRenderFrames: 64,
+              outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+    }
+
+    private func queue(_ core: RuntimeCMixerRenderCore) -> [QueueValue] {
+        let snapshot = core.adapterEventScheduleForTesting()
+        return snapshot.references.map { reference in
+            QueueValue(event: (reference.usesLoopStorage ? snapshot.loopEvents : snapshot.events)[reference.planEventIndex],
+                       frame: reference.plannedRuntimeFrame)
+        }
+    }
+
+    // Independent small-input oracle preserves the previous wide-value queue's comparator/filter.
+    private func legacyQueue(_ events: [RuntimeCMixerAdapterEvent], offset: Int) -> [QueueValue] {
+        events.compactMap { event -> QueueValue? in
+            let adjusted = event.scheduledFrame.addingReportingOverflow(offset)
+            guard !adjusted.overflow, adjusted.partialValue >= 0 else { return nil }
+            return QueueValue(event: event, frame: adjusted.partialValue)
+        }.sorted { left, right in
+            if left.frame != right.frame { return left.frame < right.frame }
+            if priority(left.event.action) != priority(right.event.action) {
+                return priority(left.event.action) < priority(right.event.action)
+            }
+            return left.event.id < right.event.id
+        }
+    }
+
+    private func priority(_ action: RuntimeCMixerAdapterEventAction) -> Int {
+        switch action {
+        case .gainPanUpdate, .stepUpdate: return 0
+        case .noteCut, .sourceStop: return 1
+        case .noteTrigger: return 2
+        case .playbackStateChange: return 3
+        case .envelopePositionUpdate: return 4
+        case .envelopeSemanticUpdate, .channelSemanticUpdate: return 5
+        case .audibleTargetUpdate: return 6
+        }
+    }
+}
+
 final class RuntimeCMixerTests: XCTestCase {
     func testNoteOnlyRoutingAppliesNewGenerationsAndSourceCursorsAtExactFrames() throws {
         let fixture = try referenceXMFixtureURL("generated/note-only-routing.xm")

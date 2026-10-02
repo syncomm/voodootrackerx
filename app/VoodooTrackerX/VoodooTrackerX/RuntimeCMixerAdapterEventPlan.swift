@@ -81,11 +81,68 @@ struct RuntimeCMixerAdapterEvent: Equatable {
     }
 }
 
+/// Immutable semantic event storage paired with a small, once-built runtime ordering index.
+struct RuntimeCMixerAdapterEventStorage: Equatable {
+    struct OrderEntry: Equatable {
+        let eventIndex: Int
+        let scheduledFrame: Int
+        let priority: Int
+        let eventID: Int
+    }
+
+    let events: [RuntimeCMixerAdapterEvent]
+    let ordering: [OrderEntry]
+
+    init(events: [RuntimeCMixerAdapterEvent], profileSession: AdapterPlanProfileSession? = nil) {
+        let start = profileSession?.beginPhase()
+        self.events = events
+        var ordering = events.enumerated().map { index, event in
+            OrderEntry(eventIndex: index, scheduledFrame: event.scheduledFrame,
+                       priority: Self.priority(event), eventID: event.id)
+        }
+        // Runtime frame/priority/id differs from the cold plan's tick/source comparator.
+        // Sorting only keys also preserves original writer order for identical keys.
+        ordering.sort {
+            if $0.scheduledFrame != $1.scheduledFrame { return $0.scheduledFrame < $1.scheduledFrame }
+            if $0.priority != $1.priority { return $0.priority < $1.priority }
+            return $0.eventID < $1.eventID
+        }
+        self.ordering = ordering
+        profileSession?.recordPhase("runtime_adapter_queue_order_index", startedAt: start, fields: [
+            AdapterPlanProfileField("entry_count", ordering.count),
+            AdapterPlanProfileField("entry_stride", MemoryLayout<OrderEntry>.stride),
+            AdapterPlanProfileField("index_sort_count", 1)
+        ])
+    }
+
+    private static func priority(_ event: RuntimeCMixerAdapterEvent) -> Int {
+        switch event.action {
+        case .gainPanUpdate, .stepUpdate: return 0
+        case .noteCut, .sourceStop: return 1
+        case .noteTrigger: return 2
+        case .playbackStateChange: return 3
+        case .envelopePositionUpdate: return 4
+        case .envelopeSemanticUpdate, .channelSemanticUpdate: return 5
+        case .audibleTargetUpdate: return 6
+        }
+    }
+}
+
 struct RuntimeCMixerAdapterEventLoopRange: Equatable {
     let playbackRange: PlaybackPatternLoopRange
     let plannedStartFrame: Int
     let plannedEndFrame: Int
-    let events: [RuntimeCMixerAdapterEvent]
+    let eventStorage: RuntimeCMixerAdapterEventStorage
+
+    var events: [RuntimeCMixerAdapterEvent] { eventStorage.events }
+
+    init(playbackRange: PlaybackPatternLoopRange, plannedStartFrame: Int, plannedEndFrame: Int,
+         events: [RuntimeCMixerAdapterEvent]) {
+        self.playbackRange = playbackRange
+        self.plannedStartFrame = plannedStartFrame
+        self.plannedEndFrame = plannedEndFrame
+        eventStorage = .init(events: events)
+    }
 
     var frameCount: Int {
         max(0, plannedEndFrame - plannedStartFrame)
@@ -97,9 +154,23 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
     let sampleRate: Double
     let plannedSongEndFrame: Int?
     let plannedEventCount: Int
-    let events: [RuntimeCMixerAdapterEvent]
+    let eventStorage: RuntimeCMixerAdapterEventStorage
     let categories: [String]
     let plan: PlaybackSongSyntheticPlan?
+
+    var events: [RuntimeCMixerAdapterEvent] { eventStorage.events }
+
+    init(generated: Bool, sampleRate: Double, plannedSongEndFrame: Int?, plannedEventCount: Int,
+         events: [RuntimeCMixerAdapterEvent], categories: [String], plan: PlaybackSongSyntheticPlan?,
+         profileSession: AdapterPlanProfileSession? = nil) {
+        self.generated = generated
+        self.sampleRate = sampleRate
+        self.plannedSongEndFrame = plannedSongEndFrame
+        self.plannedEventCount = plannedEventCount
+        self.categories = categories
+        self.plan = plan
+        eventStorage = .init(events: events, profileSession: profileSession)
+    }
 
     var plannedSongEndSeconds: Double? {
         guard generated,
@@ -768,7 +839,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             plannedEventCount: sortedEvents.count,
             events: sortedEvents,
             categories: categories,
-            plan: adaptedPlan
+            plan: adaptedPlan,
+            profileSession: profileSession
         )
         profileSession?.recordPhase(
             "event_sorting_grouping",

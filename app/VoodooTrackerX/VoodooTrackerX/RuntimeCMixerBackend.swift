@@ -561,16 +561,22 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return
         }
         let resolvedLoopRange = patternLoopRange.flatMap { adapterEventPlan.adapterEventLoopRange(for: $0) }
-        let scheduleEvents = resolvedLoopRange?.events ?? adapterEventPlan.events
+        let scheduleStorage = resolvedLoopRange?.eventStorage ?? adapterEventPlan.eventStorage
         let plannedSongEndFrame = resolvedLoopRange == nil ? adapterEventPlan.plannedSongEndFrame : nil
         let scheduleStart = timingSession?.beginPhase()
         let result = renderCore.configureAdapterEventSchedule(
-            scheduleEvents,
+            scheduleStorage,
             runtimeFrameOffset: offset,
             plannedSongEndFrame: plannedSongEndFrame,
-            loopRange: resolvedLoopRange
+            loopRange: resolvedLoopRange,
+            measurePreparation: timingSession != nil
         )
         adapterEventLoopRange = resolvedLoopRange
+        if let conversionMS = result.conversionMS, let orderingMS = result.orderingMS, let installMS = result.installMS {
+            timingSession?.recordMeasuredPhase("runtime_adapter_queue_descriptor_conversion", elapsedMS: conversionMS)
+            timingSession?.recordMeasuredPhase("runtime_adapter_queue_descriptor_ordering", elapsedMS: orderingMS)
+            timingSession?.recordMeasuredPhase("runtime_adapter_queue_descriptor_install", elapsedMS: installMS)
+        }
         timingSession?.recordPhase(
             "runtime_adapter_event_schedule_configure",
             startedAt: scheduleStart,
@@ -578,6 +584,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 PlaybackTimingTraceField("queued_event_count", result.queuedEventCount),
                 PlaybackTimingTraceField("skipped_negative_runtime_frame_count", result.skippedNegativeRuntimeFrameCount),
                 PlaybackTimingTraceField("skipped_overflow_count", result.skippedOverflowCount),
+                PlaybackTimingTraceField("queue_descriptor_stride", result.descriptorStride),
+                PlaybackTimingTraceField("queue_descriptor_sort_count", result.descriptorSortCount),
+                PlaybackTimingTraceField("queue_plan_storage_shared", result.planStorageShared),
+                PlaybackTimingTraceField("full_queued_event_copy_count", result.fullQueuedEventCopyCount),
+                PlaybackTimingTraceField("full_event_queue_sort_count", result.fullEventSortCount),
                 PlaybackTimingTraceField("pattern_loop_configured", resolvedLoopRange != nil),
                 PlaybackTimingTraceField("pattern_loop_order", resolvedLoopRange?.playbackRange.orderIndex ?? -1),
                 PlaybackTimingTraceField("pattern_loop_pattern", resolvedLoopRange?.playbackRange.patternIndex ?? -1),

@@ -2557,8 +2557,10 @@ final class PlaybackSongOfflineRenderer {
 
     /// Reuses the existing generic-ramp reconstruction only until release activates final output.
     static func audibleActivationSeed(for event: SyntheticTrackerEvent, eventIndex: Int,
-                                      plan: PlaybackSongSyntheticPlan, before frame: Int) -> MixerAudibleOutputSeed {
-        let state = gainPanStateAtBoundary(for: event, eventIndex: eventIndex, plan: plan, before: frame)
+                                      voiceStateUpdates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
+                                      before frame: Int) -> MixerAudibleOutputSeed {
+        let state = gainPanStateAtBoundary(for: event, eventIndex: eventIndex,
+            voiceStateUpdates: voiceStateUpdates, before: frame)
         return MixerAudibleOutputSeed(amplitude: state.effectiveGain, pan: state.effectivePan)
     }
 
@@ -2569,13 +2571,23 @@ final class PlaybackSongOfflineRenderer {
         before boundaryFrame: Int,
         includingUpdatesAtBoundary: Bool = false
     ) -> GainPanStateAtBoundary {
+        gainPanStateAtBoundary(for: event, eventIndex: eventIndex,
+            voiceStateUpdates: plan.diagnostics.voiceStateUpdates, before: boundaryFrame,
+            includingUpdatesAtBoundary: includingUpdatesAtBoundary)
+    }
+
+    private static func gainPanStateAtBoundary(
+        for event: SyntheticTrackerEvent, eventIndex: Int,
+        voiceStateUpdates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
+        before boundaryFrame: Int, includingUpdatesAtBoundary: Bool = false
+    ) -> GainPanStateAtBoundary {
         var gain = event.gain
         var pan = event.pan
         var gainRamp: GainPanRampSimulation?
         var panRamp: GainPanRampSimulation?
         let rampFrames = CSoftwareMixer.gainPanUpdateRampFrameCount
 
-        for update in plan.diagnostics.voiceStateUpdates {
+        for update in voiceStateUpdates {
             guard update.activeVoiceUpdated,
                   update.activeEventIndex == eventIndex,
                   update.scheduledFrame < boundaryFrame ||

@@ -219,3 +219,126 @@ final class XMEnvelopeSemanticTests: XCTestCase {
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: bpm), usesLinearFrequencyTable: true)
     }
 }
+
+final class XMPlanningHistoryIndexTests: XCTestCase {
+    func testChannelIndexMatchesScanBoundariesTiesAndOriginalWriterOrder() {
+        let frames = [0, 0, 1, 4, 4, 9]
+        let rows = frames.enumerated().map { ordinal, frame -> PlaybackXMChannelRow in
+            var controls = PlaybackSongSyntheticAdapter.ChannelState()
+            controls.carriedInstrumentIndex = ordinal
+            controls.activeEventIndex = ordinal.isMultiple(of: 3) ? ordinal : nil
+            return .init(source: .init(orderIndex: 0, patternIndex: 0, rowIndex: ordinal), channelIndex: 0,
+                syntheticRow: ordinal, scheduledFrame: frame, controls: controls,
+                instrumentOnlyReset: ordinal.isMultiple(of: 2) ? .reset(.init(volumeEnvelope: true)) : nil)
+        }
+        for input in [rows, [rows[4], rows[0], rows[5], rows[2], rows[3], rows[1]], []] {
+            let index = PlaybackXMChannelHistoryIndex(rows: input)
+            var work = PlaybackXMHistoryLookupDiagnostics()
+            for start in [-1, 0, 1, 3, 4, 5, 9, 10, Int.max] {
+                XCTAssertEqual(index.controls(atOrBefore: start, work: &work),
+                    input.last { $0.scheduledFrame <= start }?.controls)
+                for stop in [start, Int.max] {
+                    XCTAssertEqual(index.silentResets(start: start, stop: stop, work: &work), input.filter {
+                        $0.scheduledFrame >= start && $0.scheduledFrame < stop &&
+                            $0.controls.activeEventIndex == nil && $0.instrumentOnlyReset != nil
+                    })
+                }
+            }
+            XCTAssertEqual(work.fallbackFullScanCount, 0)
+        }
+    }
+
+    func testManySilentResetsUseBoundedIntervalsRatherThanFullChannelScans() {
+        for count in [256, 512] {
+            let rows = (0..<count).map { row in
+                PlaybackXMChannelRow(source: .init(orderIndex: 0, patternIndex: 0, rowIndex: row), channelIndex: 0,
+                    syntheticRow: row, scheduledFrame: row * 2, controls: .init(),
+                    instrumentOnlyReset: .reset(.init(volumeEnvelope: true, keyOn: true, fadeout: true)))
+            }
+            let index = PlaybackXMChannelHistoryIndex(rows: rows)
+            var work = PlaybackXMHistoryLookupDiagnostics()
+            for row in rows {
+                XCTAssertEqual(index.silentResets(start: row.scheduledFrame, stop: row.scheduledFrame + 2, work: &work), [row])
+            }
+            XCTAssertEqual(index.resetEntryCount, count)
+            XCTAssertEqual(work.lookupCount, count)
+            XCTAssertLessThan(work.entriesVisited, count * 22)
+            XCTAssertEqual(work.fallbackFullScanCount, 0)
+        }
+    }
+
+    func testActivationSeedReuseMatchesWholeHistoryFoldIncludingUnfinishedRamps() throws {
+        let plan = PlaybackSongSyntheticAdapter.adapt(stressSong(rows: 16), orderIndex: 0, sampleRate: 100)
+        let event = try XCTUnwrap(plan.pattern.events.first)
+        let write = try XCTUnwrap(plan.diagnostics.voiceStateUpdates.first { $0.activeEventIndex == 0 && $0.gainAfter == 0.5 })
+        let seed = PlaybackSongOfflineRenderer.audibleActivationSeed(for: event, eventIndex: 0,
+            voiceStateUpdates: plan.diagnostics.voiceStateUpdates, before: write.scheduledFrame + 1)
+        // The established generic fold includes the first ramp sample in its effective value.
+        XCTAssertEqual(seed.amplitude, event.gain + (0.5 - event.gain) * 2 / Float(CSoftwareMixer.gainPanUpdateRampFrameCount))
+        for input in [plan.diagnostics.voiceStateUpdates, Array(plan.diagnostics.voiceStateUpdates.reversed())] {
+            for eventIndex in plan.pattern.events.indices {
+                let history = input.filter { $0.activeVoiceUpdated && $0.activeEventIndex == eventIndex }
+                for write in history {
+                    for frame in [write.scheduledFrame - 1, write.scheduledFrame, write.scheduledFrame + 1, write.scheduledFrame + 31] {
+                        XCTAssertEqual(PlaybackSongOfflineRenderer.audibleActivationSeed(for: plan.pattern.events[eventIndex],
+                            eventIndex: eventIndex, voiceStateUpdates: history, before: frame),
+                            PlaybackSongOfflineRenderer.audibleActivationSeed(for: plan.pattern.events[eventIndex],
+                                eventIndex: eventIndex, voiceStateUpdates: input, before: frame))
+                    }
+                }
+            }
+        }
+    }
+
+    func testPlanBuildsHistoryIndexesOnceAndLookupWorkScalesWithPublicStressSong() throws {
+        var previous: PlaybackXMHistoryLookupDiagnostics?
+        for rows in [128, 256] {
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: stressSong(rows: rows), sampleRate: 100)
+            let plan = try XCTUnwrap(runtime.plan)
+            let rowWork = try XCTUnwrap(plan.xmEnvelopeTimeline?.planningHistoryDiagnostics)
+            let voiceWork = try XCTUnwrap(plan.xmAudibleTimeline?.planningHistoryDiagnostics)
+            XCTAssertEqual(rowWork.indexBuildCount, 1)
+            XCTAssertEqual(voiceWork.indexBuildCount, 1)
+            XCTAssertEqual(rowWork.entriesIndexed, rows * 4)
+            XCTAssertEqual(rowWork.lookupCount, plan.pattern.events.count * 2)
+            XCTAssertLessThan(rowWork.entriesVisited, rowWork.entriesIndexed * 8)
+            XCTAssertGreaterThan(voiceWork.lookupCount, 0)
+            XCTAssertEqual(voiceWork.lookupCount, plan.pattern.events.count)
+            XCTAssertLessThanOrEqual(voiceWork.entriesVisited, voiceWork.entriesIndexed)
+            XCTAssertEqual(rowWork.fallbackFullScanCount + voiceWork.fallbackFullScanCount, 0)
+            if let previous { XCTAssertLessThan(rowWork.entriesVisited, previous.entriesVisited * 3) }
+            previous = rowWork
+            let histories = Dictionary(grouping: plan.diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated),
+                by: { $0.activeEventIndex ?? -1 })
+            for update in plan.xmAudibleTimeline?.updates ?? [] where update.activation != nil {
+                XCTAssertEqual(update.activation, PlaybackSongOfflineRenderer.audibleActivationSeed(
+                    for: plan.pattern.events[update.eventIndex], eventIndex: update.eventIndex,
+                    voiceStateUpdates: plan.diagnostics.voiceStateUpdates, before: update.scheduledFrame))
+                XCTAssertEqual(update.activation, PlaybackSongOfflineRenderer.audibleActivationSeed(
+                    for: plan.pattern.events[update.eventIndex], eventIndex: update.eventIndex,
+                    voiceStateUpdates: histories[update.eventIndex] ?? [], before: update.scheduledFrame))
+            }
+        }
+    }
+
+    private func stressSong(rows: Int) -> PlaybackSong {
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 1, count: 64),
+            volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 100, loopStart: 0, loopLength: 64, loopType: 1)
+        return PlaybackSong(title: "Planning history stress", orders: [.init(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [0: .init(index: 0, rows: (0..<rows).map { row in
+                .init(index: row, cells: (0..<4).map { channel in
+                    switch row % 8 {
+                    case 0: return .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    case 1: return .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 12, effectParam: 32)
+                    case 2: return .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 8, effectParam: 192)
+                    case 3, 7: return .init(note: 97, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    case 4: return .init(note: 0, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    case 5: return .init(note: 49, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    default: return .init(note: 0, instrument: 0, volumeColumn: 0,
+                        effectType: channel == 0 ? 16 : 0, effectParam: channel == 0 ? 48 : 0)
+                    }
+                })
+            })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: true)
+    }
+}

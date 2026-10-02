@@ -551,7 +551,9 @@ enum AdapterPlanProfileFields {
     }
 
     static func syntheticPlan(_ plan: PlaybackSongSyntheticPlan) -> [AdapterPlanProfileField] {
-        [
+        let rowWork = plan.xmEnvelopeTimeline?.planningHistoryDiagnostics ?? PlaybackXMHistoryLookupDiagnostics()
+        let voiceWork = plan.xmAudibleTimeline?.planningHistoryDiagnostics ?? PlaybackXMHistoryLookupDiagnostics()
+        return [
             AdapterPlanProfileField("row_count", plan.diagnostics.rowTiming.count),
             AdapterPlanProfileField("synthetic_row_count", plan.diagnostics.syntheticRowCount),
             AdapterPlanProfileField("synthetic_event_count", plan.pattern.events.count),
@@ -560,6 +562,18 @@ enum AdapterPlanProfileFields {
             AdapterPlanProfileField("traversal_diagnostic_count", plan.diagnostics.traversalDiagnostics.count),
             AdapterPlanProfileField("traversal_guard_hit", plan.diagnostics.traversalGuardHit),
             AdapterPlanProfileField("traversal_stop_reason", plan.diagnostics.traversalStopReason.rawValue),
+            AdapterPlanProfileField("xm_row_history_index_build_count", rowWork.indexBuildCount),
+            AdapterPlanProfileField("xm_row_history_entries_indexed", rowWork.entriesIndexed),
+            AdapterPlanProfileField("xm_row_history_reset_entries", rowWork.resetEntriesIndexed),
+            AdapterPlanProfileField("xm_row_history_lookup_count", rowWork.lookupCount),
+            AdapterPlanProfileField("xm_row_history_lookup_entries_visited", rowWork.entriesVisited),
+            AdapterPlanProfileField("xm_row_history_fallback_full_scan_count", rowWork.fallbackFullScanCount),
+            AdapterPlanProfileField("xm_row_history_index_bytes", rowWork.estimatedIndexBytes),
+            AdapterPlanProfileField("xm_voice_history_index_build_count", voiceWork.indexBuildCount),
+            AdapterPlanProfileField("xm_voice_history_entries_indexed", voiceWork.entriesIndexed),
+            AdapterPlanProfileField("xm_voice_history_lookup_count", voiceWork.lookupCount),
+            AdapterPlanProfileField("xm_voice_history_lookup_entries_visited", voiceWork.entriesVisited),
+            AdapterPlanProfileField("xm_voice_history_fallback_full_scan_count", voiceWork.fallbackFullScanCount),
         ]
     }
 

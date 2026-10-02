@@ -10,6 +10,78 @@ struct PlaybackXMChannelRow: Equatable {
     let instrumentOnlyReset: MixerPlaybackStateChange?
 }
 
+/// Deterministic work counts for one immutable history-index construction and its queries.
+struct PlaybackXMHistoryLookupDiagnostics: Equatable {
+    var indexBuildCount = 0
+    var entriesIndexed = 0
+    var resetEntriesIndexed = 0
+    var lookupCount = 0
+    var entriesVisited = 0
+    var fallbackFullScanCount = 0
+    var estimatedIndexBytes = 0
+}
+
+/// A channel-local read-only view; ordinals preserve source writer order at equal frames.
+struct PlaybackXMChannelHistoryIndex {
+    private let rows: [PlaybackXMChannelRow]
+    private let ordered: [Int]
+    private let resets: [Int]
+    private let lastSourceOrdinal: [Int]
+    let chronological: Bool
+
+    var resetEntryCount: Int { resets.count }
+    var estimatedIndexBytes: Int {
+        (ordered.count + resets.count + lastSourceOrdinal.count) * MemoryLayout<Int>.stride
+    }
+
+    init(rows: [PlaybackXMChannelRow]) {
+        self.rows = rows
+        chronological = zip(rows, rows.dropFirst()).allSatisfy { $0.scheduledFrame <= $1.scheduledFrame }
+        var ordered = Array(rows.indices)
+        if !chronological {
+            ordered.sort { rows[$0].scheduledFrame == rows[$1].scheduledFrame ? $0 < $1 :
+                rows[$0].scheduledFrame < rows[$1].scheduledFrame }
+        }
+        self.ordered = ordered
+        resets = ordered.filter { rows[$0].controls.activeEventIndex == nil && rows[$0].instrumentOnlyReset != nil }
+        var latest = -1
+        lastSourceOrdinal = chronological ? [] : ordered.map { latest = max(latest, $0); return latest }
+    }
+
+    /// Returns the same last collection-order match as `last(where:)`, inclusive of the frame.
+    func controls(atOrBefore frame: Int, work: inout PlaybackXMHistoryLookupDiagnostics) -> PlaybackSongSyntheticAdapter.ChannelState? {
+        work.lookupCount += 1
+        let end = bound(frame, in: ordered, inclusive: true, work: &work)
+        guard end > 0 else { return nil }
+        work.entriesVisited += 1
+        return rows[chronological ? ordered[end - 1] : lastSourceOrdinal[end - 1]].controls
+    }
+
+    /// Restricts silent resets to the half-open route lifetime, retaining original writer order.
+    func silentResets(start: Int, stop: Int, work: inout PlaybackXMHistoryLookupDiagnostics) -> [PlaybackXMChannelRow] {
+        work.lookupCount += 1
+        let lower = bound(start, in: resets, inclusive: false, work: &work)
+        let upper = bound(stop, in: resets, inclusive: false, work: &work)
+        guard lower < upper else { return [] }
+        let matches = chronological ? Array(resets[lower..<upper]) : resets[lower..<upper].sorted()
+        work.entriesVisited += matches.count
+        return matches.map { rows[$0] }
+    }
+
+    private func bound(_ frame: Int, in indices: [Int], inclusive: Bool,
+                       work: inout PlaybackXMHistoryLookupDiagnostics) -> Int {
+        var lower = 0, upper = indices.count
+        while lower < upper {
+            let middle = (lower + upper) / 2
+            work.entriesVisited += 1
+            let candidate = rows[indices[middle]].scheduledFrame
+            if candidate < frame || (inclusive && candidate == frame) { lower = middle + 1 }
+            else { upper = middle }
+        }
+        return lower
+    }
+}
+
 /// An exact mapped route with no represented audio source. Undeclared headers add no defaults.
 struct PlaybackXMEmptyRoute: Equatable {
     let source: PlaybackPosition
@@ -176,6 +248,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
     private(set) var updates: [PlaybackXMEnvelopeUpdate] = []
     private(set) var updatesByEvent: [Int: [PlaybackXMEnvelopeUpdate]] = [:]
     private(set) var channelUpdates: [PlaybackXMChannelUpdate] = []
+    private(set) var planningHistoryDiagnostics = PlaybackXMHistoryLookupDiagnostics()
 
     init(song: PlaybackSong, timing: PlaybackSongFxxTimingPlan, plan: PlaybackSongSyntheticPlan) {
         self.timing = timing
@@ -202,6 +275,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         updates = []
         updatesByEvent = [:]
         channelUpdates = []
+        planningHistoryDiagnostics = PlaybackXMHistoryLookupDiagnostics()
         guard !plan.xmEmptyRoutes.isEmpty ||
                 plan.pattern.events.contains(where: { $0.volumeEnvelope != nil || $0.panEnvelope != nil }) ||
                 plan.diagnostics.keyOffEvents.contains(where: \.applied) || !plan.playbackStateEvents.isEmpty ||
@@ -251,6 +325,12 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         let changes = PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan)
         let routesByChannel = Dictionary(grouping: routes, by: \.channelIndex)
         let rowsByChannel = Dictionary(grouping: plan.xmChannelRows, by: \.channelIndex)
+        // Build the complete channel index set once, before any route queries.
+        let rowHistories = rowsByChannel.mapValues { PlaybackXMChannelHistoryIndex(rows: $0) }
+        planningHistoryDiagnostics.indexBuildCount = 1
+        planningHistoryDiagnostics.entriesIndexed = plan.xmChannelRows.count
+        planningHistoryDiagnostics.resetEntriesIndexed = rowHistories.values.reduce(0) { $0 + $1.resetEntryCount }
+        planningHistoryDiagnostics.estimatedIndexBytes = rowHistories.values.reduce(0) { $0 + $1.estimatedIndexBytes }
         let changesByEvent = Dictionary(grouping: changes, by: \.activeEventIndex)
         let releasesByChannel = Dictionary(grouping: plan.diagnostics.keyOffEvents.filter(\.applied), by: \.channelIndex)
         let positionsByChannel = Dictionary(grouping: plan.diagnostics.envelopePositionEffects.filter(\.applied), by: \.channelIndex)
@@ -285,10 +365,9 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 }
                 // The existing instrument-only dispatch owns default restoration. Its silent
                 // reset belongs to this channel clock, never to a fabricated source event.
-                resets += channelRows.compactMap { row in
-                    guard row.channelIndex == channel, row.scheduledFrame >= start, row.scheduledFrame < stop,
-                          row.controls.activeEventIndex == nil, let reset = row.instrumentOnlyReset else { return nil }
-                    return Change(scheduledFrame: row.scheduledFrame, change: reset)
+                resets += (rowHistories[channel]?.silentResets(start: start, stop: stop,
+                    work: &planningHistoryDiagnostics) ?? []).map { row in
+                    Change(scheduledFrame: row.scheduledFrame, change: row.instrumentOnlyReset!)
                 }
                 let volumeEnabled = index.map { plan.pattern.events[$0].volumeEnvelope != nil }
                     ?? (instrument.volume.enabled && !instrument.volume.points.isEmpty)
@@ -297,7 +376,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 let publishesToVoice = volumeEnabled || panEnabled || releases.contains { $0 < sourceEnd } ||
                     resets.contains { $0.scheduledFrame < sourceEnd } || !plan.noteOnlyEventIndices.isEmpty
                 guard publishesToVoice || plan.xmEmptyRoutes.contains(where: { $0.channelIndex == channel }) else { continue }
-                let routeControls = channelRows.last { $0.scheduledFrame <= start }?.controls
+                let routeControls = rowHistories[channel]?.controls(atOrBefore: start, work: &planningHistoryDiagnostics)
                 let carries = route.preservesChannelState
                 var carried = carries ? previous : CarriedState()
                 if carries && !hasPrevious && (index.map { plan.coldReleasedEventIndices.contains($0) }

@@ -66,16 +66,22 @@ struct PlaybackXMAudibleUpdate: Equatable {
 struct PlaybackXMAudibleTimeline: Equatable {
     let updates: [PlaybackXMAudibleUpdate]
     let updatesByEvent: [Int: [PlaybackXMAudibleUpdate]]
+    let planningHistoryDiagnostics: PlaybackXMHistoryLookupDiagnostics
 
     init(plan: PlaybackSongSyntheticPlan) {
         var all = [PlaybackXMAudibleUpdate]()
         let changes = Dictionary(grouping: plan.diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated),
             by: { $0.activeEventIndex ?? -1 })
+        var work = PlaybackXMHistoryLookupDiagnostics()
+        work.indexBuildCount = 1
+        work.entriesIndexed = changes.values.reduce(0) { $0 + $1.count }
         let resets = Dictionary(grouping: PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan), by: \.activeEventIndex)
         for (index, history) in plan.xmEnvelopeTimeline?.updatesByEvent ?? [:] {
             guard plan.pattern.events.indices.contains(index), !history.isEmpty else { continue }
             let event = plan.pattern.events[index]
-            let writes = (changes[index] ?? []).enumerated().sorted {
+            // Seed reconstruction retains source order; tick target consumption uses frame order.
+            let sourceWrites = changes[index] ?? []
+            let writes = sourceWrites.enumerated().sorted {
                 $0.element.scheduledFrame == $1.element.scheduledFrame ? $0.offset < $1.offset :
                     $0.element.scheduledFrame < $1.element.scheduledFrame
             }.map(\.element)
@@ -122,8 +128,10 @@ struct PlaybackXMAudibleTimeline: Equatable {
                     guard !semantic.state.keyOn || changedReset else { continue }
                     managesOutput = true
                     if offset > 0 {
+                        work.lookupCount += 1
+                        work.entriesVisited += sourceWrites.count
                         activation = PlaybackSongOfflineRenderer.audibleActivationSeed(
-                            for: event, eventIndex: index, plan: plan, before: frame)
+                            for: event, eventIndex: index, voiceStateUpdates: sourceWrites, before: frame)
                     }
                 }
                 let initial = offset == 0
@@ -142,6 +150,7 @@ struct PlaybackXMAudibleTimeline: Equatable {
         }
         updates = all.sorted { $0.scheduledFrame == $1.scheduledFrame ? $0.eventIndex < $1.eventIndex : $0.scheduledFrame < $1.scheduledFrame }
         updatesByEvent = Dictionary(grouping: updates, by: \.eventIndex)
+        planningHistoryDiagnostics = work
     }
 
     /// Folds only prior publications through the same pure C state operations used while rendering.

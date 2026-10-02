@@ -358,6 +358,15 @@ planned event count, order count, pattern count, row count, category count, and
 planned song-end frame. Module paths, filenames, titles, and raw event dumps
 are not emitted.
 
+Runtime adapter-plan XM histories are indexed once per song generation. Channel
+reset/control queries use bounded frame lookups, and activation seeds reuse the
+existing event gain/pan histories in original writer order. Supported planning
+does not rescan whole XM histories per route/event. Profile fields prefixed
+`xm_row_history_` and `xm_voice_history_` count index builds, indexed entries,
+queries, visited entries and fallback full scans; row fields also estimate the
+additional ordinal-array bytes. Public stress tests bound work without timing
+thresholds. These diagnostics do not change plan events or audio output.
+
 The local corpus runtime metrics helper enables this profile automatically and
 adds parsed adapter-plan profile summaries to its local-only JSON/Markdown
 outputs. Those outputs must remain under `/tmp` or another ignored local

@@ -730,6 +730,15 @@ within the owned construction array, with one saved event per cycle. The runtime
 index reuses scalar keys and still applies its distinct frame/priority/identity
 comparator. PCM storage remains shared.
 
+Semantic channel rows own complete immutable value-captured controls. Grouping
+and history views retain references to those snapshots, without copying their
+full values. The per-row carried-instrument projection stores only optional
+identities: a present nil carry stays nil, while a missing row uses the final
+row's carry for existing tail extrapolation. Snapshot creation and projection
+remain planning work; publication counts, tick folds and history lookup rules
+retain their established semantics. Deterministic projection work counts pin
+snapshot/value counts, reference/value stride and zero full-controls map copies.
+
 Only the large note-trigger action payload is indirect. Its immutable storage is
 allocated during planning and retained with the plan; semantic tick events do
 not reserve that payload's width. Runtime consumption reads the existing payload.

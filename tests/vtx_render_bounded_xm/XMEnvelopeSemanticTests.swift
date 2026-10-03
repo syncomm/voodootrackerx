@@ -220,6 +220,105 @@ final class XMEnvelopeSemanticTests: XCTestCase {
     }
 }
 
+final class XMSharedChannelSnapshotTests: XCTestCase {
+    func testSnapshotOwnsTheCompleteCapturedValueAfterAdapterMutation() {
+        var controls = PlaybackSongSyntheticAdapter.ChannelState()
+        controls.carriedInstrumentIndex = 7
+        controls.baseChannelVolume = 31
+        controls.vibratoPhase = 19
+        controls.tremoloVibratoControl = 2
+        let captured = controls
+        let snapshot = row(0, controls: controls)
+        controls.carriedInstrumentIndex = nil
+        controls.baseChannelVolume = 64
+        controls.vibratoPhase = 0
+        controls.tremoloVibratoControl = 0
+        XCTAssertEqual(snapshot.controls, captured)
+        XCTAssertNotEqual(snapshot.controls, controls)
+    }
+
+    func testSnapshotEqualityUsesAllValuesAndCoordinatesRatherThanIdentity() {
+        let first = row(0)
+        let equal = row(0)
+        XCTAssertFalse(first === equal)
+        XCTAssertEqual(first, equal)
+        var changed = first.controls
+        changed.vibratoPhase = 23 // Full state survives even when this projection does not read it.
+        XCTAssertNotEqual(first, row(0, controls: changed))
+        XCTAssertNotEqual(first, row(1))
+        XCTAssertNotEqual(first, row(0, channel: 1))
+        XCTAssertNotEqual(first, row(0, frame: 1))
+        XCTAssertNotEqual(first, row(0, reset: nil))
+        XCTAssertNotEqual(first, PlaybackXMChannelRow(source: .init(orderIndex: 1, patternIndex: 0, rowIndex: 0),
+            channelIndex: 0, syntheticRow: 0, scheduledFrame: 0, controls: .init(),
+            instrumentOnlyReset: .reset(.init(volumeEnvelope: true))))
+    }
+
+    func testGroupingAndHistoryViewsRetainTheSameImmutableSnapshots() throws {
+        let snapshots = [row(0), row(1, channel: 1), row(2)]
+        let grouped = Dictionary(grouping: snapshots, by: \.channelIndex)
+        let channel = try XCTUnwrap(grouped[0])
+        XCTAssertTrue(channel[0] === snapshots[0])
+        XCTAssertTrue(channel[1] === snapshots[2])
+        let index = PlaybackXMChannelHistoryIndex(rows: channel)
+        var work = PlaybackXMHistoryLookupDiagnostics()
+        let resets = index.silentResets(start: 0, stop: 3, work: &work)
+        XCTAssertEqual(resets, channel)
+        XCTAssertTrue(resets[0] === snapshots[0])
+        XCTAssertTrue(resets[1] === snapshots[2])
+        XCTAssertEqual(index.controls(atOrBefore: 2, work: &work), snapshots[2].controls)
+        XCTAssertEqual(work.fallbackFullScanCount, 0)
+    }
+
+    func testProjectionPreservesPresentNilCarryAndOnlyFallsBackForMissingRows() {
+        var selected = PlaybackSongSyntheticAdapter.ChannelState()
+        selected.carriedInstrumentIndex = 7
+        let projection = PlaybackXMCarriedInstrumentProjection(rows: [row(0), row(1, controls: selected)])
+        XCTAssertEqual(projection.byRow.count, 2)
+        XCTAssertTrue(projection.byRow.keys.contains(0))
+        XCTAssertNil(projection.byRow[0] ?? projection.lastCarriedInstrument)
+        XCTAssertEqual(projection.byRow[1] ?? projection.lastCarriedInstrument, 7)
+        XCTAssertEqual(projection.byRow[2] ?? projection.lastCarriedInstrument, 7)
+    }
+
+    func testProjectionMatchesThePriorFullControlsMapIncludingEmptyAndTailRows() {
+        let snapshots = (0..<8).map { index -> PlaybackXMChannelRow in
+            var controls = PlaybackSongSyntheticAdapter.ChannelState()
+            controls.carriedInstrumentIndex = index.isMultiple(of: 3) ? nil : index + 1
+            return row(index * 2, controls: controls)
+        }
+        for rows in [snapshots, [snapshots[0]], []] {
+            let projection = PlaybackXMCarriedInstrumentProjection(rows: rows)
+            let prior = Dictionary(uniqueKeysWithValues: rows.map { ($0.syntheticRow, $0.controls) })
+            for syntheticRow in -1...20 {
+                XCTAssertEqual(projection.byRow[syntheticRow] ?? projection.lastCarriedInstrument,
+                    (prior[syntheticRow] ?? rows.last?.controls)?.carriedInstrumentIndex)
+            }
+        }
+    }
+
+    func testLargeProjectionPinsReferenceWidthAndZeroFullControlsCopies() {
+        let count = 2_048
+        let snapshots = (0..<count).map { row($0) }
+        let projection = PlaybackXMCarriedInstrumentProjection(rows: snapshots)
+        XCTAssertEqual(projection.work.snapshotCount, count)
+        XCTAssertEqual(projection.work.projectedValueCount, count)
+        XCTAssertEqual(projection.work.fullControlsValueCopyCount, 0)
+        XCTAssertEqual(projection.work.snapshotReferenceStride, MemoryLayout<UnsafeRawPointer>.stride)
+        XCTAssertEqual(projection.work.projectedValueStride, MemoryLayout<Int?>.stride)
+        XCTAssertLessThan(projection.work.projectedValueStride,
+            MemoryLayout<PlaybackSongSyntheticAdapter.ChannelState>.stride)
+        XCTAssertTrue(projection.byRow.values.allSatisfy { $0 == nil })
+    }
+
+    private func row(_ index: Int, channel: Int = 0, frame: Int? = nil,
+                     controls: PlaybackSongSyntheticAdapter.ChannelState = .init(),
+                     reset: MixerPlaybackStateChange? = .reset(.init(volumeEnvelope: true))) -> PlaybackXMChannelRow {
+        .init(source: .init(orderIndex: 0, patternIndex: 0, rowIndex: index), channelIndex: channel,
+            syntheticRow: index, scheduledFrame: frame ?? index, controls: controls, instrumentOnlyReset: reset)
+    }
+}
+
 final class XMPlanningHistoryIndexTests: XCTestCase {
     func testChannelIndexMatchesScanBoundariesTiesAndOriginalWriterOrder() {
         let frames = [0, 0, 1, 4, 4, 9]

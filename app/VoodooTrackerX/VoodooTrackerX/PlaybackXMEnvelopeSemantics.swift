@@ -1,13 +1,53 @@
 import Foundation
 
-/// Adapter-owned channel controls survive source absence. No cursor or PCM is stored here.
-struct PlaybackXMChannelRow: Equatable {
+/// One immutable, value-captured snapshot shared by row grouping and history views.
+/// Channel controls survive source absence; no cursor or PCM is stored here.
+final class PlaybackXMChannelRow: Equatable, Sendable {
     let source: PlaybackPosition
     let channelIndex: Int
     let syntheticRow: Int
     let scheduledFrame: Int
     let controls: PlaybackSongSyntheticAdapter.ChannelState
     let instrumentOnlyReset: MixerPlaybackStateChange?
+
+    init(source: PlaybackPosition, channelIndex: Int, syntheticRow: Int, scheduledFrame: Int,
+         controls: PlaybackSongSyntheticAdapter.ChannelState, instrumentOnlyReset: MixerPlaybackStateChange?) {
+        self.source = source
+        self.channelIndex = channelIndex
+        self.syntheticRow = syntheticRow
+        self.scheduledFrame = scheduledFrame
+        self.controls = controls
+        self.instrumentOnlyReset = instrumentOnlyReset
+    }
+
+    static func == (lhs: PlaybackXMChannelRow, rhs: PlaybackXMChannelRow) -> Bool {
+        lhs === rhs || (lhs.source == rhs.source && lhs.channelIndex == rhs.channelIndex &&
+            lhs.syntheticRow == rhs.syntheticRow && lhs.scheduledFrame == rhs.scheduledFrame &&
+            lhs.controls == rhs.controls && lhs.instrumentOnlyReset == rhs.instrumentOnlyReset)
+    }
+}
+
+/// Projects only the per-tick carried identity; complete controls remain in the snapshots.
+struct PlaybackXMCarriedInstrumentProjection {
+    struct Work: Equatable {
+        let snapshotCount: Int
+        let projectedValueCount: Int
+        let fullControlsValueCopyCount = 0
+        let snapshotReferenceStride = MemoryLayout<PlaybackXMChannelRow>.stride
+        let projectedValueStride = MemoryLayout<Int?>.stride
+    }
+
+    let byRow: [Int: Int?]
+    let lastCarriedInstrument: Int?
+    let work: Work
+
+    init(rows: [PlaybackXMChannelRow]) {
+        // A present nil carry differs from a missing row: keep the outer optional
+        // of dictionary lookup so only missing rows use final-row tail controls.
+        byRow = Dictionary(uniqueKeysWithValues: rows.map { ($0.syntheticRow, $0.controls.carriedInstrumentIndex) })
+        lastCarriedInstrument = rows.last?.controls.carriedInstrumentIndex
+        work = Work(snapshotCount: rows.count, projectedValueCount: byRow.count)
+    }
 }
 
 /// Deterministic work counts for one immutable history-index construction and its queries.
@@ -343,7 +383,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             var previous = CarriedState()
             var hasPrevious = false
             let channelRows = rowsByChannel[channel] ?? []
-            let controlsByRow = Dictionary(uniqueKeysWithValues: channelRows.map { ($0.syntheticRow, $0.controls) })
+            let carriedInstruments = PlaybackXMCarriedInstrumentProjection(rows: channelRows)
             for (routeIndex, route) in channelRoutes.enumerated() {
                 guard let instrument = route.eventIndex.flatMap({ instruments[$0] }) ?? instrumentsByIdentity[route.instrumentIndex] else { continue }
                 let index = route.eventIndex
@@ -475,7 +515,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     channelUpdates.append(.init(channelIndex: channel, instrumentIndex: route.instrumentIndex,
                         sampleIndex: route.sampleIndex, sourceEventIndex: sourceIndex, source: tick.source,
                         tick: tick.tick, scheduledFrame: frame, bpm: tick.bpm, speed: tick.speed, state: state,
-                        carriedInstrumentIndex: (controlsByRow[tick.row] ?? channelRows.last?.controls)?.carriedInstrumentIndex,
+                        carriedInstrumentIndex: carriedInstruments.byRow[tick.row] ?? carriedInstruments.lastCarriedInstrument,
                         cachedDefaultVolume: routeControls?.triggeredSampleDefaultVolume,
                         cachedDefaultPan: routeControls?.triggeredSampleDefaultPan, selectionFrame: start))
                     if let index = sourceIndex, publishesToVoice {

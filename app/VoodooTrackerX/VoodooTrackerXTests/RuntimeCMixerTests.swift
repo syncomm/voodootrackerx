@@ -2,6 +2,199 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+final class RuntimeCMixerColdPlanAssemblyTests: XCTestCase {
+    func testTriggerPayloadRemainsCompactAndSharesPCMThroughPermutation() {
+        let original = event(4, 2, action: trigger())
+        let result = assemble([original, event(1, 0)])
+        XCTAssertEqual(result.events, [event(1, 0), original])
+        XCTAssertLessThan(MemoryLayout<RuntimeCMixerAdapterEvent>.stride,
+            MemoryLayout<SyntheticTrackerEvent>.stride + MemoryLayout<PlaybackSongSyntheticEventMapping>.stride)
+        guard case let .noteTrigger(_, before, beforeMapping) = original.action,
+              case let .noteTrigger(_, after, afterMapping) = result.events[1].action else {
+            return XCTFail("Trigger payload must survive physical reordering")
+        }
+        XCTAssertEqual(before, after)
+        XCTAssertEqual(beforeMapping, afterMapping)
+        before.sample.monoPCM.withUnsafeBufferPointer { source in
+            after.sample.monoPCM.withUnsafeBufferPointer { retained in
+                XCTAssertEqual(source.baseAddress, retained.baseAddress)
+            }
+        }
+    }
+
+    func testCompactKeysPreserveExactColdComparatorAndPayloads() {
+        let input = [event(9, 12, tick: 1), event(7, 8, tick: 2, action: .stepUpdate(activeEventIndex: 0, playbackStep: 2)),
+            event(6, 8, tick: 1, order: 1, row: 4), event(4, 8, tick: 1, row: 5),
+            event(3, 8, tick: 1, row: 2), event(2, 8, order: 3, row: 1, action: trigger())]
+        let result = assemble(input)
+        XCTAssertEqual(result.events, legacyColdOrder(input))
+        XCTAssertEqual(result.events.map(\.id), [2, 3, 4, 6, 7, 9])
+        XCTAssertEqual(result.metrics.wideEventSortCount, 0)
+        XCTAssertEqual(result.metrics.orderingRecordSortCount, 1)
+    }
+
+    func testIdenticalKeysRetainWriterOrderWithoutPatternOrChannelTieKeys() {
+        let input = [event(5, 0, pattern: 9, channel: 3), event(5, 0, pattern: 2, channel: 1),
+                     event(5, 0, pattern: 4, channel: 0)]
+        let result = assemble(input)
+        XCTAssertEqual(result.events, input)
+        XCTAssertEqual(result.events, legacyColdOrder(input))
+        XCTAssertEqual(result.metrics.fullWidthPlanCopyCount, 0)
+    }
+
+    func testSameFrameActionPrioritiesMatchTheLegacyColdComparator() {
+        let source = PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0)
+        let channel = PlaybackXMChannelUpdate(channelIndex: 0, instrumentIndex: 1, sampleIndex: 0,
+            sourceEventIndex: 0, source: source, tick: 0, scheduledFrame: 0, bpm: 125, speed: 6, state: .init())
+        let audible = PlaybackXMAudibleUpdate(eventIndex: 0, channelIndex: 0, source: source, tick: 0,
+            scheduledFrame: 0, bpm: 125, speed: 6, amplitude: 0.5, pan: 0, durationFrames: 1, intent: "test")
+        let actions: [RuntimeCMixerAdapterEventAction] = [
+            .audibleTargetUpdate(audible), .channelSemanticUpdate(channel),
+            .envelopeSemanticUpdate(activeEventIndex: 0, state: .init()),
+            .envelopePositionUpdate(activeEventIndex: 0, positionFrame: 1),
+            .playbackStateChange(activeEventIndex: 0, change: .reset(.init(volumeEnvelope: true))),
+            trigger(), .sourceStop(activeEventIndex: 0), .noteCut(activeEventIndex: 0),
+            .stepUpdate(activeEventIndex: 0, playbackStep: 2), .gainPanUpdate(activeEventIndex: 0, gain: 0.5, pan: nil)
+        ]
+        let input = actions.enumerated().map { event($0.offset, 0, action: $0.element) }
+        XCTAssertEqual(assemble(input).events, legacyColdOrder(input))
+        XCTAssertEqual(assemble(input).events.map(\.id), [8, 9, 6, 7, 5, 4, 3, 1, 2, 0])
+    }
+
+    func testCategoriesPreserveLexicalUnionAndSkipOnlyIdenticalConsecutiveRuns() {
+        let lists = [["βeta", "Alpha", "dup", "dup"], ["βeta", "Alpha", "dup", "dup"],
+                     ["dup", "Alpha"], [], ["βeta"]]
+        let input = lists.enumerated().map { event($0.offset, $0.offset, categories: $0.element) }
+        let result = assemble(input)
+        XCTAssertEqual(result.categories, Array(Set(input.flatMap(\.categories))).sorted())
+        XCTAssertEqual(result.events.map(\.categories), lists)
+        XCTAssertEqual(result.metrics.categoryUnionCount, 4)
+        XCTAssertEqual(result.metrics.categoryFlatMapCount, 0)
+    }
+
+    func testNontrivialInversionReusesStorageAndMovesOnlyDisplacedEvents() {
+        let input = [event(0, 0), event(1, 4), event(2, 3), event(3, 7)]
+        let result = assemble(input)
+        XCTAssertEqual(result.events, legacyColdOrder(input))
+        XCTAssertEqual(result.events.map(\.id), [0, 2, 1, 3])
+        XCTAssertEqual(result.metrics.fullWidthPlanCopyCount, 0)
+        XCTAssertEqual(result.metrics.wideEventMoveCount, 2)
+    }
+
+    func testEmptyAndSingleEventPlansReuseTheirConstructionStorage() {
+        let empty = assemble([])
+        XCTAssertTrue(empty.events.isEmpty)
+        XCTAssertTrue(empty.categories.isEmpty)
+        XCTAssertTrue(empty.runtimeOrderingEntries.isEmpty)
+        XCTAssertEqual(empty.metrics.orderingRecordSortCount, 0)
+        XCTAssertEqual(empty.metrics.fullWidthPlanCopyCount, 0)
+        let single = event(4, -1, tick: 2, order: 3, categories: ["only"])
+        let result = assemble([single])
+        XCTAssertEqual(result.events, [single])
+        XCTAssertEqual(result.categories, ["only"])
+        XCTAssertEqual(result.metrics.fullWidthPlanCopyCount, 0)
+        XCTAssertEqual(result.metrics.orderingRecordSortCount, 0)
+    }
+
+    func testLargeSyntheticPlanPinsCompactSortCopyAndCategoryWork() {
+        let count = 8_192
+        var assembly = RuntimeCMixerAdapterPlanAssembly(initialCapacity: 0)
+        XCTAssertTrue(assembly.reserveAdditionalCapacity([count]))
+        for index in (0..<count).reversed() { assembly.append(event(index, index, categories: ["stress"])) }
+        let result = assembly.finish()
+        XCTAssertEqual(result.events.map(\.id), Array(0..<count))
+        XCTAssertEqual(result.metrics.eventCount, count)
+        XCTAssertEqual(result.runtimeOrderingEntries.count, count)
+        XCTAssertEqual(result.metrics.orderingRecordSortCount, 1)
+        XCTAssertEqual(result.metrics.fullWidthPlanCopyCount, 0)
+        XCTAssertEqual(result.metrics.wideEventMoveCount, count)
+        XCTAssertEqual(result.metrics.wideEventSortCount, 0)
+        XCTAssertEqual(result.metrics.categoryUnionCount, 1)
+        XCTAssertEqual(result.metrics.categoryFlatMapCount, 0)
+        XCTAssertEqual(result.metrics.reservedCapacity, count)
+        XCTAssertLessThanOrEqual(MemoryLayout<RuntimeCMixerAdapterPlanAssembly.OrderingRecord>.stride, 64)
+    }
+
+    func testCapacityOverflowDoesNotAllocateOrLoseAnExistingEvent() {
+        var assembly = RuntimeCMixerAdapterPlanAssembly(initialCapacity: 1)
+        let expected = event(0, 0)
+        assembly.append(expected)
+        XCTAssertFalse(assembly.reserveAdditionalCapacity([Int.max]))
+        XCTAssertEqual(assembly.finish().events, [expected])
+    }
+
+    func testResultingRuntimeKeysRetainTheDistinctComparatorAndCachedStorage() {
+        let input = [event(3, 6, action: trigger()),
+                     event(2, 6, tick: 2, action: .gainPanUpdate(activeEventIndex: 0, gain: 0.5, pan: nil))]
+        let result = assemble(input)
+        XCTAssertEqual(result.events.map(\.id), [3, 2])
+        let plan = RuntimeCMixerAdapterEventPlan(generated: true, sampleRate: 100, plannedSongEndFrame: 10,
+            plannedEventCount: result.events.count, events: result.events, categories: result.categories, plan: nil,
+            runtimeOrderingEntries: result.runtimeOrderingEntries)
+        XCTAssertEqual(plan.eventStorage, RuntimeCMixerAdapterEventStorage(events: result.events))
+        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 100, channelCount: 1), maximumRenderFrames: 64)
+        for _ in 0..<2 {
+            let configured = core.configureAdapterEventSchedule(plan.eventStorage, runtimeFrameOffset: 0)
+            XCTAssertTrue(configured.planStorageShared)
+            XCTAssertEqual(configured.fullQueuedEventCopyCount, 0)
+            let snapshot = core.adapterEventScheduleForTesting()
+            XCTAssertEqual(snapshot.references.map { snapshot.events[$0.planEventIndex].id }, [2, 3])
+            plan.events.withUnsafeBufferPointer { original in
+                snapshot.events.withUnsafeBufferPointer { retained in XCTAssertEqual(original.baseAddress, retained.baseAddress) }
+            }
+            core.clearAdapterEventSchedule()
+        }
+        core.configureAdapterEventSchedule(plan.eventStorage, runtimeFrameOffset: 0)
+        _ = renderRuntimePCM(core, frames: 7)
+        let applied = core.drainAppliedAdapterEventDiagnostics()
+        XCTAssertEqual(applied.map { $0.event.id }, [2, 3])
+        XCTAssertEqual(applied.map(\.appliedFrame), [6, 6])
+        XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+    }
+
+    private func assemble(_ input: [RuntimeCMixerAdapterEvent]) -> RuntimeCMixerAdapterPlanAssembly.Result {
+        var assembly = RuntimeCMixerAdapterPlanAssembly(initialCapacity: input.count)
+        for event in input { assembly.append(event) }
+        return assembly.finish()
+    }
+
+    private func event(_ id: Int, _ frame: Int, tick: Int = 0, order: Int = 0, row: Int = 0,
+                       pattern: Int = 0, channel: Int = 0, categories: [String] = ["test"],
+                       action: RuntimeCMixerAdapterEventAction = .noteCut(activeEventIndex: nil)) -> RuntimeCMixerAdapterEvent {
+        .init(id: id, source: .init(orderIndex: order, patternIndex: pattern, rowIndex: row), channelIndex: channel,
+              syntheticTick: tick, scheduledFrame: frame, action: action, categories: categories)
+    }
+
+    private func trigger() -> RuntimeCMixerAdapterEventAction {
+        .noteTrigger(eventIndex: 0, event: .init(row: 0, scheduledStartFrame: 0,
+            sample: .init(monoPCM: Array(repeating: 1, count: 64)), gain: 1), mapping: makeSyntheticEventMapping())
+    }
+
+    // Independent tiny-input oracle retains the previous wide-value comparator verbatim.
+    private func legacyColdOrder(_ input: [RuntimeCMixerAdapterEvent]) -> [RuntimeCMixerAdapterEvent] {
+        input.sorted { lhs, rhs in
+            if lhs.scheduledFrame != rhs.scheduledFrame { return lhs.scheduledFrame < rhs.scheduledFrame }
+            if lhs.syntheticTick != rhs.syntheticTick { return lhs.syntheticTick < rhs.syntheticTick }
+            if priority(lhs.action) != priority(rhs.action) { return priority(lhs.action) < priority(rhs.action) }
+            if lhs.source.orderIndex != rhs.source.orderIndex { return lhs.source.orderIndex < rhs.source.orderIndex }
+            if lhs.source.rowIndex != rhs.source.rowIndex { return lhs.source.rowIndex < rhs.source.rowIndex }
+            return lhs.id < rhs.id
+        }
+    }
+
+    private func priority(_ action: RuntimeCMixerAdapterEventAction) -> Int {
+        switch action {
+        case .gainPanUpdate, .stepUpdate: return 0
+        case .noteCut, .sourceStop: return 1
+        case .noteTrigger: return 2
+        case .playbackStateChange: return 3
+        case .envelopePositionUpdate: return 4
+        case .envelopeSemanticUpdate, .channelSemanticUpdate: return 5
+        case .audibleTargetUpdate: return 6
+        }
+    }
+}
+
 final class RuntimeCMixerQueueReferenceTests: XCTestCase {
     private struct QueueValue: Equatable {
         let event: RuntimeCMixerAdapterEvent

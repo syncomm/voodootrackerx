@@ -722,6 +722,34 @@ replacement, clear and reset remove references before releasing their storage,
 under the existing render lock. Callback lookup is bounded and adds no allocation
 or sorting. Existing loop-continuation and callback-safety debt remain separate.
 
+Cold plan construction uses separate lightweight ordering records: scheduled
+frame, synthetic tick, action priority, source order, source row, event identity,
+then original writer ordinal for identical keys. Pattern and channel are not
+extra tie keys. A cycle permutation puts payloads into that exact physical order
+within the owned construction array, with one saved event per cycle. The runtime
+index reuses scalar keys and still applies its distinct frame/priority/identity
+comparator. PCM storage remains shared.
+
+Only the large note-trigger action payload is indirect. Its immutable storage is
+allocated during planning and retained with the plan; semantic tick events do
+not reserve that payload's width. Runtime consumption reads the existing payload.
+
+Categories are unioned during event construction, skipping only identical
+consecutive category lists, then sorted lexically. Final capacity is reserved
+from already-built bounded adapter arrays with checked count arithmetic.
+Semantic publication runs also share their identical immutable category arrays.
+Plan profiling splits `adapter_semantic_event_materialization`,
+`cold_event_ordering`, `cold_event_materialization`, and
+`cold_category_aggregation`; category time accumulates within construction and
+overlaps its enclosing phases. Final assembly reports zero wide-event sorts,
+zero full-width plan-array copies and zero category flatten operations, plus
+compact record stride, displaced-event moves and exact reserved capacity.
+
+Stop completes buffered runtime diagnostics synchronously. A separate
+transport/diagnostics follow-up owns moving expensive completion off the blocking
+UI path while preserving exact records and generation ownership, after cold
+first-Play planning cost is under control.
+
 Playback timing records split queue preparation into descriptor conversion,
 ordering reuse and installation; plan profiling times the once-built ordering
 index separately. Schedule fields report descriptor stride/sort count,

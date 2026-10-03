@@ -28,6 +28,12 @@ host.
   diagnostic reason; retired AVAudio runtime paths are not supported.
 - Swift playback/adapter code plans module events. The C mixer renders runtime
   playback and bounded offline work.
+- Cold adapter plans sort lightweight frame/tick/priority/source/identity keys
+  and permute owned event storage in place. Exact payloads and stable writer
+  ties survive; categories are collected during construction and sorted
+  lexically. Final assembly allocates no second full-width event array.
+  Large immutable note-trigger payloads are indirect, and semantic publication
+  runs share category storage; neither change alters event values or PCM ownership.
 - Runtime queues reuse immutable adapter-event storage through lightweight
   ordered references. Queue replacement/reset keeps references and their storage
   together under the existing render lock, including pattern-loop iterations.

@@ -7,7 +7,8 @@ enum RuntimeCMixerAdapterEventSource: String, Equatable {
 }
 
 enum RuntimeCMixerAdapterEventAction: Equatable {
-    case noteTrigger(eventIndex: Int, event: SyntheticTrackerEvent, mapping: PlaybackSongSyntheticEventMapping)
+    // Box only the large trigger payload during planning, keeping every semantic tick compact.
+    indirect case noteTrigger(eventIndex: Int, event: SyntheticTrackerEvent, mapping: PlaybackSongSyntheticEventMapping)
     case gainPanUpdate(activeEventIndex: Int, gain: Float?, pan: Float?)
     case stepUpdate(activeEventIndex: Int, playbackStep: Double)
     case envelopePositionUpdate(activeEventIndex: Int, positionFrame: Int)
@@ -81,6 +82,168 @@ struct RuntimeCMixerAdapterEvent: Equatable {
     }
 }
 
+/// Orders small keys and permutes owned event storage without another full-width array.
+struct RuntimeCMixerAdapterPlanAssembly {
+    struct OrderingRecord {
+        var eventIndex: Int
+        let frame: Int
+        let tick: Int
+        let priority: Int
+        let order: Int
+        let row: Int
+        let id: Int
+    }
+
+    struct Metrics {
+        let eventCount: Int
+        let orderingRecordSortCount: Int
+        let wideEventMoveCount: Int
+        let categoryUnionCount: Int
+        let reservedCapacity: Int
+        let wideEventSortCount = 0
+        let fullWidthPlanCopyCount = 0
+        let categoryFlatMapCount = 0
+    }
+
+    struct Result {
+        let events: [RuntimeCMixerAdapterEvent]
+        let runtimeOrderingEntries: [RuntimeCMixerAdapterEventStorage.OrderEntry]
+        let categories: [String]
+        let metrics: Metrics
+    }
+
+    private var events = [RuntimeCMixerAdapterEvent]()
+    private var ordering = [OrderingRecord]()
+    private var categories = Set<String>()
+    private var previousCategories: [String]?
+    private var categoryUnionCount = 0
+    private var categoryNanoseconds: UInt64 = 0
+    private var reservedCapacity = 0
+    private let measuresCategories: Bool
+
+    var count: Int { events.count }
+
+    init(initialCapacity: Int, measuresCategories: Bool = false) {
+        self.measuresCategories = measuresCategories
+        events.reserveCapacity(initialCapacity)
+        ordering.reserveCapacity(initialCapacity)
+    }
+
+    mutating func append(_ event: RuntimeCMixerAdapterEvent) {
+        ordering.append(.init(eventIndex: count, frame: event.scheduledFrame, tick: event.syntheticTick,
+            priority: Self.priority(event), order: event.source.orderIndex, row: event.source.rowIndex, id: event.id))
+        events.append(event)
+        let start = measuresCategories ? DispatchTime.now().uptimeNanoseconds : nil
+        // Long semantic publication runs share categories; union an unchanged run only once.
+        if previousCategories != event.categories {
+            categories.formUnion(event.categories)
+            previousCategories = event.categories
+            categoryUnionCount += 1
+        }
+        if let start { categoryNanoseconds += DispatchTime.now().uptimeNanoseconds - start }
+    }
+
+    /// Counts come from already-built bounded adapter arrays, never raw module headers.
+    @discardableResult
+    mutating func reserveAdditionalCapacity(_ counts: [Int]) -> Bool {
+        var capacity = count
+        for addition in counts {
+            let sum = capacity.addingReportingOverflow(addition)
+            guard addition >= 0, !sum.overflow else { return false }
+            capacity = sum.partialValue
+        }
+        events.reserveCapacity(capacity)
+        ordering.reserveCapacity(capacity)
+        reservedCapacity = capacity
+        return true
+    }
+
+    /// Consumes construction storage; downstream callers still receive canonical physical order.
+    mutating func finish(profileSession: AdapterPlanProfileSession? = nil) -> Result {
+        let eventCount = count
+        let orderingStart = profileSession?.beginPhase()
+        if ordering.count > 1 {
+            ordering.sort { lhs, rhs in
+                if lhs.frame != rhs.frame { return lhs.frame < rhs.frame }
+                if lhs.tick != rhs.tick { return lhs.tick < rhs.tick }
+                if lhs.priority != rhs.priority { return lhs.priority < rhs.priority }
+                if lhs.order != rhs.order { return lhs.order < rhs.order }
+                if lhs.row != rhs.row { return lhs.row < rhs.row }
+                if lhs.id != rhs.id { return lhs.id < rhs.id }
+                return lhs.eventIndex < rhs.eventIndex // Exact original writer order for equal keys.
+            }
+        }
+        profileSession?.recordPhase("cold_event_ordering", startedAt: orderingStart, fields: [
+            .init("ordering_record_count", eventCount), .init("ordering_record_stride", MemoryLayout<OrderingRecord>.stride)
+        ])
+        let materializationStart = profileSession?.beginPhase()
+        let moveCount = materializeOrderInPlace()
+        let orderedEvents = events
+        // Reuse scalar keys for the distinct runtime comparator without another wide-array walk.
+        let runtimeEntries = ordering.enumerated().map { index, key in
+            RuntimeCMixerAdapterEventStorage.OrderEntry(eventIndex: index, scheduledFrame: key.frame,
+                priority: key.priority, eventID: key.id)
+        }
+        events = []
+        ordering = []
+        profileSession?.recordPhase("cold_event_materialization", startedAt: materializationStart,
+            fields: [.init("wide_event_move_count", moveCount), .init("full_width_plan_copy_count", 0)])
+        let categoryStart = measuresCategories ? DispatchTime.now().uptimeNanoseconds : nil
+        let sortedCategories = categories.sorted()
+        if let categoryStart { categoryNanoseconds += DispatchTime.now().uptimeNanoseconds - categoryStart }
+        let metrics = Metrics(eventCount: eventCount, orderingRecordSortCount: eventCount > 1 ? 1 : 0,
+            wideEventMoveCount: moveCount, categoryUnionCount: categoryUnionCount,
+            reservedCapacity: reservedCapacity)
+        profileSession?.recordMeasuredPhase("cold_category_aggregation", elapsedMS: Double(categoryNanoseconds) / 1_000_000,
+            fields: [.init("category_event_visit_count", eventCount), .init("category_union_count", categoryUnionCount),
+                     .init("category_flat_map_count", metrics.categoryFlatMapCount)])
+        return Result(events: orderedEvents, runtimeOrderingEntries: runtimeEntries,
+            categories: sortedCategories, metrics: metrics)
+    }
+
+    private mutating func materializeOrderInPlace() -> Int {
+        ordering.withUnsafeMutableBufferPointer { keys in
+            events.withUnsafeMutableBufferPointer { payloads in
+                var moves = 0
+                for start in keys.indices where keys[start].eventIndex >= 0 {
+                    if keys[start].eventIndex == start {
+                        keys[start].eventIndex = -1
+                        continue
+                    }
+                    // A permutation cycle needs only one saved wide value. Negative indices
+                    // mark visited keys; the runtime index consumes their untouched scalar fields.
+                    let saved = payloads[start]
+                    var destination = start
+                    while true {
+                        let source = keys[destination].eventIndex
+                        keys[destination].eventIndex = -1
+                        moves += 1
+                        if source == start {
+                            payloads[destination] = saved
+                            break
+                        }
+                        payloads[destination] = payloads[source]
+                        destination = source
+                    }
+                }
+                return moves
+            }
+        }
+    }
+
+    private static func priority(_ event: RuntimeCMixerAdapterEvent) -> Int {
+        switch event.action {
+        case .gainPanUpdate, .stepUpdate: return 0
+        case .noteCut, .sourceStop: return 1
+        case .noteTrigger: return 2
+        case .playbackStateChange: return 3
+        case .envelopePositionUpdate: return 4
+        case .envelopeSemanticUpdate, .channelSemanticUpdate: return 5
+        case .audibleTargetUpdate: return 6
+        }
+    }
+}
+
 /// Immutable semantic event storage paired with a small, once-built runtime ordering index.
 struct RuntimeCMixerAdapterEventStorage: Equatable {
     struct OrderEntry: Equatable {
@@ -93,10 +256,11 @@ struct RuntimeCMixerAdapterEventStorage: Equatable {
     let events: [RuntimeCMixerAdapterEvent]
     let ordering: [OrderEntry]
 
-    init(events: [RuntimeCMixerAdapterEvent], profileSession: AdapterPlanProfileSession? = nil) {
+    init(events: [RuntimeCMixerAdapterEvent], orderingEntries: [OrderEntry]? = nil,
+         profileSession: AdapterPlanProfileSession? = nil) {
         let start = profileSession?.beginPhase()
         self.events = events
-        var ordering = events.enumerated().map { index, event in
+        var ordering = orderingEntries ?? events.enumerated().map { index, event in
             OrderEntry(eventIndex: index, scheduledFrame: event.scheduledFrame,
                        priority: Self.priority(event), eventID: event.id)
         }
@@ -111,7 +275,8 @@ struct RuntimeCMixerAdapterEventStorage: Equatable {
         profileSession?.recordPhase("runtime_adapter_queue_order_index", startedAt: start, fields: [
             AdapterPlanProfileField("entry_count", ordering.count),
             AdapterPlanProfileField("entry_stride", MemoryLayout<OrderEntry>.stride),
-            AdapterPlanProfileField("index_sort_count", 1)
+            AdapterPlanProfileField("index_sort_count", 1),
+            AdapterPlanProfileField("ordering_entries_precomputed", orderingEntries != nil)
         ])
     }
 
@@ -162,6 +327,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
 
     init(generated: Bool, sampleRate: Double, plannedSongEndFrame: Int?, plannedEventCount: Int,
          events: [RuntimeCMixerAdapterEvent], categories: [String], plan: PlaybackSongSyntheticPlan?,
+         runtimeOrderingEntries: [RuntimeCMixerAdapterEventStorage.OrderEntry]? = nil,
          profileSession: AdapterPlanProfileSession? = nil) {
         self.generated = generated
         self.sampleRate = sampleRate
@@ -169,7 +335,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         self.plannedEventCount = plannedEventCount
         self.categories = categories
         self.plan = plan
-        eventStorage = .init(events: events, profileSession: profileSession)
+        eventStorage = .init(events: events, orderingEntries: runtimeOrderingEntries, profileSession: profileSession)
     }
 
     var plannedSongEndSeconds: Double? {
@@ -295,7 +461,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     result[key] = diagnostic
                 }
             }
-        var events = [RuntimeCMixerAdapterEvent]()
+        var events = RuntimeCMixerAdapterPlanAssembly(initialCapacity: adaptedPlan.pattern.events.count,
+            measuresCategories: profileSession != nil)
         var nextID = 0
         var seenNoteTriggerChannels = Set<Int>()
         profileSession?.recordPhase(
@@ -773,8 +940,21 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             ]
         )
 
+        let semanticMaterializationStart = profileSession?.beginPhase()
         let stateEvents = PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: adaptedPlan)
+        let sourceFreeChannels = Set(adaptedPlan.xmEmptyRoutes.map(\.channelIndex))
+        let carriedCount = stateEvents.lazy.filter {
+            adaptedPlan.xmEnvelopeTimeline?.updatesByEvent[$0.activeEventIndex] == nil &&
+                eventMappingsByIndex[$0.activeEventIndex] != nil
+        }.count
+        let stopCount = adaptedPlan.xmEmptyRoutes.lazy.filter { $0.stoppedEventIndex != nil }.count
+        let channelCount = sourceFreeChannels.isEmpty ? 0 :
+            (adaptedPlan.xmEnvelopeTimeline?.channelUpdates ?? []).lazy.filter { sourceFreeChannels.contains($0.channelIndex) }.count
+        events.reserveAdditionalCapacity([carriedCount, stopCount, channelCount,
+            adaptedPlan.xmEnvelopeTimeline?.updates.count ?? 0, adaptedPlan.xmAudibleTimeline?.updates.count ?? 0])
         let statePositionResolver = stateEvents.isEmpty ? nil : PlaybackSongSampleTimePositionResolver(plan: adaptedPlan)
+        // Immutable lists share their backing storage across a publication run.
+        let carriedPlaybackStateCategories = ["carried_playback_state"]
         for update in stateEvents {
             guard adaptedPlan.xmEnvelopeTimeline?.updatesByEvent[update.activeEventIndex] == nil else { continue }
             guard let mapping = eventMappingsByIndex[update.activeEventIndex] else { continue }
@@ -784,51 +964,38 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 id: events.count, source: position?.source ?? mapping.source, channelIndex: update.channelIndex,
                 syntheticTick: position?.tickInRow ?? mapping.syntheticTick, scheduledFrame: update.scheduledFrame,
                 action: .playbackStateChange(activeEventIndex: update.activeEventIndex, change: update.change),
-                categories: ["carried_playback_state"]))
+                categories: carriedPlaybackStateCategories))
         }
+        let emptyRouteStopCategories = ["empty_route_source_stop"]
         for route in adaptedPlan.xmEmptyRoutes {
             guard let old = route.stoppedEventIndex else { continue }
             events.append(.init(id: events.count, source: route.source, channelIndex: route.channelIndex,
                 syntheticTick: route.tick, scheduledFrame: route.scheduledFrame, action: .sourceStop(activeEventIndex: old),
-                categories: ["empty_route_source_stop"]))
+                categories: emptyRouteStopCategories))
         }
-        let sourceFreeChannels = Set(adaptedPlan.xmEmptyRoutes.map(\.channelIndex))
+        let channelSemanticCategories = ["xm_channel_semantic_tick"]
         for update in adaptedPlan.xmEnvelopeTimeline?.channelUpdates ?? [] where sourceFreeChannels.contains(update.channelIndex) {
             events.append(.init(id: events.count, source: update.source, channelIndex: update.channelIndex,
                 syntheticTick: update.tick, scheduledFrame: update.scheduledFrame, action: .channelSemanticUpdate(update),
-                categories: ["xm_channel_semantic_tick"]))
+                categories: channelSemanticCategories))
         }
+        let envelopeSemanticCategories = ["xm_envelope_semantic_tick"]
         for update in adaptedPlan.xmEnvelopeTimeline?.updates ?? [] {
             events.append(RuntimeCMixerAdapterEvent(id: events.count, source: update.source,
                 channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
                 action: .envelopeSemanticUpdate(activeEventIndex: update.eventIndex, state: update.state),
-                categories: ["xm_envelope_semantic_tick"]))
+                categories: envelopeSemanticCategories))
         }
+        let audibleTargetCategories = ["xm_audible_output_target"]
         for update in adaptedPlan.xmAudibleTimeline?.updates ?? [] {
             events.append(RuntimeCMixerAdapterEvent(id: events.count, source: update.source,
                 channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
-                action: .audibleTargetUpdate(update), categories: ["xm_audible_output_target"]))
+                action: .audibleTargetUpdate(update), categories: audibleTargetCategories))
         }
+        profileSession?.recordPhase("adapter_semantic_event_materialization", startedAt: semanticMaterializationStart)
         let sortingStart = profileSession?.beginPhase()
-        let sortedEvents = events.sorted { lhs, rhs in
-            if lhs.scheduledFrame != rhs.scheduledFrame {
-                return lhs.scheduledFrame < rhs.scheduledFrame
-            }
-            if lhs.syntheticTick != rhs.syntheticTick {
-                return lhs.syntheticTick < rhs.syntheticTick
-            }
-            if priority(lhs.action) != priority(rhs.action) {
-                return priority(lhs.action) < priority(rhs.action)
-            }
-            if lhs.source.orderIndex != rhs.source.orderIndex {
-                return lhs.source.orderIndex < rhs.source.orderIndex
-            }
-            if lhs.source.rowIndex != rhs.source.rowIndex {
-                return lhs.source.rowIndex < rhs.source.rowIndex
-            }
-            return lhs.id < rhs.id
-        }
-        let categories = Array(Set(sortedEvents.flatMap(\.categories))).sorted()
+        let unsortedEventCount = events.count
+        let assembly = events.finish(profileSession: profileSession)
         let plannedSongEndFrame = adaptedPlan.diagnostics.rowTiming
             .map { max($0.rowStartFrame, $0.rowStartFrame + max(0, $0.rowDurationFrames)) }
             .max()
@@ -836,17 +1003,22 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             generated: true,
             sampleRate: sampleRate,
             plannedSongEndFrame: plannedSongEndFrame,
-            plannedEventCount: sortedEvents.count,
-            events: sortedEvents,
-            categories: categories,
+            plannedEventCount: assembly.events.count,
+            events: assembly.events,
+            categories: assembly.categories,
             plan: adaptedPlan,
+            runtimeOrderingEntries: assembly.runtimeOrderingEntries,
             profileSession: profileSession
         )
         profileSession?.recordPhase(
             "event_sorting_grouping",
             startedAt: sortingStart,
             fields: AdapterPlanProfileFields.adapterPlan(plan) + [
-                AdapterPlanProfileField("unsorted_event_count", events.count),
+                AdapterPlanProfileField("unsorted_event_count", unsortedEventCount),
+                AdapterPlanProfileField("wide_event_sort_count", assembly.metrics.wideEventSortCount),
+                AdapterPlanProfileField("ordering_record_sort_count", assembly.metrics.orderingRecordSortCount),
+                AdapterPlanProfileField("full_width_plan_copy_count", assembly.metrics.fullWidthPlanCopyCount),
+                AdapterPlanProfileField("reserved_final_capacity", assembly.metrics.reservedCapacity),
             ]
         )
         profileSession?.recordPhase(
@@ -945,25 +1117,6 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             return Int.max
         }
         return Int(exactFrame.rounded(.down))
-    }
-
-    private static func priority(_ action: RuntimeCMixerAdapterEventAction) -> Int {
-        switch action {
-        case .gainPanUpdate, .stepUpdate:
-            return 0
-        case .noteCut, .sourceStop:
-            return 1
-        case .noteTrigger:
-            return 2
-        case .playbackStateChange:
-            return 3
-        case .envelopePositionUpdate:
-            return 4
-        case .envelopeSemanticUpdate, .channelSemanticUpdate:
-            return 5
-        case .audibleTargetUpdate:
-            return 6
-        }
     }
 
     private static func changedGain(from update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic) -> Float? {

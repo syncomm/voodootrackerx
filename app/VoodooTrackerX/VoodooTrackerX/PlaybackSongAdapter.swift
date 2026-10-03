@@ -282,10 +282,12 @@ enum PlaybackSongSyntheticAdapter {
         var cMixerVoiceCapacityLimitCount = 0
         var skipReasonCounts = [PlaybackSongSyntheticSkipReason: Int]()
 
-        mutating func visit(_ cell: PlaybackCell) {
+        /// Records coverage and returns the existing classification of completely empty cells.
+        mutating func visit(_ cell: PlaybackCell) -> Bool {
             totalCellsVisited += 1
             if isCompletelyEmpty(cell) {
                 emptyCells += 1
+                return true
             }
             if (1...96).contains(cell.note) {
                 normalNoteCells += 1
@@ -301,6 +303,7 @@ enum PlaybackSongSyntheticAdapter {
             } else if cell.note == 0, cell.instrument > 0, cell.volumeColumn == 0, cell.effectType == 0, cell.effectParam == 0 {
                 instrumentOnlyCells += 1
             }
+            return false
         }
 
         mutating func recordScheduledNote(
@@ -408,6 +411,9 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     struct AdapterRowContext {
+        let emptyVolumeColumn = PlaybackSongVolumeColumnDecoder.decode(0)
+        var emptyCellFastPathCount = 0
+        var fullCellDispatchCount = 0
         var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
         var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
         var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
@@ -590,6 +596,8 @@ enum PlaybackSongSyntheticAdapter {
                 AdapterPlanProfileField("event_mapping_count", context.eventMappings.count),
                 AdapterPlanProfileField("ignored_cell_count", context.ignoredCells.count),
                 AdapterPlanProfileField("voice_state_update_count", context.voiceStateUpdates.count),
+                AdapterPlanProfileField("empty_cell_bypass_count", context.emptyCellFastPathCount),
+                AdapterPlanProfileField("full_cell_dispatch_count", context.fullCellDispatchCount),
             ]
         )
         profileSession?.recordPhase(
@@ -717,9 +725,25 @@ enum PlaybackSongSyntheticAdapter {
         }
         for channelIndex in row.cells.indices {
             let cell = row.cells[channelIndex]
+            if context.eventCoverage.visit(cell) {
+                // Empty cells have no row writers. Capture the unchanged controls once,
+                // retaining every occurrence and diagnostic without copying a working
+                // channel state or dispatching no-op decoding/effect helpers. The later
+                // nonzero-tick pass stays in its established row-wide order below.
+                context.emptyCellFastPathCount += 1
+                context.xmChannelRows.append(.init(source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
+                    controls: context.channelStates[channelIndex], instrumentOnlyReset: nil))
+                context.ignoredCells.append(ignoredCell(
+                    source: source, channelIndex: channelIndex, cell: cell, reason: .emptyNote,
+                    volumeColumn: context.emptyVolumeColumn, hasIgnoredVolumeColumn: false, hasIgnoredEffect: false
+                ))
+                context.eventCoverage.recordIgnoredCell(reason: .emptyCell, isNormalNote: false)
+                continue
+            }
+            context.fullCellDispatchCount += 1
             let nextCell = nextRow.flatMap { $0.cells.indices.contains(channelIndex) ? $0.cells[channelIndex] : nil }
             let restoreVibratoAtRowEnd = nextCell.map { $0.effectType != 4 && $0.effectType != 6 } ?? false
-            context.eventCoverage.visit(cell)
             if let effectCommandDiagnostic = effectCommandDiagnostic(
                 from: cell,
                 source: source,

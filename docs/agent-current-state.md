@@ -28,6 +28,9 @@ host.
   diagnostic reason; retired AVAudio runtime paths are not supported.
 - Swift playback/adapter code plans module events. The C mixer renders runtime
   playback and bounded offline work.
+- Semantic channel rows capture complete immutable controls once. Row grouping
+  and history views share those snapshots; per-tick carried-instrument lookup
+  uses a compact projection that preserves nil carries and final-row tail fallback.
 - Cold adapter plans sort lightweight frame/tick/priority/source/identity keys
   and permute owned event storage in place. Exact payloads and stable writer
   ties survive; categories are collected during construction and sorted

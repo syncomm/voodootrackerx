@@ -68,8 +68,52 @@ This closes the audible-factor contract, not all pan-envelope parity. Existing
 Float segment interpolation and slopes through stored point 64 remain distinct
 from reference Q8 arithmetic and loader normalization. VTX retains its logical
 release from pan sustain; the pinned sustained control keeps its pan value held
-after release. Neither clock/arithmetic difference is corrected here. Lxx still
-positions only volume (G07); static pan law (G40) remains open. Preview is isolated.
+after release. Neither clock/arithmetic difference is corrected here. G07 adds
+positioning to this same pan segment; static pan law (G40) remains open. Preview
+is isolated.
+
+### G07 Lxx panning-envelope positioning
+
+`Lxx` retains its existing volume-position behavior and also positions an enabled
+pan envelope when the sounding envelope instrument's raw volume type has the
+sustain bit (`0x02`) set. Volume enable and loop bits do not participate in that
+gate. An instrument-only selection does not replace the sounding instrument for
+the gate. Silent declared routes carry the same semantics without creating a
+voice. Existing resets and release happen before same-cell positioning; Lxx
+does not revive key-on or reset fadeout.
+
+The command selects the requested byte position and samples the existing Float
+segment on that exact canonical tick frame. A position at or beyond the final
+point holds its value while the clock advances. Selecting exactly a loop end
+wraps immediately to its start, except for a released sustain point at that end.
+A jump past the loop end traverses the tail instead of wrapping; instrument reset
+restores normal loop progression. Gate-off leaves ordinary G06 pan progression
+unchanged. The positioned value feeds the unchanged G06 combination rule and
+existing final-L/R writer; no new clock or callback semantics are introduced.
+
+Project-authored constant-loop controls pin all eight raw volume-flag combinations,
+L00, interior/end/beyond positions, loops, sustain/release, trigger/reset ordering,
+silent routes and exact instrument carry. Command-frame position/value matches
+the unchanged pinned reference at 44.1/48 kHz. Whole/window/runtime-core tests
+verify semantic state, final targets, PCM and zero planned/applied frame delta.
+
+The bounded G07 Lxx panning-envelope positioning contract is `CLOSED` by
+maintainer acceptance of the automated controls and external verification below.
+G06 remains closed. G31 fractional/Q8 envelope arithmetic, G40 static/header/8xx
+final pan law and the pan-sustain/release difference remain explicitly open;
+this is not overall panning-envelope parity.
+
+The maintainer reported `** TEST SUCCEEDED **` for the full canonical repo-root
+Debug Xcode test action with `-derivedDataPath build` and `CODE_SIGNING_ALLOWED=NO`.
+This is external verification supplied by the maintainer, not reproduced by
+Codex. Prior `com.apple.testmanagerd.control` and `_RegisterApplication` failures
+are classified as execution-environment failures, not VTX/G07 failures.
+
+The maintainer also reported correct listening for `xm-corpus-023` at zero-based
+order 0, pattern 8, row 0, channel 1 (`L35`), and for regression sentinel
+`xm-corpus-011`, with no unrelated level, pitch, timing, routing or stereo
+regression observed. This records maintainer listening, not subjective listening
+by Codex; no private filename or path is included.
 
 ## Shared audible target implementation
 
@@ -190,10 +234,10 @@ and `F03`. Measurements establish these rules:
 | Advancement | Advance one logical position at each subsequent canonical XM tick; hold the factor between ticks. Existing VTX linear point interpolation is retained. |
 | Sustain/release | Hold the sustain point while key-on. The release tick retains a held sustain value; the next tick advances. |
 | Loop | Wrap on the end tick to the start point (exclusive end). Looping continues after release, except that a released sustain point at the loop end lets progression escape the loop. |
-| `Lxx` | Publish the supported volume-envelope position on that exact tick; subsequent ticks advance from it. Values beyond the final point hold that point's value. |
+| `Lxx` | Preserve volume positioning; additionally position the enabled pan envelope under the sounding instrument's raw volume-sustain flag. Use the same canonical tick frame and existing interpolator. See the G07 contract above for loop/end boundaries. |
 | Fadeout | On the release tick and each subsequent tick, `accumulator = max(0, accumulator - instrumentFadeout)`; factor is `accumulator / 32768`. Zero fadeout holds unity; an oversized value clamps immediately. |
 | No-envelope key-off | Note 97 and `Kxx` zero base/output volume at their scheduled tick. Fadeout still progresses and source cursor/lifetime continue. Later `C40` restores channel volume, exposing the remaining fadeout; zero fadeout factor stays silent. |
-| Pan clock | Uses the same tick frames, logical sustain/loop bookkeeping and reset presence flags. G06 consumes its held segment value; `Lxx` pan positioning remains G07. The existing pan-sustain release quirk difference is retained. |
+| Pan clock | Uses the same tick frames, logical sustain/loop bookkeeping and reset presence flags. G06 consumes its held segment value; G07 positions that same segment under the raw volume-sustain flag. The existing pan-sustain release quirk difference is retained. |
 
 At 48 kHz a voice started at BPM 125 publishes positions 5, 6, 7, 8, 9 at
 frames `4800, 5760, 6240, 6720, 7200` when row 1 changes to BPM 250.
@@ -428,4 +472,4 @@ frame envelopes, headroom policies, and explicit-trigger default-volume behavior
 retain their contracts. Managed XM factor updates use the single final-output
 state described above for ordinary and reset transitions, including instrument-only
 restoration and note-only carry. G06 uses the same output state. Pan-clock/Q8
-quirks, G07, G40 and full FT2 mixer parity remain separate work.
+quirks, G40 and full FT2 mixer parity remain open; bounded G07 positioning is closed.

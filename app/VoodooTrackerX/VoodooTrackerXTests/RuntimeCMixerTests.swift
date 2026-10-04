@@ -858,6 +858,8 @@ final class RuntimeCMixerTests: XCTestCase {
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixture.path)
         try assertXMEnvelopeRuntimeParity(song)
         try assertXMEnvelopeRuntimeParity(makePanningEnvelopeControl())
+        try assertXMEnvelopeRuntimeParity(makePanningEnvelopeControl(volumeFlags: 3, positions: true))
+        try assertXMEnvelopeRuntimeParity(makePanningEnvelopeControl(volumeFlags: 2, positions: true))
     }
 
     private func assertXMEnvelopeRuntimeParity(_ song: PlaybackSong) throws {
@@ -931,20 +933,27 @@ final class RuntimeCMixerTests: XCTestCase {
         }
     }
 
-    private func makePanningEnvelopeControl() -> PlaybackSong {
+    private func makePanningEnvelopeControl(volumeFlags: UInt8 = 1, positions: Bool = false) -> PlaybackSong {
         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.25, count: 256),
             volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363, loopStart: 0, loopLength: 256, loopType: 1)
-        let volume = PlaybackVolumeEnvelope(enabled: true, points: [.init(tick: 0, value: 64), .init(tick: 100, value: 64)],
-            sustainPointIndex: nil, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: 1, fadeout: 0)
+        let volume = PlaybackVolumeEnvelope(enabled: volumeFlags & 1 != 0, points: [.init(tick: 0, value: 64), .init(tick: 100, value: 64)],
+            sustainPointIndex: volumeFlags & 2 == 0 ? nil : 1, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: volumeFlags, fadeout: 0)
         let pan = PlaybackPanningEnvelope(enabled: true,
             points: [.init(tick: 0, value: 32), .init(tick: 2, value: 16), .init(tick: 6, value: 48), .init(tick: 10, value: 32)],
             sustainPointIndex: nil, loopStartPointIndex: 1, loopEndPointIndex: 2, typeFlags: 5)
-        let commands: [Int: PlaybackCell] = [
+        var commands: [Int: PlaybackCell] = [
             0: .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
             1: .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 8, effectParam: 224),
             2: .init(note: 0, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
             3: .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 15, effectParam: 250),
             4: .init(note: 97, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]
+        if positions {
+            commands[2] = .init(note: 0, instrument: 1, volumeColumn: 0, effectType: 0x15, effectParam: 4)
+            commands[4] = .init(note: 97, instrument: 0, volumeColumn: 0, effectType: 0x15, effectParam: 8)
+            for (row, position): (Int, UInt8) in [(5, 0), (6, 8), (7, 16)] {
+                commands[row] = .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x15, effectParam: position)
+            }
+        }
         return PlaybackSong(title: "Public G06 control", orders: [.init(orderIndex: 0, patternIndex: 0)],
             patternsByIndex: [0: .init(index: 0, rows: (0..<8).map { row in
                 .init(index: row, cells: [commands[row] ?? .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)])

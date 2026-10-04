@@ -157,7 +157,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Gxx` | Global volume | Implemented | Partial | None | Not applicable | Clamped `0...64` state and active/future gains exist; cross-channel writer/output interactions remain bounded by the shared-output contract. |
 | `Hxy` | Global volume slide | Implemented | Partial | Own channel-local byte; `H00` replay missing | Not applicable | VTX applies once at row start. FT2 nonzero-tick scheduling (G12) and H00 memory (G13) remain open. |
 | `Kxx` | Key off | Implemented | Partial | None | Not applicable | Canonical-tick release, retained source and integer fadeout exist. No-envelope release zeros base/output except instrument-only K00 volume restoration. Note-97/K00/instrument/volume precedence remains G24. |
-| `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Volume positioning, including silent-channel clocks, exists. G06 ordinary audible pan is implemented; pan positioning and its volume-sustain flag gate remain G07. |
+| `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Existing volume positioning is preserved. Bounded G07 pan positioning is closed under the sounding instrument's raw volume-sustain flag, including disabled volume envelopes and silent-channel clocks. G31, G40 and pan-sustain/release differences remain open. |
 | `Pxy` | Panning slide | Deferred | Open | Own byte; pinned `P00` replays it | Not applicable | Real FT2/XM v1 target G33. Legacy handler support is not C-adapter support; remaining timing/writer/pan-envelope interactions need characterization. |
 | `Rxy` | Multi retrigger | Implemented | Partial | Own independent interval/mode nibbles; replay missing | Not applicable | First-pass active-voice scheduler and common-XM volume modes exist. R00/zero-nibble memory G20, persistent counter/tick-zero/carry G21 and exact FT2 arithmetic G22 remain open. |
 | `Txy` | Tremor | Deferred | Open | Own byte; pinned `T00` replays it | Not applicable | Real FT2/XM v1 target G34. Counter/phase, cold state, trigger carry and volume-writer interactions still need characterization. |
@@ -353,8 +353,12 @@ support alone does not close these domains:
   distinct. G06 now composes the carried pan value into the existing final-L/R
   target, preserving neutral/static baselines and silent routes. Existing
   fractional/point-64 arithmetic and pan-sustain release differences remain open.
-  Lxx's FT2 pan-position gate depends on the volume-envelope sustain flag; volume Lxx
-  support does not close it.
+  Lxx now positions the existing pan clock under the sounding instrument's raw
+  volume-sustain flag, independent of volume enable/loop flags. Command-frame
+  position/value controls match the pinned reference at both rates. The bounded
+  G07 positioning contract is closed with automated controls and external
+  maintainer Xcode/listening acceptance. Volume Lxx is unchanged; this does not
+  close overall panning-envelope parity.
 - **Envelopes and instrument modulation:** volume/pan clocks, sustain/loop,
   release and integer fadeout foundations exist. Fractional envelope arithmetic
   (G31) and pan-clock quirks still need closure. Instrument autovibrato (G32) is

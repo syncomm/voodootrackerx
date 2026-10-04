@@ -284,6 +284,10 @@ python3 -m tools.vtx_diag corpus_map update \
   --map <path> \
   --summary-json <path> \
   --summary-markdown <path>
+
+python3 -m tools.vtx_diag corpus_map enrich --label-map <path> --output <path>
+python3 -m tools.vtx_diag corpus_map select \
+  --inventory <path> --has-positive-quiet-header --limit 5 --json
 ```
 
 The `audio_compare` modes own the existing WAV comparator, local smoke defaults,
@@ -363,6 +367,56 @@ It does not absorb residual-effect classification or the standalone runtime
 corpus orchestration helper. Shared exit statuses remain `0` for success, `1`
 for operational failure, `2` for usage error, and `3` for migration pending.
 
+### Regenerable corpus inventory
+
+The label map is the stable local identity/location input: `label`, `path`, and
+`frequency_table`. `enrich` reads it without changing its bytes, labels, or
+schema; existing `update` compatibility behavior remains unchanged. Derived
+facts belong in a separate disposable inventory, not additional map fields.
+Inventory schema v1 has `schema_version`, label-sorted `entries`, and
+SHA-256 `duplicate_groups`. Identical source bytes retain all their labels.
+There are no timestamps in the deterministic payload.
+
+`enrich` observes bounded headers from the existing corpus-map walker and cells
+from the existing residual decoder using one byte snapshot per module. It adds
+structural, sample volume/pan/bit-depth/loop/tuning, envelope/fadeout/autovibrato,
+cell-shape, and effect/volume-column facts. `declared_samples` covers all headers;
+`represented_samples` covers headers whose complete payload contains at least
+one 8-bit or 16-bit PCM frame. This is a static candidate definition, not a VTX
+source/admission or sounding-ownership assertion. Quiet-header filters use only
+that latter group; declared empty quiet headers remain separately countable.
+Envelope presence means an enable flag plus at least one point; nonneutral
+enabled curves have a volume value other than 64 or pan value other than 32.
+Autovibrato presence means any nonzero raw waveform/sweep/depth/rate field.
+
+Stored counts include allocated patterns. Listed-order counts weight each valid
+listed pattern occurrence, without interpreting B/D/E6/EE traversal. Invalid
+order references make listed counts null. Effect families carry stored parameter
+histograms, whole/low/high zero counts, and at most three zero-based
+`pattern`/`row`/`channel` coordinates. Exact forms include E10/EA0/X10/E90,
+F00/speed/BPM splits, and unknown `byte-XX:YY` forms; nibble forms distinguish
+40y/4x0, 70y/7x0 and R0y/Rx0. Explicitly encoded 000 is distinct from absent
+effect fields. Volume families retain exact bytes, including zero nibbles.
+`cell_shapes` counts note/instrument-field shapes, without carried routing.
+
+Each source failure gets a redacted category and does not abort generation.
+Unsupported pre-1.04 layouts are explicit static failures. `vtx_parse_status`
+is `not_checked` and `vtx_admitted` is null: static inspection never asserts
+playability, renderability, or editable-copy admission. No support/closure
+classifications are cached. Inventory and selection output omit source paths,
+filenames, titles, tracker text, and private directories. Inventories must stay
+outside the repository; output cannot overwrite the map or any source, including
+symlink/hardlink aliases. Replacement is atomic and tool-level failures return 1.
+
+`select` combines filters with AND, orders by label, and emits labels/facts only
+as text or stdout JSON. Filters include frequency table, minimum channels,
+positive quiet headers, noncenter sample pan, forward/ping-pong loops,
+volume/panning envelopes, autovibrato, repeatable exact effect families/forms,
+and volume families. For example, use `--effect EEx`, `--effect-form E10`/`R0y`, or
+`--volume-command Ax`; `--limit 0` returns no entries. Presence filters search
+stored cells, including patterns absent from the order list. Candidate presence
+requires bounded/runtime refinement before any claim of audible relevance.
+
 Current package shape:
 
 ```text
@@ -381,6 +435,7 @@ tools/vtx_diag/
   runtime_trace_summary.py # authoritative runtime C mixer trace summary
   runtime_trace_correlate_window.py # authoritative runtime/offline window correlation
   corpus_map.py        # authoritative private local map update/redacted summaries
+  corpus_inventory.py  # separate regenerable facts and factual label selection
   cli_tests.py         # registry, help, dispatch, and import tests
   audio_compare_migration_tests.py # legacy/unified parity and confinement tests
   reference_triage_migration_tests.py # triage parity, confinement, and audit tests
@@ -388,6 +443,7 @@ tools/vtx_diag/
   residual_scan_migration_tests.py # residual parity, redaction, and confinement tests
   runtime_trace_migration_tests.py # runtime summary/window parity and confinement tests
   corpus_map_migration_tests.py # corpus-map parity, redaction, and confinement tests
+  corpus_inventory_tests.py # synthetic inventory, selection, privacy and failure tests
 ```
 
 The SwiftPM tools should remain separate unless a later design explicitly moves

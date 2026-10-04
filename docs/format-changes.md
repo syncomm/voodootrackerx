@@ -3,6 +3,18 @@
 This log records intentional changes to VTX's supported persistence or module
 compatibility boundary. It is not a claim of arbitrary XM round-trip support.
 
+## Disposable local corpus inventory v1
+
+`corpus_map enrich` introduces a separate generated JSON artifact with
+`schema_version: 1`, label-oriented `entries`, and SHA-256 `duplicate_groups`.
+The stable input label map and existing updater outputs keep their schemas and
+behavior. The inventory contains structural facts, not current support/closure
+classifications or source paths. Static inspection and unchecked VTX admission
+remain distinct; see [diagnostic tooling](diagnostic-tools.md#regenerable-corpus-inventory).
+No migration is required: regenerate this disposable artifact from the explicit
+local map. Synthetic tests verify byte determinism, unchanged inputs, existing
+walker compatibility, redaction, output confinement, and candidate selection.
+
 ## XM tick-domain envelope diagnostics
 
 Bounded-render JSON now identifies XM envelope state with

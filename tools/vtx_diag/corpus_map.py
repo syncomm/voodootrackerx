@@ -7,6 +7,7 @@ import json
 import os
 import re
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -63,7 +64,12 @@ def version_label(raw: int) -> str:
     return f"{raw >> 8}.{raw & 0xFF:02x}"
 
 
-def parse_xm(path: Path) -> dict[str, Any]:
+def parse_xm(
+    path: Path, *, data: bytes | None = None,
+    pattern_observer: Callable[[int, bytes, bytes], None] | None = None,
+    instrument_observer: Callable[[bytes, list[bytes]], None] | None = None,
+) -> dict[str, Any]:
+    """Walk metadata, optionally observing complete headers from one byte snapshot."""
     warnings: list[str] = []
     metadata: dict[str, Any] = {
         "format": "unknown",
@@ -80,10 +86,11 @@ def parse_xm(path: Path) -> dict[str, Any]:
         "instrument_count": None,
         "sample_count": None,
         "sample_count_status": "unknown",
-        "file_size_bytes": path.stat().st_size,
+        "file_size_bytes": path.stat().st_size if data is None else len(data),
         "parse_warnings": warnings,
     }
-    data = path.read_bytes()
+    if data is None:
+        data = path.read_bytes()
     if len(data) < 80 or data[: len(SIG)] != SIG:
         warnings.append("missing or truncated XM header")
         return metadata
@@ -114,14 +121,20 @@ def parse_xm(path: Path) -> dict[str, Any]:
     if offset > len(data):
         warnings.append("XM header extends past file")
         return metadata
-    offset = skip_patterns(data, offset, pattern_count, warnings)
-    sample_count, status = sample_count_from_instruments(data, offset, metadata["instrument_count"], warnings)
+    offset = skip_patterns(data, offset, pattern_count, warnings, observer=pattern_observer)
+    sample_count, status = sample_count_from_instruments(
+        data, offset, metadata["instrument_count"], warnings, observer=instrument_observer,
+    )
     metadata["sample_count"] = sample_count
     metadata["sample_count_status"] = status
     return metadata
 
 
-def skip_patterns(data: bytes, offset: int, count: int, warnings: list[str]) -> int:
+def skip_patterns(
+    data: bytes, offset: int, count: int, warnings: list[str], *,
+    observer: Callable[[int, bytes, bytes], None] | None = None,
+) -> int:
+    """Skip existing pattern spans; observers do not change the legacy walk."""
     current = offset
     for index in range(count):
         if current + 9 > len(data):
@@ -131,14 +144,21 @@ def skip_patterns(data: bytes, offset: int, count: int, warnings: list[str]) -> 
         if header_size < 9 or current + header_size > len(data):
             warnings.append(f"pattern {index} header invalid")
             return len(data)
+        start = current
         current += header_size + u16(data, current + 7)
         if current > len(data):
             warnings.append(f"pattern {index} packed data extends past file")
             return len(data)
+        if observer is not None:
+            observer(index, data[start : start + header_size], data[start + header_size : current])
     return current
 
 
-def sample_count_from_instruments(data: bytes, offset: int, count: int, warnings: list[str]) -> tuple[int | None, str]:
+def sample_count_from_instruments(
+    data: bytes, offset: int, count: int, warnings: list[str], *,
+    observer: Callable[[bytes, list[bytes]], None] | None = None,
+) -> tuple[int | None, str]:
+    """Count declared slots and optionally observe bounded instrument/sample headers."""
     current = offset
     total = 0
     for index in range(count):
@@ -152,6 +172,8 @@ def sample_count_from_instruments(data: bytes, offset: int, count: int, warnings
         samples = u16(data, current + 27)
         total += samples
         if samples == 0:
+            if observer is not None:
+                observer(data[current : current + header_size], [])
             current += header_size
             continue
         sample_header_size = u32(data, current + 29) if header_size >= 33 else 40
@@ -164,10 +186,16 @@ def sample_count_from_instruments(data: bytes, offset: int, count: int, warnings
             warnings.append(f"instrument {index + 1} sample headers truncated")
             return (total, "partial")
         data_size = sum(u32(data, headers_at + sample_header_size * sample) for sample in range(samples))
+        instrument_at = current
         current = headers_at + headers_size + data_size
         if current > len(data):
             warnings.append(f"instrument {index + 1} sample data extends past file")
             return (total, "partial")
+        if observer is not None:
+            observer(data[instrument_at : headers_at], [
+                data[headers_at + sample_header_size * sample : headers_at + sample_header_size * (sample + 1)]
+                for sample in range(samples)
+            ])
     return (total, "complete")
 
 

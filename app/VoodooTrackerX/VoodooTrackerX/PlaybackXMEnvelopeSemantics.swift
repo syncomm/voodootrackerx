@@ -205,6 +205,7 @@ struct MixerEnvelopeSemanticState: Equatable {
     var keyOn = true
     var fadeoutAccumulator = 32_768
     var volumeValue: Float = 1
+    var panValue: Float = 0.5
 
     var fadeoutValue: Float { Float(fadeoutAccumulator) / 32_768 }
 }
@@ -218,6 +219,7 @@ struct PlaybackXMEnvelopeUpdate: Equatable {
     let bpm: Int
     let speed: Int
     let state: MixerEnvelopeSemanticState
+    var channelPanningValue: Double = 128
 }
 
 /// Derives all envelope/release targets from the already traversed Fxx timeline.
@@ -384,6 +386,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             var hasPrevious = false
             let channelRows = rowsByChannel[channel] ?? []
             let carriedInstruments = PlaybackXMCarriedInstrumentProjection(rows: channelRows)
+            let channelPans = Dictionary(uniqueKeysWithValues: channelRows.map { ($0.syntheticRow, $0.controls.panningValue) })
             for (routeIndex, route) in channelRoutes.enumerated() {
                 guard let instrument = route.eventIndex.flatMap({ instruments[$0] }) ?? instrumentsByIdentity[route.instrumentIndex] else { continue }
                 let index = route.eventIndex
@@ -508,6 +511,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                         if resetPan { carried.pan.sample(state.panTick, envelope: panClock, keyOn: state.keyOn) }
                         else { carried.pan.advance(from: previous, to: state.panTick, envelope: panClock, keyOn: state.keyOn) }
                     }
+                    state.panValue = panEnabled ? carried.pan.value : 0.5
                     if !state.keyOn && tick.advances {
                         state.fadeoutAccumulator = max(0, state.fadeoutAccumulator - max(0, carried.fadeoutDecrement))
                     }
@@ -521,7 +525,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     if let index = sourceIndex, publishesToVoice {
                         history.append(PlaybackXMEnvelopeUpdate(eventIndex: index, channelIndex: channel,
                             source: tick.source, tick: tick.tick, scheduledFrame: frame, bpm: tick.bpm,
-                            speed: tick.speed, state: state))
+                            speed: tick.speed, state: state,
+                            channelPanningValue: channelPans[tick.row] ?? channelRows.last?.controls.panningValue ?? 128))
                     }
                     first = false
                 }

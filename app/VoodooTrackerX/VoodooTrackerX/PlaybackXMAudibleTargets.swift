@@ -88,8 +88,8 @@ struct PlaybackXMAudibleTimeline: Equatable {
             let resetFrames = Set((resets[index] ?? []).compactMap { update -> Int? in
                 if case .reset = update.change { return update.scheduledFrame }; return nil
             })
-            // A neutral pan clock alone must not change audible behavior.
-            guard event.volumeEnvelope != nil || history.contains(where: { !$0.state.keyOn }) || !resetFrames.isEmpty else { continue }
+            guard event.volumeEnvelope != nil || event.panEnvelope != nil ||
+                history.contains(where: { !$0.state.keyOn }) || !resetFrames.isEmpty else { continue }
             var gain = event.gain
             var pan = event.pan
             var writeIndex = 0
@@ -120,12 +120,14 @@ struct PlaybackXMAudibleTimeline: Equatable {
                     }
                     writeIndex += 1
                 }
+                let audiblePan = event.panEnvelope == nil ? pan : Self.envelopePan(
+                    staticPan: pan, channelPanning: semantic.channelPanningValue, value: semantic.state.panValue)
                 var activation: MixerAudibleOutputSeed?
                 if !managesOutput {
                     // A future release/reset must never change the earlier generic gain/pan audio.
                     // A neutral reset must also leave an unfinished generic ramp untouched.
                     let changedReset = resetFrames.contains(frame) && (visibleGain != priorGain || pan != priorPan)
-                    guard !semantic.state.keyOn || changedReset else { continue }
+                    guard !semantic.state.keyOn || changedReset || audiblePan != pan else { continue }
                     managesOutput = true
                     if offset > 0 {
                         work.lookupCount += 1
@@ -142,7 +144,7 @@ struct PlaybackXMAudibleTimeline: Equatable {
                     source: semantic.source, tick: semantic.tick, scheduledFrame: frame,
                     bpm: semantic.bpm, speed: semantic.speed,
                     amplitude: visibleGain * semantic.state.volumeValue * semantic.state.fadeoutValue,
-                    pan: pan, durationFrames: duration,
+                    pan: audiblePan, durationFrames: duration,
                     intent: initial ? "initial" : reset ? "nonretriggering_reset" :
                         (quickVolume ? "quick_volume" : "ordinary_tick"), activation: activation,
                     rebaseFromCurrent: reset))
@@ -151,6 +153,19 @@ struct PlaybackXMAudibleTimeline: Equatable {
         updates = all.sorted { $0.scheduledFrame == $1.scheduledFrame ? $0.eventIndex < $1.eventIndex : $0.scheduledFrame < $1.scheduledFrame }
         updatesByEvent = Dictionary(grouping: updates, by: \.eventIndex)
         planningHistoryDiagnostics = work
+    }
+
+    /// Applies the observed byte-domain envelope displacement while retaining the static conversion baseline.
+    private static func envelopePan(staticPan: Float, channelPanning: Double, value: Float) -> Float {
+        let channel = min(255, max(0, Int(channelPanning.rounded())))
+        let envelope = min(63, max(0, Double(value) * 64))
+        let displacement = Int(((envelope - 32) * Double(min(channel, 256 - channel)) / 32).rounded(.down))
+        guard displacement != 0 else { return staticPan }
+        // Header/8xx conversions and profile laws remain G40. Apply only the envelope's
+        // change in the existing byte conversion, preserving the exact neutral baseline.
+        let offset = PlaybackSamplePanningPolicy.plannedPan(channel + displacement) -
+            PlaybackSamplePanningPolicy.plannedPan(channel)
+        return min(1, max(-1, staticPan + offset))
     }
 
     /// Folds only prior publications through the same pure C state operations used while rendering.

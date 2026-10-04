@@ -306,7 +306,7 @@ struct PlaybackVolumeEnvelope: Equatable {
     }
 }
 
-/// Exact XM panning-envelope fields. Playback carries an output-inert clock; audible modulation is deferred.
+/// Exact XM panning-envelope fields. The shared semantic clock supplies the final stereo target factor.
 struct PlaybackPanningEnvelope: Equatable {
     static let disabled = PlaybackPanningEnvelope(
         enabled: false,

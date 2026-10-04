@@ -258,7 +258,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(baselineRender.block.interleavedPCM.map(\.bitPattern), candidateRender.block.interleavedPCM.map(\.bitPattern))
     }
 
-    func testInstrumentPanningEnvelopeIsRuntimeInertForAdapterPlansVoicePanAndPCM() throws {
+    func testInstrumentPanningEnvelopeChangesFinalOutputWithoutChangingStaticPanOrTriggerFrames() throws {
         func song(panningEnvelope: PlaybackPanningEnvelope) -> PlaybackSong {
             let sample = makePlaybackSample(
                 pcm: [0, 1, 0.5, -0.5],
@@ -314,11 +314,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(baselineAdapterPlan.pattern.events.map(\.pan), candidateAdapterPlan.pattern.events.map(\.pan))
         XCTAssertTrue(baselineAdapterPlan.pattern.events.allSatisfy { $0.panEnvelope == nil })
         XCTAssertTrue(candidateAdapterPlan.pattern.events.allSatisfy { $0.panEnvelope?.points.map(\.value) == [0, 0] })
-        let audibleEvents = candidateRuntimePlan.events.filter {
-            if case .envelopeSemanticUpdate = $0.action { return false }; return true
+        func triggers(_ plan: RuntimeCMixerAdapterEventPlan) -> [Int] {
+            plan.events.compactMap { if case .noteTrigger = $0.action { return $0.scheduledFrame }; return nil }
         }
-        XCTAssertEqual(baselineRuntimePlan.events.map(\.scheduledFrame), audibleEvents.map(\.scheduledFrame))
-        XCTAssertEqual(baselineRender.block.interleavedPCM.map(\.bitPattern), candidateRender.block.interleavedPCM.map(\.bitPattern))
+        XCTAssertEqual(triggers(baselineRuntimePlan), triggers(candidateRuntimePlan))
+        XCTAssertEqual(candidateAdapterPlan.xmAudibleTimeline?.updates.first?.pan, -1)
+        XCTAssertNotEqual(baselineRender.block.interleavedPCM.map(\.bitPattern), candidateRender.block.interleavedPCM.map(\.bitPattern))
     }
 
     func testPlaybackSongSyntheticAdapterMapsPingPongLoopMetadata() throws {

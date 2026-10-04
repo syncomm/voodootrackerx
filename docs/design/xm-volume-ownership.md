@@ -132,8 +132,8 @@ precedence and ordinary reset. K01 resets at tick zero, then releases at tick
 one. Delayed instrument-only ED1...EDF remains deferred.
 
 `instrument-only-volume-semantics.xm` and direct/runtime tests cover this
-contract. Audible pan envelopes, ECx quick-volume parity, and
-full FT2 mixer parity remains separate.
+contract. G06 pan-envelope targets reuse that reset; ECx quick-volume parity and
+full FT2 mixer parity remain separate.
 
 ## Declared empty slots and silent channel state
 
@@ -160,8 +160,8 @@ Empty-header tuning enters the existing supported period/effect calculations;
 portamento targets and channel effect memories can persist without a source.
 A later explicit playable note refreshes its own mapped defaults and restarts
 its semantic envelope as before. A later note-only route instead carries the
-progressed silent state and current tracker volume/pan. Audible
-panning-envelope offsets, ECx, onset, Rxy timing,
+progressed silent state and current tracker volume/pan. G06 consumes the carried
+pan segment only when a real source exists. ECx, onset, Rxy timing,
 and delayed instrument-only behavior keep their separate boundaries.
 
 ## Note-only routing and state carry
@@ -240,11 +240,13 @@ canonical Fxx frame plan and preserves VTX's linear point interpolation. See
 [the semantic tick contract](xm-reset-output-ramp.md#shared-xm-semantic-tick-contract)
 for measured sustain/loop, release, fadeout and BPM-change behavior.
 
-XM panning metadata now supplies a clock with its point positions, sustain, and
-loop boundaries, but every mixer offset is zero. Exact non-neutral values stay
-in the instrument model. This permits clock advancement/reset without audible
-modulation; it does not implement panning envelopes or `Lxx` panning behavior.
-Generic synthetic mixer panning envelopes retain their established behavior.
+XM panning metadata supplies the existing segment/clock with its point positions,
+sustain and loop boundaries. G06 publishes the held pan value and composes its
+byte-domain displacement into the same final-L/R target. Neutral values preserve
+the exact static baseline. Generic synthetic mixer panning envelopes and editor
+preview retain their established behavior. Static conversions/profile laws (G40),
+pan-clock/Q8 quirks and `Lxx` panning positioning (G07) remain separate; see
+[the G06 factor contract](xm-reset-output-ramp.md#g06-panning-envelope-factor).
 
 Generic synthetic frame envelopes retain the fixed-capacity C reset/key-off
 queue and per-frame rate. XM plans fold explicit resets and release into their

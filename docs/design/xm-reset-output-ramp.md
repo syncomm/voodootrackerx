@@ -5,7 +5,8 @@ and non-retriggering 5 ms reset contracts.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
 [XM volume ownership](xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
 Instrument-only dispatch reuses these contracts. Ordinary note-only carries
-their semantic state into the new route. Audible XM panning envelopes remain deferred.
+their semantic state into the new route. G06 adds the existing pan segment's
+audible factor through this same final-output authority.
 
 ## Current gain path
 
@@ -14,9 +15,9 @@ their semantic state into the new route. Audible XM panning envelopes remain def
 | Tracker base/output volume | Base writes synchronize output; tremolo can change output independently. Both use `0...64`. |
 | Planned scalar gain | The shared adapter consumes output volume once with global volume. The sample header initializes/restores base/output defaults, with no independent song multiplier (G01). |
 | Semantic envelope/fadeout | `PlaybackXMEnvelopeTimeline` publishes instantaneous state at canonical Fxx tick frames, separately from audible interpolation. |
-| Final output targets | `PlaybackXMAudibleTimeline` combines typed factor writes with volume-envelope/release targets. `VTXCMixerOutputState` alone interpolates their final mono/L/R gains. |
+| Final output targets | `PlaybackXMAudibleTimeline` combines typed factor writes with volume/pan-envelope and release targets. `VTXCMixerOutputState` alone interpolates their final mono/L/R gains. |
 | Gain/pan updates | For managed XM voices, scalar/pan writes update factor metadata without a second 32-frame ramp. Generic voices retain the existing independent 32-frame gain/pan path. |
-| Stereo output | Targets use the existing static pan law. Sample pan initializes channel pan. Parsed XM pan-envelope metadata advances a neutral clock with no audible offset. A neutral pan clock alone does not enable final-output management. |
+| Stereo output | Sample pan initializes channel pan. G06 consumes the existing semantic pan segment in the final target; static conversions/profile laws remain G40. A neutral pan clock alone does not enable final-output management. |
 | Output policy | Mixer profile scaling follows voice summation. Runtime fixed `-12 dB` headroom and product WAV auto-headroom to `-1 dB` remain separate downstream policies; runtime auto-headroom is disabled. |
 
 Plain voices retain generic gain/pan behavior until their first release or a
@@ -27,8 +28,48 @@ audio without creating another final-output interpolation formula.
 
 The target amplitude is `output/64 * global/64 * envelope * fadeout`; L/R
 additionally multiply the existing pan-law factors. Mono retains
-its established pan-independent amplitude. A future audible pan-envelope factor
-can enter target composition without changing the output state machine.
+its established pan-independent amplitude. The pan-envelope factor changes only
+the target pan; it adds no C envelope clock or interpolation state.
+
+### G06 panning-envelope factor
+
+`PlaybackXMEnvelopeTimeline` publishes its already-carried pan segment value
+alongside the logical clock and the existing row's exact channel panning state.
+The C semantic snapshot stores that value for parity/diagnostics only. The
+planning layer composes it into `PlaybackXMAudibleUpdate.pan`; the existing C
+final mono/L/R tuple owns interpolation, reset, deduplication and window carry.
+
+Independent constant-source controls against the unchanged pinned reference
+at 44.1/48 kHz establish the byte-domain rule. For static byte `P`, envelope
+value `E` and `reach = min(P, 256 - P)`, the displacement is
+`floor((E - 32) * reach / 32)`. Negative displacement rounds down, rather than
+toward zero. The reference loader limits pan points to 63; the output factor
+caps its existing semantic value at 63 without changing preserved metadata or
+segment progression. Center 128 with envelope 16/32/48 yields 64/128/192;
+static 64 yields 32/64/96. Static zero cannot move, and 255 with envelope zero
+yields 254. These are project-authored stimuli, not copied reference vectors.
+
+VTX retains the current static baseline: add the difference between the existing
+sample-byte conversion at `P + displacement` and at `P` to the current static
+pan, then clamp to `-1...1`. This isolates envelope displacement from the
+retained header/8xx conversion and stereo profile-law differences (G40).
+Zero displacement returns the original pan exactly. Pan-only voices enter the
+existing managed path only when the audible factor first changes, or through
+an already-supported release/reset. Earlier generic audio remains unchanged.
+
+`XMPanningEnvelopeTests` supplies public constant-loop model controls for
+neutral/left/right, static edges, sustain/loop/release, silent and completed
+routes, note-only carry, instrument-only reset, Lxx and both-rate window parity.
+`RuntimeCMixerTests` applies the same loop/reset/static-write/tempo/release
+control and the existing public envelope fixture through the runtime render core.
+No reference audio or corpus-derived artifacts are committed.
+
+This closes the audible-factor contract, not all pan-envelope parity. Existing
+Float segment interpolation and slopes through stored point 64 remain distinct
+from reference Q8 arithmetic and loader normalization. VTX retains its logical
+release from pan sustain; the pinned sustained control keeps its pan value held
+after release. Neither clock/arithmetic difference is corrected here. Lxx still
+positions only volume (G07); static pan law (G40) remains open. Preview is isolated.
 
 ## Shared audible target implementation
 
@@ -152,7 +193,7 @@ and `F03`. Measurements establish these rules:
 | `Lxx` | Publish the supported volume-envelope position on that exact tick; subsequent ticks advance from it. Values beyond the final point hold that point's value. |
 | Fadeout | On the release tick and each subsequent tick, `accumulator = max(0, accumulator - instrumentFadeout)`; factor is `accumulator / 32768`. Zero fadeout holds unity; an oversized value clamps immediately. |
 | No-envelope key-off | Note 97 and `Kxx` zero base/output volume at their scheduled tick. Fadeout still progresses and source cursor/lifetime continue. Later `C40` restores channel volume, exposing the remaining fadeout; zero fadeout factor stays silent. |
-| Neutral pan clock | Uses the same tick frames, logical sustain/loop bookkeeping and reset presence flags. It contributes no audible pan offset; `Lxx` pan behavior remains deferred. |
+| Pan clock | Uses the same tick frames, logical sustain/loop bookkeeping and reset presence flags. G06 consumes its held segment value; `Lxx` pan positioning remains G07. The existing pan-sustain release quirk difference is retained. |
 
 At 48 kHz a voice started at BPM 125 publishes positions 5, 6, 7, 8, 9 at
 frames `4800, 5760, 6240, 6720, 7200` when row 1 changes to BPM 250.
@@ -174,8 +215,8 @@ Fractional slopes remain a separate point-arithmetic difference: reference
 Q8 values for `(0,64), (3,32)` are `16384, 13654, 10924, 8192`, while VTX keeps
 its existing linear Float calculation. Reference raw pan-sustain counters also
 show a distinct release quirk in the observed neutral-pan case; VTX's logical
-pan clock is not a claim of raw FT2 point/counter parity. Neither finding adds
-audible pan processing or broadens this semantic correction.
+pan clock is not a claim of raw FT2 point/counter parity. G06 makes the existing
+segment audible while preserving these separate arithmetic/clock boundaries.
 
 ## Independently measured reference
 
@@ -305,8 +346,9 @@ plannedGain = outputChannelVolume/64 * globalVolume/64
 targetL/R = plannedGain * semanticEnvelope * semanticFadeout * existingPanLawL/R
 ```
 
-Retain current clamps, cached sample-header defaults and profile pan laws. XM pan-envelope
-offsets remain zero. Downstream headroom is absent from the voice target.
+Retain current clamps, cached sample-header defaults and profile pan laws.
+XM pan-envelope displacement joins the target pan as described under G06.
+Downstream headroom is absent from the voice target.
 
 Coincident `C20` uses the new volume and envelope value in **one quick target**
 (240/220 frames); an ordinary `8xx` or same-channel `Gxx` uses the tick-length
@@ -385,5 +427,5 @@ Generic 32-frame gain/pan ramps, replacement timing, onset behavior, generic
 frame envelopes, headroom policies, and explicit-trigger default-volume behavior
 retain their contracts. Managed XM factor updates use the single final-output
 state described above for ordinary and reset transitions, including instrument-only
-restoration. Note-only, audible pan envelopes, and full FT2 mixer parity remain
-separate work.
+restoration and note-only carry. G06 uses the same output state. Pan-clock/Q8
+quirks, G07, G40 and full FT2 mixer parity remain separate work.

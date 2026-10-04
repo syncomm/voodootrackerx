@@ -57,7 +57,9 @@ host.
   no fabricated sample or voice. Ordinary note-only cells resolve the carried
   instrument's exact keymap, restart represented sources, and carry tracker
   volume/pan, envelope/release state and modulation memory across either route.
-  Audible pan envelopes and new-note onset-ramp parity remain deferred.
+  G06 consumes the existing pan segment through that same final-L/R target;
+  neutral envelopes preserve static audio. Pan-clock/Q8 quirks, Lxx pan
+  positioning (G07), static pan law (G40) and new-note onset parity remain open.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.

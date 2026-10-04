@@ -110,6 +110,7 @@ typedef struct {
     int key_on;
     float volume_value;
     float fadeout_value;
+    float pan_value;
 } VTXCMixerEnvelopeSemanticState;
 
 // Final voice multipliers, before mix/profile output scale and downstream headroom.

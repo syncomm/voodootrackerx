@@ -70,6 +70,8 @@ bounded contracts; they do not establish full command or audible parity.
   shared vibrato including the Amiga vibrato foundation are implemented.
 - Envelope/release/integer-fadeout semantics and shared final-L/R output
   foundations are established, including silent channel clocks and resets.
+- G06 makes the existing panning-envelope segment audible through that final-L/R
+  authority, preserving neutral/static baselines, exact routes and both-rate parity.
 - Instrument-only default restoration and ordinary note-only exact-keymap
   routing/state carry are implemented without fabricated sources or fallback.
 - G01 sample-header/channel-volume ownership consumes song output once.
@@ -92,7 +94,8 @@ bounded contracts; they do not establish full command or audible parity.
   pitch, memory, envelope, trigger/retrigger/cut, and traversal obligations.
   Known families include panning slide, tremor, pattern delay, relevant
   E-commands, volume-column gaps, and remaining loaded-Amiga pitch coverage.
-  Audible pan envelopes, instrument autovibrato, onset/replacement/cut behavior,
+  Pan-envelope positioning/arithmetic/clock quirks, instrument autovibrato,
+  onset/replacement/cut behavior,
   and remaining envelope/pitch arithmetic must be resolved or explicitly
   justified within that same compatibility target.
 - Deliver live Speed/BPM readouts and stopped-editable timing controls using

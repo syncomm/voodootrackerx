@@ -247,7 +247,8 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
         audibleOutputState = diagnostic.output.enabled == 0 ? nil : MixerAudibleOutputState(raw: diagnostic.output)
         envelopeSemanticState = diagnostic.has_external_envelope_state == 0 ? nil : MixerEnvelopeSemanticState(
             volumeTick: Int(semantic.volume_tick), panTick: Int(semantic.pan_tick), keyOn: semantic.key_on != 0,
-            fadeoutAccumulator: Int(semantic.fadeout_accumulator), volumeValue: semantic.volume_value)
+            fadeoutAccumulator: Int(semantic.fadeout_accumulator), volumeValue: semantic.volume_value,
+            panValue: semantic.pan_value)
         volumeEnvelopePositionFrame = Int(diagnostic.volume_envelope_position_frame)
         panEnvelopePositionFrame = Int(diagnostic.pan_envelope_position_frame)
         pingPongDirection = Int(diagnostic.ping_pong_direction)
@@ -411,7 +412,8 @@ final class CSoftwareMixer {
         guard voice >= 0 else { return false }
         let value = VTXCMixerEnvelopeSemanticState(volume_tick: UInt32(clamping: semantic.volumeTick),
             pan_tick: UInt32(clamping: semantic.panTick), fadeout_accumulator: UInt32(clamping: semantic.fadeoutAccumulator),
-            key_on: semantic.keyOn ? 1 : 0, volume_value: semantic.volumeValue, fadeout_value: semantic.fadeoutValue)
+            key_on: semantic.keyOn ? 1 : 0, volume_value: semantic.volumeValue, fadeout_value: semantic.fadeoutValue,
+            pan_value: semantic.panValue)
         return vtx_c_mixer_set_voice_envelope_semantic_state(state, UInt32(clamping: voice), value) == VTX_C_MIXER_STATUS_OK
     }
 

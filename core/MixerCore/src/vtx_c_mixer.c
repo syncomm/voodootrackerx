@@ -1338,6 +1338,7 @@ VTXCMixerStatus vtx_c_mixer_set_voice_envelope_semantic_state(
     if (state == NULL || voice_index >= state->voice_count ||
         !isfinite(semantic.volume_value) || semantic.volume_value < 0.0f || semantic.volume_value > 1.0f ||
         !isfinite(semantic.fadeout_value) || semantic.fadeout_value < 0.0f || semantic.fadeout_value > 1.0f ||
+        !isfinite(semantic.pan_value) || semantic.pan_value < 0.0f || semantic.pan_value > 1.0f ||
         semantic.fadeout_accumulator > 32768u) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }

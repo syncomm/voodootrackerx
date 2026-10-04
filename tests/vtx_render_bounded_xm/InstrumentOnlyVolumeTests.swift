@@ -134,7 +134,7 @@ final class InstrumentOnlyVolumeTests: XCTestCase {
                 XCTAssertEqual(plan.playbackStateEvents.map(\.scheduledFrame), [n, tick * 36])
                 XCTAssertEqual(RuntimeCMixerAdapterEventPlan.make(song: module, sampleRate: rate).plan, plan)
                 let reset = try XCTUnwrap(plan.xmEnvelopeTimeline?.updates.first { $0.scheduledFrame == n })
-                XCTAssertEqual(reset.state, .init())
+                XCTAssertEqual(reset.state, .init(panValue: 0))
                 let target = try XCTUnwrap(plan.xmAudibleTimeline?.updates.first { $0.scheduledFrame == n })
                 XCTAssertEqual(target.amplitude, 0.5)
                 XCTAssertEqual(target.durationFrames, d)
@@ -161,8 +161,9 @@ final class InstrumentOnlyVolumeTests: XCTestCase {
                     PlaybackSongOfflineRenderer.schedulePlaybackStateEvents(plan, voiceIndexByEventIndex: [0: voice], on: mixer, windowStartFrame: boundary)
                     XCTAssertEqual(mixer.render(frames: 64).interleavedPCM, Array(full[(boundary * 2)..<((boundary + 64) * 2)]))
                 }
-                let inert = PlaybackSongOfflineRenderer().render(.init(song: song(cells, panEnvelope: false), config: config, rows: cells.count))
-                XCTAssertEqual(inert.block.interleavedPCM, full)
+                let mono = MixerRenderConfig(sampleRate: rate, channelCount: 1, mixProfile: profile)
+                XCTAssertEqual(PlaybackSongOfflineRenderer().render(.init(song: module, config: mono, rows: cells.count)).block.interleavedPCM,
+                    PlaybackSongOfflineRenderer().render(.init(song: song(cells, panEnvelope: false), config: mono, rows: cells.count)).block.interleavedPCM)
             }
         }
     }

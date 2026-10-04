@@ -1,7 +1,8 @@
 import Foundation
 
 extension PlaybackSongSyntheticAdapter {
-    /// Carries only the panning clock. Zero offsets deliberately keep XM pan modulation deferred.
+    /// Marks XM pan-envelope presence without activating the generic C frame-envelope path.
+    /// The shared XM semantic timeline owns its values; final-L/R targets own audibility.
     static func inertPanningEnvelopeClock(
         from envelope: PlaybackPanningEnvelope, timingConfig: SyntheticTrackerTimingConfig
     ) -> MixerEnvelope? {

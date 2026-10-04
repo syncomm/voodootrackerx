@@ -100,7 +100,7 @@ final class XMEnvelopeSemanticTests: XCTestCase {
         XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, result.block.interleavedPCM)
     }
 
-    func testPanClockIsInertAndWindowImportsMatchAcrossReleaseLoopAndTimingChanges() throws {
+    func testPanClockDrivesStereoAndWindowImportsMatchAcrossReleaseLoopAndTimingChanges() throws {
         let pan = PlaybackPanningEnvelope(enabled: true, points: [.init(tick: 0, value: 0), .init(tick: 4, value: 64)],
             sustainPointIndex: nil, loopStartPointIndex: 0, loopEndPointIndex: 1, typeFlags: 5)
         let module = song(envelope: envelope([(0, 16), (2, 32), (6, 64)], loop: (1, 2), fadeout: 1234), pan: pan,
@@ -126,9 +126,8 @@ final class XMEnvelopeSemanticTests: XCTestCase {
             }
             let states = try XCTUnwrap(result.plan.xmEnvelopeTimeline?.updatesByEvent[0])
             XCTAssertEqual(Array(states.prefix(9)).map(\.state.panTick), [0, 1, 2, 3, 0, 1, 2, 3, 0])
-            for frame in 0..<result.block.frameCount {
-                XCTAssertEqual(result.block.interleavedPCM[frame * 2], result.block.interleavedPCM[frame * 2 + 1])
-            }
+            XCTAssertEqual(Array(states.prefix(5)).map(\.state.panValue), [0, 0.25, 0.5, 0.75, 0])
+            XCTAssertGreaterThan(result.block.interleavedPCM[0], result.block.interleavedPCM[1])
         }
     }
 

@@ -127,7 +127,7 @@ final class NoteOnlyRoutingTests: XCTestCase {
             XCTAssertEqual(plan.pattern.events.dropFirst().map(\.tick), ticks)
             XCTAssertEqual(plan.pattern.events.dropFirst().map(\.scheduledStartFrame), ticks.map { 11_520 + $0 * 960 })
             if param == 0xD2 {
-                XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[1]?.first?.state, .init())
+                XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[1]?.first?.state, .init(panValue: 0))
             } else if !ticks.isEmpty {
                 XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[1]?.first?.state.keyOn, false)
             }
@@ -151,7 +151,7 @@ final class NoteOnlyRoutingTests: XCTestCase {
         XCTAssertEqual(after.tremolo, before.tremolo)
     }
 
-    func testSharedRuntimePlanWindowBoundariesAndInertPanningEnvelope() throws {
+    func testSharedRuntimePlanWindowBoundariesAndAudiblePanningEnvelope() throws {
         let cells = [cell(note: 37, instrument: 1), cell(note: 39), cell(instrument: 2), cell(note: 49),
             cell(note: 51, effect: 3, param: 4), cell(note: 97), cell(note: 49), cell(), cell()]
         for rate in [44_100.0, 48_000] {
@@ -164,7 +164,11 @@ final class NoteOnlyRoutingTests: XCTestCase {
             let request = PlaybackSongOfflineRenderRequest(song: module, config: config, rows: cells.count)
             let full = renderer.render(request).block.interleavedPCM
             for rows in [1, 2, 3, 4] { XCTAssertEqual(renderer.renderWindowed(request, windowRows: rows).block.interleavedPCM, full) }
-            XCTAssertEqual(renderer.render(.init(song: song(cells, panEnvelope: false), config: config, rows: cells.count)).block.interleavedPCM, full)
+            XCTAssertEqual(full[0], 0.25)
+            XCTAssertEqual(full[1], 0)
+            let mono = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            XCTAssertEqual(renderer.render(.init(song: module, config: mono, rows: cells.count)).block.interleavedPCM,
+                renderer.render(.init(song: song(cells, panEnvelope: false), config: mono, rows: cells.count)).block.interleavedPCM)
         }
     }
 

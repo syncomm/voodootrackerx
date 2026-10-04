@@ -856,14 +856,19 @@ final class RuntimeCMixerTests: XCTestCase {
         let fixture = try referenceXMFixtureURL("generated/envelope-release-fadeout-timing.xm")
         let metadata = try ModuleMetadataLoader().load(fromPath: fixture.path)
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixture.path)
+        try assertXMEnvelopeRuntimeParity(song)
+        try assertXMEnvelopeRuntimeParity(makePanningEnvelopeControl())
+    }
+
+    private func assertXMEnvelopeRuntimeParity(_ song: PlaybackSong) throws {
         for (rate, channels, profile) in [(44_100.0, 1, MixerMixProfile.vtx), (48_000, 1, .vtx),
-            (44_100, 2, .ft2), (48_000, 2, .ft2), (48_000, 2, .vtx)] {
+            (44_100, 2, .ft2), (48_000, 2, .ft2), (44_100, 2, .vtx), (48_000, 2, .vtx)] {
             let config = MixerRenderConfig(sampleRate: rate, channelCount: channels, mixProfile: profile)
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
             let plan = try XCTUnwrap(runtime.plan)
             let states = try XCTUnwrap(plan.xmEnvelopeTimeline?.updates)
             let renderer = PlaybackSongOfflineRenderer()
-            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 16)
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: song.patternsByIndex[0]!.rows.count)
             let offline = renderer.render(request)
             XCTAssertEqual(offline.plan, plan)
             for window in [1, 2, 3, 5] {
@@ -924,6 +929,27 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertTrue(accepted)
             }
         }
+    }
+
+    private func makePanningEnvelopeControl() -> PlaybackSong {
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.25, count: 256),
+            volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363, loopStart: 0, loopLength: 256, loopType: 1)
+        let volume = PlaybackVolumeEnvelope(enabled: true, points: [.init(tick: 0, value: 64), .init(tick: 100, value: 64)],
+            sustainPointIndex: nil, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: 1, fadeout: 0)
+        let pan = PlaybackPanningEnvelope(enabled: true,
+            points: [.init(tick: 0, value: 32), .init(tick: 2, value: 16), .init(tick: 6, value: 48), .init(tick: 10, value: 32)],
+            sustainPointIndex: nil, loopStartPointIndex: 1, loopEndPointIndex: 2, typeFlags: 5)
+        let commands: [Int: PlaybackCell] = [
+            0: .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+            1: .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 8, effectParam: 224),
+            2: .init(note: 0, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+            3: .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 15, effectParam: 250),
+            4: .init(note: 97, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]
+        return PlaybackSong(title: "Public G06 control", orders: [.init(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [0: .init(index: 0, rows: (0..<8).map { row in
+                .init(index: row, cells: [commands[row] ?? .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)])
+            })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: volume, panningEnvelope: pan)],
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: true)
     }
 
     func testXMEnvelopeSemanticUpdateRejectsStaleGenerationAndCompletedSource() throws {

@@ -266,8 +266,7 @@ render timing.
 - [docs/audio-comparison.md](docs/audio-comparison.md) - current local-only candidate/reference WAV comparison workflow.
 - [docs/xm-effect-support.md](docs/xm-effect-support.md) - public XM effect support matrix for the runtime/offline C mixer adapter path.
 - [docs/diagnostic-tools.md](docs/diagnostic-tools.md) - diagnostic script inventory and consolidation plan.
-- [docs/roadmap.md](docs/roadmap.md) - current milestone sequencing.
-- [docs/dev-roadmap.md](docs/dev-roadmap.md) - temporary compatibility pointer to the canonical roadmap.
+- [docs/roadmap.md](docs/roadmap.md) - the canonical roadmap: completed milestones, current phase, outstanding work, future phases, and release gates.
 - [docs/playback-trace.md](docs/playback-trace.md) - runtime trace and capture diagnostics.
 - [docs/design/parsed-xm-to-c-mixer-adapter.md](docs/design/parsed-xm-to-c-mixer-adapter.md) - bounded parsed-XM-to-C-mixer adapter design and non-goals.
 - [docs/decisions/](docs/decisions) - architecture decision records, including the software mixer transition and C mixer boundary.

@@ -21,11 +21,11 @@ relevant to the task.
 - `docs/design/parsed-xm-to-c-mixer-adapter.md` - parsed-XM adapter design.
 - `docs/decisions/` - architecture decision records.
 
-## Roadmaps
+## Roadmap
 
-- `docs/roadmap.md` - current milestone sequencing.
-- `docs/dev-roadmap.md` - temporary compatibility pointer to the canonical
-  roadmap.
+- `docs/roadmap.md` - the single canonical phase/milestone roadmap: shipped
+  foundations, completed and outstanding work, current target, future phases,
+  and beta/v1 gates.
 
 ## Product And Editor Design
 

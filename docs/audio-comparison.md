@@ -567,7 +567,7 @@ Use these locations:
 - `docs/reports/audio-comparison-history.md` for archived historical context.
 
 Do not append long investigation reports to `docs/audio-comparison.md`,
-`docs/roadmap.md`, `docs/dev-roadmap.md`, or `docs/playback-trace.md`.
+`docs/roadmap.md` or `docs/playback-trace.md`.
 
 ## Private Artifact Rules
 

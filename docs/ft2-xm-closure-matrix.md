@@ -18,7 +18,8 @@ remain protected. OpenMPT extensions, native editable Amiga creation and callbac
 RT-safety work are separate contracts.
 
 Production code and tests define current behavior; [effect support](xm-effect-support.md)
-defines admission and [the roadmap](roadmap.md) defines sequencing. Reference
+defines command-family support and [the roadmap](roadmap.md) defines sequencing.
+ADR 014 owns editable-copy admission. Reference
 observations use pinned ft2-clone
 [`87be42543dac82cf802b5bddad917bda62ace131` replayer](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c)
 and [audio host/mixer integration](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_audio.c).
@@ -33,6 +34,11 @@ contract; `PARITY-WATCH` means implemented with unclosed interactions. Confirmed
 gaps distinguish parent, memory, timing, audible foundation and Amiga math.
 `KNOWN-REFERENCE-DIFFERENCE` is an open compatibility obligation unless explicitly
 excluded or justified; `NEEDS-CHARACTERIZATION` makes no invented parity claim.
+The support reference separates support, FT2 closure, memory and pitch-mode
+coverage. This matrix's `MISSING-PARENT`, `MISSING-MEMORY`, `MISSING-TIMING`,
+`MISSING-AMIGA-MODE-PATH`, audible-foundation and retained-difference classes
+explain why closure remains open; `NOT-V1` applies to an actual target exclusion.
+An FT2-inert byte can be closed while an audible extension for that byte is NOT-V1.
 
 ## Closed foundations
 
@@ -76,9 +82,9 @@ prerequisite. `P` and `N` are missing; S/O and the supported portions of F/T/M e
 | G13 H00 / H zero-parameter memory | MISSING-MEMORY | Later rows lose global slide continuation. | Z; H01 then H00 control; FT2 channel memory, VTX H00 no-op. | M, S; G12 timing |
 | G14 cold A00 output restoration | MISSING-MEMORY | Held tremolo output survives when FT2's valid initial zero slide restores base on nonzero ticks. | A; unseeded A00 after 748 holds VTX output 63 vs FT2 base/output 32. Seeded memory remains supported. | M, S, O |
 | G15 cold 500 / target-volume interactions | NEEDS-CHARACTERIZATION | Potential same zero-memory restoration gap; tone target and speed must remain independent. | 5; code has missing-memory/no-target gates; fresh pack has two no-target outcomes, not a complete cold-target oracle. | M, S, F |
-| G16 EA0/EB0 | MISSING-MEMORY | Missing tick-zero fine-volume continuation; repeated-row level error. | Z; EA1 then EA0 yields FT2 33,34 vs VTX 33,33; EB counterpart also probed. Nonzero parent timing is correct. | M, S, O |
-| G17 E10/E20 | MISSING-MEMORY | Missing tick-zero fine pitch continuation. | Z (nonzero parent FP); E11/E10 and E21/E20 control. | M, F |
-| G18 X10/X20 | MISSING-MEMORY | Missing extra-fine pitch continuation. | Z (nonzero parent XP); X11/X10 and X21/X20 control. | M, F |
+| G16 EA0/EB0 | MISSING-MEMORY | Missing tick-zero fine-volume continuation; repeated-row level error. | Z; EA1 then EA0 yields FT2 33,34 vs VTX 33,33; EB counterpart also probed. FT2 up/down memories are independent, separate from A/5/6. Nonzero parent timing is correct. | M, S, O |
+| G17 E10/E20 | MISSING-MEMORY | Missing tick-zero fine pitch continuation. | Z (nonzero parent FP); E11/E10 and E21/E20 control. FT2 has independent directional fine-pitch memories; Amiga parent coverage is separately G29. | M, F |
+| G18 X10/X20 | MISSING-MEMORY | Missing extra-fine pitch continuation. | Z (nonzero parent XP); X11/X10 and X21/X20 control. FT2 has independent directional extra-fine memories, separate from E1/E2; Amiga parents remain G29. | M, F |
 | G19 E90 | MISSING-TIMING | Missing tick-zero source retrigger. This is not interval-memory replay. | Z; E93 then E90 control. Legacy `ignored_e90_no_effect_memory` reason does not define reference semantics. | S; trigger dispatch |
 | G20 R00 and independent speed/mode nibble memory | MISSING-MEMORY | Repeat and volume modes are lost across rows/zero nibbles. | Z; R93/R00/R03/R90 control. | M, S; G21 counter |
 | G21 Rxy counter, tick-zero dispatch and semantic carry | MISSING-TIMING | Repeat times and envelope state differ: VTX restarts row-local scheduling and fresh-trigger resets. | Z; R93 reference repeats at row ticks 2,5 vs VTX tick 3; envelope control distinguishes sample restart from instrument reset. | S, M; existing trigger/source path |
@@ -93,8 +99,8 @@ prerequisite. `P` and `N` are missing; S/O and the supported portions of F/T/M e
 | G30 pitch conversion / nongrid finetune / extremes | KNOWN-REFERENCE-DIFFERENCE | Small sustained pitch/phase drift; extreme clamps can be larger. | Z nongrid; finetune +1 gives VTX C-4 period 4607.5 vs FT2 4608. Fixed-point reference steps vs analytic VTX and Amiga base-range clamps remain. | F; none missing |
 | G31 fractional volume-envelope arithmetic | KNOWN-REFERENCE-DIFFERENCE | Fractional target levels differ despite correct semantic ticks/fadeout. Audibility is unproven. | VE; retained floating interpolation vs FT2 integer/Q8 arithmetic in current design/tests. | S, O; none missing |
 | G32 instrument autovibrato | MISSING-PARENT | Missing automatic pitch motion from preserved instrument metadata. | AV; enabled public instrument plus dedicated control; runtime currently ignores it. | S, F; new instrument modulation state |
-| G33 Pxy | MISSING-PARENT | Missing tick-level stereo movement. | Z; P01 control; legacy handler is not default C-adapter support. | S, O, M |
-| G34 Txy | MISSING-PARENT | Missing alternating audible/silent intervals. | Z; T11 control; phase, memory and channel-volume writer precedence need characterization. | S, O, M |
+| G33 Pxy | MISSING-PARENT | Missing tick-level stereo movement. | Z; P01 control; legacy handler is not default C-adapter support. Pinned source confirms own whole-byte P00 replay; timing/mixed-nibble/pan-envelope interactions still need a focused oracle. | S, O, M |
+| G34 Txy | MISSING-PARENT | Missing alternating audible/silent intervals. | Z; T11 control; pinned source confirms own whole-byte T00 replay. Counter/phase, cold state, trigger carry and channel-volume writer precedence still need characterization. | S, O, M |
 | G35 EEx | MISSING-TIMING | High structural impact: row duration and every following event can diverge. | Z; EE1 control; recognized hazard currently has no traversal implementation. | T; tick replay rules |
 | G36 E3x glissando | MISSING-PARENT | Tone-portamento output lacks reference quantization. | Z; E31 control plus pinned handler; audible target grid still needs a focused oracle. | F, M; tone target exists |
 | G37 E6x implicit initial loop start | MISSING-TIMING | High structural impact: omitted repetition changes following song timing. | Z; E61 without E60 yields FT2 rows 0,1,2,0,1,2,3 vs VTX 0,1,2,3 / missing-loop-start diagnostic. | T |
@@ -186,6 +192,15 @@ Memory, timing and mode math are separate axes. A corrected parent does not
 implicitly close cold zero memory, and an Amiga representation factor does not
 justify changing already correct 2xx/3xx. Pattern delay/loops alter the frame
 plan; their changes do not belong in a ramp or callback-safety PR.
+
+Directional memory is confirmed by the pinned
+[fine-pitch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L620-L648),
+[fine-volume](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L685-L713)
+and [extra-fine](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1182-L1219)
+handlers. [P/T handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2106-L2161)
+establish whole-byte replay only; they do not supply exhaustive counter/output
+evidence. Source confirmation does not turn these gaps into closed VTX work or
+alter the audit population below.
 
 ## Fresh prevalence and evidence
 
@@ -279,10 +294,11 @@ label nor an aggregate audio correlation proves a difference inaudible.
 
 | Boundary | Primary class | Evidence, impact and disposition |
 | --- | --- | --- |
-| Adding audible E8x panning alias | NOT-V1 | Pinned FT2 dispatch leaves E8x inert; E8F control agrees. Z prevalence. VTX's diagnosed no-op is compatible with that target; an audible alias is an extension, not a missing FT2 parent. High reference confidence; trivial isolated test, but wrong-target compatibility risk. |
-| E0 hardware filter / EF funk in digital XM | NOT-V1 | Pinned XM dispatch is inert; current adapter defers them. Z prevalence. No audible foundation is required for inert FT2 XM behavior. Source confidence; retain no-op guards, do not import MOD hardware/extension semantics. |
-| F00 zero speed | NOT-V1 | Current supported Fxx contract explicitly covers nonzero commands and ignores F00; pinned reference dispatch writes zero speed/tick state. Its resulting traversal/delivery behavior was not freshly characterized. This retained boundary needs explicit acceptance/rationale at closure; do not reopen completed nonzero timing. Z prevalence; source confidence, focused zero-speed test, transport-policy risk. |
-| OpenMPT/ModPlug X5/X6/X9/XA, V/W/Y/Z extensions | NOT-V1 | Outside original FT2 target; zero stored cases in this population. Classification does not grant playback support. No parent dependency or next-slice priority; adding them would change the compatibility target. |
+| E0x/E8x/EFx inert FT2 XM dispatch | CLOSED | Tick-zero and nonzero-tick reference dispatch are dummy/no-op; E8F control agrees. VTX produces no audible effect, matching this bounded target despite legacy deferred diagnostics. Z prevalence; source confidence for E0/EF, no audible foundation gap. |
+| Adding E0 filter, E8 panning alias or EF funk/macro in XM | NOT-V1 | Audible hardware-filter/destructive MOD funk semantics and OpenMPT E8/EF behavior are outside chosen FT2 XM. Keep 8xx support and inert no-op guards. High wrong-target risk; do not import these behaviors as closure fixes. |
+| F00 zero speed | KNOWN-REFERENCE-DIFFERENCE | Current Fxx contract covers nonzero commands and ignores F00; pinned dispatch writes zero speed/tick state. Resulting traversal/delivery still needs characterization and explicit accepted closure rationale; there is no accepted v1 exclusion here. Do not reopen nonzero timing. Z prevalence; source confidence, focused zero-speed test, transport-policy risk. |
+| OpenMPT/ModPlug X5/X6/X9/XA and Y/Z extensions | NOT-V1 | Outside original FT2 target; zero stored cases in this population. Classification grants no playback support. Adding them requires a separate compatibility decision. |
+| Vxx/Wxx diagnostic unknowns | NOT-V1 | Classification-only, unused/dummy in pinned FT2. Zero stored cases in this audit population; historical diagnostics do not establish an FT2 effect or prove these bytes are extensions. |
 
 Pxy, Txy, E3x, EEx, missing Amiga paths and missing memory are **currently
 deferred implementation**, not automatically NOT-V1. No new product exclusion
@@ -338,7 +354,7 @@ nonsemantic within the supported scope. Otherwise the milestone stays open.
 | Runtime/offline/window and rates | Shared planned/applied event frames, host provenance, whole/window carry, 44.1/48 kHz sample-time/ramp conversion and PCM-format-aware tolerances. No audio-profile mismatch or late UI breadcrumb masquerading as a C scheduling failure. |
 | Scope/deferred differences | Every remaining row implemented and proven, explicitly excluded by an accepted target decision, or deferred with technical/product rationale and bounded regression. Preserve ADR 014 and keep RT safety/editable Amiga work separately sequenced. |
 
-Verification for this documentation/evidence branch: fixture regeneration
+Verification of the evidence baseline: fixture regeneration
 verification (16 files), Python diagnostic suite (299 tests), `swift test`
 (274 tests), canonical repo-root Debug Xcode test action (1,591 passing test
 cases), file hygiene, tracked-private-leak scan and diff whitespace checks.

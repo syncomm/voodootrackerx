@@ -3,32 +3,41 @@
 This page tracks public XM effect support for VoodooTracker X. It is a
 maintainer reference, not a promise of FastTracker 2 bit-perfect playback.
 
-The command names follow FT2/MilkyTracker-style XM terminology. OpenMPT and
-ModPlug compatibility commands are called out separately when they are outside
-the original XM target.
+This page owns concise command-family support. The
+[closure matrix](ft2-xm-closure-matrix.md) owns unresolved gaps, evidence and
+dependencies; [the roadmap](roadmap.md) owns milestone sequencing. The target
+is original FT2/XM, including loaded Linear and the specified Amiga paths.
+Editable-copy admission remains a separate [ADR 014](decisions/014-loaded-xm-editable-copy-planning.md)
+contract; support labels neither change it nor make loaded sources editable.
 
-Reference framing: [MilkyTracker's effect command reference](https://milkytracker.org/docs/manual/MilkyTracker.html)
-and [OpenMPT's effect reference](https://wiki.openmpt.org/Manual:_Effect_Reference).
-VoodooTracker X status is based on this repo's implementation and tests, not on
-external tracker feature completeness.
+Reference hierarchy:
 
-## Status Legend
+1. Current VTX source/tests establish current runtime/offline behavior.
+2. Pinned [ft2-clone replayer](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c)
+   and matched reference renders establish the chosen FT2 behavior.
+3. [MilkyTracker terminology](https://milkytracker.org/docs/manual/MilkyTracker.html)
+   and [OpenMPT's reference](https://wiki.openmpt.org/Manual:_Effect_Reference#XM_Effect_Commands)
+   triangulate it. Their extension behavior and generic descriptions do not
+   redefine the FT2 target; disagreements are stated below.
 
-- Implemented: supported in the default CoreAudio C mixer runtime path and
-  offline bounded C mixer render path, with automated tests and corpus
-  diagnostics where applicable.
-- Implemented, parity-watch: implemented in the runtime/offline C mixer path,
-  but known tracker-compatibility nuance, effect-memory nuance, or corpus
-  residuals remain tracked.
-- Deferred: known XM/FT2 command intentionally not implemented yet.
-- Classification-only: recognized for diagnostics or coverage reporting, but
-  not a playback target yet.
-- Not targeted for v1: OpenMPT / ModPlug extensions or non-FT2 compatibility
-  commands outside the current XM v1 target.
+The GPL reference is consulted for behavior/control flow only. Its source,
+comments, tables, constants, fixtures and implementation structure are not
+incorporated into MIT VTX.
 
-Implemented means supported by VTX's current runtime/offline C mixer path. It
-does not claim bit-perfect parity with every FT2 clone, tracker quirk, or
-hardware configuration.
+## Independent status dimensions
+
+| Dimension | Labels and meaning |
+| --- | --- |
+| Support | **Implemented**: the family exists in the default CoreAudio C-mixer runtime and bounded offline path. **Deferred**: an FT2 family has no implementation there yet. **FT2-inert**: the chosen FT2 dispatch intentionally does nothing. **Extension**: outside original FT2/XM v1. **Classification-only**: diagnostic unknown/unused byte, with no inferred playback behavior. |
+| FT2 closure | **Closed**: evidence closes the stated bounded behavior only. **Partial**: a foundation exists, with unresolved interactions, memory or mode coverage. **Known difference**: a verified or explicitly retained mismatch. **Needs characterization**: the remaining reference behavior is not fully pinned. **Open**: a confirmed required behavior is absent. **Outside v1**: an extension/unknown is outside the chosen target. |
+| FT2 memory | **None**: no parameter replay. **Own**: family-local memory, including independent directional or nibble state as specified. **Shared**: named families consume common state. **Special**: persistent control/loop state or special zero-form dispatch, rather than ordinary whole-command replay. **Not applicable**: outside the FT2 command target. This describes the reference obligation; notes say what VTX implements or lacks. |
+| VTX pitch mode | **Linear**, **Amiga**, or **Both** identify implemented frequency-dependent paths. **Not applicable** means frequency-independent/inert behavior or no implemented pitch path; notes identify any missing Linear/Amiga target. It never grants support by itself. |
+
+**Implemented + Partial** is valid. **Closed** does not assert complete audible
+parity or close a neighboring family. FT2-inert no-op behavior is compatible
+with this target, even where legacy diagnostics call the byte deferred.
+Diagnostic strings such as `ignored_e90_no_effect_memory` describe VTX's current
+outcome, not FT2 semantics; this cleanup changes no diagnostic schema.
 
 ## Fixture-Backed FT2/XM Effect Closure
 
@@ -41,18 +50,16 @@ Its exit criterion is:
 > and tested, or explicitly deferred with an evidence-backed technical or
 > product reason.
 
-The target is the chosen FT2/XM v1 scope, not OpenMPT/ModPlug extensions or
-every historical tracker quirk. Known candidates for later focused slices
-include:
+Remaining FT2/XM v1 targets include:
 
 - `Pxy` panning slide, `Txy` tremor, and `EEx` pattern delay;
 - remaining relevant E-command gaps;
 - volume-column vibrato and effect-memory gaps; and
 - broader Amiga-table pitch parity where it remains in v1 scope.
 
-Keeping a candidate visible does not promise that it must ship. The command
-tables below remain authoritative, and this planning definition changes none of
-their support statuses.
+Deferred implementation is an open closure obligation until implemented or
+given an accepted, evidence-backed scope rationale. It is not an automatic v1
+exclusion. OpenMPT/ModPlug extensions remain outside that target.
 
 The [FT2/XM closure matrix](ft2-xm-closure-matrix.md) separates bounded closed
 contracts from remaining timing, memory, output and frequency-mode differences.
@@ -109,74 +116,125 @@ FT2's 5 ms onset ramp remains separate. See
 
 ## Effect Column Commands
 
-| Command | Name | Status | Effect memory | Runtime support | Offline support | Notes |
+Support applies to both runtime and offline paths. Closure is bounded by the
+notes and matrix IDs, including the cross-cutting obligations below.
+
+| Command | Name | Support | FT2 closure | FT2 memory | VTX pitch mode | Current behavior / remaining boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| `0xy` | Arpeggio | Implemented, parity-watch | Not applicable; `000` is inert | Yes | Yes | Linear tick-cycle sample-step updates are supported, but their order differs from FT2's speed-dependent remaining-tick order. Amiga arpeggio remains deferred. |
-| `1xx` | Portamento up | Implemented, parity-watch | `100` memory supported | Yes | Yes | Linear slides subtract `4 * xx` period units per tick after tick 0; Amiga-table `1xx` remains deferred. |
-| `2xx` | Portamento down | Implemented, parity-watch | `200` memory supported | Yes | Yes | Linear slides add `4 * xx` period units per tick after tick 0; the existing narrow Amiga-table period/sample-step path is preserved. |
-| `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and target-clamped updates after tick 0 (Linear `4 * xx` period units); Amiga targets use the FT2-compatible quantized period lookup. No-active/no-target/no-speed/missing-memory residuals remain parity-watch. |
-| `4xy` | Vibrato | Implemented, parity-watch | Initially zero speed/depth; `400` / zero-nibble memory supported | Yes | Yes | Shared FT2 integer modulation in Linear and Amiga modes; Amiga wraps the unsigned period before 4x mapping, including explicit zero-step hold/resume. See the contract below. |
-| `5xy` | Tone portamento + volume slide | Implemented, parity-watch | Uses existing `3xx` tone target/speed; `500` reuses shared `Axy`/`5xy`/`6xy` slide memory | Yes | Yes | Reuses Linear `3xx` speed in `4 * xx` period units and the independent `Axy` tick-level volume-slide policy; missing `500` volume-slide memory remains no-op/deferred. |
-| `6xy` | Vibrato + volume slide | Implemented, parity-watch | Independent `4xy` vibrato and shared `Axy`/`5xy`/`6xy` slide memory; `600` replays the latter | Yes | Yes | Reuses unchanged Linear/Amiga `4xy` pitch execution; slide applies on ticks `1...(speed - 1)`, including `600`. No tick-zero or speed-1 slide; the row-level timing gap is closed. |
-| `7xy` | Tremolo | Implemented, parity-watch | Independent speed/depth nibble memory, initially zero; `700`, `70y`, and `7x0` supported | Yes | Yes | Exact integer output-volume modulation after tick 0; phase and output persist across empty rows. Existing sample scaling, gain ramps, and trigger/other-effect boundaries remain; see [volume ownership](design/xm-volume-ownership.md#tremolo-output-memory-and-controls). |
-| `8xx` | Set panning | Implemented | Not applicable | Yes | Yes | Row-level panning state update. |
-| `9xx` | Sample offset | Implemented | `900` memory supported | Yes | Yes | Same-cell note/sample starts; out-of-range offsets are skipped safely. |
-| `Axy` | Volume slide | Implemented, parity-watch | `A00` reuses prior same-channel `Axy`/`5xy`/`6xy` slide memory | Yes | Yes | Tick-level gain updates after tick 0; missing memory remains no-op/deferred. |
-| `Bxx` | Position jump | Implemented, parity-watch | Not applicable | Yes | Yes | Focused traversal planning; broader tracker quirks remain deferred. |
-| `Cxx` | Set volume | Implemented | Not applicable | Yes | Yes | Row-level channel-volume state update. |
-| `Dxx` | Pattern break | Implemented, parity-watch | Not applicable | Yes | Yes | XM-style BCD row target with safe diagnostics; broader traversal quirks remain tracked. |
-| `E0x` | Filter toggle | Deferred | Deferred | No | No | Limited usefulness for v1 compatibility. |
-| `E1x` | Fine portamento up | Implemented, parity-watch | `E10` deferred/no-op | Yes | Yes | One tick-0 Linear adjustment of `4 * x` period units (including same-cell note triggers). |
-| `E2x` | Fine portamento down | Implemented, parity-watch | `E20` deferred/no-op | Yes | Yes | One tick-0 Linear adjustment of `4 * x` period units (including same-cell note triggers). |
-| `E3x` | Glissando control | Deferred | Deferred | No | No | No current C mixer adapter behavior. |
-| `E4x` | Vibrato control | Implemented | Channel-local control stored for later vibrato | Yes | Yes | All 16 values: low two bits select sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 is ignored. |
-| `E5x` | Set finetune | Implemented, parity-watch | No-note E5x is inert in the pinned FT2 control | Yes | Yes | Same-cell Linear note triggers only; Amiga behavior deferred. The diagnostic no-note deferral does not establish a missing FT2 memory behavior. |
-| `E6x` | Pattern loop | Implemented, parity-watch | Loop state supported for focused traversal | Yes | Yes | Explicit loop starts are supported. FT2's implicit initial start when E6x has no prior E60 is not implemented; broader traversal ordering remains tracked. |
-| `E7x` | Tremolo control | Implemented, parity-watch | Channel-local control stored for later tremolo | Yes | Yes | All nibble values follow FT2: low two bits select sine/ramp/square/square, bit 2 suppresses phase reset, bit 3 is ignored. Ramp reproduces the vibrato-phase sign quirk without changing vibrato playback. |
-| `E8x` | Set panning | Deferred | Deferred | No | No | Recognized without playback; pinned FT2 XM dispatch is inert. Adding an audible panning alias is outside that target; `8xx` is supported. |
-| `E9x` | Retrigger note | Implemented, parity-watch | `E90` deferred | Yes | Yes | Nonzero intervals trigger within the row. The missing `E90` behavior is tick-zero retrigger, not interval-memory replay; `Rxy` is separate. |
-| `EAx` | Fine volume slide up | Implemented, parity-watch | `EA0` deferred/no-op | Yes | Yes | Row-level channel-volume adjustment. |
-| `EBx` | Fine volume slide down | Implemented, parity-watch | `EB0` deferred/no-op | Yes | Yes | Row-level channel-volume adjustment. |
-| `ECx` | Note cut | Implemented, parity-watch | Not applicable | Yes | Yes | VTX hard-cuts the source at the requested row tick. FT2's quick zero-volume transition retains the source/cursor; audible parity remains deferred. |
-| `EDx` | Note delay | Implemented | Not applicable | Yes | Yes | Delays same-cell normal note triggers; no-note residuals are diagnostic. |
-| `EEx` | Pattern delay | Deferred | Deferred | No | No | Recognized as a traversal/timing hazard. |
-| `EFx` | Invert loop / funk repeat | Deferred | Deferred | No | No | Not a current playback target. |
-| `Fxx` | Speed / BPM | Implemented | Not applicable | Yes | Yes | `F01...F1F` sets the command row's tick count; `F20...FFF` sets its tick duration starting at tick 0. Channels are processed left to right; the last speed and last BPM commands each win. `F00` remains an ignored no-op. |
-| `Gxx` | Global volume | Implemented | Not applicable | Yes | Yes | Clamped `0...64` global-volume state. |
-| `Hxy` | Global volume slide | Implemented, parity-watch | `H00` no-op | Yes | Yes | Current adapter adjusts once at row start with diagnosed up-nibble precedence. FT2 nonzero-tick scheduling and channel-local `H00` memory remain gaps. |
-| `Kxx` | Key off | Implemented | Not applicable | Yes | Yes | `K00` releases at row start; later valid ticks use the canonical Fxx plan. Release advances integer fadeout per tick; without an enabled volume envelope it also zeros base/output volume while retaining the source, except that instrument-only K00 retains its restored/explicit volume. See [semantic targets](design/xm-reset-output-ramp.md#shared-xm-semantic-tick-contract). |
-| `Lxx` | Set envelope position | Implemented, parity-watch | Not applicable | Yes | Yes | Effect-column `Lxx` sets the active mapped volume-envelope position; a declared silent channel retains its clock; uninitialized and no-envelope cases are diagnosed no-ops. Panning-envelope behavior remains deferred. |
-| `Pxy` | Panning slide | Deferred | Deferred | No | No | Legacy handler support exists, but the default C mixer adapter path has no implementation yet. |
-| `Rxy` | Multi retrigger | Implemented, parity-watch | `R00` deferred/no-op | Yes | Yes | Reuses the retrigger scheduler for active voices and applies a common-XM volume-change table with channel volume clamped to `0...64`. |
-| `Txy` | Tremor | Deferred | Deferred | No | No | No current C mixer adapter behavior. |
-| `X1x` / `X2x` | Extra fine portamento | Implemented, parity-watch | `X10`/`X20` deferred/no-op | Yes | Yes | Linear-frequency row-level adjustment only; other `X` subcommands remain deferred. |
-| `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug compatibility commands | Not targeted for v1 | Not targeted | No | No | Extension and hack families stay out of v1 unless a later compatibility target justifies them. |
-| `Vxx`, `Wxx` | High-byte unknowns in current diagnostics | Classification-only | Not applicable | No | No | Kept visible as unsupported diagnostics; no playback behavior is inferred. |
+| `0xy` | Arpeggio | Implemented | Known difference | None; `000` inert | Linear | VTX's base/x/y cycle differs from FT2's speed-dependent remaining-tick order (G25). Amiga path missing (G26). |
+| `1xx` | Portamento up | Implemented | Partial | Own; `100` supported | Linear | Correct nonzero-tick `4 * xx` units; Amiga upward path missing (G27). |
+| `2xx` | Portamento down | Implemented | Partial | Own; `200` supported | Both | Linear `4 * xx`, Amiga `16 * xx` in VTX's 4x representation. Units are closed; shared conversion/extreme boundaries remain G30. |
+| `3xx` | Tone portamento | Implemented | Partial | Shared with volume-column `Fx`; `300` target/speed supported | Both | No retrigger, target-clamped nonzero ticks and Amiga quantized targets are established. Missing-target/speed states and glissando remain distinct; Amiga `5xy`/`Fx` are not promoted. |
+| `4xy` | Vibrato | Implemented | Partial | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay and Amiga wrap/zero-step hold are closed. Full audible interactions remain G39; volume-column dispatch is missing (G10). |
+| `5xy` | Tone portamento + volume slide | Implemented | Partial | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Linear | Seeded `500` replay and nonzero-tick slides exist. Cold `500` output/target interactions need characterization (G15); Amiga combined path missing (G28). |
+| `6xy` | Vibrato + volume slide | Implemented | Partial | Shared `4xy` vibrato and `Axy`/`5xy`/`6xy` slide byte; `600` supported | Both | Vibrato then slide on ticks `1..<speed`; no tick-zero/speed-1 slide. Unseeded `600` restores base to output with zero amount. That timing/memory contract is closed; G39 remains. |
+| `7xy` | Tremolo | Implemented | Partial | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. Sample scaling, ramps and trigger/cut interactions remain G39. |
+| `8xx` | Set panning | Implemented | Known difference | None | Not applicable | Exact tick-zero panning state exists. Final stereo pan law differs (G40); this is separate from E8 and pan envelopes. |
+| `9xx` | Sample offset | Implemented | Partial | Own; `900` supported | Not applicable | Same-cell source offset/memory exists; end/loop/offset boundaries remain G41. Safely skipping an out-of-range offset does not prove FT2 parity. |
+| `Axy` | Volume slide | Implemented | Partial | Shared with `5xy`/`6xy`; seeded `A00` supported | Not applicable | Nonzero-tick slides exist. Cold `A00` fails to restore output from base volume with valid initial-zero slide memory (G14). |
+| `Bxx` | Position jump | Implemented | Needs characterization | None | Not applicable | Focused traversal exists; conflicting B/D/E6 precedence, restart and bounds remain G38. |
+| `Cxx` | Set volume | Implemented | Closed | None | Not applicable | Bounded tick-zero channel-volume state/clamp is supported; audible header/gain/ramp obligations remain separate. |
+| `Dxx` | Pattern break | Implemented | Needs characterization | None | Not applicable | BCD target/traversal exists; broader B/D/E6 precedence remains G38. |
+| `E0x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch. VTX's no-op needs no audible XM filter; MOD hardware-filter semantics are a separate target. |
+| `E1x` | Fine portamento up | Implemented | Partial | Own directional fine-up state; `E10` replay missing | Linear | Nonzero tick-zero `4 * x` adjustment, including same-cell notes, exists. Zero memory gap G17; Amiga path missing G29. |
+| `E2x` | Fine portamento down | Implemented | Partial | Own directional fine-down state; `E20` replay missing | Linear | Same bounded timing/units as E1. Separate downward memory gap G17; Amiga path missing G29. |
+| `E3x` | Glissando control | Deferred | Open | Special; persistent enable/disable control | Not applicable | Genuine FT2 v1 target G36, separate from inert E0/E8/EF. Linear/Amiga tone-output quantization still needs a focused oracle. |
+| `E4x` | Vibrato control | Implemented | Closed | Special; persistent control for `4xy`/`6xy` | Not applicable | All 16 controls: sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 ignored. Bounded control contract only. |
+| `E5x` | Set finetune | Implemented | Partial | None; no-note form inert in pinned control | Linear | Same-cell note-trigger adjustment exists; Amiga path missing (G29). Diagnostic no-note deferral is not missing FT2 memory. |
+| `E6x` | Pattern loop | Implemented | Partial | Special; channel loop start/counter | Not applicable | Explicit E60 start exists. Implicit initial loop start missing (G37); B/D/E6 ordering remains G38. |
+| `E7x` | Tremolo control | Implemented | Closed | Special; persistent control independent of E4 | Not applicable | All nibble aliases and phase-reset suppression are supported; ramp retains FT2's vibrato-phase sign quirk. Full `7xy` audio remains G39. |
+| `E8x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; current no-op matches. OpenMPT's audible panning alias is outside FT2 v1; use supported `8xx`. |
+| `E9x` | Retrigger note | Implemented | Partial | Special; no ordinary interval replay | Not applicable | Nonzero intervals exist. `E90` is a missing special tick-zero retrigger (G19), not reuse of the preceding interval. `Rxy` is separate. |
+| `EAx` | Fine volume slide up | Implemented | Partial | Own directional fine-up amount; `EA0` replay missing | Not applicable | Nonzero tick-zero parent exists; current zero no-op is G16, independent of EB/A/5/6 memory. |
+| `EBx` | Fine volume slide down | Implemented | Partial | Own directional fine-down amount; `EB0` replay missing | Not applicable | Nonzero tick-zero parent exists; current zero no-op is G16, independent of EA/A/5/6 memory. |
+| `ECx` | Note cut | Implemented | Known difference | None | Not applicable | VTX hard-retires the source. FT2 zeros base/output with a quick ramp and retains the cursor/source for recovery (G04). Internal hard stop is separate. |
+| `EDx` | Note delay | Implemented | Partial | None | Not applicable | Valid same-cell ED0/nonzero delayed notes exist. Delayed instrument-only/default/reset interactions remain G23; out-of-row no-op is not full precedence closure. |
+| `EEx` | Pattern delay | Deferred | Open | None | Not applicable | Standard FT2/XM v1 traversal/timing target G35. Row-duration/tick replay needs its own contract, separate from unrelated E effects. |
+| `EFx` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; no destructive MOD invert-loop/funk behavior. OpenMPT XM macro hacks are outside FT2 v1. |
+| `F01...F1F` / `F20...FFF` | Speed / BPM | Implemented | Closed | None | Not applicable | Nonzero command-row tick-zero timing is closed. `F20` is valid XM BPM 32. Last speed and last BPM each win in left-to-right channel order. |
+| `F00` | Zero speed boundary | Implemented | Known difference | None | Not applicable | VTX ignores it; pinned FT2 writes zero speed/tick state. Resulting traversal needs characterization and explicit closure rationale; nonzero Fxx stays closed. |
+| `Gxx` | Global volume | Implemented | Partial | None | Not applicable | Clamped `0...64` state and active/future gains exist; cross-channel writer/output interactions remain bounded by the shared-output contract. |
+| `Hxy` | Global volume slide | Implemented | Partial | Own channel-local byte; `H00` replay missing | Not applicable | VTX applies once at row start. FT2 nonzero-tick scheduling (G12) and H00 memory (G13) remain open. |
+| `Kxx` | Key off | Implemented | Partial | None | Not applicable | Canonical-tick release, retained source and integer fadeout exist. No-envelope release zeros base/output except instrument-only K00 volume restoration. Note-97/K00/instrument/volume precedence remains G24. |
+| `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Volume positioning, including silent-channel clocks, exists. Audible pan positioning and its volume-sustain flag gate remain G07, dependent on G06. |
+| `Pxy` | Panning slide | Deferred | Open | Own byte; pinned `P00` replays it | Not applicable | Real FT2/XM v1 target G33. Legacy handler support is not C-adapter support; remaining timing/writer/pan-envelope interactions need characterization. |
+| `Rxy` | Multi retrigger | Implemented | Partial | Own independent interval/mode nibbles; replay missing | Not applicable | First-pass active-voice scheduler and common-XM volume modes exist. R00/zero-nibble memory G20, persistent counter/tick-zero/carry G21 and exact FT2 arithmetic G22 remain open. |
+| `Txy` | Tremor | Deferred | Open | Own byte; pinned `T00` replays it | Not applicable | Real FT2/XM v1 target G34. Counter/phase, cold state, trigger carry and volume-writer interactions still need characterization. |
+| `X1x` / `X2x` | Extra fine portamento | Implemented | Partial | Own directional extra-fine states; `X10`/`X20` replay missing | Linear | Nonzero tick-zero `x` units exist. Missing memory G18 and Amiga paths G29 are separate from X extensions. |
+| `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug commands | Extension | Outside v1 | Not applicable | Not applicable | No runtime/offline support. Extension/hack families require a separately accepted compatibility target. |
+| `Vxx`, `Wxx` | High-byte diagnostic unknowns | Classification-only | Outside v1 | None in pinned FT2 | Not applicable | Unused/dummy in pinned FT2 dispatch. Diagnostic occurrence does not establish an FT2 effect or identify an extension. |
 
 `Rxy` volume mode handling currently follows common XM behavior: modes `1...5`
 subtract `1, 2, 4, 8, 16`, modes `6...7` scale by `2/3` and `1/2`, mode `8`
 is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
-`3/2` and `2`. The result is clamped to the XM channel-volume range `0...64`.
+`3/2` and `2`. The result is clamped to `0...64`. This is current VTX policy,
+not exact FT2 arithmetic: G22's mode-6 control gives FT2 22 versus VTX 21 from 32.
+
+## Zero forms and reference boundaries
+
+Pinned FT2 [fine-pitch handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L620-L648),
+[fine-volume handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L685-L713)
+and [extra-fine handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1182-L1219)
+establish independent up/down memories within each family. E10/E20, EA0/EB0
+and X10/X20 continue their respective directional amounts at tick zero.
+VTX currently returns zero-form no-ops; those are missing-memory obligations,
+not inert FT2 bytes. Fine-volume memory is separate from A/5/6, and extra-fine
+memory is separate from fine/regular pitch. Current Linear nonzero units stay
+closed; missing Amiga execution cannot borrow that closure.
+
+The pinned [E dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L733-L750)
+and [nonzero-tick dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2209-L2227)
+leave E0/E8/EF inert. The [note dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1394-L1460)
+handles E90 at tick zero; the nonzero E9 handler does not replay an interval.
+P00 and T00 use their own whole-byte memories in the
+[pinned handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2106-L2161).
+These are source-confirmed obligations, not claims of complete render-tested
+P/T counters, cold initialization or writer precedence.
+
+External descriptions disagree at some boundaries.
+[OpenMPT's XM reference](https://wiki.openmpt.org/Manual:_Effect_Reference#XM_Effect_Commands)
+lists an audible E8 panning alias and EF macro behavior, while pinned FT2 leaves
+both inert. [MilkyTracker](https://milkytracker.org/docs/manual/MilkyTracker.html)
+says E8 does not work in FT2 and describes F00 as stopping; OpenMPT describes
+65535 ticks. Pinned FT2's
+[Fxx handler](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L801-L814)
+writes zero speed/tick state. VTX's ignored F00 therefore remains a known
+difference needing explicit scope rationale and delivery characterization.
+Neither description changes the closed XM F20/BPM-32 boundary.
+
+Current implementation evidence is in the
+[adapter pitch handlers](../app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+PitchEffects.swift),
+[volume handlers](../app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+VolumeEffects.swift)
+and [retrigger dispatch](../app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+SampleEffects.swift).
+[PortamentoScalingTests](../tests/vtx_render_bounded_xm/PortamentoScalingTests.swift),
+[VolumeSlideMemoryTests](../tests/vtx_render_bounded_xm/VolumeSlideMemoryTests.swift),
+[TremoloTests](../tests/vtx_render_bounded_xm/TremoloTests.swift) and the
+[adapter tests](../app/VoodooTrackerX/VoodooTrackerXTests/PlaybackSongAdapterTests.swift)
+pin existing units, replay, modulation and current zero/E90 no-ops.
+The matrix retains the distinguishing reference controls and remaining gaps.
 
 ## Volume Column Commands
 
-| Command family | Status | Runtime support | Offline support | Notes |
-| --- | --- | --- | --- | --- |
-| Set volume (`10...50`) | Implemented | Yes | Yes | Sets channel volume for triggers and active voices. |
-| Volume slide down/up (`60...7F`) | Implemented, parity-watch | Yes | Yes | Once at tick 0 in VTX; FT2 slides on nonzero ticks. |
-| Fine volume slide down/up (`80...9F`) | Implemented, parity-watch | Yes | Yes | One tick-0 adjustment, matching FT2 scheduling; gain/output interactions remain parity-watch. |
-| Vibrato speed (`A0...AF`) | Deferred | No | No | Decoded for diagnostics only. |
-| Vibrato depth (`B0...BF`) | Deferred | No | No | Decoded for diagnostics only. |
-| Set panning (`C0...CF`) | Implemented, parity-watch | Yes | Yes | VTX uses `17 * nibble`; pinned FT2 uses `16 * nibble`. |
-| Panning slide left/right (`D0...EF`) | Implemented, parity-watch | Yes | Yes | VTX adjusts once at tick 0; FT2 uses nonzero ticks, including the D0 left-edge quirk. E0 has no displacement. |
-| Tone portamento (`F0...FF`) | Implemented, parity-watch | Yes | Yes | Linear `Fx` uses `3x0`-equivalent speed (`64 * x` period units per tick after tick 0); `F0` retains existing speed memory and no-retrigger target handling. Amiga-table volume-column tone portamento remains deferred. |
-| Unsupported / unknown volume-column bytes | Classification-only | No | No | Kept visible in diagnostics when encountered. |
+The same dimensions apply. Volume-column slide amounts do not acquire
+effect-column whole-command memory just because their names resemble it.
+
+| Command family | Support | FT2 closure | FT2 memory | VTX pitch mode | Current behavior / remaining boundary |
+| --- | --- | --- | --- | --- | --- |
+| Set volume (`10...50`) | Implemented | Closed | None | Not applicable | Bounded channel-volume write exists; cross-cutting gain/output obligations remain. |
+| Volume slide down/up (`60...7F`) | Implemented | Known difference | None | Not applicable | Once at tick 0 in VTX; FT2 uses nonzero ticks (G08). |
+| Fine volume slide down/up (`80...9F`) | Implemented | Partial | None | Not applicable | Tick-zero scheduling is closed; zero amount still restores base to output. Shared gain/output boundaries remain. |
+| Vibrato speed (`A0...AF`) | Deferred | Open | Shared vibrato speed with `4xy`/`6xy` | Not applicable | Diagnostic decoding only (G10); Linear/Amiga volume-column dispatch is missing. |
+| Vibrato depth (`B0...BF`) | Deferred | Open | Shared vibrato depth with `4xy`/`6xy` | Not applicable | Diagnostic decoding only (G10); neither missing column borrows effect-column closure. |
+| Set panning (`C0...CF`) | Implemented | Known difference | None | Not applicable | VTX `17 * nibble` versus FT2 `16 * nibble` (G11), separate from stereo pan law G40. |
+| Panning slide left/right (`D0...EF`) | Implemented | Known difference | None; D0/E0 are special zero cases | Not applicable | VTX tick-zero approximation; FT2 nonzero ticks, D0 left-edge quirk and E0 no displacement (G09). |
+| Tone portamento (`F0...FF`) | Implemented | Partial | Shared `3xx` speed; `F0` retains it | Linear | `64 * nibble` nonzero-tick units/no-retrigger targets are closed; Amiga column path missing (G28). |
+| Unsupported / unknown bytes | Classification-only | Outside v1 | Not applicable | Not applicable | Diagnostic visibility grants no playback support. |
 
 ## Frequency Table Support
 
 - Linear frequency table: primary v1 target and currently supported by the
   runtime/offline C mixer adapter path.
-- Amiga frequency table: narrow foundation implemented, parity-watch, for note
+- Amiga frequency table: narrow implemented foundation for note
   period/frequency/sample-step calculation using the FT2-compatible quantized
   period lookup, sample finetune metadata, `2xx` portamento down, and
   effect-column `3xx` tone portamento, `4xy`, and the vibrato half of `6xy`
@@ -276,16 +334,59 @@ and [volume-column decoding](https://github.com/8bitbubsy/ft2-clone/blob/87be425
 The public `portamento-scaling-linear.xm` and `portamento-scaling-amiga.xm`
 fixtures pin these supported paths; no deferred effect family is promoted.
 
-## Explicitly Deferred / Not V1
+## Cross-cutting FT2 closure obligations
 
-- `E0x` filter toggle.
-- Broader Amiga frequency-table pitch parity beyond note, `2xx` down,
-  effect-column `3xx`, `4xy`, and the vibrato half of `6xy`.
-- `E3x`, `E8x`, `EEx`, `EFx`, `Pxy`, and `Txy` in the default
-  C mixer adapter path.
-- `X` subcommands other than `X1x` and `X2x`.
-- OpenMPT / ModPlug hacks and non-v1 extensions unless explicitly promoted by
-  a future compatibility decision.
+The matrix owns IDs, reference controls, prevalence and dependencies. Command
+support alone does not close these domains:
+
+- **Volume and transitions:** sample-header/channel-volume ownership (G01),
+  new-note onset, same-channel replacement/retirement, ECx retained-source/cursor
+  and quick-output behavior, and generic ramps (G02–G05) remain open. Existing
+  cached defaults and shared final-L/R reset targets are established foundations.
+- **Panning:** exact header/8xx state, final stereo pan law (G40), semantic pan
+  clocks, audible pan-envelope factor (G06), and Lxx pan positioning (G07) are
+  distinct. Pan metadata/clocks currently contribute no audible offset. Lxx's
+  FT2 pan-position gate depends on the volume-envelope sustain flag; volume Lxx
+  support does not close it.
+- **Envelopes and instrument modulation:** volume/pan clocks, sustain/loop,
+  release and integer fadeout foundations exist. Fractional envelope arithmetic
+  (G31) and pan-clock quirks still need closure. Instrument autovibrato (G32) is
+  preserved but runtime-inert and remains Phase 2 playback work; later editable
+  Instrument Editor controls are a separate roadmap milestone.
+- **Volume writers and memory:** volume-column timing/quirks (G08–G11), Hxy
+  scheduling/H00 (G12–G13), cold A00/500 (G14–G15), and directional fine-slide
+  memory remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
+  semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its
+  common-XM table. ED delayed note/instrument/default interactions and
+  note-97/K00/instrument/volume precedence remain G23–G24.
+- **Traversal:** EEx is a dedicated timing contract (G35). Bxx/Dxx/E6x
+  precedence and E6's implicit loop start remain G37–G38; safe finite export
+  guards do not establish reference in-song traversal parity.
+- **Pitch and mode:** arpeggio tick order, Amiga 0xy/1xx/5xy/volume-column Fx,
+  Amiga E1/E2/X1/X2 and same-cell E5, plus conversion/range boundaries remain
+  G25–G30. Supported Amiga vibrato's unsigned wrap/zero hold is closed; other
+  period wrap/clamp behavior is not. Full 4xy/6xy/7xy audible interactions
+  remain G39 without reopening their closed integer engines or 6xy timing.
+- **Sources and loops:** 9xx/900 offset/end/loop boundaries and ping-pong
+  turnaround precision remain under G41 where unclosed. Sample/instrument
+  changes must preserve exact routing, defaults, silent clocks and note-only
+  carry; their unusual delay/retrigger/release precedence stays open.
+
+See [volume ownership](design/xm-volume-ownership.md) and
+[reset/output targets](design/xm-reset-output-ramp.md) for retained policies and
+bounded foundation tests. Current differences require a focused policy change
+or explicit accepted rationale; aggregate audio correlation is not closure.
+
+## Pending FT2 targets and exclusions
+
+- Deferred FT2 parents: E3x, EEx, Pxy, Txy, volume-column vibrato and instrument
+  autovibrato. Fine-slide zero memory and missing Amiga paths remain in v1 scope.
+- E0x/E8x/EFx are FT2-inert. Adding an audible filter, E8 panning alias, MOD
+  destructive funk or XM macro behavior would change the target.
+- X5/X6/X9/XA, Y/Z and other OpenMPT/ModPlug hacks are extensions outside v1.
+  V/W remain classification-only unknowns, not inferred extensions.
+- F00 is a known difference awaiting explicit closure rationale, separate from
+  the completed nonzero Fxx contract. No new exclusion is adopted here.
 
 ## Maintenance Note
 

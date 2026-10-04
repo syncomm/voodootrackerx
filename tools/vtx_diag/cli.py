@@ -13,6 +13,7 @@ from . import (
     audio_compare_discontinuities,
     audio_compare_smoke,
     audio_compare_stems,
+    corpus_inventory,
     corpus_map,
     effect_coverage,
     reference_triage_correlate,
@@ -231,6 +232,12 @@ def _configure_corpus_map_parser(parser: argparse.ArgumentParser) -> None:
     )
     corpus_map.add_arguments(update_parser)
     update_parser.set_defaults(command_handler=corpus_map.run)
+    enrich_parser = modes.add_parser("enrich", help="Generate a separate redacted local inventory.", formatter_class=_HelpFormatter)
+    corpus_inventory.add_enrich_arguments(enrich_parser)
+    enrich_parser.set_defaults(command_handler=corpus_inventory.run_enrich)
+    select_parser = modes.add_parser("select", help="Select inventory labels by structural facts.", formatter_class=_HelpFormatter)
+    corpus_inventory.add_select_arguments(select_parser)
+    select_parser.set_defaults(command_handler=corpus_inventory.run_select)
 
 
 def build_parser() -> argparse.ArgumentParser:

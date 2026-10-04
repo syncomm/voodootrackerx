@@ -12,6 +12,7 @@ import json
 import os
 import re
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -289,7 +290,11 @@ def parse_patterns(
     return patterns, current
 
 
-def decode_pattern_cells(payload: bytes, row_count: int, channels: int) -> list[list[Cell]]:
+def decode_pattern_cells(
+    payload: bytes, row_count: int, channels: int, *,
+    observer: Callable[[int, int, Cell, int, int, bool], None] | None = None,
+) -> list[list[Cell]]:
+    """Decode legacy cells; observers also receive field mask, byte count and completeness."""
     rows: list[list[Cell]] = []
     position = 0
     for _row in range(row_count):
@@ -297,10 +302,15 @@ def decode_pattern_cells(payload: bytes, row_count: int, channels: int) -> list[
         for _channel in range(channels):
             if position >= len(payload):
                 row_cells.append(Cell())
+                if observer is not None:
+                    observer(_row, _channel, row_cells[-1], 0, 0, not payload)
                 continue
+            start = position
             first = payload[position]
             position += 1
             if first & 0x80:
+                mask = first & 0x1F
+                required = 1 + mask.bit_count()
                 note = read_packed_field(payload, first, 0x01, position)
                 position = note[1]
                 instrument = read_packed_field(payload, first, 0x02, position)
@@ -313,6 +323,8 @@ def decode_pattern_cells(payload: bytes, row_count: int, channels: int) -> list[
                 position = effect_param[1]
                 row_cells.append(Cell(note[0], instrument[0], volume[0], effect_type[0], effect_param[0]))
             else:
+                mask = 0x1F
+                required = 5
                 values = [first]
                 for _ in range(4):
                     if position < len(payload):
@@ -321,6 +333,8 @@ def decode_pattern_cells(payload: bytes, row_count: int, channels: int) -> list[
                     else:
                         values.append(0)
                 row_cells.append(Cell(*values))
+            if observer is not None:
+                observer(_row, _channel, row_cells[-1], mask, position - start, start + required <= len(payload))
         rows.append(row_cells)
     return rows
 

@@ -28,6 +28,9 @@ host.
   diagnostic reason; retired AVAudio runtime paths are not supported.
 - Swift playback/adapter code plans module events. The C mixer renders runtime
   playback and bounded offline work.
+- Release semantics are decided once at their execution frame. Current
+  whole-song backward trigger/mapping/diagnostic release annotations are an
+  immediate mechanical projection of that immutable result.
 - Semantic channel rows capture complete immutable controls once. Row grouping
   and history views share those snapshots; per-tick carried-instrument lookup
   uses a compact projection that preserves nil carries and final-row tail fallback.

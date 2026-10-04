@@ -10,6 +10,108 @@ extension PlaybackSongSyntheticAdapter {
 
     static let rxyVolumeChangePolicy = "xm_common_multi_retrigger_volume_table_first_pass"
 
+    /// One bounded, immutable decision at the release frame; no earlier objects are mutated here.
+    struct CausalReleaseResult: Equatable {
+        struct SourceAnnotation: Equatable {
+            let eventIndex: Int
+            let mappingIndex: Int
+            let releaseFrame: Int
+            let fadeoutFrameDecrement: Float
+            let volumeEnvelopeSemantics: PlaybackSongSyntheticEnvelopeSemanticsDiagnostic
+            let zeroOnsetGain: Bool
+            let volumeUpdate: PlaybackSongSyntheticVoiceStateUpdateDiagnostic?
+        }
+
+        let diagnostic: PlaybackSongSyntheticKeyOffDiagnostic
+        let channelVolumeAfter: Int?
+        let sourceAnnotation: SourceAnnotation?
+    }
+
+    /// Decides release ownership, fadeout and output-volume effects once from current planning state.
+    static func decideKeyOff(
+        source: PlaybackPosition, channelIndex: Int, syntheticRow: Int, syntheticTick: Int,
+        scheduledFrame: Int, rowSpeed: Int, rowBPM: Int, cell: PlaybackCell,
+        channelState: ChannelState, events: [SyntheticTrackerEvent], eventMappings: [PlaybackSongSyntheticEventMapping],
+        globalVolume: Int, effectType: UInt8? = nil, effectParam: UInt8? = nil,
+        instrumentOnlyVolumeRestored: Bool = false
+    ) -> CausalReleaseResult {
+        let activeEventIndexBefore = channelState.activeEventIndex
+        func diagnostic(_ reason: PlaybackSongSyntheticKeyOffDiagnostic.Reason,
+                        applied: Bool, eventIndex: Int?) -> PlaybackSongSyntheticKeyOffDiagnostic {
+            .init(source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: syntheticTick,
+                effectType: effectType, effectParam: effectParam, detected: true,
+                releaseFrame: applied ? scheduledFrame : nil, scheduledFrame: scheduledFrame,
+                applied: applied, deferred: !applied, reason: reason, requestedTick: syntheticTick,
+                rowSpeed: rowSpeed, rowBPM: rowBPM, activeVoiceFound: activeEventIndexBefore != nil,
+                activeVoiceReleased: eventIndex != nil, activeEventIndex: eventIndex)
+        }
+        if activeEventIndexBefore == nil, channelState.semanticInstrumentIndex != nil {
+            let zeroVolume = !channelState.semanticVolumeEnvelopeEnabled && !instrumentOnlyVolumeRestored
+            return .init(diagnostic: diagnostic(.releasedSilentChannel, applied: true, eventIndex: nil),
+                channelVolumeAfter: zeroVolume ? 0 : nil, sourceAnnotation: nil)
+        }
+        guard let activeEventIndex = channelState.activeEventIndex,
+              let activeEventMappingIndex = channelState.activeEventMappingIndex,
+              events.indices.contains(activeEventIndex),
+              eventMappings.indices.contains(activeEventMappingIndex),
+              scheduledFrame >= (events[activeEventIndex].scheduledStartFrame ?? 0) else {
+            return .init(diagnostic: diagnostic(.noActiveVoice, applied: false, eventIndex: nil),
+                channelVolumeAfter: nil, sourceAnnotation: nil)
+        }
+
+        let event = events[activeEventIndex]
+        let mapping = eventMappings[activeEventMappingIndex]
+        let decrement = fadeoutFrameDecrement(
+            fadeoutValue: mapping.volumeEnvelopeSemantics.fadeoutValue, sampleRate: mapping.outputSampleRate)
+        // Instrument-only K00 has already restored defaults/explicit volume after release's zero operation.
+        let zeroVolume = event.volumeEnvelope == nil && !instrumentOnlyVolumeRestored
+        var volumeUpdate: PlaybackSongSyntheticVoiceStateUpdateDiagnostic?
+        if zeroVolume {
+            var after = channelState
+            after.baseChannelVolume = 0
+            volumeUpdate = voiceStateUpdateDiagnostic(source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, syntheticTick: syntheticTick, scheduledFrame: scheduledFrame, cell: cell,
+                commandSource: .effectColumn, command: .keyOffWithoutEnvelope, rawVolumeColumn: nil,
+                effectType: effectType, effectParam: effectParam, status: .applied, behavior: nil,
+                channelStateBefore: channelState, channelStateAfter: after,
+                globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
+                activeVoiceUpdatedOverride: event.scheduledStartFrame != scheduledFrame)
+        }
+        return .init(diagnostic: diagnostic(.releasedActiveVoice, applied: true, eventIndex: activeEventIndex),
+            channelVolumeAfter: zeroVolume ? 0 : nil,
+            sourceAnnotation: .init(eventIndex: activeEventIndex, mappingIndex: activeEventMappingIndex,
+                releaseFrame: scheduledFrame, fadeoutFrameDecrement: decrement,
+                volumeEnvelopeSemantics: mapping.volumeEnvelopeSemantics.applyingKeyOff(
+                    source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                    syntheticTick: syntheticTick, releaseFrame: scheduledFrame),
+                zeroOnsetGain: zeroVolume && event.scheduledStartFrame == scheduledFrame, volumeUpdate: volumeUpdate))
+    }
+
+    /// Copies decided values: first trigger release, latest mapping annotation, ordered diagnostics.
+    static func applyLegacyReleaseProjection(
+        _ result: CausalReleaseResult, events: inout [SyntheticTrackerEvent],
+        eventMappings: inout [PlaybackSongSyntheticEventMapping],
+        keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
+        voiceStateUpdates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
+    ) {
+        if let annotation = result.sourceAnnotation {
+            if events[annotation.eventIndex].keyOffFrame == nil {
+                events[annotation.eventIndex] = events[annotation.eventIndex].withKeyOffFrame(
+                    annotation.releaseFrame, fadeoutFrameDecrement: annotation.fadeoutFrameDecrement)
+            }
+            if annotation.zeroOnsetGain {
+                // Runtime controls precede triggers at a shared frame; the decided onset must carry zero gain.
+                events[annotation.eventIndex] = events[annotation.eventIndex].withGainPan(gain: 0)
+            }
+            if let update = annotation.volumeUpdate { voiceStateUpdates.append(update) }
+            eventMappings[annotation.mappingIndex] = eventMapping(eventMappings[annotation.mappingIndex],
+                applying: annotation.volumeEnvelopeSemantics)
+        }
+        // Existing assembly selects the first associated diagnostic for onset categories/Kxx bytes.
+        keyOffEvents.append(result.diagnostic)
+        // E9 continues to copy this mapping at creation time, even when its new trigger has no release.
+    }
+
     static func handleKeyOff(
         source: PlaybackPosition,
         channelIndex: Int,
@@ -33,44 +135,17 @@ extension PlaybackSongSyntheticAdapter {
         effectParam: UInt8? = nil,
         instrumentOnlyVolumeRestored: Bool = false
     ) {
-        let activeEventIndexBefore = channelState.activeEventIndex
-        if activeEventIndexBefore == nil, channelState.semanticInstrumentIndex != nil {
-            if !channelState.semanticVolumeEnvelopeEnabled && !instrumentOnlyVolumeRestored {
-                channelState.baseChannelVolume = 0
-            }
-            keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
-                source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: syntheticTick,
-                effectType: effectType, effectParam: effectParam, detected: true, releaseFrame: scheduledFrame,
-                scheduledFrame: scheduledFrame, applied: true, deferred: false, reason: .releasedSilentChannel,
-                requestedTick: syntheticTick, rowSpeed: rowSpeed, rowBPM: rowBPM, activeVoiceFound: false,
-                activeVoiceReleased: false, activeEventIndex: nil))
-            return
+        let result = decideKeyOff(
+            source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: syntheticTick,
+            scheduledFrame: scheduledFrame, rowSpeed: rowSpeed, rowBPM: rowBPM, cell: cell,
+            channelState: channelState, events: events, eventMappings: eventMappings, globalVolume: globalVolume,
+            effectType: effectType, effectParam: effectParam, instrumentOnlyVolumeRestored: instrumentOnlyVolumeRestored)
+        if let volume = result.channelVolumeAfter {
+            channelState.baseChannelVolume = volume
         }
-        guard let activeEventIndex = channelState.activeEventIndex,
-              let activeEventMappingIndex = channelState.activeEventMappingIndex,
-              events.indices.contains(activeEventIndex),
-              eventMappings.indices.contains(activeEventMappingIndex),
-              scheduledFrame >= (events[activeEventIndex].scheduledStartFrame ?? 0) else {
-            keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                syntheticTick: syntheticTick,
-                effectType: effectType,
-                effectParam: effectParam,
-                detected: true,
-                releaseFrame: nil,
-                scheduledFrame: scheduledFrame,
-                applied: false,
-                deferred: true,
-                reason: .noActiveVoice,
-                requestedTick: syntheticTick,
-                rowSpeed: rowSpeed,
-                rowBPM: rowBPM,
-                activeVoiceFound: activeEventIndexBefore != nil,
-                activeVoiceReleased: false,
-                activeEventIndex: nil
-            ))
+        applyLegacyReleaseProjection(result, events: &events, eventMappings: &eventMappings,
+            keyOffEvents: &keyOffEvents, voiceStateUpdates: &voiceStateUpdates)
+        if result.diagnostic.reason == .noActiveVoice {
             let ignored = ignoredCell(
                 source: source,
                 channelIndex: channelIndex,
@@ -94,66 +169,7 @@ extension PlaybackSongSyntheticAdapter {
                 includeKeyOff: true,
                 deferredCellFields: &deferredCellFields
             )
-            return
-        }
-
-        let previousMapping = eventMappings[activeEventMappingIndex]
-        let fadeoutDecrement = fadeoutFrameDecrement(
-            fadeoutValue: previousMapping.volumeEnvelopeSemantics.fadeoutValue,
-            sampleRate: previousMapping.outputSampleRate
-        )
-        if events[activeEventIndex].keyOffFrame == nil {
-            events[activeEventIndex] = events[activeEventIndex].withKeyOffFrame(
-                scheduledFrame, fadeoutFrameDecrement: fadeoutDecrement)
-        }
-        // Same-cell instrument-only K00 restores defaults (and explicit volume
-        // overrides) after the no-envelope release's volume-zero operation.
-        if events[activeEventIndex].volumeEnvelope == nil && !instrumentOnlyVolumeRestored {
-            let before = channelState
-            channelState.baseChannelVolume = 0
-            if events[activeEventIndex].scheduledStartFrame == scheduledFrame {
-                // Runtime control updates precede triggers at a shared frame.
-                events[activeEventIndex] = events[activeEventIndex].withGainPan(gain: 0)
-            }
-            voiceStateUpdates.append(voiceStateUpdateDiagnostic(source: source, channelIndex: channelIndex,
-                syntheticRow: syntheticRow, syntheticTick: syntheticTick, scheduledFrame: scheduledFrame, cell: cell,
-                commandSource: .effectColumn, command: .keyOffWithoutEnvelope, rawVolumeColumn: nil,
-                effectType: effectType, effectParam: effectParam, status: .applied, behavior: nil,
-                channelStateBefore: before, channelStateAfter: channelState,
-                globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
-                activeVoiceUpdatedOverride: events[activeEventIndex].scheduledStartFrame != scheduledFrame))
-        }
-        eventMappings[activeEventMappingIndex] = eventMapping(
-            previousMapping,
-            applying: previousMapping.volumeEnvelopeSemantics.applyingKeyOff(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                syntheticTick: syntheticTick,
-                releaseFrame: scheduledFrame
-            )
-        )
-        keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
-            source: source,
-            channelIndex: channelIndex,
-            syntheticRow: syntheticRow,
-            syntheticTick: syntheticTick,
-            effectType: effectType,
-            effectParam: effectParam,
-            detected: true,
-            releaseFrame: scheduledFrame,
-            scheduledFrame: scheduledFrame,
-            applied: true,
-            deferred: false,
-            reason: .releasedActiveVoice,
-            requestedTick: syntheticTick,
-            rowSpeed: rowSpeed,
-            rowBPM: rowBPM,
-            activeVoiceFound: true,
-            activeVoiceReleased: true,
-            activeEventIndex: activeEventIndex
-        ))
-        if hasDeferredEffect(cell) || volumeColumn.deferred {
+        } else if result.diagnostic.reason == .releasedActiveVoice && (hasDeferredEffect(cell) || volumeColumn.deferred) {
             eventCoverage.recordDeferredCellWithoutSkip()
         }
         // Release does not end source lifetime. Later volume commands still address this generation.

@@ -12,7 +12,7 @@ their semantic state into the new route. Audible XM panning envelopes remain def
 | Stage | Authority and behavior |
 | --- | --- |
 | Tracker base/output volume | Base writes synchronize output; tremolo can change output independently. Both use `0...64`. |
-| Planned scalar gain | The shared adapter multiplies sample/header volume, output volume, and global volume. Explicit note+instrument initialization also loads the mapped sample default into base/output. |
+| Planned scalar gain | The shared adapter consumes output volume once with global volume. The sample header initializes/restores base/output defaults, with no independent song multiplier (G01). |
 | Semantic envelope/fadeout | `PlaybackXMEnvelopeTimeline` publishes instantaneous state at canonical Fxx tick frames, separately from audible interpolation. |
 | Final output targets | `PlaybackXMAudibleTimeline` combines typed factor writes with volume-envelope/release targets. `VTXCMixerOutputState` alone interpolates their final mono/L/R gains. |
 | Gain/pan updates | For managed XM voices, scalar/pan writes update factor metadata without a second 32-frame ramp. Generic voices retain the existing independent 32-frame gain/pan path. |
@@ -25,8 +25,8 @@ generic ramps untouched. At activation, existing generic ramp reconstruction
 supplies the current audible factors to the shared C state, preserving earlier
 audio without creating another final-output interpolation formula.
 
-The target amplitude is `sample/header * output/64 * global/64 * envelope *
-fadeout`; L/R additionally multiply the existing pan-law factors. Mono retains
+The target amplitude is `output/64 * global/64 * envelope * fadeout`; L/R
+additionally multiply the existing pan-law factors. Mono retains
 its established pan-independent amplitude. A future audible pan-envelope factor
 can enter target composition without changing the output state machine.
 
@@ -106,8 +106,9 @@ Independent public controls cover 28 reset transitions in 26 rate/case pairs at
 48/44.1 kHz and BPM 125/250, including release, coincident volume/pan, quiet
 headers and later tempo changes. All durations match the pinned reference.
 Maximum constant-source linear PCM error is `6.24e-9` for VTX and `1.34e-7` for
-the reference's Float32 accumulation. Known sample/header and non-center pan
-endpoint differences remain outside this contract.
+the reference's Float32 accumulation. The measurement baseline retained
+duplicate sample/header scaling; G01 corrects that factor separately.
+Non-center pan endpoint differences remain outside this contract.
 
 For the center-pan falling control at 48000/125, L and R PCM before downstream
 headroom are identical: `N = 17280`, `D = 240`, start `0.013810679`, target
@@ -208,10 +209,10 @@ needed to distinguish the domains.
 | Unchanged target | A flat-envelope reset with unchanged volume/pan needs no output ramp. |
 
 Sample defaults enter FT2's channel-volume state; they are not an additional
-independent multiplier there. VTX's retained sample/header multiplication is a
-separate known ownership difference. The observed stereo endpoint law also
-differs from VTX's non-center comparison-profile pan law. Neither difference is
-permission to change those domains in a reset-ramp implementation.
+independent multiplier there. G01 now uses that same song ownership in VTX,
+without changing any reset duration or interpolation rule. The observed stereo
+endpoint law also differs from VTX's non-center comparison-profile pan law.
+Reset timing and the stereo endpoint law retain their separate boundaries.
 
 ## Why the isolated reset overlay was rejected
 
@@ -297,14 +298,14 @@ envelope at 17520. Semantic advancement must remain independent of this hold.
 Measured reference targets combine the channel's current output volume,
 envelope, released fadeout, the global volume visible while processing that
 channel, and static pan. FT2 does not multiply sample/header volume a second
-time. VTX retains its own target composition:
+time. G01 uses the same volume ownership in VTX:
 
 ```text
-plannedGain = sample/header * outputChannelVolume/64 * globalVolume/64
+plannedGain = outputChannelVolume/64 * globalVolume/64
 targetL/R = plannedGain * semanticEnvelope * semanticFadeout * existingPanLawL/R
 ```
 
-Retain current clamps, VTX sample ownership and profile pan laws. XM pan-envelope
+Retain current clamps, cached sample-header defaults and profile pan laws. XM pan-envelope
 offsets remain zero. Downstream headroom is absent from the voice target.
 
 Coincident `C20` uses the new volume and envelope value in **one quick target**

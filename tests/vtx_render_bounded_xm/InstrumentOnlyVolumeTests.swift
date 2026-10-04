@@ -28,7 +28,7 @@ final class InstrumentOnlyVolumeTests: XCTestCase {
                     XCTAssertEqual(context.events.count, 1)
                     XCTAssertEqual(context.playbackStateEvents.map(\.scheduledFrame), [11_520])
                     XCTAssertEqual(context.playbackStateEvents.map(\.activeEventIndex), [0])
-                    XCTAssertEqual(context.voiceStateUpdates.last?.gainAfter, Float(volume * volume) / 4096)
+                    XCTAssertEqual(context.voiceStateUpdates.last?.gainAfter, Float(volume) / 64)
                 }
             }
         }

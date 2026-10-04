@@ -61,6 +61,12 @@ host.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.
+- Song gain consumes channel/output volume once with global volume. Sample
+  headers initialize/restore cached defaults without another song multiplier.
+  Exact mapped represented PCM remains a valid source at header volume 0;
+  zero initializes/restores silent channel state without invalidating the route.
+  Empty/unrepresented routes remain source-less. Direct editor preview retains
+  its existing availability and header/headroom policy.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

@@ -1,8 +1,8 @@
 # XM Volume Ownership
 
 This note owns the shared adapter's volume-state boundary. The base/output
-separation preserves current supported playback output. Effect statuses remain
-owned by [XM effect support](../xm-effect-support.md).
+separation owns tracker volume; G01 removes the duplicate song header multiplier.
+Effect statuses remain owned by [XM effect support](../xm-effect-support.md).
 
 ## State and gain domains
 
@@ -10,11 +10,11 @@ owned by [XM effect support](../xm-effect-support.md).
 | --- | --- | --- |
 | `baseChannelVolume` | Integer `0...64`; persistent, channel-local; initially 64 | Instrument/default-volume paths, `Cxx`, volume-column volume/slides, `Axy`, `EAx`/`EBx`, `5xy`/`6xy` volume components, and `Rxy` volume modes write the base. No-envelope key-off zeros it. Each retains its timing, memory, and clamp policy. |
 | `outputChannelVolume` | Integer `0...64`; channel-local output retained between writes | Follows each base write. `7xy` writes output independently; empty rows retain it. Trigger and active-voice gain construction consume output. |
-| `PlaybackSample.volume` / `activeSampleVolume` | Header `0...64` normalized to Float `0...1`; immutable sample metadata plus channel-local active selection | The builder normalizes the header. Existing trigger/instrument-selection paths select the active sample factor; channel-volume commands do not rewrite it. |
+| `PlaybackSample.volume` / `activeSampleVolume` | Header `0...64` normalized to Float `0...1`; immutable sample metadata plus channel-local active selection | The header initializes/restores cached channel defaults. Active metadata also retains represented-source availability; it is never a second song-gain multiplier. |
 | Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` and the existing row-level `Hxy` approximation update the global state and active gains. Future triggers use the current global multiplier. |
 | Volume envelope | Point values `0...64` normalized to `0...1`; channel-local progression, projected to a live source when present | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
 | Fadeout | Channel-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
-| Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `adaptedGain` combines output, sample, and global factors. Managed XM envelope/release voices combine it with semantic factors in one final-output target; generic voices retain existing gain/pan ramps. |
+| Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `songGain` consumes output volume once with global volume. Managed XM envelope/release voices combine it with semantic factors in one final-output target; generic voices retain existing gain/pan ramps. |
 | Mix/output gain | Render/host/export policy; independent of channel state | Existing mix profile, runtime headroom, and export gain policies apply downstream. Summed Float32 PCM may exceed unity; encoded PCM16 clamps at the export boundary. |
 
 The owning implementation is
@@ -23,22 +23,22 @@ its volume/effect helpers, and
 [gain construction](../../app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+RuntimeEvents.swift).
 Base writes synchronize output without an unconditional row-start or row-end copy.
 Existing base-volume writers synchronize output; `7xy` can leave output distinct
-from base until another volume writer replaces it. The sample factor, envelope
-clock, and existing trigger-selection policies remain separate.
+from base until another volume writer replaces it. Header metadata, envelope
+clocks, and existing trigger-selection policies remain separate.
 
-## Preserved multiplication and clamps
+## Song gain and clamps
 
 ```text
 base write -> output follows
-planned gain = clamp01(sampleVolume * clamp64(outputChannelVolume)/64
-                                   * clamp64(globalVolume)/64)
+planned song gain = clamp01(clamp64(outputChannelVolume)/64
+                         * clamp64(globalVolume)/64)
 XM amplitude target = planned gain * semantic envelope * semantic fadeout
 XM stereo PCM = PCM * interpolated final L/R target
 generic voice amplitude = PCM * ramped gain * envelope * fadeout
 ```
 
 Existing volume writers clamp integer state; gain construction also normalizes
-and clamps its inputs/output, mapping a nonfinite sample factor or gain to zero.
+and clamps its inputs/output. Header normalization stays in the default-state path.
 Envelope and fadeout stay outside the planned gain. Panning and downstream mix
 policies remain outside tracker-volume state.
 
@@ -47,10 +47,29 @@ At full global volume, these cases are independently representable:
 | Sample header | Base | Output | Planned gain |
 | --- | --- | --- | --- |
 | 64 | 16 | 16 | 0.25 |
-| 16 | 64 | 64 | 0.25 |
-| 16 | 16 | 16 | 0.0625 |
+| 16 | 64 | 64 | 1 |
+| 16 | 16 | 16 | 0.25 |
+| 0 | 0 | 0 | 0 |
+| 0 | 32 | 32 | 0.5 |
 
-Equal final gains therefore do not imply equal tracker or sample state.
+Sample-header volume initializes/restores the channel default. Song audible gain
+consumes channel/output volume once; the header is not multiplied again as an
+independent song-gain factor. Header metadata and tracker state remain distinct.
+
+Exact mapped represented PCM remains a valid song source at header volume 0.
+The canonical resolver's song eligibility requires PCM, independently of header
+loudness; identity, note/map validation and fallback policies are unchanged.
+The source starts at its canonical frame, progresses through its loop while
+silent, and later Cxx reveals the same continuing source without a trigger or
+cursor reset. Instrument-only restoration can silence it by restoring cached
+zero without invalidating its route. Canonical empty/unrepresented routes still
+create no source.
+
+Direct editor preview consumes the represented sample header once, then applies
+its existing runtime headroom and preview safety cap. It does not use song
+channel state or `songGain`; Sample Editor and Instrument Editor routing and
+preview levels retain their existing contract, including the positive-header
+availability predicate for both mapped and direct preview.
 
 ## Ordinary explicit note and instrument initialization
 
@@ -65,10 +84,11 @@ existing event-creation path. Editor sample selection is not a routing input.
 The [pinned FT2 trigger](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L537-L590)
 selects the new note's mapped sample and caches its default in `oldVol`;
 `getNewNote` then calls `resetVolumes` before tick-zero volume/effect handling.
-Explicit volume-column and `Cxx` writes still override the default. VTX retains
-its independent sample factor: default/header 16 initializes base/output 16
-and produces gain `0.0625` at full global volume without envelope/fadeout.
-FT2's different sample-multiplier ownership remains a separate compatibility gap.
+Explicit volume-column and `Cxx` writes still override the default.
+Default/header 16 initializes base/output 16
+and produces song gain `0.25` at full global volume without envelope/fadeout.
+A later or same-cell `C20` replaces output with 32 and yields `0.5`, independent
+of the original header.
 
 Specialized delayed, retrigger and portamento paths retain their existing volume
 contracts. Ordinary key-off without an enabled volume envelope zeros base/output
@@ -85,8 +105,9 @@ memory, then restores base/output volume and static pan from the last selected
 declared header's cached defaults. A different instrument number does not select
 its sample or change the sounding generation. Canonical note routing
 resolves the exact 96-note keymap; editor sample selection is never an
-input. The independent sample/header factor is unchanged: cached default 24
-restores tracker volume 24, retaining sample factor `24/64` and gain `0.140625`.
+input. Cached default 24
+restores tracker output 24 and song gain `24/64 = 0.375` before global/envelope/
+fadeout factors.
 
 For an existing voice generation, the adapter publishes the existing
 volume-envelope/pan-clock/key-on/fadeout reset at the row's canonical tick-zero
@@ -111,8 +132,8 @@ precedence and ordinary reset. K01 resets at tick zero, then releases at tick
 one. Delayed instrument-only ED1...EDF remains deferred.
 
 `instrument-only-volume-semantics.xm` and direct/runtime tests cover this
-contract. Audible pan envelopes, ECx quick-volume parity,
-sample/header ownership parity and full FT2 mixer parity remain separate.
+contract. Audible pan envelopes, ECx quick-volume parity, and
+full FT2 mixer parity remains separate.
 
 ## Declared empty slots and silent channel state
 
@@ -140,7 +161,7 @@ portamento targets and channel effect memories can persist without a source.
 A later explicit playable note refreshes its own mapped defaults and restarts
 its semantic envelope as before. A later note-only route instead carries the
 progressed silent state and current tracker volume/pan. Audible
-panning-envelope offsets, sample/header multiplication, ECx, onset, Rxy timing,
+panning-envelope offsets, ECx, onset, Rxy timing,
 and delayed instrument-only behavior keep their separate boundaries.
 
 ## Note-only routing and state carry
@@ -176,7 +197,7 @@ E9 repeats reset channel semantics even for an empty route. Rxy retains its
 existing scheduler; its FT2 repeat timing/state parity is not promoted.
 The new public fixture and runtime tests share the adapter's exact frames and
 window state. New-source onset still initializes immediately in VTX versus
-FT2's 5 ms ramp; source replacement DSP and downstream sample scaling are
+FT2's 5 ms ramp; source replacement DSP and downstream mix policies are
 unchanged.
 
 ## Runtime, offline, and diagnostics
@@ -188,8 +209,8 @@ authority. Runtime host delivery and offline comparison retain their roles in
 [audio comparison](../audio-comparison.md).
 
 Adapter `effectiveVolumeValue` and update `effectiveVolumeBefore/After` describe
-tracker output in `0...64`; sample volume remains separate. `gainBefore/After`
-are sample/output/global products before the C-mixer envelope/fadeout and mix
+tracker output in `0...64`; sample volume remains header metadata. `gainBefore/After`
+are output/global products before the C-mixer envelope/fadeout and mix
 policies. Tests can inspect the internal base/output state without changing the
 trace schema.
 
@@ -300,7 +321,7 @@ writers operate on base and replace output at their existing command times.
 Ordinary explicit note+instrument triggers load the mapped sample default before
 same-cell volume commands, including after tremolo activation. Instrument-only
 restores its cached triggered-sample default; specialized portamento/retrigger
-paths retain their existing contracts. Sample scaling continues downstream.
+paths retain their existing contracts. Their song gains consume output once.
 Nonzero tremolo ticks are planned after all row-start channel/global writers,
 so a later channel's `Gxx` cannot see an earlier channel's future tremolo output.
 
@@ -312,10 +333,9 @@ pin tracker-domain values; runtime/offline tests pin plans and applied frames.
 The unchanged pinned FT2 replayer agrees with every fixture tick's output and
 all tremolo update states. This is not a waveform-identical rendering claim:
 
-- VTX retains independent sample scaling, while FT2 initializes base from the
-  sample default. Sample-header 16 plus explicit tracker volume 32 therefore
-  gives VTX gain 0.125 versus FT2 0.5 before other factors. Quiet-sample tests
-  pin tremolo depth/clamping before this retained downstream multiplier.
+- G01 consumes tremolo output once: header 16 plus explicit channel volume 32
+  yields song gain 0.5 before other factors, matching the pinned reference.
+  Quiet-header tests retain exact integer depth, output clamping and frames.
 - The fixture's note-only cells preserve tremolo state while restarting the
   carried instrument's exact mapped sample through the normal trigger path.
 - Generic C-mixer gain-update ramps remain 32 frames. Managed XM envelope/release

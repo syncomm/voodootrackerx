@@ -68,7 +68,7 @@ final class XMResetOutputTests: XCTestCase {
             let plan = prepared(song, rate: rate, frame: n)
             let config = MixerRenderConfig(sampleRate: rate)
             let target = try XCTUnwrap(plan.xmAudibleTimeline?.updates.first { $0.scheduledFrame == n })
-            XCTAssertEqual(target.amplitude, 0.25 * 0.5 * 0.5)
+            XCTAssertEqual(target.amplitude, 0.5 * 0.5)
             let semantic = try XCTUnwrap(plan.xmEnvelopeTimeline?.updates.first { $0.scheduledFrame == n })
             XCTAssertTrue(semantic.state.keyOn)
             XCTAssertEqual(semantic.state.fadeoutAccumulator, 32_768)

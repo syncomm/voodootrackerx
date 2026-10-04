@@ -385,9 +385,8 @@ extension PlaybackSongSyntheticAdapter {
                     currentVolume: retriggerState.baseChannelVolume
                 ).volumeAfter
             }
-            let gain = adaptedGain(
-                sampleVolume: activeSampleVolume,
-                channelVolume: retriggerState.outputChannelVolume,
+            let gain = songGain(
+                outputChannelVolume: retriggerState.outputChannelVolume,
                 globalVolume: globalVolumeState.volumeValue
             )
             let eventIndex = events.count

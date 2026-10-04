@@ -2119,16 +2119,14 @@ extension PlaybackSongSyntheticAdapter {
         let instrumentStateUpdated = instrumentStateAfter != nil
         let channelVolumeBefore = instrumentStateBefore?.baseChannelVolume
         let channelVolumeAfter = instrumentStateAfter?.baseChannelVolume
-        let gainBefore = instrumentStateBefore?.activeSampleVolume.map {
-            adaptedGain(
-                sampleVolume: $0,
-                channelVolume: instrumentStateBefore?.outputChannelVolume ?? 64
+        let gainBefore = instrumentStateBefore?.activeSampleVolume.map { _ in
+            songGain(
+                outputChannelVolume: instrumentStateBefore?.outputChannelVolume ?? 64
             )
         }
-        let gainAfter = instrumentStateAfter?.activeSampleVolume.map {
-            adaptedGain(
-                sampleVolume: $0,
-                channelVolume: instrumentStateAfter?.outputChannelVolume ?? 64
+        let gainAfter = instrumentStateAfter?.activeSampleVolume.map { _ in
+            songGain(
+                outputChannelVolume: instrumentStateAfter?.outputChannelVolume ?? 64
             )
         }
 

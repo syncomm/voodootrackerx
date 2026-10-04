@@ -414,6 +414,99 @@ final class RuntimeCMixerQueueReferenceTests: XCTestCase {
 }
 
 final class RuntimeCMixerTests: XCTestCase {
+    func testHeaderZeroC20RevealsContinuingLoopCursorWithoutRetriggerAtBothRates() throws {
+        let source = (0..<257).map { Float($0) / 512 - 0.25 }
+        for rate in [44_100.0, 48_000] {
+            let sample = makePlaybackSample(pcm: source, volume: 0, baseSampleRate: rate,
+                loopStart: 0, loopLength: source.count, loopType: 1)
+            let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1), makePlaybackRow(index: 1),
+                makePlaybackRow(index: 2, effectType: 12, effectParam: 32), makePlaybackRow(index: 3)
+            ]], instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+                initialTiming: .init(speed: 6, bpm: 125))
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 4)
+            let renderer = PlaybackSongOfflineRenderer(), offline = renderer.render(request)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), row = Int(rate * 0.12), reveal = 2 * row
+            XCTAssertEqual(plan, offline.plan)
+            XCTAssertEqual(plan.pattern.events.count, 1)
+            XCTAssertEqual(plan.pattern.events[0].gain, 0)
+            XCTAssertEqual(plan.pattern.events[0].playbackStep, 1)
+            XCTAssertTrue(offline.block.interleavedPCM[..<reveal].allSatisfy { $0 == 0 })
+            for rows in [1, 2, 3] {
+                XCTAssertEqual(renderer.renderWindowed(request, windowRows: rows).block.interleavedPCM, offline.block.interleavedPCM)
+            }
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var pcm = [Float](), applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            // Stop immediately before C20 to inspect a live source that has progressed while silent.
+            for boundary in [reveal, reveal + 1, offline.block.frameCount] {
+                while pcm.count < boundary {
+                    pcm += renderRuntimePCM(core, frames: min(997, boundary - pcm.count))
+                    applied += core.drainAppliedAdapterEventDiagnostics()
+                }
+                let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertTrue(voice.active)
+                XCTAssertEqual(core.snapshot().activeVoiceCount, 1)
+                XCTAssertEqual(voice.samplePosition, Double(boundary % source.count), accuracy: 1e-8)
+            }
+            XCTAssertEqual(pcm, offline.block.interleavedPCM)
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            XCTAssertEqual(applied.filter { if case .noteTrigger = $0.result { return true }; return false }.count, 1)
+            let witness = 3 * row + 23
+            XCTAssertEqual(pcm[witness], source[witness % source.count] * 0.5)
+            XCTAssertNotEqual(pcm[witness], source[(witness - reveal) % source.count] * 0.5)
+        }
+    }
+
+    func testSongHeaderGainOwnershipMatchesRuntimeOfflineAndWindowsAtBothRates() throws {
+        for header in [0, 16, 64] {
+            let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 256), volume: Float(header) / 64,
+                baseSampleRate: 8_363, loopStart: 0, loopLength: 256, loopType: 1)
+            let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1), makePlaybackRow(index: 1),
+                makePlaybackRow(index: 2, effectType: 12, effectParam: 32), makePlaybackRow(index: 3),
+                makePlaybackRow(index: 4, instrument: 1), makePlaybackRow(index: 5),
+                makePlaybackRow(index: 6, note: 49), makePlaybackRow(index: 7),
+            ]], instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+                initialTiming: .init(speed: 6, bpm: 125))
+            for rate in [44_100.0, 48_000] {
+                let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+                let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 8)
+                let renderer = PlaybackSongOfflineRenderer(), offline = renderer.render(request)
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                let plan = try XCTUnwrap(runtime.plan), row = Int(rate * 0.12)
+                XCTAssertEqual(plan, offline.plan)
+                XCTAssertEqual(plan.pattern.events.map(\.gain), [Float(header) / 64, Float(header) / 64])
+                XCTAssertEqual(plan.pattern.events.map(\.scheduledStartFrame), [0, 6 * row])
+                XCTAssertEqual(plan.diagnostics.eventMappings.map(\.sampleIndex), [0, 0])
+                XCTAssertEqual(plan.playbackStateEvents.map(\.scheduledFrame), [4 * row])
+                for rows in [1, 2, 3] {
+                    XCTAssertEqual(renderer.renderWindowed(request, windowRows: rows).block.interleavedPCM, offline.block.interleavedPCM)
+                }
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                    outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float](), applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+                while pcm.count < offline.block.frameCount {
+                    pcm += renderRuntimePCM(core, frames: min(997, offline.block.frameCount - pcm.count))
+                    applied += core.drainAppliedAdapterEventDiagnostics()
+                }
+                XCTAssertEqual(pcm, offline.block.interleavedPCM)
+                XCTAssertEqual(applied.map(\.event.id), runtime.events.filter { $0.scheduledFrame < pcm.count }.map(\.id))
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 && $0.appliedFrame == UInt64($0.event.scheduledFrame) })
+                for (index, gain) in [(1, Float(header) / 64), (3, 0.5), (5, Float(header) / 64), (7, Float(header) / 64)] {
+                    XCTAssertTrue(pcm[(index * row)..<((index + 1) * row)].allSatisfy { $0 == 0.25 * gain })
+                }
+                XCTAssertEqual(pcm.map(abs).max(), header == 64 ? 0.4921875 : 0.125)
+                XCTAssertEqual(core.snapshot().clippingSampleCount, 0)
+                XCTAssertEqual(core.snapshot().overrangeSampleCount, 0)
+            }
+        }
+    }
+
     func testNoteOnlyRoutingAppliesNewGenerationsAndSourceCursorsAtExactFrames() throws {
         let fixture = try referenceXMFixtureURL("generated/note-only-routing.xm")
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
@@ -897,7 +990,7 @@ final class RuntimeCMixerTests: XCTestCase {
         let triggers = runtime.events.filter { if case .noteTrigger = $0.action { return true }; return false }
         XCTAssertEqual(triggers.map(\.scheduledFrame), [480, 1440, 1920])
         XCTAssertEqual(triggers.map(\.activeEventIndex), [0, 1, 2])
-        XCTAssertEqual(offline.plan.pattern.events.map(\.gain), [0.0625, 1, 0.25])
+        XCTAssertEqual(offline.plan.pattern.events.map(\.gain), [0.25, 1, 0.5])
         let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
             outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
         core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
@@ -916,7 +1009,7 @@ final class RuntimeCMixerTests: XCTestCase {
             }
         }
         XCTAssertTrue(offline.block.interleavedPCM[..<480].allSatisfy { $0 == 0 })
-        XCTAssertEqual(offline.block.interleavedPCM[480], 0.0625)
+        XCTAssertEqual(offline.block.interleavedPCM[480], 0.25)
         let applied = core.drainAppliedAdapterEventDiagnostics().filter { if case .noteTrigger = $0.result { return true }; return false }
         XCTAssertEqual(applied.count, 3)
         for (actual, planned) in zip(applied, triggers) {
@@ -4094,9 +4187,9 @@ final class RuntimeCMixerTests: XCTestCase {
         ))
         let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
         XCTAssertEqual(runtime.plan, offline.plan)
-        XCTAssertEqual(offline.plan.pattern.events.first?.gain, 0.25)
+        XCTAssertEqual(offline.plan.pattern.events.first?.gain, 1)
         let planned = runtime.events.filter { if case .gainPanUpdate = $0.action { return true }; return false }
-        let expectedGains: [Float] = [16 / 256, 32 / 256, 30 / 256, 28 / 256, 28 / 512]
+        let expectedGains: [Float] = [16 / 64, 32 / 64, 30 / 64, 28 / 64, 28 / 128]
         XCTAssertEqual(planned.map(\.scheduledFrame), [30, 60, 100, 110, 120])
         XCTAssertEqual(planned.map(\.syntheticTick), [0, 0, 1, 2, 0])
         for (event, gain) in zip(planned, expectedGains) {
@@ -4154,7 +4247,7 @@ final class RuntimeCMixerTests: XCTestCase {
             guard case let .tremolo(tick) = update.command else { return XCTFail("Missing tremolo semantics") }
             XCTAssertEqual(tick.baseVolume, 32)
             XCTAssertEqual(tick.sampleVolume, 0.25)
-            XCTAssertEqual(update.gainAfter, Float(tick.outputVolume) / 256)
+            XCTAssertEqual(update.gainAfter, Float(tick.outputVolume) / 64)
             XCTAssertEqual(tick.phaseAfter, (tick.phaseBefore + 4 * tick.speed) & 255)
         }
         let planned = runtime.events.filter { if case .gainPanUpdate = $0.action { return true }; return false }
@@ -4168,12 +4261,12 @@ final class RuntimeCMixerTests: XCTestCase {
         var pcm = [Float]()
         while pcm.count < 240 { pcm += harness.audioEngine.renderForTesting(frameCount: min(17, 240 - pcm.count)) }
         XCTAssertEqual(pcm, offline.block.interleavedPCM)
-        XCTAssertEqual(pcm[119], 63 / 256) // The complete empty row retains the last output.
+        XCTAssertEqual(pcm[119], 63 / 64) // The complete empty row retains the last output.
         let applied = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_update_gain_pan_applied" }
         XCTAssertEqual(applied.count, planned.count)
         for (actual, pair) in zip(applied, zip(planned, volumes)) {
             let (event, output) = pair
-            let gain = Float(output) / 256
+            let gain = Float(output) / 64
             guard case let .gainPanUpdate(_, plannedGain, _) = event.action else { return XCTFail("Expected gain update") }
             XCTAssertEqual(plannedGain, gain)
             XCTAssertEqual(actual.plannedSourceRowIndex, event.source.rowIndex)

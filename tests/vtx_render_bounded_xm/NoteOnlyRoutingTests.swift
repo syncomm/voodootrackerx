@@ -5,6 +5,24 @@ import XCTest
 final class NoteOnlyRoutingTests: XCTestCase {
     private typealias Adapter = PlaybackSongSyntheticAdapter
 
+    func testNoteOnlyExactZeroHeaderRouteKeepsCarriedVolumeAndSilentResetOwnership() {
+        let module = song([cell(note: 37, instrument: 2), cell(effect: 12, param: 32), cell(note: 49),
+            cell(instrument: 2), cell(effect: 12, param: 32), cell()], envelope: false, panEnvelope: false,
+            secondSampleVolume: 0)
+        let (context, states) = inspect(module)
+        XCTAssertEqual(context.eventMappings.map(\.sampleIndex), [0, 1])
+        XCTAssertEqual(context.eventMappings.map(\.mappedSampleIndex), [0, 1])
+        XCTAssertTrue(context.eventMappings.allSatisfy { $0.sampleSelectionMethod == .sampleMap && !$0.firstPlayableSampleFallbackUsed })
+        XCTAssertEqual(context.events.map(\.gain), [0.75, 0.5])
+        XCTAssertEqual(context.events.map(\.scheduledStartFrame), [0, 11_520])
+        XCTAssertEqual(states.map(\.baseChannelVolume), [48, 32, 32, 0, 32, 32])
+        XCTAssertEqual(states.map(\.triggeredSampleDefaultVolume), [48, 48, 0, 0, 0, 0])
+        XCTAssertEqual(states.map(\.activeEventIndex), [0, 0, 1, 1, 1, 1])
+        XCTAssertEqual(states[2].activeSampleVolume, 0)
+        XCTAssertEqual(context.playbackStateEvents.count, 1)
+        XCTAssertEqual(context.voiceStateUpdates.last { $0.source.rowIndex == 4 }?.gainAfter, 0.5)
+    }
+
     func testCarriedInstrumentAndExactNewNoteMapOwnRoutingAndDefaults() throws {
         let module = song([cell(note: 37, instrument: 1), cell(effect: 12, param: 16),
             cell(note: 39), cell(), cell(instrument: 2), cell(note: 49)])
@@ -21,7 +39,7 @@ final class NoteOnlyRoutingTests: XCTestCase {
         XCTAssertEqual(states[5].outputChannelVolume, 64)
         XCTAssertEqual(states[5].panningValue, 64)
         XCTAssertEqual(states[5].triggeredSampleDefaultPan, 224)
-        XCTAssertEqual(context.events.last?.gain, 0.625) // Independent header factor is retained.
+        XCTAssertEqual(context.events.last?.gain, 1) // Carried output survives the mapped header change.
         XCTAssertEqual(context.events.last?.sample.monoPCM, Array(repeating: -0.125, count: 256))
     }
 
@@ -260,7 +278,8 @@ final class NoteOnlyRoutingTests: XCTestCase {
     }
 
     private func song(_ cells: [PlaybackCell], envelope: Bool = true, panEnvelope: Bool = true,
-                      secondPoints: [(Int, Int)] = [(0, 32), (4, 64), (40, 64)], missing: Bool = false, empty: Bool = false, missingMap: Bool = false,
+                      secondPoints: [(Int, Int)] = [(0, 32), (4, 64), (40, 64)], secondSampleVolume: Float = 0.625,
+                      missing: Bool = false, empty: Bool = false, missingMap: Bool = false,
                       emptyVolume: UInt8 = 40, emptyFinetune: Int = 0, emptyRelativeNote: Int = 0) -> PlaybackSong {
         func sample(_ instrument: Int, _ slot: Int, _ volume: Float, _ pan: UInt8) -> PlaybackSample {
             let count = instrument == 3 ? 2 : 256
@@ -280,7 +299,7 @@ final class NoteOnlyRoutingTests: XCTestCase {
             patternsByIndex: [0: .init(index: 0, rows: cells.enumerated().map { .init(index: $0.offset, cells: [$0.element]) })],
             instrumentsByIndex: [1: .init(index: 1, samples: [sample(1, 1, 0.375, 192), sample(1, 0, 1, 64)],
                 volumeEnvelope: volume([(0, 64), (3, 16), (40, 16)], 1024), panningEnvelope: pan, noteSampleMap: map),
-                2: .init(index: 2, samples: empty ? [sample(2, 0, 0.75, 32)] : [sample(2, 1, 0.625, 224), sample(2, 0, 0.75, 32)],
+                2: .init(index: 2, samples: empty ? [sample(2, 0, 0.75, 32)] : [sample(2, 1, secondSampleVolume, 224), sample(2, 0, 0.75, 32)],
                     volumeEnvelope: volume(secondPoints, 512), panningEnvelope: pan,
                     noteSampleMap: missingMap ? nil : missing ? Array(repeating: 0, count: 48) + Array(repeating: 15, count: 48) : map),
                 3: .init(index: 3, samples: [sample(3, 0, 1, 128)], noteSampleMap: Array(repeating: 0, count: 96))],

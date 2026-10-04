@@ -64,8 +64,8 @@ final class XMAudibleOutputTests: XCTestCase {
             let renderer = PlaybackSongOfflineRenderer()
             let result = renderer.render(request)
             let updates = try XCTUnwrap(result.plan.xmAudibleTimeline?.updatesByEvent[0])
-            XCTAssertEqual(updates[0].amplitude, 0.25 * 0.25 * 0.5 * 0.25)
-            XCTAssertEqual(updates[6].amplitude, 0.5 * 0.25 * 0.5 * 0.75)
+            XCTAssertEqual(updates[0].amplitude, 0.25 * 0.5 * 0.25)
+            XCTAssertEqual(updates[6].amplitude, 0.5 * 0.5 * 0.75)
             XCTAssertEqual(updates[6].durationFrames, 240)
             let old = updates[5], next = updates[6]
             for offset in [0, 1, 32, 60, 120, 180, 240] {

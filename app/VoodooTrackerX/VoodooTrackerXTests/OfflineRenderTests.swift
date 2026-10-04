@@ -74,7 +74,7 @@ final class OfflineRenderTests: XCTestCase {
         let result = PlaybackSongOfflineRenderer().render(request)
         let event = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [0.25, 0.125, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0.5, 0.25, 0])
         XCTAssertEqual(result.scheduledVoiceIndices, [0])
         XCTAssertEqual(result.diagnostics.adaptedOrders.map(\.requestedOrderIndex), [0])
         XCTAssertEqual(event.source.patternIndex, 7)

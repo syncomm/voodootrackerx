@@ -5,7 +5,7 @@ import XCTest
 final class TremoloTests: XCTestCase {
     typealias Adapter = PlaybackSongSyntheticAdapter
 
-    func testOrdinaryTremoloPinsEveryTrackerDomainTickBeforeSampleScaling() {
+    func testOrdinaryTremoloFeedsSongOutputWithoutHeaderScaling() {
         for sample: Float in [1, 0.25] {
             let (context, states) = inspect(song([cell(7, 0x48, note: 49, instrument: 1, volume: 0x30)], sample: sample))
             let updates = tremolo(context)
@@ -16,8 +16,8 @@ final class TremoloTests: XCTestCase {
             XCTAssertEqual(updates.map { $0.1.delta }, [0, 12, 22, 29, 31])
             XCTAssertEqual(updates.map { $0.1.outputVolume }, [32, 44, 54, 61, 63])
             XCTAssertTrue(updates.allSatisfy { $0.1.baseVolume == 32 && $0.1.sampleVolume == sample && !$0.1.clamped })
-            XCTAssertEqual(updates.map { $0.0.gainAfter }, [32, 44, 54, 61, 63].map { Optional(Float($0) / 64 * sample) })
-            XCTAssertEqual(context.events.map(\.gain), [0.5 * sample]) // Tick 0 is the unmodulated trigger.
+            XCTAssertEqual(updates.map { $0.0.gainAfter }, [32, 44, 54, 61, 63].map { Optional(Float($0) / 64) })
+            XCTAssertEqual(context.events.map(\.gain), [0.5]) // Tick 0 is the unmodulated trigger.
             XCTAssertEqual(states[0].baseChannelVolume, 32)
             XCTAssertEqual(states[0].outputChannelVolume, 63)
             XCTAssertEqual(states[0].tremolo.speed, 4)
@@ -136,8 +136,8 @@ final class TremoloTests: XCTestCase {
             XCTAssertEqual(states[2].tremolo.phase, control == 0 ? 0 : 80)
             XCTAssertEqual(context.events.count, 1)
             let update = context.voiceStateUpdates.first { $0.source.rowIndex == 2 && $0.activeVoiceUpdated }
-            XCTAssertEqual(update?.gainBefore, 63 / 256)
-            XCTAssertEqual(update?.gainAfter, 0.0625)
+            XCTAssertEqual(update?.gainBefore, 63 / 64)
+            XCTAssertEqual(update?.gainAfter, 0.25)
         }
     }
 
@@ -198,7 +198,7 @@ final class TremoloTests: XCTestCase {
             XCTAssertEqual(updates.map(\.effectiveVolumeAfter), outputs.map(Optional.some))
             XCTAssertEqual(updates.map(\.syntheticTick), ticks)
             XCTAssertEqual(updates.first?.effectiveVolumeBefore, 63)
-            XCTAssertEqual(updates.map(\.gainAfter), outputs.map { Optional(Float($0) / 256) })
+            XCTAssertEqual(updates.map(\.gainAfter), outputs.map { Optional(Float($0) / 64) })
             XCTAssertEqual(states[1].baseChannelVolume, outputs.last)
             XCTAssertEqual(states[2].outputChannelVolume, outputs.last)
             XCTAssertTrue(states.allSatisfy { $0.activeSampleVolume == 0.25 })
@@ -219,7 +219,7 @@ final class TremoloTests: XCTestCase {
         }
     }
 
-    func testQuietSamplesClampTrackerOutputBeforeApplyingSampleVolume() {
+    func testQuietHeadersDoNotRescaleClampedTremoloOutput() {
         for sample: Float in [1, 0.25] {
             let (context, states) = inspect(song([
                 cell(0x0E, 0x72), cell(7, 0xFF, note: 49, instrument: 1, volume: 0x20),
@@ -228,7 +228,7 @@ final class TremoloTests: XCTestCase {
             XCTAssertEqual(updates.map { $0.1.delta }, [59, 59, 59, -59, -59])
             XCTAssertEqual(updates.map { $0.1.outputVolume }, [64, 64, 64, 0, 0])
             XCTAssertTrue(updates.allSatisfy { $0.1.clamped && $0.1.baseVolume == 16 })
-            XCTAssertEqual(updates.map { $0.0.gainAfter }, [sample, sample, sample, 0, 0].map(Optional.some))
+            XCTAssertEqual(updates.map { $0.0.gainAfter }, [Float(1), 1, 1, 0, 0].map(Optional.some))
             XCTAssertEqual(states[1].baseChannelVolume, 16)
             XCTAssertEqual(states[1].activeSampleVolume, sample)
         }

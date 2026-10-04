@@ -24,7 +24,7 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
                     XCTAssertEqual(context.events.count, 1)
                     XCTAssertEqual(context.events[0].scheduledStartFrame, 0)
                     XCTAssertEqual(context.events[0].initialSourceFrame, 0)
-                    XCTAssertEqual(context.events[0].gain, Float(volume * volume) / 4096)
+                    XCTAssertEqual(context.events[0].gain, Float(volume) / 64)
                     XCTAssertEqual(context.eventMappings[0].sampleVolumeRawEstimate, volume)
                     XCTAssertEqual(context.eventMappings[0].sampleSelectionMethod, .sampleMap)
                     XCTAssertFalse(context.eventMappings[0].firstPlayableSampleFallbackUsed)
@@ -40,10 +40,10 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
         XCTAssertEqual(states.map(\.outputChannelVolume), [0, 16, 16])
         XCTAssertNil(states[0].activeEventIndex)
         XCTAssertEqual(context.events.map(\.scheduledStartFrame), [1])
-        XCTAssertEqual(context.events.map(\.gain), [0.0625])
+        XCTAssertEqual(context.events.map(\.gain), [0.25])
         let request = PlaybackSongOfflineRenderRequest(song: module, config: .init(sampleRate: 100, channelCount: 1), rows: 3)
         let rendered = PlaybackSongOfflineRenderer().render(request)
-        XCTAssertEqual(rendered.block.interleavedPCM, [0, 0.0625, 0.0625])
+        XCTAssertEqual(rendered.block.interleavedPCM, [0, 0.25, 0.25])
         XCTAssertEqual(rendered.diagnostics.eventMappings.first?.sampleIndex, 1)
     }
 
@@ -56,7 +56,7 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
         XCTAssertEqual(context.eventMappings.map(\.sampleIndex), [0, 1, 0, 0])
         XCTAssertEqual(context.eventMappings.map(\.instrumentIndex), [1, 1, 2, 1])
         XCTAssertEqual(context.eventMappings.map(\.effectiveVolumeValue), [64, 16, 32, 64])
-        XCTAssertEqual(context.events.map(\.gain), [1, 0.0625, 0.25, 1])
+        XCTAssertEqual(context.events.map(\.gain), [1, 0.25, 0.5, 1])
         XCTAssertEqual(context.events.map(\.scheduledStartFrame), [0, 2, 4, 5])
         XCTAssertEqual(states.map(\.activeEventIndex), [0, 0, 1, 1, 2, 3])
     }
@@ -70,7 +70,7 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
             XCTAssertEqual(states.last?.baseChannelVolume, expected)
             XCTAssertEqual(states.last?.outputChannelVolume, expected)
             XCTAssertEqual(states.last?.activeSampleVolume, 0.25)
-            XCTAssertEqual(context.events.map(\.gain), [Float(expected) / 512])
+            XCTAssertEqual(context.events.map(\.gain), [Float(expected) / 128])
             XCTAssertEqual(context.globalVolumeState.volumeValue, 32)
         }
     }
@@ -84,7 +84,7 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
         XCTAssertEqual(states[0].baseChannelVolume, 16)
         XCTAssertEqual(states[0].outputChannelVolume, 16)
         XCTAssertEqual(states[0].tremolo, state.tremolo)
-        XCTAssertEqual(context.events[0].gain, 0.0625)
+        XCTAssertEqual(context.events[0].gain, 0.25)
     }
 
     func testInvalidMapDoesNotFallbackOrInitializeFromFirstSample() {
@@ -117,7 +117,7 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
             XCTAssertEqual(renderer.renderWindowed(request, windowRows: window).block.interleavedPCM, offline.block.interleavedPCM)
         }
         XCTAssertEqual(offline.plan.pattern.events.map(\.scheduledStartFrame), [480, 1920, 3360])
-        XCTAssertEqual(offline.plan.pattern.events.map(\.gain), [0.0625, 1, 0.25])
+        XCTAssertEqual(offline.plan.pattern.events.map(\.gain), [0.25, 1, 0.5])
         XCTAssertGreaterThan(offline.block.interleavedPCM[480], 0)
     }
 

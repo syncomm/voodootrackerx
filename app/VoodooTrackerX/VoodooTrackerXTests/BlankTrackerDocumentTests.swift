@@ -2093,7 +2093,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(parameters.playbackStep, 120, accuracy: 0.000_001)
     }
 
-    func testNoteAuditionPreviewGainUsesRuntimeAdapterGainAndHeadroomBeforeSafetyCap() throws {
+    func testNoteAuditionPreviewGainUsesHeaderAndHeadroomBeforeSafetyCap() throws {
         let quietEvent = try makePreviewEvent(
             trackerKey: "z",
             selectedOctave: 4,
@@ -2112,23 +2112,19 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let runtimeHeadroom = RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
 
         XCTAssertEqual(RuntimeCMixerOutputPolicy.defaultHeadroomDB, -12)
+        for header: Float in [0, 0.25, 1] {
+            XCTAssertEqual(EditorNoteAuditionPreviewGainPolicy.gain(sampleVolume: header),
+                header * runtimeHeadroom, accuracy: 0.000_001)
+        }
         XCTAssertEqual(
             quietParameters.gain,
-            PlaybackSongSyntheticAdapter.adaptedGain(
-                sampleVolume: 0.1,
-                channelVolume: 64,
-                globalVolume: PlaybackSongSyntheticAdapter.GlobalVolumeState.defaultValue
-            ) * runtimeHeadroom,
+            0.1 * runtimeHeadroom,
             accuracy: 0.000_001
         )
         XCTAssertLessThan(quietParameters.gain, loudParameters.gain)
         XCTAssertEqual(
             loudParameters.gain,
-            PlaybackSongSyntheticAdapter.adaptedGain(
-                sampleVolume: 1,
-                channelVolume: 64,
-                globalVolume: PlaybackSongSyntheticAdapter.GlobalVolumeState.defaultValue
-            ) * runtimeHeadroom,
+            1 * runtimeHeadroom,
             accuracy: 0.000_001
         )
         XCTAssertLessThan(loudParameters.gain, EditorNoteAuditionPreviewGainPolicy.maximumGain)
@@ -2210,11 +2206,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             for: event,
             sampleRate: 44_100
         ))
-        let expectedRuntimeEquivalentGain = PlaybackSongSyntheticAdapter.adaptedGain(
-            sampleVolume: descriptor.previewVolume,
-            channelVolume: 64,
-            globalVolume: PlaybackSongSyntheticAdapter.GlobalVolumeState.defaultValue
-        ) * RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
+        let expectedRuntimeEquivalentGain = descriptor.previewVolume * RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
 
         XCTAssertGreaterThan(peak, 0)
         XCTAssertGreaterThan(peak, 0.04)

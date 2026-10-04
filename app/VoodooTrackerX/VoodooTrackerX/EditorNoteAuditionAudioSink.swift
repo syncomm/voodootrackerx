@@ -182,12 +182,9 @@ enum EditorNoteAuditionPreviewGainPolicy {
     static let runtimeOutputHeadroomGain = EditorNoteAuditionAudioSink.previewOutputHeadroomGain
 
     static func gain(sampleVolume: Float) -> Float {
-        let runtimeVoiceGain = PlaybackSongSyntheticAdapter.adaptedGain(
-            sampleVolume: sampleVolume,
-            channelVolume: 64,
-            globalVolume: PlaybackSongSyntheticAdapter.GlobalVolumeState.defaultValue
-        )
-        let normalized = runtimeVoiceGain * runtimeOutputHeadroomGain
+        // Direct preview consumes the represented header once, independently of song channel state.
+        let previewGain = PlaybackSongSyntheticAdapter.clampedGain(sampleVolume)
+        let normalized = previewGain * runtimeOutputHeadroomGain
         guard normalized.isFinite else {
             return 0
         }

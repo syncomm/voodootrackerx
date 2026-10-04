@@ -141,6 +141,10 @@ clamp policy changes. Same-channel `Gxx` is visible immediately; a later-channel
 `Gxx` reaches an earlier channel's target on the next tick, matching the measured
 channel-turn ordering. The adapter's global semantic state is unchanged.
 
+G08 ordinary `6x/7x` channel writes join the existing nonzero-tick target with
+its tick duration. They add no gain factor, quick-volume reset or second ramp;
+fine `8x/9x` keep their existing tick-zero publication.
+
 First publication initializes immediately, preserving VTX trigger onset and
 source position. A later explicit non-retriggering reset changes semantic state
 at frame `N` and publishes through the same C output state with

@@ -205,7 +205,7 @@ final class TremoloTests: XCTestCase {
         }
     }
 
-    func testDelayedInstrumentRestoresVolumeWithoutReplayingColumnSlides() {
+    func testDelayedInstrumentRestoresVolumeBeforeLaterColumnTicks() {
         for (volume, expected): (UInt8, Int) in [(0x30, 32), (0x81, 64), (0x61, 64)] {
             let (context, states) = inspect(song([
                 cell(7, 0x48, note: 49, instrument: 1, volume: 0x30),
@@ -213,8 +213,8 @@ final class TremoloTests: XCTestCase {
             ]))
             XCTAssertEqual(context.events.last?.tick, 1)
             XCTAssertEqual(context.events.last?.gain, Float(expected) / 64)
-            XCTAssertEqual(states[1].baseChannelVolume, expected)
-            XCTAssertEqual(states[1].outputChannelVolume, expected)
+            XCTAssertEqual(states[1].baseChannelVolume, volume == 0x61 ? 60 : expected)
+            XCTAssertEqual(states[1].outputChannelVolume, volume == 0x61 ? 60 : expected)
             XCTAssertEqual(states[1].tremolo.phase, 0)
         }
     }

@@ -200,6 +200,32 @@ window state. New-source onset still initializes immediately in VTX versus
 FT2's 5 ms ramp; source replacement DSP and downstream mix policies are
 unchanged.
 
+## G08 ordinary volume-column slides
+
+`6x/7x` change base volume by the current low nibble on ticks `1..<speed`,
+clamping to `0...64`; output follows each write. Tick zero and speed 1 leave
+both domains unchanged. From 32, `61` ends at 32/30/27 for speeds 1/3/6;
+`71` ends at 32/34/37. `60/70` have no amount memory: on each nonzero tick
+zero displacement still restores held tremolo output from base.
+
+Header defaults, column set-volume and Cxx retain their tick-zero order.
+Each later column slide precedes a coincident A/5/6 or tremolo writer, with
+independent effect-column memory. Existing delayed triggers/reset run after
+that tick's column write; later ticks slide from the reset state. Fine `8x/9x`
+still write only at tick zero. Silent and completed sources retain channel
+state; a later note-only route observes it without an invented voice.
+
+The public `volume-column-slide-timing.xm` and direct/runtime controls pin
+these values, effective Fxx speeds and 44.1/48 kHz frames. They reuse song gain,
+envelope/fadeout clocks and the existing audible output targets. Cold channel
+initialization, G09 panning slides, G11 mapping, G31 arithmetic, G40 pan law,
+onset and generic ramps retain their separate boundaries.
+
+Canonical full Xcode verification passes. The maintainer reported a passing
+listen for `xm-corpus-198` at zero-based order 1, pattern 0, row 0, channel 9,
+and regression sentinel `xm-corpus-011`, with slides progressing across ticks
+and no unrelated regression heard. This records maintainer acceptance.
+
 ## Runtime, offline, and diagnostics
 
 `RuntimeCMixerAdapterEventPlan` and bounded/windowed offline rendering consume
@@ -352,7 +378,7 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   separate default-volume dispatch boundary. Ordinary no-envelope release zeros
   output; instrument-only K00 follows the cached-default/release ordering above.
 - Initial missing-memory `A00`, `EA0`/`EB0`, `R00`, and other deferred cases
-  retain their documented status. Existing volume-column and `Hxy`
+  retain their documented status. Volume-column panning slides and `Hxy`
   timing approximations remain. Tremolo does not broaden those families.
 
 ## Maintainer smoke

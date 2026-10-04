@@ -45,6 +45,10 @@ host.
   together under the existing render lock, including pattern-loop iterations.
 - Nonzero Fxx speed/BPM commands govern their own row from tick 0 through the
   shared frame plan, including runtime event application and sample-time follow.
+- Ordinary volume-column `6x/7x` slides update base/output on nonzero ticks of
+  the effective Fxx row speed, including silent channel state. Speed 1 has no
+  slide; zero amounts restore output without memory. Fine `8x/9x` stay at tick
+  zero, and A/5/6 retain their independent memory and writer order.
 - XM envelope/release targets and integer fadeout consume that same tick plan
   in runtime and offline rendering. One C final-L/R state interpolates ordinary
   targets over the current tick and carries in-flight window progress.

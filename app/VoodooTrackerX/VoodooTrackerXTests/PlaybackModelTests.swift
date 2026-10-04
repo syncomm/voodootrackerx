@@ -146,7 +146,7 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertTrue(slide.applied)
         XCTAssertEqual(slide.slideAmount, 15)
         XCTAssertEqual(slide.slideDirection, .volumeDown)
-        XCTAssertEqual(slide.behavior, .rowLevelApproximation)
+        XCTAssertEqual(slide.behavior, .tickLevelAfterTick0)
         XCTAssertEqual(vibrato.command, .vibrato(amount: 0))
         XCTAssertTrue(vibrato.deferred)
         XCTAssertEqual(unsupported.command, .unsupported(rawValue: 0x51))

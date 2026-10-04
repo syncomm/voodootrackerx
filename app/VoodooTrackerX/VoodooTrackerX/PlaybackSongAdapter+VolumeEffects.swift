@@ -127,7 +127,8 @@ extension PlaybackSongSyntheticAdapter {
     static func applyTremolo(
         cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int, syntheticRow: Int,
         timingConfig: SyntheticTrackerTimingConfig, timingPlan: PlaybackSongFxxTimingPlan,
-        globalVolume: Int, state: inout ChannelState
+        globalVolume: Int, state: inout ChannelState,
+        volumeColumnSlide: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         guard cell.effectType == 0x07, timingConfig.speed > 1 else { return [] }
         let speed = Int(cell.effectParam >> 4)
@@ -135,7 +136,12 @@ extension PlaybackSongSyntheticAdapter {
         if speed > 0 { state.tremolo.speed = speed }
         if depth > 0 { state.tremolo.depth = depth }
         state.tremolo.activated = true
-        return (1..<timingConfig.speed).map { tick in
+        var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
+        updates.reserveCapacity((timingConfig.speed - 1) * (volumeColumnSlide == nil ? 1 : 2))
+        for tick in 1..<timingConfig.speed {
+            updates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumnSlide, cell: cell, source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
+                timingPlan: timingPlan, state: &state, globalVolume: globalVolume))
             let before = state
             let delta = tremoloDelta(phase: state.tremolo.phase, depth: state.tremolo.depth,
                                      control: state.tremolo.control, vibratoPhase: state.tremoloVibratoPhase)
@@ -148,7 +154,7 @@ extension PlaybackSongSyntheticAdapter {
                 control: state.tremolo.control, phaseBefore: before.tremolo.phase, phaseAfter: state.tremolo.phase,
                 vibratoPhase: state.tremoloVibratoPhase, delta: delta, clamped: unclamped != state.outputChannelVolume
             )
-            return voiceStateUpdateDiagnostic(
+            updates.append(voiceStateUpdateDiagnostic(
                 source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,
                 scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick), cell: cell,
                 commandSource: .effectColumn, command: .tremolo(semantic), rawVolumeColumn: nil,
@@ -157,8 +163,9 @@ extension PlaybackSongSyntheticAdapter {
                 globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
                 effectMemoryReused: speed == 0 || depth == 0,
                 activeVoiceUpdatedOverride: state.activeEventIndex != nil && state.activeSampleVolume != nil
-            )
+            ))
         }
+        return updates
     }
 
     static let lxxSetEnvelopePositionPolicy = "first_pass_volume_envelope_position_only"
@@ -334,8 +341,6 @@ extension PlaybackSongSyntheticAdapter {
     ) -> Bool {
         switch command {
         case .setVolume,
-             .volumeSlideDown,
-             .volumeSlideUp,
              .fineVolumeSlideDown,
              .fineVolumeSlideUp,
              .setPanning,
@@ -343,6 +348,8 @@ extension PlaybackSongSyntheticAdapter {
              .panningSlideRight:
             return true
         case .none,
+             .volumeSlideDown,
+             .volumeSlideUp,
              .setVibratoSpeed,
              .vibrato,
              .tonePortamento,
@@ -465,7 +472,8 @@ extension PlaybackSongSyntheticAdapter {
     static func apply6xyVolumeSlide(
         from cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int, syntheticRow: Int,
         timingConfig: SyntheticTrackerTimingConfig, timingPlan: PlaybackSongFxxTimingPlan,
-        channelState: inout ChannelState, globalVolumeValue: Int
+        channelState: inout ChannelState, globalVolumeValue: Int,
+        volumeColumnSlide: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         let rowSpeed = timingConfig.speed
         guard cell.effectType == 0x06, rowSpeed > 1 else { return [] }
@@ -475,13 +483,18 @@ extension PlaybackSongSyntheticAdapter {
         let slide = resolved6xyVolumeSlide(from: cell, rowSpeed: rowSpeed, channelState: channelState)
         // FT2 runs doVibrato then volSlide on ticks 1..<speed. Initial zero
         // memory still restores output from base on those ticks, never tick 0.
-        return (1..<rowSpeed).map { tick in
+        var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
+        updates.reserveCapacity((rowSpeed - 1) * (volumeColumnSlide == nil ? 1 : 2))
+        for tick in 1..<rowSpeed {
+            updates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumnSlide, cell: cell, source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
+                timingPlan: timingPlan, state: &channelState, globalVolume: globalVolumeValue))
             let before = channelState
             let unclamped = before.baseChannelVolume + slide.up - slide.down
             channelState.baseChannelVolume = clampedVolumeValue(unclamped)
             if slide.amount > 0 { channelState.volumeValueZeroedByAxy = false }
             let applied = slide.amount > 0 || before.outputChannelVolume != channelState.outputChannelVolume
-            return voiceStateUpdateDiagnostic(
+            updates.append(voiceStateUpdateDiagnostic(
                 source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,
                 scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick), cell: cell,
                 commandSource: .effectColumn, command: .effect6xyVolumeSlide(up: slide.up, down: slide.down),
@@ -493,8 +506,9 @@ extension PlaybackSongSyntheticAdapter {
                 volumeSlideTick0Suppressed: true, volumeSlideRowSpeed: rowSpeed,
                 effectMemoryReused: remembered != nil, memorySource: remembered?.source,
                 activeVoiceUpdatedOverride: applied && before.activeEventIndex != nil && before.activeSampleVolume != nil
-            )
+            ))
         }
+        return updates
     }
 
     static func applyEffectColumnVolumeSlide(
@@ -505,7 +519,8 @@ extension PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
         channelState: inout ChannelState,
-        globalVolumeValue: Int
+        globalVolumeValue: Int,
+        volumeColumnSlide: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         guard cell.effectType == 0x0A || cell.effectType == 0x05 else {
             return []
@@ -547,7 +562,7 @@ extension PlaybackSongSyntheticAdapter {
         let command = volumeSlideCommand(for: cell, up: slide.up, down: slide.down)
         guard slide.amount > 0 else {
             let before = channelState
-            return [
+            var updates = [
                 voiceStateUpdateDiagnostic(
                     source: source,
                     channelIndex: channelIndex,
@@ -579,6 +594,14 @@ extension PlaybackSongSyntheticAdapter {
                     activeVoiceUpdatedOverride: false
                 ),
             ]
+            if volumeColumnSlide != nil && rowSpeed > 1 {
+                for tick in 1..<rowSpeed {
+                    updates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumnSlide, cell: cell, source: source,
+                        channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
+                        timingPlan: timingPlan, state: &channelState, globalVolume: globalVolumeValue))
+                }
+            }
+            return updates
         }
 
         guard rowSpeed > 1 else {
@@ -588,6 +611,9 @@ extension PlaybackSongSyntheticAdapter {
         var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         updates.reserveCapacity(rowSpeed - 1)
         for tick in 1..<rowSpeed {
+            updates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumnSlide, cell: cell, source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
+                timingPlan: timingPlan, state: &channelState, globalVolume: globalVolumeValue))
             let before = channelState
             let unclampedAfter = before.baseChannelVolume + slide.up - slide.down
             channelState.baseChannelVolume = clampedVolumeValue(unclampedAfter)

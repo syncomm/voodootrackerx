@@ -438,3 +438,13 @@ frames at 44.1/48 kHz. Listening must contain both represented routing and the
 later playable consequence of the empty-slot chain. VTX retains immediate
 new-source onset versus FT2's 5 ms ramp. Audible pan envelopes, independent
 sample/header scaling, and FT2 Rxy repeat timing/state parity remain separate.
+
+### Volume-column slide timing
+
+`generated/volume-column-slide-timing.xm` uses two channels, a project-generated
+loop and an integral-slope volume envelope. Rows 0...2 pair `61/71` with
+`F01/F03/F06`; row 3 pins Cxx/clamps, row 4 zero amounts, rows 5...6 fine slides,
+and row 7 independent A/6 writers. `VolumeColumnSlideTimingTests` and runtime
+controls pin exact values/frames and whole/window/runtime parity at both rates.
+Reference WAVs and observer artifacts remain outside git. G09/G11/G31/G40
+and new-source/generic-ramp differences retain their separate boundaries.

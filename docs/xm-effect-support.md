@@ -222,7 +222,7 @@ effect-column whole-command memory just because their names resemble it.
 | Command family | Support | FT2 closure | FT2 memory | VTX pitch mode | Current behavior / remaining boundary |
 | --- | --- | --- | --- | --- | --- |
 | Set volume (`10...50`) | Implemented | Closed | None | Not applicable | Bounded channel-volume write exists; cross-cutting gain/output obligations remain. |
-| Volume slide down/up (`60...7F`) | Implemented | Known difference | None | Not applicable | Once at tick 0 in VTX; FT2 uses nonzero ticks (G08). |
+| Volume slide down/up (`60...7F`) | Implemented | Closed | None | Not applicable | G08: clamp base/output on ticks `1..<effective row speed`; tick zero and speed 1 preserve volume. Zero amounts restore output from base without parameter replay. Same-tick effect-column writers follow the column write; existing gain/output boundaries remain separate. |
 | Fine volume slide down/up (`80...9F`) | Implemented | Partial | None | Not applicable | Tick-zero scheduling is closed; zero amount still restores base to output. Shared gain/output boundaries remain. |
 | Vibrato speed (`A0...AF`) | Deferred | Open | Shared vibrato speed with `4xy`/`6xy` | Not applicable | Diagnostic decoding only (G10); Linear/Amiga volume-column dispatch is missing. |
 | Vibrato depth (`B0...BF`) | Deferred | Open | Shared vibrato depth with `4xy`/`6xy` | Not applicable | Diagnostic decoding only (G10); neither missing column borrows effect-column closure. |

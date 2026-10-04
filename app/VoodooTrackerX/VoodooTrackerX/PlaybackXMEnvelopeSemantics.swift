@@ -236,6 +236,19 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         var slope: Float = 0
         var pendingPoint = 0
         var followsCurve = false
+        var positionedPastLoop = false
+
+        /// Positions this segment; a jump past its loop runs through the tail until reset.
+        mutating func position(_ requested: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool) -> Int {
+            guard envelope.loopEnabled, let start = envelope.loopStartPoint?.tick,
+                  let end = envelope.loopEndPoint?.tick, start <= end else {
+                positionedPastLoop = false
+                return requested
+            }
+            positionedPastLoop = requested > end
+            let releasedSustainEnd = envelope.sustainEnabled && envelope.sustainPoint?.tick == end && !keyOn
+            return requested == end && !releasedSustainEnd ? start : requested
+        }
 
         mutating func nextPosition(_ position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool, releasing: Bool) -> Int {
             if !followsCurve {
@@ -243,7 +256,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                       envelope.points[pendingPoint].tick == position + 1 else { return position + 1 }
                 followsCurve = true
             }
-            return PlaybackXMEnvelopeTimeline.advance(position, envelope: envelope, keyOn: keyOn, releasing: releasing)
+            return PlaybackXMEnvelopeTimeline.advance(position, envelope: envelope, keyOn: keyOn,
+                releasing: releasing, allowsLoop: !positionedPastLoop)
         }
 
         mutating func sample(_ position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool) {
@@ -375,7 +389,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         planningHistoryDiagnostics.estimatedIndexBytes = rowHistories.values.reduce(0) { $0 + $1.estimatedIndexBytes }
         let changesByEvent = Dictionary(grouping: changes, by: \.activeEventIndex)
         let releasesByChannel = Dictionary(grouping: plan.diagnostics.keyOffEvents.filter(\.applied), by: \.channelIndex)
-        let positionsByChannel = Dictionary(grouping: plan.diagnostics.envelopePositionEffects.filter(\.applied), by: \.channelIndex)
+        let positionsByChannel = Dictionary(grouping: plan.diagnostics.envelopePositionEffects, by: \.channelIndex)
         let cutsByChannel = Dictionary(grouping: plan.diagnostics.noteCutEffects.filter(\.applied), by: \.channelIndex)
         struct Change {
             let scheduledFrame: Int
@@ -481,9 +495,10 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     }
                     if releases.contains(frame) { state.keyOn = false }
                     let releasing = wasKeyOn && !state.keyOn
+                    let position = positions.last { $0.scheduledFrame == frame }
                     if volumeEnabled {
                         let previous = state.volumeTick
-                        if let position = positions.last(where: { $0.scheduledFrame == frame }) {
+                        if let position, position.applied {
                             state.volumeTick = Int(position.effectParam)
                             resetVolume = true
                         } else if !resetVolume && tick.advances {
@@ -505,7 +520,12 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     }
                     if panEnabled {
                         let previous = state.panTick
-                        if !resetPan && tick.advances {
+                        if resetPan { carried.pan.positionedPastLoop = false }
+                        // The raw volume sustain bit gates pan Lxx, including disabled volume envelopes.
+                        if let position, instrument.volume.typeFlags & 0x02 != 0 {
+                            state.panTick = carried.pan.position(Int(position.effectParam), envelope: panClock, keyOn: state.keyOn)
+                            resetPan = true
+                        } else if !resetPan && tick.advances {
                             state.panTick = carried.pan.nextPosition(state.panTick, envelope: panClock, keyOn: state.keyOn, releasing: releasing)
                         }
                         if resetPan { carried.pan.sample(state.panTick, envelope: panClock, keyOn: state.keyOn) }
@@ -566,12 +586,13 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         channelUpdates.last { $0.channelIndex == channelIndex && $0.scheduledFrame <= frame }
     }
 
-    private static func advance(_ position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool, releasing: Bool) -> Int {
+    private static func advance(_ position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool,
+                                releasing: Bool, allowsLoop: Bool) -> Int {
         let held = envelope.sustainEnabled && position == envelope.sustainPoint?.tick
         // Release publishes the held sustain point once, then advances on the next tick.
         if held && (keyOn || releasing) { return position }
         let next = position + 1
-        if envelope.loopEnabled, let start = envelope.loopStartPoint?.tick, let end = envelope.loopEndPoint?.tick,
+        if allowsLoop, envelope.loopEnabled, let start = envelope.loopStartPoint?.tick, let end = envelope.loopEndPoint?.tick,
            start <= end, next >= end, !(envelope.sustainEnabled && envelope.sustainPoint?.tick == end && !keyOn) {
             return start
         }

@@ -58,8 +58,11 @@ host.
   instrument's exact keymap, restart represented sources, and carry tracker
   volume/pan, envelope/release state and modulation memory across either route.
   G06 consumes the existing pan segment through that same final-L/R target;
-  neutral envelopes preserve static audio. Pan-clock/Q8 quirks, Lxx pan
-  positioning (G07), static pan law (G40) and new-note onset parity remain open.
+  neutral envelopes preserve static audio. Lxx positions that pan clock when the
+  sounding instrument's raw volume-sustain flag is set, including disabled volume
+  envelopes. The bounded G07 Lxx panning-envelope positioning contract is closed
+  with automated controls and maintainer-reported Xcode/listening acceptance.
+  Pan-clock/Q8 quirks, static pan law (G40) and new-note onset parity remain open.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.

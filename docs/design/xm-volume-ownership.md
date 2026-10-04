@@ -244,9 +244,14 @@ XM panning metadata supplies the existing segment/clock with its point positions
 sustain and loop boundaries. G06 publishes the held pan value and composes its
 byte-domain displacement into the same final-L/R target. Neutral values preserve
 the exact static baseline. Generic synthetic mixer panning envelopes and editor
-preview retain their established behavior. Static conversions/profile laws (G40),
-pan-clock/Q8 quirks and `Lxx` panning positioning (G07) remain separate; see
-[the G06 factor contract](xm-reset-output-ramp.md#g06-panning-envelope-factor).
+preview retain their established behavior. `Lxx` positions this same pan clock
+under the sounding instrument's raw volume-sustain flag, preserving the existing
+volume-position path. The bounded G07 positioning contract is closed with
+automated controls and external maintainer Xcode/listening acceptance.
+Static conversions/profile laws (G40) and pan-clock/Q8 quirks remain
+separate; see the [G06 factor](xm-reset-output-ramp.md#g06-panning-envelope-factor)
+and [G07 positioning](xm-reset-output-ramp.md#g07-lxx-panning-envelope-positioning)
+contracts.
 
 Generic synthetic frame envelopes retain the fixed-capacity C reset/key-off
 queue and per-frame rate. XM plans fold explicit resets and release into their

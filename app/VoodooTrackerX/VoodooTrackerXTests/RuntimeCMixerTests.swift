@@ -862,6 +862,39 @@ final class RuntimeCMixerTests: XCTestCase {
         try assertXMEnvelopeRuntimeParity(makePanningEnvelopeControl(volumeFlags: 2, positions: true))
     }
 
+    @MainActor
+    func testVolumeColumnSlidesUseExactSharedFramesInRuntimeCoreAndPlaybackEngine() throws {
+        let fixture = try referenceXMFixtureURL("generated/volume-column-slide-timing.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        try assertXMEnvelopeRuntimeParity(song)
+        for rate in [44_100.0, 48_000] {
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+            let offline = PlaybackSongOfflineRenderer().render(.init(song: song, config: .init(sampleRate: rate), frames: end))
+            let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: rate, channelCount: 2)
+            harness.engine.load(song: song)
+            harness.engine.play(from: nil)
+            defer { harness.engine.stop() }
+            var cursor = 0
+            while cursor < end {
+                let count = min(997, end - cursor)
+                assertFixturePCMEqual(harness.audioEngine.renderForTesting(frameCount: count),
+                    offline.block.interleavedPCM[(cursor * 2)..<((cursor + count) * 2)])
+                cursor += count
+            }
+            let columns = runtime.events.filter { $0.categories.contains("volume_column_update") && $0.syntheticTick > 0 }
+            XCTAssertFalse(columns.isEmpty)
+            for planned in columns {
+                let actual = try XCTUnwrap(harness.traceWriter.events.first { $0.plannedEventID == planned.id })
+                XCTAssertEqual(actual.plannedEventFrame, planned.scheduledFrame)
+                XCTAssertEqual(actual.eventAppliedFrame, UInt64(planned.scheduledFrame))
+                XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
+                guard case let .gainPanUpdate(_, gain, _) = planned.action else { return XCTFail("Missing column gain") }
+                XCTAssertEqual(actual.gainAfter, gain)
+            }
+        }
+    }
+
     private func assertXMEnvelopeRuntimeParity(_ song: PlaybackSong) throws {
         for (rate, channels, profile) in [(44_100.0, 1, MixerMixProfile.vtx), (48_000, 1, .vtx),
             (44_100, 2, .ft2), (48_000, 2, .ft2), (44_100, 2, .vtx), (48_000, 2, .vtx)] {

@@ -48,8 +48,13 @@ extension PlaybackSongSyntheticAdapter {
                 effectiveVolumeAfter: state.outputChannelVolume,
                 behavior: .rowLevelApproximation
             )
-        case let .volumeSlideDown(amount),
-             let .fineVolumeSlideDown(amount):
+        case .volumeSlideDown, .volumeSlideUp:
+            return volumeColumn.withAppliedState(
+                effectiveVolumeBefore: state.outputChannelVolume,
+                effectiveVolumeAfter: state.outputChannelVolume,
+                behavior: .tickLevelAfterTick0
+            )
+        case let .fineVolumeSlideDown(amount):
             let before = state
             state.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume - amount)
             state.volumeValueZeroedByAxy = false
@@ -60,8 +65,7 @@ extension PlaybackSongSyntheticAdapter {
                 effectiveVolumeAfter: state.outputChannelVolume,
                 behavior: .rowLevelApproximation
             )
-        case let .volumeSlideUp(amount),
-             let .fineVolumeSlideUp(amount):
+        case let .fineVolumeSlideUp(amount):
             let before = state
             state.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume + amount)
             state.volumeValueZeroedByAxy = false
@@ -109,6 +113,38 @@ extension PlaybackSongSyntheticAdapter {
              .unsupported:
             return volumeColumn
         }
+    }
+
+    /// Publish an ordinary column slide before the effect-column writer at this tick.
+    /// Channel state advances even without a source; zero amounts restore held output.
+    static func applyVolumeColumnSlideTick(
+        _ column: PlaybackSongSyntheticVolumeColumnDiagnostic?,
+        cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int, syntheticRow: Int,
+        tick: Int, rowSpeed: Int, timingPlan: PlaybackSongFxxTimingPlan,
+        state: inout ChannelState, globalVolume: Int
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        guard let column, tick > 0, tick < rowSpeed else { return [] }
+        let delta: Int
+        switch column.command {
+        case let .volumeSlideDown(amount): delta = -amount
+        case let .volumeSlideUp(amount): delta = amount
+        default: return []
+        }
+        let before = state
+        let unclamped = before.baseChannelVolume + delta
+        state.baseChannelVolume = clampedVolumeValue(unclamped)
+        state.volumeValueZeroedByAxy = false
+        return [voiceStateUpdateDiagnostic(
+            source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,
+            scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick), cell: cell,
+            commandSource: .volumeColumn, command: .volumeColumn(column.command), rawVolumeColumn: cell.volumeColumn,
+            effectType: nil, effectParam: nil, status: .applied, behavior: .tickLevelAfterTick0,
+            channelStateBefore: before, channelStateAfter: state,
+            globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
+            volumeSlideClamped: unclamped != state.baseChannelVolume,
+            volumeSlideTick0Suppressed: true, volumeSlideRowSpeed: rowSpeed,
+            activeVoiceUpdatedOverride: before.activeEventIndex != nil && before.activeSampleVolume != nil
+        )]
     }
 
     static func appendDeferredFields(

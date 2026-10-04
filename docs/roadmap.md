@@ -81,6 +81,9 @@ bounded contracts; they do not establish full command or audible parity.
   Header 0/16/64 controls preserve defaults, exact routes and preview policy;
   represented zero-header PCM remains active while silent and later Cxx reveals
   its continuing source, with matched runtime/offline/window output at both rates.
+- G08 ordinary volume-column slide timing is closed with effective Fxx speeds,
+  silent state and shared runtime/offline/window evidence at both sample rates.
+  Other volume-column timing/mapping and envelope/pan arithmetic remain open.
 - First-Play performance stabilization covers history indexing, runtime queue
   reuse, compact cold-plan ordering/materialization, semantic row/control
   sharing, and the empty-cell construction fast path.

@@ -27,6 +27,7 @@ ALL_FIXTURES = [
     "instrument-only-volume-semantics.xm",
     "empty-slot-playback-state.xm",
     "note-only-routing.xm",
+    "volume-column-slide-timing.xm",
 ]
 
 
@@ -532,6 +533,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "instrument-only-volume-semantics.xm").resolve(),
                     (output_dir / "generated" / "empty-slot-playback-state.xm").resolve(),
                     (output_dir / "generated" / "note-only-routing.xm").resolve(),
+                    (output_dir / "generated" / "volume-column-slide-timing.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -553,6 +555,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/portamento-scaling-linear.xm",
                     "generated/tremolo-effects.xm",
                     "generated/vibrato-semantics.xm",
+                    "generated/volume-column-slide-timing.xm",
                 ],
             )
             self.assertEqual(
@@ -627,6 +630,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/portamento-scaling-linear.xm",
                     "generated/tremolo-effects.xm",
                     "generated/vibrato-semantics.xm",
+                    "generated/volume-column-slide-timing.xm",
                     "source/basic-instrument-sample.manifest.json",
                 ],
             )
@@ -692,6 +696,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:instrument-only-volume-semantics.xm": "generated/instrument-only-volume-semantics.xm",
                     "xm:empty-slot-playback-state.xm": "generated/empty-slot-playback-state.xm",
                     "xm:note-only-routing.xm": "generated/note-only-routing.xm",
+                    "xm:volume-column-slide-timing.xm": "generated/volume-column-slide-timing.xm",
                 },
             )
 

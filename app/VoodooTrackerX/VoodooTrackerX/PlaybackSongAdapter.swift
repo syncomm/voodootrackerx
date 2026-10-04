@@ -764,7 +764,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.xmChannelRows.append(.init(source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame, controls: channelState,
                     instrumentOnlyReset: instrumentOnlyReset))
-                let axyUpdates = applyEffectColumnVolumeSlide(
+                let axyUpdates = (0x60...0x7F).contains(cell.volumeColumn) ? [] : applyEffectColumnVolumeSlide(
                     from: cell,
                     source: source,
                     channelIndex: channelIndex,
@@ -1872,6 +1872,14 @@ enum PlaybackSongSyntheticAdapter {
             let scheduledNoteFrame = noteDelay?.delayedFrame ?? scheduledStartFrame
             let scheduledNoteTick = noteDelay?.applied == true ? noteDelay?.requestedTick ?? 0 : 0
             if scheduledNoteTick > 0 {
+                // Column writes precede the existing delayed trigger/reset on its tick.
+                if (0x60...0x7F).contains(cell.volumeColumn) {
+                    for tick in 1...scheduledNoteTick {
+                        context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumn, cell: cell, source: source,
+                            channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
+                            timingPlan: timingPlan, state: &channelState, globalVolume: context.globalVolumeState.volumeValue))
+                    }
+                }
                 // The established EDx path has resolved a real delayed trigger.
                 // Reset at that trigger, rather than on an out-of-row delay.
                 resetTremoloTriggerPhases(state: &channelState)
@@ -2208,14 +2216,39 @@ enum PlaybackSongSyntheticAdapter {
             }
             context.channelStates[channelIndex] = channelState
         }
-        // Plan nonzero 6xy/tremolo ticks after all tick-zero channel/global writers.
+        // Plan ordinary column slides and 6xy/tremolo after all tick-zero writers.
         // A later channel's Gxx must not see a future slide or tremolo value.
         for channelIndex in row.cells.indices {
             let cell = row.cells[channelIndex]
+            let columnSlide = (0x60...0x7F).contains(cell.volumeColumn)
+                ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
+            if columnSlide != nil {
+                if cell.effectType == 0x0A || cell.effectType == 0x05 {
+                    context.voiceStateUpdates.append(contentsOf: applyEffectColumnVolumeSlide(
+                        from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                        timingConfig: timingConfig, timingPlan: timingPlan,
+                        channelState: &context.channelStates[channelIndex], globalVolumeValue: context.globalVolumeState.volumeValue,
+                        volumeColumnSlide: columnSlide))
+                } else if cell.effectType != 0x06 && cell.effectType != 0x07 && timingConfig.speed > 1 {
+                    var firstTick = 1
+                    if cell.effectType == 0x0E && cell.effectParam >> 4 == 0x0D,
+                       let eventIndex = context.channelStates[channelIndex].activeEventIndex,
+                       context.events[eventIndex].row == syntheticRow {
+                        firstTick = max(1, context.events[eventIndex].tick + 1)
+                    }
+                    for tick in firstTick..<timingConfig.speed {
+                        context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell, source: source,
+                            channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
+                            timingPlan: timingPlan, state: &context.channelStates[channelIndex],
+                            globalVolume: context.globalVolumeState.volumeValue))
+                    }
+                }
+            }
             context.voiceStateUpdates.append(contentsOf: apply6xyVolumeSlide(
                 from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
                 timingConfig: timingConfig, timingPlan: timingPlan,
-                channelState: &context.channelStates[channelIndex], globalVolumeValue: context.globalVolumeState.volumeValue
+                channelState: &context.channelStates[channelIndex], globalVolumeValue: context.globalVolumeState.volumeValue,
+                volumeColumnSlide: columnSlide
             ))
             advanceTremoloVibratoObserver(cell: cell, rowSpeed: timingConfig.speed,
                                          state: &context.channelStates[channelIndex])
@@ -2223,7 +2256,7 @@ enum PlaybackSongSyntheticAdapter {
                 cell: cell, source: source, channelIndex: channelIndex,
                 syntheticRow: syntheticRow, timingConfig: timingConfig,
                 timingPlan: timingPlan, globalVolume: context.globalVolumeState.volumeValue,
-                state: &context.channelStates[channelIndex]
+                state: &context.channelStates[channelIndex], volumeColumnSlide: columnSlide
             ))
         }
         return PlaybackSongSyntheticRowDiagnostic(

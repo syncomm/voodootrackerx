@@ -64,7 +64,7 @@ final class XMVolumeOwnershipTests: XCTestCase {
     func testExistingVolumeWritersPreserveChannelTrajectories() throws {
         let cases: [(PlaybackCell, [Int], [Int])] = [
             (cell(0x0C, 16), [16], [0]), (cell(volume: 0x20), [16], [0]),
-            (cell(volume: 0x63), [29], [0]), (cell(volume: 0x73), [35], [0]),
+            (cell(volume: 0x63), [29, 26, 23], [1, 2, 3]), (cell(volume: 0x73), [35, 38, 41], [1, 2, 3]),
             (cell(volume: 0x83), [29], [0]), (cell(volume: 0x93), [35], [0]),
             (cell(0x0A, 2), [30, 28, 26], [1, 2, 3]),
             (cell(0x0E, 0xA3), [35], [0]), (cell(0x0E, 0xB3), [29], [0]),

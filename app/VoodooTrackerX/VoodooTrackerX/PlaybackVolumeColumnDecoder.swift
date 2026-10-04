@@ -139,7 +139,7 @@ enum PlaybackSongVolumeColumnDecoder {
                 classification: .supported,
                 slideAmount: amount,
                 slideDirection: .volumeDown,
-                behavior: .rowLevelApproximation
+                behavior: .tickLevelAfterTick0
             )
         case 0x70...0x7F:
             let amount = Int(rawValue & 0x0F)
@@ -149,7 +149,7 @@ enum PlaybackSongVolumeColumnDecoder {
                 classification: .supported,
                 slideAmount: amount,
                 slideDirection: .volumeUp,
-                behavior: .rowLevelApproximation
+                behavior: .tickLevelAfterTick0
             )
         case 0x80...0x8F:
             let amount = Int(rawValue & 0x0F)

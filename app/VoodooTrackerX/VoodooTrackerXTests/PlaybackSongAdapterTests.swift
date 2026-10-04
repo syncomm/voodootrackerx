@@ -4685,10 +4685,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.24, 0.2409375])
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.256, 0.257])
         XCTAssertEqual(mapping.volumeColumn.command, .volumeSlideDown(amount: 4))
         XCTAssertEqual(mapping.volumeColumn.effectiveVolumeBefore, 64)
-        XCTAssertEqual(mapping.volumeColumn.effectiveVolumeAfter, 60)
+        XCTAssertEqual(mapping.volumeColumn.effectiveVolumeAfter, 64)
         XCTAssertEqual(mapping.sampleOffset.status, .applied)
     }
 
@@ -6600,7 +6600,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         }
     }
 
-    func testPlaybackSongAdapterVolumeSlideDownChangesAmplitudeAndDiagnostics() throws {
+    func testPlaybackSongAdapterVolumeSlideDownPreservesTickZeroAmplitudeAndDiagnostics() throws {
         let sample = makePlaybackSample(pcm: [1, 1], volume: 1, baseSampleRate: 100)
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
@@ -6621,13 +6621,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let volumeMapping = try XCTUnwrap(result.diagnostics.volumeColumnMappings.first)
 
         XCTAssertEqual(baseline.block.interleavedPCM, [1, 1])
-        XCTAssertEqual(result.block.interleavedPCM, [0.9375, 0.9375])
-        XCTAssertNotEqual(result.block, baseline.block)
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1])
+        XCTAssertEqual(result.block, baseline.block)
         XCTAssertEqual(mapping.volumeColumn.command, .volumeSlideDown(amount: 4))
         XCTAssertEqual(mapping.volumeColumn.slideDirection, .volumeDown)
         XCTAssertEqual(mapping.volumeColumn.effectiveVolumeBefore, 64)
-        XCTAssertEqual(mapping.volumeColumn.effectiveVolumeAfter, 60)
-        XCTAssertEqual(mapping.volumeColumn.behavior, .rowLevelApproximation)
+        XCTAssertEqual(mapping.volumeColumn.effectiveVolumeAfter, 64)
+        XCTAssertEqual(mapping.volumeColumn.behavior, .tickLevelAfterTick0)
         XCTAssertTrue(mapping.volumeColumn.applied)
         XCTAssertFalse(mapping.hasIgnoredVolumeColumn)
         XCTAssertEqual(volumeMapping.syntheticRow, 0)
@@ -6692,7 +6692,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [
                 2: [
                     makePlaybackRow(index: 0, volumeColumn: 0x10),
-                    makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0x6F)
+                    makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0x8F)
                 ]
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [quieter])],
@@ -6700,7 +6700,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         )
         let clampUp = makePlaybackSong(
             orderPatternIndices: [2],
-            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x7F)]],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x9F)]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
         )
         let renderer = PlaybackSongOfflineRenderer()
@@ -6838,10 +6838,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.diagnostics.timingChanges.first?.kind, .speed)
         XCTAssertEqual(mapping.volumeColumn.command, .volumeSlideDown(amount: 4))
         XCTAssertEqual(mapping.volumeColumn.effectiveVolumeBefore, 64)
-        XCTAssertEqual(mapping.volumeColumn.effectiveVolumeAfter, 60)
+        XCTAssertEqual(mapping.volumeColumn.effectiveVolumeAfter, 64)
         XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
         XCTAssertEqual(mapping.playbackStep, 2, accuracy: 0.000000001)
-        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 0.46875, 0.46875, 0, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 0.5, 0.5, 0, 0, 0])
     }
 
     func testPlaybackSongAdapterLxxIsDetectedAndDiagnosesNoActiveVoice() throws {
@@ -7095,7 +7095,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         session.reset()
         let resetSecond = session.render(frames: 5)
 
-        XCTAssertEqual(single.block.interleavedPCM, [0, 0.9375, 0.46875, -0.46875, 0])
+        XCTAssertEqual(single.block.interleavedPCM, [0, 1, 0.5, -0.5, 0])
         XCTAssertEqual(repeated.block, single.block)
         XCTAssertEqual(split.block, single.block)
         XCTAssertEqual(resetFirst, resetSecond)

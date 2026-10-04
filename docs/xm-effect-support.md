@@ -92,7 +92,8 @@ silent interval. Cold channels stay silent and completed voices stay stopped.
 Same-cell volume/pan
 overrides and K00 release ordering are covered by the public fixture; see
 [volume ownership](design/xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
-Audible pan envelopes, sample/header ownership parity and ECx
+Song gain consumes restored channel output once (G01); preview remains a
+separate header/headroom policy. Audible pan envelopes and ECx
 quick-volume parity remain deferred.
 
 ## Note-only routing
@@ -128,7 +129,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `4xy` | Vibrato | Implemented | Partial | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay and Amiga wrap/zero-step hold are closed. Full audible interactions remain G39; volume-column dispatch is missing (G10). |
 | `5xy` | Tone portamento + volume slide | Implemented | Partial | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Linear | Seeded `500` replay and nonzero-tick slides exist. Cold `500` output/target interactions need characterization (G15); Amiga combined path missing (G28). |
 | `6xy` | Vibrato + volume slide | Implemented | Partial | Shared `4xy` vibrato and `Axy`/`5xy`/`6xy` slide byte; `600` supported | Both | Vibrato then slide on ticks `1..<speed`; no tick-zero/speed-1 slide. Unseeded `600` restores base to output with zero amount. That timing/memory contract is closed; G39 remains. |
-| `7xy` | Tremolo | Implemented | Partial | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. Sample scaling, ramps and trigger/cut interactions remain G39. |
+| `7xy` | Tremolo | Implemented | Partial | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. Onset, ramps and trigger/cut interactions remain G39; G01 removes duplicate header scaling. |
 | `8xx` | Set panning | Implemented | Known difference | None | Not applicable | Exact tick-zero panning state exists. Final stereo pan law differs (G40); this is separate from E8 and pan envelopes. |
 | `9xx` | Sample offset | Implemented | Partial | Own; `900` supported | Not applicable | Same-cell source offset/memory exists; end/loop/offset boundaries remain G41. Safely skipping an out-of-range offset does not prove FT2 parity. |
 | `Axy` | Volume slide | Implemented | Partial | Shared with `5xy`/`6xy`; seeded `A00` supported | Not applicable | Nonzero-tick slides exist. Cold `A00` fails to restore output from base volume with valid initial-zero slide memory (G14). |
@@ -339,9 +340,13 @@ fixtures pin these supported paths; no deferred effect family is promoted.
 The matrix owns IDs, reference controls, prevalence and dependencies. Command
 support alone does not close these domains:
 
-- **Volume and transitions:** sample-header/channel-volume ownership (G01),
-  new-note onset, same-channel replacement/retirement, ECx retained-source/cursor
-  and quick-output behavior, and generic ramps (G02–G05) remain open. Existing
+- **Volume and transitions:** G01 song gain consumes channel/output volume
+  once while the header initializes/restores defaults. Exact mapped represented
+  PCM remains a valid source at header volume 0; later Cxx reveals the continuing
+  source, while canonical empty/unrepresented routes remain source-less.
+  Preview availability and safety gain are unchanged. New-note onset, same-channel
+  replacement/retirement, ECx retained-source/cursor and quick-output behavior,
+  and generic ramps (G02–G05) remain open. Existing
   cached defaults and shared final-L/R reset targets are established foundations.
 - **Panning:** exact header/8xx state, final stereo pan law (G40), semantic pan
   clocks, audible pan-envelope factor (G06), and Lxx pan positioning (G07) are

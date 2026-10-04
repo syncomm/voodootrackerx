@@ -72,9 +72,10 @@ enum PlaybackSongSyntheticAdapter {
         var activeEventMappingIndex: Int?
         var activeInstrumentIndex: Int?
         var activeSampleIndex: Int?
+        // Represented header metadata/availability, never an additional song-gain factor.
         var activeSampleVolume: Float?
         // Period/envelope controls can belong to a silent channel. Only the event
-        // association and represented sample factor authorize source-voice updates.
+        // association and represented sample availability authorize source-voice updates.
         var activePlaybackStep: Double?
         var activeLinearPeriod: Double?
         var activeAmigaPeriod: Double?
@@ -1660,11 +1661,11 @@ enum PlaybackSongSyntheticAdapter {
                 }
                 tonePortamentoInstrumentStateBefore = instrumentStateBefore
                 tonePortamentoInstrumentStateAfter = channelState
-                let instrumentGainBefore = instrumentStateBefore.activeSampleVolume.map {
-                    adaptedGain(sampleVolume: $0, channelVolume: instrumentStateBefore.outputChannelVolume)
+                let instrumentGainBefore = instrumentStateBefore.activeSampleVolume.map { _ in
+                    songGain(outputChannelVolume: instrumentStateBefore.outputChannelVolume)
                 }
-                let instrumentGainAfter = channelState.activeSampleVolume.map {
-                    adaptedGain(sampleVolume: $0, channelVolume: channelState.outputChannelVolume)
+                let instrumentGainAfter = channelState.activeSampleVolume.map { _ in
+                    songGain(outputChannelVolume: channelState.outputChannelVolume)
                 }
                 tonePortamentoInstrumentDefaultVolumeApplied = instrumentStateBefore.baseChannelVolume != channelState.baseChannelVolume ||
                     instrumentStateBefore.activeSampleVolume != channelState.activeSampleVolume
@@ -1958,9 +1959,8 @@ enum PlaybackSongSyntheticAdapter {
                 pitchMapping = result.pitchMapping
                 context.extraFinePortamentoEffects.append(result.diagnostic)
             }
-            let gain = adaptedGain(
-                sampleVolume: sample.volume,
-                channelVolume: channelState.outputChannelVolume,
+            let gain = songGain(
+                outputChannelVolume: channelState.outputChannelVolume,
                 globalVolume: context.globalVolumeState.volumeValue
             )
             let pan = channelState.pan

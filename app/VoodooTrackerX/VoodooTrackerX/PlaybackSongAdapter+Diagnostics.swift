@@ -671,14 +671,15 @@ extension PlaybackSongSyntheticAdapter {
         let mapPresent = instrument.noteSampleMap != nil
         let mappedSampleIndex = instrument.mappedSampleIndex(forNote: note)
         let mappedSample = mappedSampleIndex.flatMap { instrument.sample(mappedSampleIndex: $0) }
-        let mappedSampleValid = mappedSample?.isPlayable == true
         let mapMissingOrDeferred = !mapPresent && instrument.samples.count > 1
         let resolved = PlaybackInstrumentSampleResolver.resolveSample(
             instrumentIndex: instrument.index,
             note: note,
             instrument: instrument,
-            missingKeymapPolicy: missingKeymapPolicy
+            missingKeymapPolicy: missingKeymapPolicy,
+            sourceEligibility: .representedPCM
         )
+        let mappedSampleValid = mapPresent && resolved != nil
 
         if mapPresent {
             if let resolved {

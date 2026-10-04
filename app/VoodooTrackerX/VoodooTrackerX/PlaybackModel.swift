@@ -609,11 +609,25 @@ enum PlaybackInstrumentMissingKeymapPolicy: Equatable {
 
 /// Canonical note-to-sample lookup for represented playback instruments.
 enum PlaybackInstrumentSampleResolver {
+    /// Song sources need represented PCM; audition retains its positive-header availability policy.
+    enum SourceEligibility {
+        case audiblePCM
+        case representedPCM
+
+        func admits(_ sample: PlaybackSample) -> Bool {
+            switch self {
+            case .audiblePCM: return sample.isPlayable
+            case .representedPCM: return !sample.pcm.isEmpty
+            }
+        }
+    }
+
     static func resolveSample(
         instrumentIndex: Int,
         note: UInt8,
         instrumentsByIndex: [Int: PlaybackInstrument],
-        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .fail
+        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .fail,
+        sourceEligibility: SourceEligibility = .audiblePCM
     ) -> ResolvedPlaybackSample? {
         guard let instrument = instrumentsByIndex[instrumentIndex] else {
             return nil
@@ -622,7 +636,8 @@ enum PlaybackInstrumentSampleResolver {
             instrumentIndex: instrumentIndex,
             note: note,
             instrument: instrument,
-            missingKeymapPolicy: missingKeymapPolicy
+            missingKeymapPolicy: missingKeymapPolicy,
+            sourceEligibility: sourceEligibility
         )
     }
 
@@ -630,7 +645,8 @@ enum PlaybackInstrumentSampleResolver {
         instrumentIndex: Int,
         note: UInt8,
         instrument: PlaybackInstrument,
-        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .fail
+        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .fail,
+        sourceEligibility: SourceEligibility = .audiblePCM
     ) -> ResolvedPlaybackSample? {
         guard instrumentIndex > 0,
               (1...96).contains(note),
@@ -653,7 +669,7 @@ enum PlaybackInstrumentSampleResolver {
         guard let sample,
               sample.instrumentIndex == instrumentIndex,
               sample.sampleIndex >= 0,
-              sample.isPlayable else {
+              sourceEligibility.admits(sample) else {
             return nil
         }
         return ResolvedPlaybackSample(

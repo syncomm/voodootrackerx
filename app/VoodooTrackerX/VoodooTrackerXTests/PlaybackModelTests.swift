@@ -3,6 +3,33 @@ import AudioToolbox
 import XCTest
 
 final class PlaybackModelTests: XCTestCase {
+    func testSongResolverAdmitsExactHeaderZeroPCMWithoutChangingPreviewOrEmptyRoutes() throws {
+        let positive = makePlaybackSample(sampleIndex: 0, pcm: [0.25], volume: 1)
+        let zero = makePlaybackSample(sampleIndex: 1, pcm: [-0.25, 0.25], volume: 0)
+        let samples = [zero, positive]
+        let instrument = PlaybackInstrument(index: 1, samples: samples, noteSampleMap: Array(repeating: 1, count: 96))
+        XCTAssertFalse(zero.isPlayable)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(instrumentIndex: 1, note: 49, instrument: instrument))
+        let resolved = try XCTUnwrap(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 1, note: 49, instrumentsByIndex: [1: instrument], sourceEligibility: .representedPCM))
+        XCTAssertEqual(resolved.sample, zero)
+        for (resolution, reason): (EditorNoteAuditionSampleResolution, EditorNoteAuditionUnavailableReason) in [
+            (.instrumentKeymap, .instrumentKeymapUnavailable), (.directSelectedSample, .selectedInstrumentSampleNotPlayable)
+        ] {
+            let request = EditorNoteAuditionRequest(kind: .noteOn(noteValue: 49, selectedOctave: 4),
+                selection: .init(selectedInstrument: 1, selectedSample: 2), sampleResolution: resolution, sourceContext: .blankDocument)
+            XCTAssertEqual(EditorNoteAuditionAvailabilityResolver.availability(for: request, instrumentsByIndex: [1: instrument]), .unavailable(reason))
+        }
+        let empty = makePlaybackSample(sampleIndex: 1, pcm: [], volume: 1)
+        for (map, represented): ([Int]?, [PlaybackSample]) in [
+            (nil, samples), (Array(repeating: 1, count: 95), samples), (Array(repeating: -1, count: 96), samples),
+            (Array(repeating: 15, count: 96), samples), (Array(repeating: 1, count: 96), [positive, empty])
+        ] {
+            XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(instrumentIndex: 1, note: 49,
+                instrument: .init(index: 1, samples: represented, noteSampleMap: map), sourceEligibility: .representedPCM))
+        }
+    }
+
     func testInstrumentNoteSampleResolverUsesExactKeymapBoundariesAndImmutableSampleIdentity() throws {
         let lowSample = makePlaybackSample(
             instrumentIndex: 1, sampleIndex: 0, pcm: [0.25, -0.25],

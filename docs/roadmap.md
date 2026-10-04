@@ -72,6 +72,10 @@ bounded contracts; they do not establish full command or audible parity.
   foundations are established, including silent channel clocks and resets.
 - Instrument-only default restoration and ordinary note-only exact-keymap
   routing/state carry are implemented without fabricated sources or fallback.
+- G01 sample-header/channel-volume ownership consumes song output once.
+  Header 0/16/64 controls preserve defaults, exact routes and preview policy;
+  represented zero-header PCM remains active while silent and later Cxx reveals
+  its continuing source, with matched runtime/offline/window output at both rates.
 - First-Play performance stabilization covers history indexing, runtime queue
   reuse, compact cold-plan ordering/materialization, semantic row/control
   sharing, and the empty-cell construction fast path.
@@ -84,8 +88,6 @@ bounded contracts; they do not establish full command or audible parity.
 
 ### Outstanding milestones
 
-- Resolve **G01 sample-header/channel-volume gain ownership**, consuming the
-  channel output once while preserving cached defaults and existing routing.
 - Close remaining evidence-backed FT2/XM commands and cross-cutting output,
   pitch, memory, envelope, trigger/retrigger/cut, and traversal obligations.
   Known families include panning slide, tremor, pattern delay, relevant

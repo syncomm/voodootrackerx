@@ -718,17 +718,15 @@ extension PlaybackSongSyntheticAdapter {
                   targetState.activeSampleVolume != nil else {
                 return nil
             }
-            let gainBefore = targetState.activeSampleVolume.map {
-                adaptedGain(
-                    sampleVolume: $0,
-                    channelVolume: targetState.outputChannelVolume,
+            let gainBefore = targetState.activeSampleVolume.map { _ in
+                songGain(
+                    outputChannelVolume: targetState.outputChannelVolume,
                     globalVolume: beforeGlobalVolume
                 )
             }
-            let gainAfter = targetState.activeSampleVolume.map {
-                adaptedGain(
-                    sampleVolume: $0,
-                    channelVolume: targetState.outputChannelVolume,
+            let gainAfter = targetState.activeSampleVolume.map { _ in
+                songGain(
+                    outputChannelVolume: targetState.outputChannelVolume,
                     globalVolume: afterGlobalVolume
                 )
             }
@@ -851,17 +849,15 @@ extension PlaybackSongSyntheticAdapter {
                   targetState.activeSampleVolume != nil else {
                 return nil
             }
-            let gainBefore = targetState.activeSampleVolume.map {
-                adaptedGain(
-                    sampleVolume: $0,
-                    channelVolume: targetState.outputChannelVolume,
+            let gainBefore = targetState.activeSampleVolume.map { _ in
+                songGain(
+                    outputChannelVolume: targetState.outputChannelVolume,
                     globalVolume: beforeGlobalVolume
                 )
             }
-            let gainAfter = targetState.activeSampleVolume.map {
-                adaptedGain(
-                    sampleVolume: $0,
-                    channelVolume: targetState.outputChannelVolume,
+            let gainAfter = targetState.activeSampleVolume.map { _ in
+                songGain(
+                    outputChannelVolume: targetState.outputChannelVolume,
                     globalVolume: afterGlobalVolume
                 )
             }
@@ -1084,17 +1080,15 @@ extension PlaybackSongSyntheticAdapter {
     ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
         let activeSampleVolumeBefore = channelStateBefore.activeSampleVolume
         let activeSampleVolumeAfter = channelStateAfter.activeSampleVolume ?? activeSampleVolumeBefore
-        let gainBefore = activeSampleVolumeBefore.map {
-            adaptedGain(
-                sampleVolume: $0,
-                channelVolume: channelStateBefore.outputChannelVolume,
+        let gainBefore = activeSampleVolumeBefore.map { _ in
+            songGain(
+                outputChannelVolume: channelStateBefore.outputChannelVolume,
                 globalVolume: globalVolumeBefore
             )
         }
-        let gainAfter = activeSampleVolumeAfter.map {
-            adaptedGain(
-                sampleVolume: $0,
-                channelVolume: channelStateAfter.outputChannelVolume,
+        let gainAfter = activeSampleVolumeAfter.map { _ in
+            songGain(
+                outputChannelVolume: channelStateAfter.outputChannelVolume,
                 globalVolume: globalVolumeAfter
             )
         }

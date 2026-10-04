@@ -1663,7 +1663,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["sample_step_precision_mode"] as? String, "double_sample_position_and_step")
         XCTAssertEqual(render["sample_pcm_stat_count"] as? Int, 1)
         let gainConstructionPolicy = try XCTUnwrap(render["gain_construction_policy"] as? [String: Any])
-        XCTAssertEqual(gainConstructionPolicy["event_gain_formula"] as? String, "sample_volume * (channel_volume / 64) * (global_volume / 64)")
+        XCTAssertEqual(gainConstructionPolicy["event_gain_formula"] as? String, "(channel_volume / 64) * (global_volume / 64)")
         XCTAssertEqual(gainConstructionPolicy["c_mixer_render_multiplier"] as? String, "event_gain * volume_envelope * fadeout before panning")
         XCTAssertEqual(render["render_duration_mode"] as? String, "fixed_rows")
         XCTAssertTrue(render["calculated_song_end_frames"] is NSNull)
@@ -1740,6 +1740,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(gainConstruction["channel_volume_value"] as? Int, 48)
         XCTAssertEqual(gainConstruction["global_volume_value"] as? Int, 64)
         XCTAssertEqual(gainConstruction["base_gain"] as? Double, 0.75)
+        XCTAssertEqual(gainConstruction["base_gain_formula"] as? String, "channel_volume_multiplier * global_volume_multiplier")
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(inputURL.path))
     }
 

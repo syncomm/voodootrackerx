@@ -44,6 +44,7 @@ An FT2-inert byte can be closed while an audible extension for that byte is NOT-
 
 | Bounded behavior | Class | Current evidence and boundary |
 | --- | --- | --- |
+| G01 sample-header/channel-volume ownership | CLOSED | [XMVolumeOwnershipTests](../tests/vtx_render_bounded_xm/XMVolumeOwnershipTests.swift), note-only and runtime cursor controls: header 0/16/64 initializes/restores defaults; song output consumes them once. Exact mapped zero-header PCM stays active while silent and later Cxx reveals its continuing cursor; empty/unrepresented routes stay source-less and preview policy is unchanged. Both-rate constant-source controls match settled FT2 levels within `6e-8`, with exact VTX runtime/whole/window agreement. |
 | Nonzero Fxx speed/BPM from command-row tick 0, including channel precedence | CLOSED | `fxx-timing.xm`, timing tests and shared frame plan; F00 is excluded below. Do not reopen the completed timing correction. |
 | Linear regular/fine/tone units, extra-fine units and volume-column Fx/F0 | CLOSED | [PortamentoScalingTests](../tests/vtx_render_bounded_xm/PortamentoScalingTests.swift), both scaling fixtures: regular/fine/tone use `4 * parameter`, extra-fine uses `parameter`, Fx uses `64 * nibble`. This does not close missing fine-slide memory. |
 | Amiga note lookup/finetune, 2xx and effect-column 3xx/300 scaling | CLOSED | Quantized lookup and VTX's 4x FT2-period representation; fresh reference control matches all 9 tone and 10 down-slide updates after conversion. Do not reduce correct `16 * parameter` deltas or promote neighboring families. |
@@ -67,7 +68,6 @@ prerequisite. `P` and `N` are missing; S/O and the supported portions of F/T/M e
 
 | ID / behavior | Primary class | Observable impact / severity when hit | Evidence / prevalence | Dependencies |
 | --- | --- | --- | --- | --- |
-| G01 sample-header/channel-volume ownership | KNOWN-REFERENCE-DIFFERENCE | Large sustained level/mix error: header volume is loaded into channel volume and multiplied again as a sample factor. | Q; header 16 gives VTX 1/16 vs FT2 1/4 default gain, and C20 gives 1/8 vs 1/2. Quiet-header control confirms a constant fourfold attenuation. | S, O; none missing |
 | G02 new-note onset | MISSING-AUDIBLE-FOUNDATION | Abrupt first sample instead of a 5 ms transition; potentially conspicuous transient. | N; FT2 240 frames at 48 kHz / 220 at 44.1 kHz, VTX immediate. | N; existing O conventions |
 | G03 same-channel replacement | MISSING-AUDIBLE-FOUNDATION | Different old/new-source overlap; transient level/discontinuity error. | R; FT2 ramps both over 5 ms; VTX starts new source immediately and retires old over 32 frames. Constant-source first replacement sample 0.0820009 vs 0.0276214; settled output agrees. | N, S |
 | G04 ECx audible cut | MISSING-AUDIBLE-FOUNDATION | High impact for cut/recovery: hard retirement loses source/cursor that FT2 retains at zero volume. | Z / cut controls; EC0 and EC3 FT2 quick-volume transition is 5 ms. Internal stopVoice produces immediate silence and stays a separate contract. | S, O; source lifetime policy |
@@ -120,7 +120,6 @@ Temporary controls are evidence, not newly committed regression tests.
 
 | IDs | Dependency leverage / implementation isolation | Reference confidence / focused test | Architectural risk |
 | --- | --- | --- | --- |
-| G01 | Corrects gain feeding all volume/modulation/envelope consumers; isolated song adapter gain policy. | High; quiet header, Cxx, default reset, note-only/empty routes, runtime/window gains. | Low callback risk; preview/profile callers need explicit preservation. |
 | G02 | Reusable new-source start; C voice initialization plus window carry. | High for onset; constant source at both rates and truncated windows. | Medium: adds per-voice transition state; source identity and first sample matter. |
 | G03 | Shares N with onset; retirement/source overlap is a separate contract. | High; two constant sources, consecutive replacement and window split. | Medium: bounded retiring voices and overlap limits. |
 | G04 | Reuses O; adapter must keep source/cursor and lower base/output instead of retiring it. | High for ordinary cuts; EC0/EC3 plus later volume restoration, speed 1 and hard stop. | Medium semantic-lifetime risk, little new callback state. |
@@ -285,10 +284,11 @@ establish callback underruns or resolve `VTX-D1-001`.
 
 ## Known reference differences and deferred boundaries
 
-G01/G05/G11/G22/G30/G31/G40 are measured or explicitly retained reference
+G05/G11/G22/G30/G31/G40 are measured or explicitly retained reference
 differences, not closed work. Current [volume ownership](design/xm-volume-ownership.md)
 and [reset/output design](design/xm-reset-output-ramp.md) deliberately preserve
-sample scaling, pan laws and floating envelope interpolation. A future slice
+pan laws and floating envelope interpolation. Song header scaling is now
+owned by channel defaults and consumed once. A future slice
 must explicitly revise its owned policy and focused tests. Neither the retained
 label nor an aggregate audio correlation proves a difference inaudible.
 
@@ -307,31 +307,21 @@ is distinct from reference indefinite replay; document and test that boundary
 without ignoring supported in-song traversal. Editable Amiga admission and RT
 callback hardening remain outside this branch and recommendation.
 
-## One recommended next behavioral slice
+## G01 completion boundary
 
-**Correct song sample-header/channel-volume gain ownership (G01).** Header
-volume should remain the cached channel default; song gain should consume
-channel output once instead of independently multiplying the same header factor
-again. The constant-source reference control isolates a sustained fourfold
-error with header 16, including C20 after the trigger. Five public modules,
-12 declared quiet headers and 15 listed source events exercise the affected
-metadata cohort. This is stronger direct compatibility evidence than treating
-zero opcode counts as low prevalence.
+Sample-header volume initializes/restores the cached channel default, and song
+gain consumes channel/output volume once. Header 16 gives default gain `0.25`;
+C20 gives `0.5` independently of the original header. Represented mapped PCM at
+header volume 0 remains an active source: initial output and cached reset are
+silent, while later Cxx reveals its continuing cursor without a new trigger.
+Canonical empty/unrepresented routes remain source-less.
 
-Keep the PR to this gain policy: preserve exact routing, default restoration,
-note-only state carry, empty-header semantics, tremolo base/output ownership,
-global volume, envelopes/fadeout and shared final-L/R transitions. Update the
-owned design note and gain expectations explicitly. Add the smallest public
-quiet-header fixture/control plus tests for header 0/16/64, explicit volume,
-instrument-only reset, note-only continuation, silent routes and runtime/offline/
-window gains. Preserve the isolated preview contract; no parser/on-disk change,
-pan law, onset, ECx or effect family belongs in this slice.
-
-S/O already supply the prerequisite state. Changing a planned gain factor should
-not materially increase render-callback state complexity or begin `VTX-D1-001`.
-Pan envelopes have substantial leverage through the same foundation, but this
-measured persistent mix error is the recommended single next contract. This
-recommendation is evidence for selection, not a second sequencing roadmap.
+The song-only resolver eligibility keeps canonical identity/map validation and
+existing fallback rules. Preview availability, safety gain and headroom retain
+their prior policy. G01 adds no render-callback state and leaves default reset,
+note-only state carry, tremolo output, global volume, envelope/fadeout, causal
+release and final-L/R transitions intact. Onset, replacement, ECx, generic ramps,
+pan laws and other effect families retain their separate closure obligations.
 
 ## Overall milestone closure criteria
 

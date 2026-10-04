@@ -6,8 +6,51 @@ import XCTest
 final class XMVolumeOwnershipTests: XCTestCase {
     typealias Adapter = PlaybackSongSyntheticAdapter
 
-    func testQuietSampleAndChannelDomainsRemainDistinguishable() throws {
-        for (sample, channel, gain): (Float, Int, Float) in [(1, 64, 1), (1, 16, 0.25), (0.25, 64, 0.25), (0.25, 16, 0.0625)] {
+    func testHeaderZeroSameCellCxxKeepsExistingVolumePrecedence() {
+        for (volume, parameter, expected): (UInt8, UInt8, Int) in [(0, 32, 32), (0x50, 32, 32), (0x30, 0, 0)] {
+            let module = song([cell(12, parameter, note: 49, volume: volume), cell()], sample: 0)
+            let (context, states) = inspect(module)
+            XCTAssertEqual(states.map(\.baseChannelVolume), [expected, expected])
+            XCTAssertTrue(states.allSatisfy { $0.triggeredSampleDefaultVolume == 0 && $0.activeSampleVolume == 0 })
+            XCTAssertEqual(context.events.map(\.gain), [Float(expected) / 64])
+            XCTAssertEqual(context.events.map(\.scheduledStartFrame), [0])
+            XCTAssertEqual(render(module).block.interleavedPCM, Array(repeating: Float(expected) / 64, count: 8))
+        }
+    }
+
+    func testHeaderDefaultsC20ResetAndNoteOnlyUseOneGainAtBothRates() throws {
+        for header in [0, 16, 64] {
+            let cells = [cell(note: 49), cell(), cell(12, 32), cell(),
+                PlaybackCell(note: 0, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0), cell(),
+                PlaybackCell(note: 49, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0), cell()]
+            let module = song(cells, sample: Float(header) / 64)
+            let (context, states) = inspect(module)
+            XCTAssertEqual(states.map(\.baseChannelVolume), [header, header, 32, 32, header, header, header, header])
+            XCTAssertEqual(states.map(\.outputChannelVolume), states.map(\.baseChannelVolume))
+            XCTAssertTrue(states.allSatisfy { $0.triggeredSampleDefaultVolume == header })
+            XCTAssertEqual(context.events.map(\.gain), [Float(header) / 64, Float(header) / 64])
+            XCTAssertEqual(context.events.map(\.initialSourceFrame), [0, 0])
+            XCTAssertEqual(context.playbackStateEvents.count, 1) // Instrument-only restores without a new source.
+            XCTAssertEqual(context.eventMappings.map(\.sampleIndex), [0, 0])
+            XCTAssertFalse(context.eventMappings.contains { $0.firstPlayableSampleFallbackUsed })
+            for rate in [44_100.0, 48_000] {
+                let request = PlaybackSongOfflineRenderRequest(song: module, config: .init(sampleRate: rate, channelCount: 1), rows: cells.count)
+                let renderer = PlaybackSongOfflineRenderer(), full = renderer.render(request)
+                XCTAssertEqual(RuntimeCMixerAdapterEventPlan.make(song: module, sampleRate: rate).plan, full.plan)
+                let row = Int(rate * 0.04)
+                XCTAssertEqual(full.plan.pattern.events.map(\.scheduledStartFrame), [0, 6 * row])
+                for (index, level) in [(1, Float(header) / 64), (3, 0.5), (5, Float(header) / 64), (7, Float(header) / 64)] {
+                    XCTAssertTrue(full.block.interleavedPCM[(index * row)..<((index + 1) * row)].allSatisfy { $0 == level })
+                }
+                for window in [1, 2, 3] {
+                    XCTAssertEqual(renderer.renderWindowed(request, windowRows: window).block.interleavedPCM, full.block.interleavedPCM)
+                }
+            }
+        }
+    }
+
+    func testHeaderMetadataDoesNotRescaleExplicitChannelOutput() throws {
+        for (sample, channel, gain): (Float, Int, Float) in [(1, 64, 1), (1, 16, 0.25), (0.25, 64, 1), (0.25, 16, 0.25), (0, 32, 0.5)] {
             let module = song([cell(note: 49, volume: UInt8(0x10 + channel)), cell()], sample: sample)
             let (context, states) = inspect(module)
             XCTAssertEqual(states.map(\.baseChannelVolume), [channel, channel])
@@ -18,7 +61,7 @@ final class XMVolumeOwnershipTests: XCTestCase {
         }
     }
 
-    func testExistingVolumeWritersPreserveSampleScalingAndFrozenTrajectories() throws {
+    func testExistingVolumeWritersPreserveChannelTrajectories() throws {
         let cases: [(PlaybackCell, [Int], [Int])] = [
             (cell(0x0C, 16), [16], [0]), (cell(volume: 0x20), [16], [0]),
             (cell(volume: 0x63), [29], [0]), (cell(volume: 0x73), [35], [0]),
@@ -35,21 +78,21 @@ final class XMVolumeOwnershipTests: XCTestCase {
             XCTAssertEqual(updates.map(\.effectiveVolumeAfter), volumes.map(Optional.some))
             XCTAssertEqual(updates.map(\.syntheticTick), ticks)
             XCTAssertEqual(updates.map(\.scheduledFrame), ticks.map { 4 + $0 })
-            XCTAssertEqual(updates.map(\.gainAfter), volumes.map { Optional(Float($0) / 256) })
+            XCTAssertEqual(updates.map(\.gainAfter), volumes.map { Optional(Float($0) / 64) })
             XCTAssertEqual(states.map(\.baseChannelVolume), [32, volumes.last!, volumes.last!])
             XCTAssertTrue(states.allSatisfy { $0.activeSampleVolume == 0.25 })
-            XCTAssertEqual(context.events.map(\.gain), [0.125])
+            XCTAssertEqual(context.events.map(\.gain), [0.5])
         }
     }
 
-    func testEveryRetriggerVolumeModeKeepsSampleIndependent() {
+    func testEveryRetriggerVolumeModeConsumesChannelOutputOnce() {
         let expected = [32, 31, 30, 28, 24, 16, 21, 16, 32, 33, 34, 36, 40, 48, 48, 64]
         for mode in 0...15 {
             let module = song([cell(note: 49, volume: 0x30), cell(0x1B, UInt8(mode << 4 | 3)), cell()], sample: 0.25)
             let (context, states) = inspect(module)
             XCTAssertEqual(states.map(\.baseChannelVolume), [32, expected[mode], expected[mode]])
             XCTAssertTrue(states.allSatisfy { $0.activeSampleVolume == 0.25 })
-            XCTAssertEqual(context.events.map(\.gain), [0.125, Float(expected[mode]) / 256])
+            XCTAssertEqual(context.events.map(\.gain), [0.5, Float(expected[mode]) / 64])
             XCTAssertEqual(context.retriggerEffects.flatMap(\.volumeValuesAfter), [expected[mode]])
             XCTAssertEqual(context.retriggerEffects.flatMap(\.retriggerTicks), [3])
         }
@@ -65,8 +108,8 @@ final class XMVolumeOwnershipTests: XCTestCase {
             let update = Adapter.applyEffectColumnState(from: command,
                 source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0), channelIndex: 0,
                 syntheticRow: 0, scheduledFrame: 0, rowSpeed: 6, channelState: &state, globalVolumeValue: 64)
-            XCTAssertEqual(update?.gainBefore, 0.0625)
-            XCTAssertEqual(update?.gainAfter, Float(expected) / 256)
+            XCTAssertEqual(update?.gainBefore, 0.25)
+            XCTAssertEqual(update?.gainAfter, Float(expected) / 64)
             XCTAssertEqual(update?.effectiveVolumeBefore, 16)
             XCTAssertEqual(update?.effectiveVolumeAfter, expected)
             XCTAssertEqual(state.baseChannelVolume, expected)
@@ -88,7 +131,7 @@ final class XMVolumeOwnershipTests: XCTestCase {
         XCTAssertEqual(context.globalVolumeState.volumeValue, 28)
         let updates = context.voiceStateUpdates.filter { $0.effectType == 0x10 || $0.effectType == 0x11 }
         XCTAssertEqual(updates.map(\.globalVolumeAfter), [32, 28])
-        XCTAssertEqual(updates.map(\.gainAfter), [0.0625, 0.0546875])
+        XCTAssertEqual(updates.map(\.gainAfter), [0.25, 0.21875])
     }
 
     func testEnvelopeAndFadeoutRemainDownstreamWithExactPCM() {
@@ -97,10 +140,10 @@ final class XMVolumeOwnershipTests: XCTestCase {
         let module = song([cell(note: 49, volume: 0x30), cell(note: 97), cell(), cell()], sample: 0.25, speed: 1, envelope: envelope)
         let (context, states) = inspect(module)
         XCTAssertEqual(states.map(\.baseChannelVolume), [32, 32, 32, 32])
-        XCTAssertEqual(context.events.map(\.gain), [0.125])
+        XCTAssertEqual(context.events.map(\.gain), [0.5])
         let result = render(module)
         // The semantic clamp is immediate; audible output reaches zero one tick later.
-        XCTAssertEqual(result.block.interleavedPCM, [0.0625, 0.0625, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0.25, 0.25, 0, 0])
         XCTAssertEqual(result.diagnostics.eventMappings.first?.volumeEnvelopeSemantics.fadeoutApplied, true)
     }
 
@@ -121,8 +164,8 @@ final class XMVolumeOwnershipTests: XCTestCase {
         let hash = SHA256.hash(data: Data(bytes)).map { String(format: "%02x", $0) }.joined()
         // The final explicit note now reloads its quiet sample's default 16.
         XCTAssertEqual(bounded.diagnostics.eventMappings.last?.effectiveVolumeValue, 16)
-        XCTAssertEqual(bounded.plan.pattern.events.last?.gain, 0.02734375)
-        XCTAssertEqual(hash, "acd65b8b03982779b0c22b39454f8ff811d70c2d339b21681b6b87a0a4b0ccc9")
+        XCTAssertEqual(bounded.plan.pattern.events.last?.gain, 0.109375)
+        XCTAssertEqual(hash, "d175ff575172b437b38b2d468b825ee769777ca38187355bda06c6566dfa70cd")
         XCTAssertEqual(bounded.block.frameCount, 56)
     }
 
@@ -154,10 +197,10 @@ final class XMVolumeOwnershipTests: XCTestCase {
     private func song(_ cells: [PlaybackCell], sample volume: Float, speed: Int = 4,
                       envelope: PlaybackVolumeEnvelope = .disabled) -> PlaybackSong {
         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 1, count: 256),
-            volume: volume, relativeNote: 0, finetune: 0, baseSampleRate: 100)
+            volume: volume, relativeNote: 0, finetune: 0, baseSampleRate: 100, loopLength: 256, loopType: 1)
         return PlaybackSong(title: "Volume ownership", orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 0)],
             patternsByIndex: [0: PlaybackPattern(index: 0, rows: cells.enumerated().map { PlaybackRow(index: $0.offset, cells: [$0.element]) })],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: PlaybackTiming(speed: speed, bpm: 250), usesLinearFrequencyTable: true)
     }
 }

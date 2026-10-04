@@ -152,6 +152,15 @@ retain each zero nibble's previous value. Slide parameters never write vibrato
 speed/depth, and absence of slide memory does not prevent vibrato execution.
 `Kxx` rows use the existing key-off/release path; same-cell note triggers keep
 the `Kxx` effect metadata and then release at the requested row tick.
+Release semantics are decided once at their execution frame in `decideKeyOff`.
+`applyLegacyReleaseProjection` immediately copies that immutable result into
+the current whole-song trigger, mapping and ordered diagnostics: the trigger
+keeps its first release, the mapping keeps its latest release, and assembly
+uses the first associated diagnostic for onset categories/Kxx metadata. E9
+still inherits the parent mapping annotation at mapping creation time, even
+when its new trigger has no key-off frame. Resumable planning and incremental
+runtime planning are not implemented. Neutral publication finalization remains
+unresolved; runtime ID finalization and loop boundary behavior remain unchanged.
 `Rxy` rows use the shared retrigger path for the active voice. Same-cell note
 rows trigger once at tick 0 and schedule generated retriggers on later interval
 ticks; `R00` remains an effect-memory-deferred no-op. First-pass volume modes

@@ -181,8 +181,10 @@ This is post-alpha correctness debt, not a reason to reopen alpha.2.
 Documentation/context authority and diagnostic-tool consolidation are complete.
 Nonzero Fxx timing and the supported Linear/Amiga portamento units are corrected.
 Current work is fixture-backed FT2/XM effect closure and C-engine correctness;
-the [closure matrix](ft2-xm-closure-matrix.md) distinguishes remaining gaps from
-closed foundations. XM/backend closure remains open. `docs/roadmap.md` owns
+the [closure matrix](ft2-xm-closure-matrix.md) owns unresolved compatibility
+evidence and distinguishes remaining gaps from closed foundations. XM support
+classification separates implementation, FT2 closure, memory and mode coverage.
+XM/backend closure remains open. `docs/roadmap.md` owns
 phase targets, outstanding milestones, and sequencing.
 
 ## Focused context pointers

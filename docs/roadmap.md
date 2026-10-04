@@ -77,6 +77,10 @@ bounded contracts; they do not establish full command or audible parity.
   sharing, and the empty-cell construction fast path.
 - Causal release-result extraction establishes the architecture seam for causal
   finalization; the remaining whole-song projection is still present.
+- [XM support classification](xm-effect-support.md) separates implementation,
+  FT2 closure, memory and mode coverage and agrees with the closure matrix.
+  The support-status documentation cleanup is complete; compatibility closure
+  remains open.
 
 ### Outstanding milestones
 
@@ -89,9 +93,6 @@ bounded contracts; they do not establish full command or audible parity.
   Audible pan envelopes, instrument autovibrato, onset/replacement/cut behavior,
   and remaining envelope/pitch arithmetic must be resolved or explicitly
   justified within that same compatibility target.
-- Normalize the XM effect-support status model so implemented foundations,
-  parity-watch interactions, pending implementation, and accepted exclusions
-  agree with the closure evidence.
 - Deliver live Speed/BPM readouts and stopped-editable timing controls using
   the shared timing authority.
 - Reconcile live pattern-entry mutation and Undo authority with the canonical
@@ -122,7 +123,7 @@ triangulation. Private evidence can prioritize work but cannot become a
 committed test or release dependency. See [audio-comparison.md](audio-comparison.md).
 
 Exit requires closure of all outstanding milestones above, including the
-support-status/tooling work, timing/edit authority, callback-safety verification,
+metadata/tooling work, timing/edit authority, callback-safety verification,
 and final integrated gate. Semantic/output closure precedes callback hardening;
 both precede the freeze and later product phases. Effects, DSP, host, real-time
 safety, and editor contracts remain separate PRs.

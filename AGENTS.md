@@ -10,8 +10,8 @@ Active documentation authority is divided as follows:
 - `AGENTS.md`: permanent repository, compatibility, and agent rules.
 - `docs/agent-current-state.md`: concise present-tense product and runtime
   snapshot.
-- `docs/roadmap.md`: the single canonical sequencing roadmap.
-- `docs/dev-roadmap.md`: compatibility pointer only; do not add a second roadmap.
+- `docs/roadmap.md`: the single canonical phase/milestone roadmap, including
+  completed boundaries, outstanding work, sequencing, and release gates.
 - Accepted ADRs and specialized docs: authority for the decision or domain they
   explicitly own.
 - Release notes, reports, and git history: historical evidence, not active agent

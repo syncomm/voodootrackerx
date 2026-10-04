@@ -72,10 +72,13 @@ Use `docs/audio-comparison.md` for reference-render work,
 
 - Opened modules remain loaded, read-only sources. Audition and audio export do
   not make them editable or grant source ownership.
-- Blank documents and editable copies are value-owned. Editable content changes
-  flow through `EditableDocumentEditCoordinator.applyEdit`; one user action
-  creates at most one labeled Undo edit, while cancelled, stale, invalid,
-  read-only, playing, conflicting, and no-op paths create none.
+- Blank documents and editable copies are value-owned. Instrument/sample edits,
+  Clear Current Pattern, and Clear Song Data use
+  `EditableDocumentEditCoordinator.applyEdit` with at most one labeled Undo
+  edit per action; rejected and no-op requests create none. Legacy pattern entry
+  and several pattern/order updates still replace document values and clear
+  history. Uniform content-mutation/Undo authority is not yet complete; see
+  [ADR 010](decisions/010-whole-document-edit-undo.md).
 - [ADR 014](decisions/014-loaded-xm-editable-copy-planning.md) owns loaded-XM
   editable-copy planning. Its results are `exact`,
   Profile-v1 `normalized`, or `unavailable`. Exact and approved normalized plans
@@ -142,6 +145,13 @@ and normalization details.
 - Pattern-bank viewing is distinct from order assignment. Normal Play follows
   the selected order, Play Current Pattern follows the viewed pattern, and live
   POS/PTN follow is transient rather than an editable document mutation.
+- Note entry writes the selected instrument; key-off and field clearing work.
+  Direct hexadecimal field edits are not wired through the app handler. Cursor
+  navigation and display-text selection work; structured pattern clipboard
+  menu actions remain disabled.
+- Pattern New/Duplicate/Clear/assignment and order Insert/Delete/Duplicate/Move/
+  PTN-step work. Active editable loops refresh edited pattern data at the loop
+  boundary, coalesce newer requests, and cancel pending refresh on Stop.
 - Meaningful editable work is confirmed before New or Open replacement. Clear
   Song Data is stopped-only, confirmed, and undoable. WAV and M4A export share a
   re-entry gate.
@@ -172,8 +182,8 @@ Documentation/context authority and diagnostic-tool consolidation are complete.
 Nonzero Fxx timing and the supported Linear/Amiga portamento units are corrected.
 Current work is fixture-backed FT2/XM effect closure and C-engine correctness;
 the [closure matrix](ft2-xm-closure-matrix.md) distinguishes remaining gaps from
-closed foundations. Focused callback RT safety and native editable Amiga mode
-remain later contracts. `docs/roadmap.md` is the sole sequencing authority.
+closed foundations. XM/backend closure remains open. `docs/roadmap.md` owns
+phase targets, outstanding milestones, and sequencing.
 
 ## Focused context pointers
 

@@ -764,7 +764,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.xmChannelRows.append(.init(source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame, controls: channelState,
                     instrumentOnlyReset: instrumentOnlyReset))
-                let axyUpdates = (0x60...0x7F).contains(cell.volumeColumn) ? [] : applyEffectColumnVolumeSlide(
+                let axyUpdates = isOrdinaryVolumeColumnSlide(cell.volumeColumn) ? [] : applyEffectColumnVolumeSlide(
                     from: cell,
                     source: source,
                     channelIndex: channelIndex,
@@ -1873,7 +1873,7 @@ enum PlaybackSongSyntheticAdapter {
             let scheduledNoteTick = noteDelay?.applied == true ? noteDelay?.requestedTick ?? 0 : 0
             if scheduledNoteTick > 0 {
                 // Column writes precede the existing delayed trigger/reset on its tick.
-                if (0x60...0x7F).contains(cell.volumeColumn) {
+                if isOrdinaryVolumeColumnSlide(cell.volumeColumn) {
                     for tick in 1...scheduledNoteTick {
                         context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumn, cell: cell, source: source,
                             channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
@@ -2220,7 +2220,7 @@ enum PlaybackSongSyntheticAdapter {
         // A later channel's Gxx must not see a future slide or tremolo value.
         for channelIndex in row.cells.indices {
             let cell = row.cells[channelIndex]
-            let columnSlide = (0x60...0x7F).contains(cell.volumeColumn)
+            let columnSlide = isOrdinaryVolumeColumnSlide(cell.volumeColumn)
                 ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
             if columnSlide != nil {
                 if cell.effectType == 0x0A || cell.effectType == 0x05 {

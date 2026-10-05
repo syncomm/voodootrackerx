@@ -53,6 +53,9 @@ host.
   row speed, including silent state. `D0` forces zero; `E0` preserves pan without
   memory or reconversion. G09 feeds current stored pan to the existing envelope
   and final-L/R targets; Cx mapping, Pxy and static pan law remain separate.
+- Volume-column `Cx` sets stored pan to `16 * nibble` at tick zero: C8 is 128
+  and CF is 240. Header/Cx/8xx precedence, G09 and G06/G07 remain intact;
+  header/8xx conversion, preview and final stereo pan law (G40) are unchanged.
 - XM envelope/release targets and integer fadeout consume that same tick plan
   in runtime and offline rendering. One C final-L/R state interpolates ordinary
   targets over the current tick and carries in-flight window progress.

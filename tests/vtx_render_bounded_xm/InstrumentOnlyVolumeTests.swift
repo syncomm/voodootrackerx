@@ -55,7 +55,7 @@ final class InstrumentOnlyVolumeTests: XCTestCase {
         for (volume, effect, param, expected, pan): (UInt8, UInt8, UInt8, Int, Double) in [
             (0x30, 0, 0, 32, 192), (0, 12, 8, 8, 192), (0, 14, 0xA3, 27, 192),
             (0, 14, 0xB3, 21, 192), (0x93, 0, 0, 27, 192), (0x83, 0, 0, 21, 192),
-            (0xC2, 0, 0, 24, 34), (0x30, 8, 224, 32, 224)] {
+            (0xC2, 0, 0, 24, 32), (0x30, 8, 224, 32, 224)] {
             let (_, states) = inspect(song([cell(note: 49, instrument: 1), cell(effect: 12, param: 1),
                 cell(instrument: 2, volume: volume, effect: effect, param: param)]))
             XCTAssertEqual(states[2].baseChannelVolume, expected)

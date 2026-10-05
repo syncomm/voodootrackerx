@@ -4,14 +4,15 @@ import XCTest
 
 final class PlaybackEffectTests: XCTestCase {
     func testPlaybackVolumeColumnPanningMappingAndClamp() {
-        XCTAssertEqual(PlaybackEffectHandler.volumeColumnCommand(0xC0), .setPanning(value: 0))
-        XCTAssertEqual(PlaybackEffectHandler.volumeColumnCommand(0xCC), .setPanning(value: 204))
-        XCTAssertEqual(PlaybackEffectHandler.volumeColumnCommand(0xCF), .setPanning(value: 255))
+        let observed = [0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240]
+        for (nibble, pan) in observed.enumerated() {
+            XCTAssertEqual(PlaybackEffectHandler.volumeColumnCommand(UInt8(0xC0 + nibble)), .setPanning(value: pan))
+        }
 
         var state = PlaybackChannelState(panning: 128)
         XCTAssertTrue(state.apply(volumeColumnCommand: PlaybackEffectHandler.volumeColumnCommand(0xCF)))
-        XCTAssertEqual(state.panning, 255)
-        XCTAssertEqual(state.audioControls.panning, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(state.panning, 240)
+        XCTAssertEqual(state.audioControls.panning, Float(15) / 17, accuracy: 0.0001)
     }
 
     @MainActor
@@ -62,15 +63,16 @@ final class PlaybackEffectTests: XCTestCase {
                     makePlaybackRow(index: 1, volumeColumn: 0x3D),
                     makePlaybackRow(index: 2, volumeColumn: 0x50),
                     makePlaybackRow(index: 3, volumeColumn: 0xC0),
-                    makePlaybackRow(index: 4, volumeColumn: 0xCC),
-                    makePlaybackRow(index: 5, volumeColumn: 0xCF)
+                    makePlaybackRow(index: 4, volumeColumn: 0xC8),
+                    makePlaybackRow(index: 5, volumeColumn: 0xCC),
+                    makePlaybackRow(index: 6, volumeColumn: 0xCF)
                 ]
             ]
         ))
         engine.configureTiming(PlaybackTiming(speed: 1, bpm: 125))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
-        for _ in 0..<5 {
+        for _ in 0..<6 {
             engine.advanceOneTick()
         }
 
@@ -88,8 +90,9 @@ final class PlaybackEffectTests: XCTestCase {
         XCTAssertEqual(decodedByRaw["50"]?.volumeColumnVolume, 64)
         XCTAssertEqual(decodedByRaw["C0"]?.decodedVolumeColumnCommand, "setPanning")
         XCTAssertEqual(decodedByRaw["C0"]?.volumeColumnPanning, 0)
-        XCTAssertEqual(decodedByRaw["CC"]?.volumeColumnPanning, 204)
-        XCTAssertEqual(decodedByRaw["CF"]?.volumeColumnPanning, 255)
+        XCTAssertEqual(decodedByRaw["C8"]?.volumeColumnPanning, 128)
+        XCTAssertEqual(decodedByRaw["CC"]?.volumeColumnPanning, 192)
+        XCTAssertEqual(decodedByRaw["CF"]?.volumeColumnPanning, 240)
     }
 
     func testPlaybackEffectHandlerDecodesSpeedAndBPM() {

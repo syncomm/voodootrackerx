@@ -1394,13 +1394,13 @@ final class PlaybackEngineTests: XCTestCase {
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
 
-        XCTAssertEqual(audioOutput.triggeredRequests.first?.panning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 204), accuracy: 0.0001)
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.panning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 192), accuracy: 0.0001)
         let event = traceWriter.events.first { $0.decision == .triggered }
         XCTAssertEqual(event?.rawVolumeColumn, "CC")
         XCTAssertEqual(event?.decodedVolumeColumnCommand, "setPanning")
         XCTAssertEqual(event?.volumeColumnApplied, true)
-        XCTAssertEqual(event?.volumeColumnPanning, 204)
-        XCTAssertEqual(event?.computedPanning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 204), accuracy: 0.0001)
+        XCTAssertEqual(event?.volumeColumnPanning, 192)
+        XCTAssertEqual(event?.computedPanning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 192), accuracy: 0.0001)
     }
 
     func testPlaybackEngineStartsPlayingFromContext() {

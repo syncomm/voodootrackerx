@@ -56,7 +56,7 @@ final class VolumeColumnPanSlideTimingTests: XCTestCase {
             cell(volume: 0xE1, effect: 8, param: 64), cell(volume: 0xD0, effect: 8, param: 128),
             cell(volume: 0xE0, effect: 8, param: 128), cell(volume: 0xC8), cell(volume: 0xD1),
             cell(volume: 0xC4, effect: 8, param: 224), cell(volume: 0xE1), cell()]))
-        XCTAssertEqual(plan.xmChannelRows.map { $0.controls.panningValue }, [224, 64, 128, 128, 136, 136, 224, 224, 229])
+        XCTAssertEqual(plan.xmChannelRows.map { $0.controls.panningValue }, [224, 64, 128, 128, 128, 128, 224, 224, 229])
         XCTAssertEqual(slides(plan).filter { $0.syntheticRow == 0 }.map(\.channelPanningValueAfter), [223, 222, 221, 220, 219])
         XCTAssertEqual(slides(plan).filter { $0.syntheticRow == 2 }.map(\.channelPanningValueAfter), [0, 0, 0, 0, 0])
         XCTAssertEqual(slides(plan).filter { $0.syntheticRow == 3 }.map(\.channelPanningValueAfter), [128, 128, 128, 128, 128])

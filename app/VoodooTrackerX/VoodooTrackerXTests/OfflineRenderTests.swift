@@ -923,7 +923,7 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(windowed.block, nonWindowed.block)
         XCTAssertEqual(windowed.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6, 12, 15, 18])
         XCTAssertEqual(firstEvent.effectiveVolumeValue, 64)
-        XCTAssertEqual(firstEvent.effectivePan, 1)
+        XCTAssertEqual(firstEvent.effectivePan, Float(15) / 17)
     }
 
     func testPlaybackSongOfflineRendererWindowedCarriesReplacementRampAtBoundary() {

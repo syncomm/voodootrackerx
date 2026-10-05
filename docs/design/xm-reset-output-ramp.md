@@ -151,6 +151,11 @@ final-L/R target; G07 positioning and envelope arithmetic are unchanged.
 `D0` forces zero and `E0` leaves pan/conversion intact. No new output ramp or
 callback decoding is added; G11/G33/G40 retain their separate boundaries.
 
+G11 supplies `16 * nibble` for column Cx at tick zero, with C8 = 128 and
+CF = 240. Existing factor/semantic publications consume that corrected base;
+G06/G07 clocks and arithmetic, output ramps and G40 conversion/profile law are
+unchanged. Sample/header and 8xx bytes keep their existing paths.
+
 First publication initializes immediately, preserving VTX trigger onset and
 source position. A later explicit non-retriggering reset changes semantic state
 at frame `N` and publishes through the same C output state with

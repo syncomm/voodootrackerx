@@ -246,7 +246,7 @@ final class XMPanningEnvelopeTests: XCTestCase {
             let targets = try XCTUnwrap(result.plan.xmAudibleTimeline?.updatesByEvent[0])
             let rows = result.plan.xmChannelRows.map(\.controls)
             XCTAssertEqual(rows[1].panningValue, 224)
-            XCTAssertEqual(rows[2].panningValue, 68) // Retain G11's current 17*nibble mapping.
+            XCTAssertEqual(rows[2].panningValue, 64) // C4 supplies the G11 byte; G40 conversion is unchanged.
             XCTAssertEqual(targets[8].pan, rows[1].pan) // Envelope is neutral at tick 4.
             let delta = PlaybackSamplePanningPolicy.plannedPan(232) - PlaybackSamplePanningPolicy.plannedPan(224)
             XCTAssertEqual(targets[9].pan, rows[1].pan + delta)

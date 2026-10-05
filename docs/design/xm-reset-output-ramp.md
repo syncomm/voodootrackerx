@@ -145,6 +145,12 @@ G08 ordinary `6x/7x` channel writes join the existing nonzero-tick target with
 its tick duration. They add no gain factor, quick-volume reset or second ramp;
 fine `8x/9x` keep their existing tick-zero publication.
 
+G09 `Dx/Ex` updates supply current stored pan on those same nonzero frames.
+G06 composes its envelope displacement with that pan through the existing
+final-L/R target; G07 positioning and envelope arithmetic are unchanged.
+`D0` forces zero and `E0` leaves pan/conversion intact. No new output ramp or
+callback decoding is added; G11/G33/G40 retain their separate boundaries.
+
 First publication initializes immediately, preserving VTX trigger onset and
 source position. A later explicit non-retriggering reset changes semantic state
 at frame `N` and publishes through the same C output state with

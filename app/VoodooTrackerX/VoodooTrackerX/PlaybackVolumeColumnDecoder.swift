@@ -192,7 +192,7 @@ enum PlaybackSongVolumeColumnDecoder {
                 classification: .supported,
                 slideAmount: amount,
                 slideDirection: .panningLeft,
-                behavior: .rowLevelApproximation
+                behavior: .tickLevelAfterTick0
             )
         case 0xE0...0xEF:
             let amount = Int(rawValue & 0x0F)
@@ -202,7 +202,7 @@ enum PlaybackSongVolumeColumnDecoder {
                 classification: .supported,
                 slideAmount: amount,
                 slideDirection: .panningRight,
-                behavior: .rowLevelApproximation
+                behavior: .tickLevelAfterTick0
             )
         case 0xF0...0xFF:
             return diagnostic(

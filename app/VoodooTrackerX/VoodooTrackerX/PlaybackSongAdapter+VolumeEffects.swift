@@ -343,13 +343,13 @@ extension PlaybackSongSyntheticAdapter {
         case .setVolume,
              .fineVolumeSlideDown,
              .fineVolumeSlideUp,
-             .setPanning,
-             .panningSlideLeft,
-             .panningSlideRight:
+             .setPanning:
             return true
         case .none,
              .volumeSlideDown,
              .volumeSlideUp,
+             .panningSlideLeft,
+             .panningSlideRight,
              .setVibratoSpeed,
              .vibrato,
              .tonePortamento,
@@ -1102,7 +1102,8 @@ extension PlaybackSongSyntheticAdapter {
         effectMemoryDeferred: Bool = false,
         memorySource: PlaybackSongSyntheticEffectMemorySource? = nil,
         memoryUnavailableReason: String? = nil,
-        activeVoiceUpdatedOverride: Bool? = nil
+        activeVoiceUpdatedOverride: Bool? = nil,
+        channelPanningValueAfter: Double? = nil
     ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
         let activeSampleVolumeBefore = channelStateBefore.activeSampleVolume
         let activeSampleVolumeAfter = channelStateAfter.activeSampleVolume ?? activeSampleVolumeBefore
@@ -1174,7 +1175,8 @@ extension PlaybackSongSyntheticAdapter {
             gainBefore: gainBefore,
             gainAfter: gainAfter,
             panBefore: channelStateBefore.pan,
-            panAfter: channelStateAfter.pan
+            panAfter: channelStateAfter.pan,
+            channelPanningValueAfter: channelPanningValueAfter
         )
     }
 

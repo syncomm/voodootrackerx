@@ -218,13 +218,35 @@ state; a later note-only route observes it without an invented voice.
 The public `volume-column-slide-timing.xm` and direct/runtime controls pin
 these values, effective Fxx speeds and 44.1/48 kHz frames. They reuse song gain,
 envelope/fadeout clocks and the existing audible output targets. Cold channel
-initialization, G09 panning slides, G11 mapping, G31 arithmetic, G40 pan law,
+initialization, G11 mapping, G31 arithmetic, G40 pan law,
 onset and generic ramps retain their separate boundaries.
 
 Canonical full Xcode verification passes. The maintainer reported a passing
 listen for `xm-corpus-198` at zero-based order 1, pattern 0, row 0, channel 9,
 and regression sentinel `xm-corpus-011`, with slides progressing across ticks
 and no unrelated regression heard. This records maintainer acceptance.
+
+## G09 ordinary volume-column panning slides
+
+`Dx/Ex` change stored pan by the current low nibble on ticks `1..<effective
+row speed`, clamping to `0...255`. Tick zero and speed 1 preserve it. From
+128, `D1` ends at 128/126/123 for speeds 1/3/6; `E1` ends at 128/130/133.
+On each nonzero tick `D0` sets pan to zero, including from interior/right
+positions; `E0` leaves it unchanged. Neither uses amount memory or Pxy memory.
+An unchanged value retains its existing static conversion.
+
+Explicit sample defaults, column Cx and effect 8xx retain their tick-zero
+order. Note-only carries current pan; silent declared routes and completed
+sources retain it without fabricating a voice. Existing cold initialization
+remains 127.5 versus FT2's 128; explicit 8xx source-less controls pin the slide
+contract independently. Cx retains VTX's `17 * nibble` mapping (G11).
+
+The planner captures each slide's stored pan alongside the existing typed
+update. Semantic publications consume that value for G06 reach/displacement,
+including final-value tail carry. G06/G07 clocks and arithmetic, final-L/R
+composition and ramp policies remain unchanged. The public fixture, constant
+controls and canonical host prove both-rate frames/output; G08 PCM and static
+header/Cx/8xx before/after controls are identical. G11/G33/G40 stay open.
 
 ## Runtime, offline, and diagnostics
 
@@ -378,8 +400,8 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   separate default-volume dispatch boundary. Ordinary no-envelope release zeros
   output; instrument-only K00 follows the cached-default/release ordering above.
 - Initial missing-memory `A00`, `EA0`/`EB0`, `R00`, and other deferred cases
-  retain their documented status. Volume-column panning slides and `Hxy`
-  timing approximations remain. Tremolo does not broaden those families.
+  retain their documented status. G09 closes column panning-slide timing;
+  `Hxy` retains its timing approximation. Tremolo does not broaden that family.
 
 ## Maintainer smoke
 

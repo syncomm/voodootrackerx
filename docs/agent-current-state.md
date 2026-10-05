@@ -49,6 +49,10 @@ host.
   the effective Fxx row speed, including silent channel state. Speed 1 has no
   slide; zero amounts restore output without memory. Fine `8x/9x` stay at tick
   zero, and A/5/6 retain their independent memory and writer order.
+- Volume-column `Dx/Ex` move stored pan on nonzero ticks of that same effective
+  row speed, including silent state. `D0` forces zero; `E0` preserves pan without
+  memory or reconversion. G09 feeds current stored pan to the existing envelope
+  and final-L/R targets; Cx mapping, Pxy and static pan law remain separate.
 - XM envelope/release targets and integer fadeout consume that same tick plan
   in runtime and offline rendering. One C final-L/R state interpolates ordinary
   targets over the current tick and carries in-flight window progress.

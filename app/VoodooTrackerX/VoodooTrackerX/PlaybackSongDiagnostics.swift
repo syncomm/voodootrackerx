@@ -768,6 +768,8 @@ struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
     let gainAfter: Float?
     let panBefore: Float?
     let panAfter: Float?
+    // Internal stored-byte projection for semantic targets, independent of G40 conversion.
+    var channelPanningValueAfter: Double? = nil
 
     var applied: Bool {
         status == .applied

@@ -86,25 +86,11 @@ extension PlaybackSongSyntheticAdapter {
                 effectivePanAfter: state.pan,
                 behavior: .rowLevelApproximation
             )
-        case let .panningSlideLeft(amount):
-            let before = state.pan
-            state.applyChannelPanningValue(state.panningValue - Double(amount))
+        case .panningSlideLeft, .panningSlideRight:
             return volumeColumn.withAppliedState(
-                appliedPanningValue: Int(state.panningValue.rounded()),
-                appliedPan: state.pan,
-                effectivePanBefore: before,
+                effectivePanBefore: state.pan,
                 effectivePanAfter: state.pan,
-                behavior: .rowLevelApproximation
-            )
-        case let .panningSlideRight(amount):
-            let before = state.pan
-            state.applyChannelPanningValue(state.panningValue + Double(amount))
-            return volumeColumn.withAppliedState(
-                appliedPanningValue: Int(state.panningValue.rounded()),
-                appliedPan: state.pan,
-                effectivePanBefore: before,
-                effectivePanAfter: state.pan,
-                behavior: .rowLevelApproximation
+                behavior: .tickLevelAfterTick0
             )
         case .none,
              .setVibratoSpeed,
@@ -113,6 +99,11 @@ extension PlaybackSongSyntheticAdapter {
              .unsupported:
             return volumeColumn
         }
+    }
+
+    /// Ordinary column slides share the effective row tick schedule, without sharing memory.
+    static func isOrdinaryVolumeColumnSlide(_ raw: UInt8) -> Bool {
+        (0x60...0x7F).contains(raw) || (0xD0...0xEF).contains(raw)
     }
 
     /// Publish an ordinary column slide before the effect-column writer at this tick.
@@ -128,6 +119,10 @@ extension PlaybackSongSyntheticAdapter {
         switch column.command {
         case let .volumeSlideDown(amount): delta = -amount
         case let .volumeSlideUp(amount): delta = amount
+        case .panningSlideLeft, .panningSlideRight:
+            return applyVolumeColumnPanningSlideTick(column, cell: cell, source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick,
+                timingPlan: timingPlan, state: &state, globalVolume: globalVolume)
         default: return []
         }
         let before = state
@@ -144,6 +139,39 @@ extension PlaybackSongSyntheticAdapter {
             volumeSlideClamped: unclamped != state.baseChannelVolume,
             volumeSlideTick0Suppressed: true, volumeSlideRowSpeed: rowSpeed,
             activeVoiceUpdatedOverride: before.activeEventIndex != nil && before.activeSampleVolume != nil
+        )]
+    }
+
+    /// Move stored pan on nonzero ticks, including source-less channels. D0 and E0 are
+    /// deliberately asymmetric; unchanged pan retains its existing static conversion.
+    private static func applyVolumeColumnPanningSlideTick(
+        _ column: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int, syntheticRow: Int,
+        tick: Int, timingPlan: PlaybackSongFxxTimingPlan,
+        state: inout ChannelState, globalVolume: Int
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        let before = state
+        let requested: Double
+        switch column.command {
+        case let .panningSlideLeft(amount):
+            // Observed FT2 D0 forces the left edge; it never replays a slide amount.
+            requested = amount == 0 ? 0 : state.panningValue - Double(amount)
+        case let .panningSlideRight(amount):
+            requested = state.panningValue + Double(amount)
+        default: return []
+        }
+        if clampedPanningValue(requested) != state.panningValue {
+            state.applyChannelPanningValue(requested)
+        }
+        return [voiceStateUpdateDiagnostic(
+            source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,
+            scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick), cell: cell,
+            commandSource: .volumeColumn, command: .volumeColumn(column.command), rawVolumeColumn: cell.volumeColumn,
+            effectType: nil, effectParam: nil, status: .applied, behavior: .tickLevelAfterTick0,
+            channelStateBefore: before, channelStateAfter: state,
+            globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
+            activeVoiceUpdatedOverride: before.activeEventIndex != nil && before.activeSampleVolume != nil,
+            channelPanningValueAfter: state.panningValue
         )]
     }
 

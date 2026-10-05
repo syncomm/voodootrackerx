@@ -391,6 +391,9 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         let releasesByChannel = Dictionary(grouping: plan.diagnostics.keyOffEvents.filter(\.applied), by: \.channelIndex)
         let positionsByChannel = Dictionary(grouping: plan.diagnostics.envelopePositionEffects, by: \.channelIndex)
         let cutsByChannel = Dictionary(grouping: plan.diagnostics.noteCutEffects.filter(\.applied), by: \.channelIndex)
+        let panSlidesByChannel = Dictionary(grouping: plan.diagnostics.voiceStateUpdates.filter {
+            $0.applied && (0xD0...0xEF).contains($0.rawVolumeColumn ?? 0)
+        }, by: \.channelIndex)
         struct Change {
             let scheduledFrame: Int
             let change: MixerPlaybackStateChange
@@ -401,6 +404,9 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             let channelRows = rowsByChannel[channel] ?? []
             let carriedInstruments = PlaybackXMCarriedInstrumentProjection(rows: channelRows)
             let channelPans = Dictionary(uniqueKeysWithValues: channelRows.map { ($0.syntheticRow, $0.controls.panningValue) })
+            let panSlides = (panSlidesByChannel[channel] ?? []).reduce(into: [Int: Double]()) {
+                if let value = $1.channelPanningValueAfter { $0[$1.scheduledFrame] = value }
+            }
             for (routeIndex, route) in channelRoutes.enumerated() {
                 guard let instrument = route.eventIndex.flatMap({ instruments[$0] }) ?? instrumentsByIdentity[route.instrumentIndex] else { continue }
                 let index = route.eventIndex
@@ -434,6 +440,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     resets.contains { $0.scheduledFrame < sourceEnd } || !plan.noteOnlyEventIndices.isEmpty
                 guard publishesToVoice || plan.xmEmptyRoutes.contains(where: { $0.channelIndex == channel }) else { continue }
                 let routeControls = rowHistories[channel]?.controls(atOrBefore: start, work: &planningHistoryDiagnostics)
+                var channelPanning = routeControls?.panningValue ?? 128
                 let carries = route.preservesChannelState
                 var carried = carries ? previous : CarriedState()
                 if carries && !hasPrevious && (index.map { plan.coldReleasedEventIndices.contains($0) }
@@ -475,6 +482,10 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 for tick in clock {
                     let frame = tick.frame
                     guard frame >= start && frame < stop else { continue }
+                    // Tick-zero writers keep their row authority; slides supply the exact
+                    // stored pan for later publications, carrying the final value into tails.
+                    if tick.tick == 0, let value = channelPans[tick.row] { channelPanning = value }
+                    if let value = panSlides[frame] { channelPanning = value }
                     var resetVolume = first && !carries
                     var resetPan = first && !carries
                     let wasKeyOn = state.keyOn
@@ -546,7 +557,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                         history.append(PlaybackXMEnvelopeUpdate(eventIndex: index, channelIndex: channel,
                             source: tick.source, tick: tick.tick, scheduledFrame: frame, bpm: tick.bpm,
                             speed: tick.speed, state: state,
-                            channelPanningValue: channelPans[tick.row] ?? channelRows.last?.controls.panningValue ?? 128))
+                            channelPanningValue: channelPanning))
                     }
                     first = false
                 }

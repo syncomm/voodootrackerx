@@ -4617,6 +4617,196 @@
       "xm_output": "generated/volume-column-slide-timing.xm",
       "xm_sha256": "f3364bb304090896b77a3f722be0689f5d4292cb70a0ccb82d0a0c4241f9e906",
       "xm_size_bytes": 764
+    },
+    {
+      "id": "volume-column-pan-slide-timing",
+      "intended_tests": [
+        "nonzero-tick panning slides and D0/E0",
+        "same-row Fxx and 8xx",
+        "runtime/offline/window parity"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "name": "BASIC SAMPLE",
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 64,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "SINE64",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 48,
+                  "frame_count": 64,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "b63bbb990bf1387c29e6a4aded2f83dc546150c1da8504c9e3a6487091d1dc15",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  64,
+                  64
+                ]
+              ],
+              "type_flags": 1
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 15,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 209
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 225
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 209
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 225
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 209
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 225
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 224,
+                "effect_type": 8,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 208
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 224
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 2,
+                "effect_type": 8,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 223
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 254,
+                "effect_type": 8,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 239
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 224
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 208
+              }
+            ],
+            "rows": 6
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX COL PAN TIMING",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "volume-column-pan-slide-timing.xm",
+      "purpose": "Ordinary volume-column panning slides at speeds 1/3/6, asymmetric zero forms and edge clamps.",
+      "significant_rows": [
+        "rows 0...2: D1/E1 with F01/F03/F06",
+        "row 3: D0 from 8E0, E0 continuation",
+        "row 4: DF/EF from 802/8FE clamp at both edges",
+        "row 5: E0 at left edge, D0 from right edge"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [],
+      "xm_output": "generated/volume-column-pan-slide-timing.xm",
+      "xm_sha256": "da75289f4749896c9ba8cc808b40e88bb7c7b8bea3fd07b3e4afc701b4659f0e",
+      "xm_size_bytes": 752
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

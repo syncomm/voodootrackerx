@@ -446,5 +446,16 @@ loop and an integral-slope volume envelope. Rows 0...2 pair `61/71` with
 `F01/F03/F06`; row 3 pins Cxx/clamps, row 4 zero amounts, rows 5...6 fine slides,
 and row 7 independent A/6 writers. `VolumeColumnSlideTimingTests` and runtime
 controls pin exact values/frames and whole/window/runtime parity at both rates.
-Reference WAVs and observer artifacts remain outside git. G09/G11/G31/G40
+Reference WAVs and observer artifacts remain outside git. G11/G31/G40
 and new-source/generic-ramp differences retain their separate boundaries.
+
+### Volume-column panning-slide timing
+
+`generated/volume-column-pan-slide-timing.xm` pairs `D1/E1` with same-row
+`F01/F03/F06` on rows 0...2. Row 3 tests `D0` after `8E0` and `E0`
+continuation; row 4 clamps `DF/EF` from `802/8FE`; row 5 contrasts `E0` at
+zero with `D0` at 255. A generated loop and flat volume envelope isolate
+stored pan and the existing final-L/R targets. `VolumeColumnPanSlideTimingTests`
+adds constant-PCM controls for static-writer precedence, source-less/completed
+carry, G06/G07 and G08 regression at both rates. G11 conversion, G33/Pxy,
+G40 stereo law and generic/onset ramp differences remain separate.

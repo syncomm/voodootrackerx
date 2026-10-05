@@ -902,6 +902,10 @@ final class RuntimeCMixerTests: XCTestCase {
         try assertXMEnvelopeRuntimeParity(makePanningEnvelopeControl(volumeFlags: 3, positions: true, panSlides: true))
     }
 
+    func testVolumeColumnCxMappingUsesSharedRuntimeTargetsAndLxxAtBothRates() throws {
+        try assertXMEnvelopeRuntimeParity(makePanningEnvelopeControl(volumeFlags: 3, columnPans: true))
+    }
+
     private func assertXMEnvelopeRuntimeParity(_ song: PlaybackSong) throws {
         for (rate, channels, profile) in [(44_100.0, 1, MixerMixProfile.vtx), (48_000, 1, .vtx),
             (44_100, 2, .ft2), (48_000, 2, .ft2), (44_100, 2, .vtx), (48_000, 2, .vtx)] {
@@ -973,7 +977,8 @@ final class RuntimeCMixerTests: XCTestCase {
         }
     }
 
-    private func makePanningEnvelopeControl(volumeFlags: UInt8 = 1, positions: Bool = false, panSlides: Bool = false) -> PlaybackSong {
+    private func makePanningEnvelopeControl(volumeFlags: UInt8 = 1, positions: Bool = false,
+                                           panSlides: Bool = false, columnPans: Bool = false) -> PlaybackSong {
         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.25, count: 256),
             volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363, loopStart: 0, loopLength: 256, loopType: 1)
         let volume = PlaybackVolumeEnvelope(enabled: volumeFlags & 1 != 0, points: [.init(tick: 0, value: 64), .init(tick: 100, value: 64)],
@@ -1000,8 +1005,15 @@ final class RuntimeCMixerTests: XCTestCase {
             commands[3] = .init(note: 0, instrument: 0, volumeColumn: 0xD0, effectType: 15, effectParam: 3)
             commands[5] = .init(note: 0, instrument: 0, volumeColumn: 0xE0, effectType: 0x15, effectParam: 0)
         }
+        if columnPans {
+            commands.removeAll()
+            for row in 0..<16 {
+                commands[row] = PlaybackCell(note: row == 0 ? 49 : 0, instrument: row == 0 ? 1 : 0,
+                    volumeColumn: UInt8(0xC0 + row), effectType: row == 8 ? 0x15 : 0, effectParam: row == 8 ? 8 : 0)
+            }
+        }
         return PlaybackSong(title: "Public G06 control", orders: [.init(orderIndex: 0, patternIndex: 0)],
-            patternsByIndex: [0: .init(index: 0, rows: (0..<8).map { row in
+            patternsByIndex: [0: .init(index: 0, rows: (0..<(columnPans ? 16 : 8)).map { row in
                 .init(index: row, cells: [commands[row] ?? .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)])
             })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: volume, panningEnvelope: pan)],
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: true)

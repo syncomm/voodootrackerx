@@ -912,9 +912,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.plan.pattern.events.map(\.scheduledStartFrame), [3, 3])
         XCTAssertEqual(result.diagnostics.eventMappings.map(\.volumeColumn.command), [
             .setVolume(value: 32),
-            .setPanning(value: 255)
+            .setPanning(value: 240)
         ])
-        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [0.5, 1.5] + Array(repeating: Float(0), count: 8))
+        XCTAssertFloatArrayEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [0.61764705, 1.5] + Array(repeating: Float(0), count: 8))
     }
 
     func testPlaybackSongAdapterParsedVolumeEnvelopeUsesEventTimingWithFxxBPM() throws {
@@ -4655,10 +4655,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
             frames: 1
         ))
 
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0.128, 0.384])
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0.15811765, 0.384])
         XCTAssertEqual(result.diagnostics.eventMappings.map(\.volumeColumn.command), [
             .setVolume(value: 32),
-            .setPanning(value: 255)
+            .setPanning(value: 240)
         ])
         XCTAssertEqual(result.diagnostics.eventMappings.map(\.sampleOffset.status), [.applied, .applied])
     }
@@ -6488,7 +6488,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(center.block.interleavedPCM, [1, 1, 0, 0])
         XCTAssertEqual(left.block.interleavedPCM, [1, 0, 0, 0])
-        XCTAssertEqual(right.block.interleavedPCM, [0, 1, 0, 0])
+        XCTAssertFloatArrayEqual(right.block.interleavedPCM, [0.11764705, 1, 0, 0])
         XCTAssertNotEqual(left.block.interleavedPCM, center.block.interleavedPCM)
         XCTAssertNotEqual(right.block.interleavedPCM, center.block.interleavedPCM)
         XCTAssertEqual(leftMapping.volumeColumn.command, .setPanning(value: 0))
@@ -6496,9 +6496,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(leftMapping.volumeColumn.appliedPan, -1)
         XCTAssertTrue(leftMapping.volumeColumn.applied)
         XCTAssertFalse(leftMapping.hasIgnoredVolumeColumn)
-        XCTAssertEqual(rightMapping.volumeColumn.command, .setPanning(value: 255))
-        XCTAssertEqual(rightMapping.volumeColumn.appliedPanningValue, 255)
-        XCTAssertEqual(rightMapping.volumeColumn.appliedPan, 1)
+        XCTAssertEqual(rightMapping.volumeColumn.command, .setPanning(value: 240))
+        XCTAssertEqual(rightMapping.volumeColumn.appliedPanningValue, 240)
+        XCTAssertEqual(rightMapping.volumeColumn.appliedPan, Float(15) / 17)
     }
 
     func testPlaybackSongAdapterVolumeColumnOverridesSampleDefault() {
@@ -7102,11 +7102,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.hasEmptyNote && $0.commandSource == .volumeColumn })
 
-        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [1, 1, 0.96875, 1, 0.9375, 1])
+        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [1, 1, 0.9724265, 1, 0.94485295, 1])
         XCTAssertEqual(update.activeVoiceUpdated, true)
         XCTAssertEqual(update.effectivePanBefore, 0)
-        XCTAssertEqual(update.effectivePanAfter, 1)
-        if case .volumeColumn(.setPanning(value: 255)) = update.command {
+        XCTAssertEqual(update.effectivePanAfter, Float(15) / 17)
+        if case .volumeColumn(.setPanning(value: 240)) = update.command {
             XCTAssertTrue(update.applied)
         } else {
             XCTFail("expected empty-note volume-column set-panning update")

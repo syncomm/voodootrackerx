@@ -120,7 +120,7 @@ cached defaults survive source completion/cut, and a later explicit mapped
 trigger refreshes them and remains audible.
 
 Same-cell volume-column/Cxx/fine-volume and static-pan writers follow default
-restoration. Existing volume-column pan quantization remains unchanged. Prior
+restoration. Column Cx supplies the G11 byte rule below. Prior
 vibrato/tremolo controls govern phase reset before a same-cell E4x/E7x write;
 speeds, depths, slide/portamento/offset memories persist.
 
@@ -218,7 +218,7 @@ state; a later note-only route observes it without an invented voice.
 The public `volume-column-slide-timing.xm` and direct/runtime controls pin
 these values, effective Fxx speeds and 44.1/48 kHz frames. They reuse song gain,
 envelope/fadeout clocks and the existing audible output targets. Cold channel
-initialization, G11 mapping, G31 arithmetic, G40 pan law,
+initialization, G31 arithmetic, G40 pan law,
 onset and generic ramps retain their separate boundaries.
 
 Canonical full Xcode verification passes. The maintainer reported a passing
@@ -239,14 +239,36 @@ Explicit sample defaults, column Cx and effect 8xx retain their tick-zero
 order. Note-only carries current pan; silent declared routes and completed
 sources retain it without fabricating a voice. Existing cold initialization
 remains 127.5 versus FT2's 128; explicit 8xx source-less controls pin the slide
-contract independently. Cx retains VTX's `17 * nibble` mapping (G11).
+contract independently. Cx's byte mapping is owned by the G11 contract below.
 
 The planner captures each slide's stored pan alongside the existing typed
 update. Semantic publications consume that value for G06 reach/displacement,
 including final-value tail carry. G06/G07 clocks and arithmetic, final-L/R
 composition and ramp policies remain unchanged. The public fixture, constant
 controls and canonical host prove both-rate frames/output; G08 PCM and static
-header/Cx/8xx before/after controls are identical. G11/G33/G40 stay open.
+header/Cx/8xx before/after controls were identical for the G09 change. G33/G40
+stay open; G11 corrects only the Cx input below.
+
+## G11 volume-column static-pan mapping
+
+`C0...CF` supplies `16 * nibble` to existing channel pan state at tick zero.
+All sixteen values match the pinned reference: C8 is 128, CF is 240, and CF
+does not select the 255 endpoint. Sample/header defaults precede Cx; effect
+8xx follows it and retains its exact byte. Silent/source-less Cx carries into
+later note-only routing without creating a voice. G09 slides start from this
+corrected base; D0/E0 timing and amount-memory absence remain unchanged.
+
+Public constant-loop controls pin every byte, precedence, carry, G06/G07 and
+both-rate whole/window/runtime targets. This changes one decoder input rule,
+not G06 displacement, G07 positioning/clocks, final-L/R authority or G40
+conversion/profile law. The PlaybackEngine decision trace reports the same
+Cx bytes without a schema change. Direct sample/editor preview consumes header
+pan and is unchanged. G33/Pxy, G40 and the cold 127.5 baseline remain separate.
+
+At 44.1/48 kHz, 750 observed stored-pan ticks and 642 targets under the current
+law agree per rate. Canonical CoreAudio delivery applies all 261 control events
+per rate with zero frame delta; capture/offline PCM error is below `1.91e-5`.
+Header/8xx and G08/G09 baseline controls remain byte-identical. Full Xcode passes.
 
 ## Runtime, offline, and diagnostics
 

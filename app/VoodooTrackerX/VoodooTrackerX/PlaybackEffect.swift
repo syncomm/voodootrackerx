@@ -656,7 +656,7 @@ enum PlaybackEffectHandler {
         case 0xB0...0xBF:
             return .vibrato(amount: Int(rawValue & 0x0F))
         case 0xC0...0xCF:
-            return .setPanning(value: clampedPanning(Int(rawValue & 0x0F) * 17))
+            return .setPanning(value: clampedPanning(Int(rawValue & 0x0F) * 16))
         case 0xD0...0xDF:
             return .panningSlideLeft(amount: Int(rawValue & 0x0F))
         case 0xE0...0xEF:

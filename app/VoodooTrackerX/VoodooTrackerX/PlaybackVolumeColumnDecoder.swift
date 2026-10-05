@@ -176,7 +176,8 @@ enum PlaybackSongVolumeColumnDecoder {
         case 0xB0...0xBF:
             return diagnostic(rawValue: rawValue, command: .vibrato(amount: Int(rawValue & 0x0F)), classification: .deferred)
         case 0xC0...0xCF:
-            let panning = Int(rawValue & 0x0F) * 17
+            // The column stops at 240; header/8xx bytes keep their existing conversions.
+            let panning = Int(rawValue & 0x0F) * 16
             return diagnostic(
                 rawValue: rawValue,
                 command: .setPanning(value: panning),

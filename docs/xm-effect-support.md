@@ -226,7 +226,7 @@ effect-column whole-command memory just because their names resemble it.
 | Fine volume slide down/up (`80...9F`) | Implemented | Partial | None | Not applicable | Tick-zero scheduling is closed; zero amount still restores base to output. Shared gain/output boundaries remain. |
 | Vibrato speed (`A0...AF`) | Deferred | Open | Shared vibrato speed with `4xy`/`6xy` | Not applicable | Diagnostic decoding only (G10); Linear/Amiga volume-column dispatch is missing. |
 | Vibrato depth (`B0...BF`) | Deferred | Open | Shared vibrato depth with `4xy`/`6xy` | Not applicable | Diagnostic decoding only (G10); neither missing column borrows effect-column closure. |
-| Set panning (`C0...CF`) | Implemented | Known difference | None | Not applicable | VTX `17 * nibble` versus FT2 `16 * nibble` (G11), separate from stereo pan law G40. |
+| Set panning (`C0...CF`) | Implemented | Closed | None | Not applicable | G11: tick-zero stored pan is `16 * nibble`, C8 = 128 and CF = 240. Header/Cx/8xx precedence, silent carry and G09/G06/G07 remain intact; final stereo conversion/law is separately G40. |
 | Panning slide left/right (`D0...EF`) | Implemented | Closed | None; D0/E0 are special zero cases | Not applicable | G09: ticks `1..<effective row speed`, clamped stored pan; D0 forces zero, E0 preserves it. Speed 1 has no slide. Header/Cx/8xx tick-zero order and G06/G07 remain intact; G11/G33/G40 stay separate. |
 | Tone portamento (`F0...FF`) | Implemented | Partial | Shared `3xx` speed; `F0` retains it | Linear | `64 * nibble` nonzero-tick units/no-retrigger targets are closed; Amiga column path missing (G28). |
 | Unsupported / unknown bytes | Classification-only | Outside v1 | Not applicable | Not applicable | Diagnostic visibility grants no playback support. |
@@ -364,7 +364,7 @@ support alone does not close these domains:
   (G31) and pan-clock quirks still need closure. Instrument autovibrato (G32) is
   preserved but runtime-inert and remains Phase 2 playback work; later editable
   Instrument Editor controls are a separate roadmap milestone.
-- **Volume writers and memory:** remaining volume-column vibrato/mapping (G10–G11), Hxy
+- **Volume writers and memory:** remaining volume-column vibrato (G10), Hxy
   scheduling/H00 (G12–G13), cold A00/500 (G14–G15), and directional fine-slide
   memory remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
   semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its

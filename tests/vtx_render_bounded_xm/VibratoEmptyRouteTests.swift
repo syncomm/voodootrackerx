@@ -114,7 +114,7 @@ final class VibratoEmptyRouteTests: XCTestCase {
         }
     }
 
-    func testUnavailableSourceWithoutVibratoPreservesLawfulResetAndAxBxStayDeferred() {
+    func testUnavailableSourceWithoutVibratoPreservesLawfulReset() {
         for suppressed in [false, true] {
             let plan = Adapter.adapt(module([cell(14, suppressed ? 0x44 : 0x40), cell(4, 0x35, note: 49, instrument: 1),
                 cell(note: 50, instrument: 1)], linear: true), orderIndex: 0, sampleRate: 48000)
@@ -122,7 +122,6 @@ final class VibratoEmptyRouteTests: XCTestCase {
             XCTAssertEqual(plan.xmChannelRows.last?.controls.vibratoSpeed, 3)
             XCTAssertEqual(plan.xmChannelRows.last?.controls.vibratoDepth, 5)
         }
-        for raw in UInt8(0xA0)...0xBF { XCTAssertTrue(PlaybackSongVolumeColumnDecoder.decode(raw).deferred) }
     }
 
     private func cell(_ effect: UInt8 = 0, _ param: UInt8 = 0, note: UInt8 = 0, instrument: UInt8 = 0) -> PlaybackCell {

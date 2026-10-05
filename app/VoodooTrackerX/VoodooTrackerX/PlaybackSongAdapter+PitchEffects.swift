@@ -1785,22 +1785,17 @@ extension PlaybackSongSyntheticAdapter {
         channelState: inout ChannelState
     ) -> PlaybackSongSyntheticVibratoDiagnostic {
         let combined = isVibratoVolumeSlideEffect(cell)
+        let effectVibrato = isVibratoEffect(cell) || combined
+        let columnVibrato = (0xB0...0xBF).contains(cell.volumeColumn)
+        let columnDepth = Int(cell.volumeColumn & 15)
+        // Leaving Bx alone holds output; only the existing effect-column family restores it.
+        let restoreAtRowEnd = restoreAtRowEnd && effectVibrato
         let targetSource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
-        let writesSpeed = !combined && cell.effectParam >> 4 > 0 && timingConfig.speed > 1
-        let writesDepth = !combined && cell.effectParam & 15 > 0 && timingConfig.speed > 1
+        let writesSpeed = isVibratoEffect(cell) && cell.effectParam >> 4 > 0 && timingConfig.speed > 1
+        let writesDepth = isVibratoEffect(cell) && cell.effectParam & 15 > 0 && timingConfig.speed > 1
+        let columnWritesDepth = columnVibrato && columnDepth > 0 && timingConfig.speed > 1
         let speedMemorySource = writesSpeed ? nil : channelState.vibratoSpeedMemorySource
-        let depthMemorySource = writesDepth ? nil : channelState.vibratoDepthMemorySource
-        // FT2's nibble memory starts at zero and is written only on nonzero ticks.
-        if writesSpeed {
-            channelState.vibratoSpeed = Int(cell.effectParam >> 4)
-            channelState.vibratoSpeedMemorySource = targetSource
-        }
-        if writesDepth {
-            channelState.vibratoDepth = Int(cell.effectParam & 15)
-            channelState.vibratoDepthMemorySource = targetSource
-        }
-        let speed = channelState.vibratoSpeed
-        let depth = channelState.vibratoDepth
+        let depthMemorySource = writesDepth || columnWritesDepth ? nil : channelState.vibratoDepthMemorySource
         let control = channelState.vibratoControl ?? VibratoControlState(
             controlValue: 0, waveform: .sine, retriggerSuppressed: false, source: nil
         )
@@ -1813,26 +1808,51 @@ extension PlaybackSongSyntheticAdapter {
         var status: PlaybackSongSyntheticVibratoDiagnostic.Status = .applied
         var policy = combined ? "6xy_ft2_vibrato_plus_tick_volume_slide" : "ft2_integer_vibrato_linear_period"
         if !linear && !combined { policy = "ft2_integer_vibrato_wrapped_amiga_period" }
+        if columnVibrato { policy = effectVibrato ? "bx_then_effect_column_shared_vibrato" : "bx_shared_ft2_vibrato" }
 
         if channelState.activeEventIndex == nil {
-            // Channel-local phase runs even when there is no represented mixer voice.
-            channelState.vibratoPhase = (phaseBefore + max(0, timingConfig.speed - 1) * speed * 4) & 255
             status = .noActiveVoice
             policy = "no_active_voice_no_playback_invented"
         } else if channelState.activeUsesLinearFrequencyTable == nil || basePeriod == nil ||
                     stepBefore == nil || channelState.activeSampleBaseSampleRate == nil {
             status = .unsupportedFrequencyTable
             policy = "missing_active_pitch_state"
-        } else if let basePeriod, let stepBefore, let baseSampleRate = channelState.activeSampleBaseSampleRate {
-            func step(for period: Double) -> Double? {
-                linear ? playbackStep(linearPeriod: period, baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate)
-                    : playbackStep(amigaPeriod: period, baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate)
-            }
-            var currentPeriod = outputPeriodBefore ?? basePeriod
-            var currentStep = stepBefore
-            for tick in 1..<max(1, timingConfig.speed) {
-                let modulation = vibratoTick(phase: channelState.vibratoPhase, speed: speed,
-                                             depth: depth, control: control.controlValue)
+        }
+        func step(for period: Double) -> Double? {
+            guard let rate = channelState.activeSampleBaseSampleRate else { return nil }
+            return linear ? playbackStep(linearPeriod: period, baseSampleRate: rate, outputSampleRate: timingConfig.sampleRate)
+                : playbackStep(amigaPeriod: period, baseSampleRate: rate, outputSampleRate: timingConfig.sampleRate)
+        }
+        var currentPeriod = outputPeriodBefore ?? basePeriod
+        var currentStep = stepBefore
+        let executionCount = (columnVibrato ? 1 : 0) + (effectVibrato ? 1 : 0)
+        for tick in 1..<max(1, timingConfig.speed) {
+            // Each tick runs Bx first. Effect nibbles then overwrite shared memory
+            // before a second execution, including the first tick's old Bx speed.
+            for writer in 0..<executionCount {
+                if columnVibrato && writer == 0 {
+                    if columnWritesDepth {
+                        channelState.vibratoDepth = columnDepth
+                        channelState.vibratoDepthMemorySource = targetSource
+                    }
+                } else {
+                    if writesSpeed {
+                        channelState.vibratoSpeed = Int(cell.effectParam >> 4)
+                        channelState.vibratoSpeedMemorySource = targetSource
+                    }
+                    if writesDepth {
+                        channelState.vibratoDepth = Int(cell.effectParam & 15)
+                        channelState.vibratoDepthMemorySource = targetSource
+                    }
+                }
+                guard status == .applied || status == .noActiveVoice else { continue }
+                let modulation = vibratoTick(phase: channelState.vibratoPhase, speed: channelState.vibratoSpeed,
+                    depth: channelState.vibratoDepth, control: control.controlValue)
+                if status == .noActiveVoice {
+                    channelState.vibratoPhase = modulation.phaseAfter
+                    continue
+                }
+                guard let basePeriod, let beforePeriod = currentPeriod, let beforeStep = currentStep else { continue }
                 // FT2 and VTX Linear periods have identical sign and units (C-4=4608).
                 let modulatedPeriod = linear
                     ? clampedLinearPeriod(basePeriod + Double(modulation.signedReferenceDelta))
@@ -1844,25 +1864,27 @@ extension PlaybackSongSyntheticAdapter {
                 }
                 updates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
                     syntheticTick: tick, scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
-                    linearPeriodBefore: linear ? currentPeriod : 0, linearPeriodAfter: linear ? modulatedPeriod : 0,
-                    amigaPeriodBefore: linear ? nil : currentPeriod, amigaPeriodAfter: linear ? nil : modulatedPeriod,
-                    playbackStepBefore: currentStep, playbackStepAfter: step, reachedTarget: false,
+                    linearPeriodBefore: linear ? beforePeriod : 0, linearPeriodAfter: linear ? modulatedPeriod : 0,
+                    amigaPeriodBefore: linear ? nil : beforePeriod, amigaPeriodAfter: linear ? nil : modulatedPeriod,
+                    playbackStepBefore: beforeStep, playbackStepAfter: step, reachedTarget: false,
                     vibrato: modulation
                 ))
                 channelState.vibratoPhase = modulation.phaseAfter
                 currentPeriod = modulatedPeriod
                 currentStep = step
             }
+        }
+        if status == .applied, let basePeriod, let period = currentPeriod, let previousStep = currentStep {
             // getNewNote restores only on leaving 4/6, not between consecutive rows.
             // Lookahead uses the traversed next row, so jumps and loops share this rule.
-            if restoreAtRowEnd, currentPeriod != basePeriod,
+            if restoreAtRowEnd, period != basePeriod,
                let step = step(for: basePeriod) {
                 updates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
                     syntheticTick: timingConfig.speed,
                     scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
-                    linearPeriodBefore: linear ? currentPeriod : 0, linearPeriodAfter: linear ? basePeriod : 0,
-                    amigaPeriodBefore: linear ? nil : currentPeriod, amigaPeriodAfter: linear ? nil : basePeriod,
-                    playbackStepBefore: currentStep, playbackStepAfter: step, reachedTarget: true
+                    linearPeriodBefore: linear ? period : 0, linearPeriodAfter: linear ? basePeriod : 0,
+                    amigaPeriodBefore: linear ? nil : period, amigaPeriodAfter: linear ? nil : basePeriod,
+                    playbackStepBefore: previousStep, playbackStepAfter: step, reachedTarget: true
                 ))
                 currentPeriod = basePeriod
                 currentStep = step
@@ -1877,9 +1899,9 @@ extension PlaybackSongSyntheticAdapter {
             timingConfig: timingConfig, cell: cell, status: status,
             activeVoiceFound: channelState.activeEventIndex != nil,
             activeEventIndex: channelState.activeEventIndex, activeEventMappingIndex: channelState.activeEventMappingIndex,
-            speed: speed, depth: depth,
+            speed: channelState.vibratoSpeed, depth: channelState.vibratoDepth,
             speedSource: writesSpeed ? "effect_param" : (speedMemorySource == nil ? "initial_zero_state" : "4xy_channel_state"),
-            depthSource: writesDepth ? "effect_param" : (depthMemorySource == nil ? "initial_zero_state" : "4xy_channel_state"),
+            depthSource: writesDepth ? "effect_param" : (columnWritesDepth ? "volume_column" : (depthMemorySource == nil ? "initial_zero_state" : "4xy_channel_state")),
             controlValue: control.controlValue, waveform: control.waveform,
             waveformSource: control.source == nil ? "default_sine" : "e4x_channel_state",
             effectMemoryReused: speedMemorySource != nil || depthMemorySource != nil,

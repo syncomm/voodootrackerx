@@ -4149,7 +4149,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedTonePortamentoVoices ?? 0, 0)
     }
 
-    func testPlaybackSongAdapterVibratoVolumeSlideUsesInitialZeroStateAndVolumeColumnVibratoRemainsDeferred() throws {
+    func testPlaybackSongAdapterVibratoVolumeSlideUsesInitialZeroSpeedAndSharedVolumeColumnDepth() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -4172,7 +4172,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.volumeSlideDown, 0)
         XCTAssertEqual(effect.status, .applied)
         XCTAssertEqual(volumeColumn.command, .vibrato(amount: 4))
-        XCTAssertTrue(volumeColumn.deferred)
+        XCTAssertTrue(volumeColumn.applied)
+        XCTAssertFalse(volumeColumn.deferred)
+        XCTAssertEqual(diagnostic.vibratoDepth, 4)
+        XCTAssertEqual(diagnostic.stepUpdates.count, 10)
     }
 
     func testPlaybackSongAdapterVibratoVolumeSlide6xySchedulesStepAndGainUpdates() throws {
@@ -6578,8 +6581,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
         let baseline = renderer.render(PlaybackSongOfflineRenderRequest(song: baselineSong, orderIndex: 0, config: config, frames: 3))
         let deferredCases: [(UInt8, PlaybackSongSyntheticVolumeColumnCommand)] = [
-            (0xA0, .setVibratoSpeed(amount: 0)),
-            (0xB0, .vibrato(amount: 0))
+            (0x01, .unsupported(rawValue: 0x01)),
+            (0x51, .unsupported(rawValue: 0x51))
         ]
 
         for (rawValue, command) in deferredCases {

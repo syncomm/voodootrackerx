@@ -4992,11 +4992,343 @@
       ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
-        "Volume-column Ax/Bx remain deferred; no onset or pan-law parity claim."
+        "Volume-column Ax/Bx are outside this fixture; no onset or pan-law parity claim."
       ],
       "xm_output": "generated/vibrato-empty-route-state.xm",
       "xm_sha256": "c1530080f9001a77c363e7c13a533f50080ba7aedd2e540cb3d3ad9978b42bef",
       "xm_size_bytes": 1228
+    },
+    {
+      "id": "volume-column-vibrato",
+      "intended_tests": [
+        "G10 Ax/Bx shared Linear/Amiga state and targets",
+        "whole/window/runtime exact frames at both rates"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "S01 SINE S02 EMPTY",
+            "note_sample_map": [
+              {
+                "end_note": 49,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 50,
+                "sample": 1,
+                "start_note": 50
+              },
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 51
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "VIBRATO SINE 16",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 12000,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "5d87798f2ce6a9ef7c4fa4378beed58e7a980fb80daa4e1f9bff6961033139b8",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "EMPTY S02",
+                "panning": 0,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 0
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 163
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 180
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 180
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 176
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 160
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 86,
+                "effect_type": 4,
+                "instrument": 0,
+                "note": 0,
+                "row": 6,
+                "volume_column": 179
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "instrument": 0,
+                "note": 0,
+                "row": 7,
+                "volume_column": 176
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 161
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 160
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 65,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 178
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 49,
+                "row": 11,
+                "volume_column": 176
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 0,
+                "row": 12,
+                "volume_column": 176
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 68,
+                "effect_type": 14,
+                "instrument": 1,
+                "note": 0,
+                "row": 13,
+                "volume_column": 180
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 50,
+                "row": 14,
+                "volume_column": 163
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 15,
+                "volume_column": 180
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 16,
+                "volume_column": 176
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 4,
+                "instrument": 0,
+                "note": 0,
+                "row": 17,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "instrument": 0,
+                "note": 0,
+                "row": 18,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 66,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 20,
+                "volume_column": 164
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 21,
+                "volume_column": 179
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 70,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 22,
+                "volume_column": 176
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 23,
+                "volume_column": 176
+              }
+            ],
+            "rows": 25
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX COLUMN VIBRATO",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "volume-column-vibrato.xm",
+      "purpose": "Shared Ax/Bx and 4xy/6xy vibrato timing, memory, ordered execution, reset and exact empty routes.",
+      "significant_rows": [
+        "0...4: Ax writes at tick zero; Bx uses F01/F03/F06; A0 holds speed and phase.",
+        "5...8: 400 consumes column memory; mixed B3+456 and B0+600 execute twice; Ax+400 uses shared speed.",
+        "9...13: Ax output hold; ramp, note-only carry, instrument-only reset and E44 suppression.",
+        "14...18: exact empty S02 with Ax, silent Bx, playable B0, later 400 and 600.",
+        "20...23: square, Bx and E46 phase-reset suppression."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "No onset, pan-law, autovibrato or other Amiga-family parity claim."
+      ],
+      "xm_output": "generated/volume-column-vibrato.xm",
+      "xm_sha256": "8410c2440c73c673461aba413857fd5b0408dac28b965fcf632a14c2379dc3c7",
+      "xm_size_bytes": 1277
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

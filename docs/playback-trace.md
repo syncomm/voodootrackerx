@@ -179,7 +179,13 @@ schema is unchanged.
 Empty-route `4xy`/`6xy` diagnostics retain speed/depth/control and phase
 advancement with `no_active_voice` status and no scheduled pitch updates.
 Later playable `400`/`600` use that carried state through the same runtime
-sample-step events; Ax/Bx remain deferred and no trace schema is added.
+sample-step events. Volume-column Ax/Bx share this state and the existing
+volume-column/vibrato diagnostics. Ax records tick-zero speed memory; Bx records
+nonzero-tick depth, waveform and phase through the existing step updates.
+`bx_shared_ft2_vibrato` identifies pure Bx and
+`bx_then_effect_column_shared_vibrato` identifies ordered Bx plus 4xy/6xy.
+Mixed ticks retain two distinct event IDs at the same planned frame, in execution
+order. The runtime trace schema is unchanged.
 
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing
@@ -708,8 +714,8 @@ runtime update row so coverage summaries can count applied updates. Volume-colum
 tone-portamento update rows carry `volumeColumn` metadata instead. Memory-replayed
 sample-offset, portamento-slide, and vibrato updates carry
 `effect_memory_reused` categories plus effect-specific memory-applied tags in
-the planned adapter event stream. Volume-column vibrato and broader
-effect-memory families remain unsupported/deferred.
+the planned adapter event stream. Volume-column vibrato uses the same pitch
+updates and volume-column metadata; broader effect-memory families remain deferred.
 Repeated same-channel note triggers in the runtime adapter event plan are also
 tagged with the `replacement` category, matching the C mixer runtime
 same-channel replacement path and the bounded/offline replacement-ramp

@@ -176,6 +176,10 @@ playback adds that signed delta to the unmodulated base period. Consecutive
 the base. Linear and Amiga use the shared vibrato contract. Existing runtime
 trace fields carry planned/applied frame and sample-step updates; the trace
 schema is unchanged.
+Empty-route `4xy`/`6xy` diagnostics retain speed/depth/control and phase
+advancement with `no_active_voice` status and no scheduled pitch updates.
+Later playable `400`/`600` use that carried state through the same runtime
+sample-step events; Ax/Bx remain deferred and no trace schema is added.
 
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing

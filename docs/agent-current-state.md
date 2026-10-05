@@ -77,6 +77,10 @@ host.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.
+- Parent `4xy`/`6xy` execute channel-local memory and phase updates across exact
+  empty sample routes without a voice. Later playable `400`/`600` consume that
+  state; prior-E4 instrument resets and note-only carry remain intact. Public
+  Linear/Amiga and both-rate regressions pin this prerequisite; G10 Ax/Bx stays deferred.
 - Song gain consumes channel/output volume once with global volume. Sample
   headers initialize/restore cached defaults without another song multiplier.
   Exact mapped represented PCM remains a valid source at header volume 0;

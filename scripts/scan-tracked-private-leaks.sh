@@ -45,6 +45,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/note-only-routing.xm | \
     tests/reference-xm/generated/volume-column-slide-timing.xm | \
     tests/reference-xm/generated/volume-column-pan-slide-timing.xm | \
+    tests/reference-xm/generated/vibrato-empty-route-state.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

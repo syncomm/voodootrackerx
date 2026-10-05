@@ -4535,6 +4535,64 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testVibratoEmptyRoutesKeepLaterPitchAndExactRuntimeFramesAcrossBothModesAndRates() throws {
+        let fixture = try referenceXMFixtureURL("generated/vibrato-empty-route-state.xm")
+        let parsed = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        for linear in [true, false] {
+            let song = PlaybackSong(title: parsed.title, orders: parsed.orders, patternsByIndex: parsed.patternsByIndex,
+                instrumentsByIndex: parsed.instrumentsByIndex, restartOrderIndex: parsed.restartOrderIndex,
+                endBehavior: parsed.endBehavior, initialTiming: parsed.initialTiming, usesLinearFrequencyTable: linear,
+                xmSampleSlotProvenanceByInstrument: parsed.xmSampleSlotProvenanceByInstrument)
+            for rate in [44_100.0, 48_000] {
+                let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+                let offline = PlaybackSongOfflineRenderer().render(.init(song: song, config: config, frames: end))
+                XCTAssertEqual(runtime.plan, offline.plan)
+                XCTAssertEqual(offline.plan.pattern.events.map(\.row), [1, 3, 6])
+                XCTAssertEqual(offline.plan.xmChannelRows.map { $0.controls.vibratoPhase }, [0, 60, 120, 180, 44, 164, 28, 28])
+                for row in [2, 4, 5] {
+                    XCTAssertNil(offline.plan.xmChannelRows[row].controls.activeEventIndex)
+                }
+                let planned = runtime.events.filter { $0.categories.contains("vibrato_update") }
+                XCTAssertEqual(planned.count, 16)
+                XCTAssertEqual(runtime.events.filter { $0.categories.contains("note_trigger") }.map(\.source.rowIndex), [1, 3, 6])
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: rate)
+                harness.engine.load(song: song)
+                harness.engine.play(from: nil)
+                defer { harness.engine.stop() }
+                var rendered = 0
+                while rendered < end {
+                    let count = min(4093, end - rendered)
+                    let pcm = renderRuntimePCM(core, frames: count)
+                    XCTAssertEqual(pcm, Array(offline.block.interleavedPCM[rendered..<(rendered + count)]))
+                    XCTAssertEqual(pcm, harness.audioEngine.renderForTesting(frameCount: count))
+                    rendered += count
+                }
+                let consumed = harness.traceWriter.events.filter { $0.adapterEventCategory == "step_update" }
+                XCTAssertEqual(consumed.count, planned.count)
+                for event in planned {
+                    let actual = try XCTUnwrap(consumed.first { $0.plannedEventID == event.id })
+                    guard case let .stepUpdate(_, step) = event.action else { return XCTFail("Missing vibrato pitch target") }
+                    XCTAssertEqual(actual.eventAppliedFrame, UInt64(event.scheduledFrame))
+                    XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
+                    XCTAssertEqual(try XCTUnwrap(actual.sampleStepAfter), step, accuracy: 1e-12)
+                    if event.source.rowIndex == 3 {
+                        let periods = linear ? [4615.0, 4605, 4593, 4583, 4575] : [1719.0, 1709, 1697, 1687, 1679]
+                        let period = periods[event.syntheticTick - 1]
+                        let expected = linear ? 8363 * pow(2, (4608 - period) / 768) / rate : 8363 * 1712 / period / rate
+                        XCTAssertEqual(step, expected, accuracy: 1e-12)
+                        XCTAssertEqual(event.scheduledFrame, Int(rate / 50) * (18 + event.syntheticTick))
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
     func testVibratoFixturePlansAndAppliesIdenticalPitchAtEveryRuntimeFrame() throws {
         let fixture = try referenceXMFixtureURL("generated/vibrato-semantics.xm")
         let metadata = try ModuleMetadataLoader().load(fromPath: fixture.path)

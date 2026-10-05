@@ -318,6 +318,19 @@ The note-only cells at rows 15 and 19 restart the exact mapped source and
 restore the note base at tick 0 while preserving vibrato phase. Subsequent
 vibrato ticks retain the same shared modulation contract.
 
+`generated/vibrato-empty-route-state.xm` (1,228 bytes) isolates parent vibrato
+execution across canonical empty routing. S01 is a project-generated looped
+sine; C#4 maps exactly to zero-payload S02, and C-4 maps to S01. Rows 0...7
+select E44, seed `435`, select empty S02 with `400`, return to S01 with `400`,
+select empty S02 note-only with `464`, issue instrument-only `400`, return to
+S01 with `600`, then leave the effect family. Only rows 1/3/6 create sources.
+The later row-3 `400` begins at phase 120 with speed 3/depth 5. Its Linear
+tick periods are 4615/4605/4593/4583/4575; Amiga reference periods are
+1719/1709/1697/1687/1679 before VTX's 4x mapping. Tests execute both modes at
+44.1/48 kHz and split windows before/after empty rows. The stored fixture uses
+Linear; reference Amiga verification changes Frequency Slides after loading.
+This prerequisite does not implement volume-column Ax/Bx or claim onset/pan-law parity.
+
 `generated/envelope-release-fadeout-timing.xm` (2,869 bytes) isolates shared XM
 semantic targets. Four Linear channels and 16 rows start at speed 6/BPM 125.
 Three instruments use the original project-generated 256-frame, 16-bit sine

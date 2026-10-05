@@ -29,6 +29,7 @@ ALL_FIXTURES = [
     "note-only-routing.xm",
     "volume-column-slide-timing.xm",
     "volume-column-pan-slide-timing.xm",
+    "vibrato-empty-route-state.xm",
 ]
 
 
@@ -536,6 +537,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "note-only-routing.xm").resolve(),
                     (output_dir / "generated" / "volume-column-slide-timing.xm").resolve(),
                     (output_dir / "generated" / "volume-column-pan-slide-timing.xm").resolve(),
+                    (output_dir / "generated" / "vibrato-empty-route-state.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -556,6 +558,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/tremolo-effects.xm",
+                    "generated/vibrato-empty-route-state.xm",
                     "generated/vibrato-semantics.xm",
                     "generated/volume-column-pan-slide-timing.xm",
                     "generated/volume-column-slide-timing.xm",
@@ -632,6 +635,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/tremolo-effects.xm",
+                    "generated/vibrato-empty-route-state.xm",
                     "generated/vibrato-semantics.xm",
                     "generated/volume-column-pan-slide-timing.xm",
                     "generated/volume-column-slide-timing.xm",
@@ -702,6 +706,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:note-only-routing.xm": "generated/note-only-routing.xm",
                     "xm:volume-column-slide-timing.xm": "generated/volume-column-slide-timing.xm",
                     "xm:volume-column-pan-slide-timing.xm": "generated/volume-column-pan-slide-timing.xm",
+                    "xm:vibrato-empty-route-state.xm": "generated/vibrato-empty-route-state.xm",
                 },
             )
 

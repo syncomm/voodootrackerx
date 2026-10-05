@@ -239,6 +239,13 @@ Runtime events and offline render splits import the
 same snapshot through a small C state boundary. Generic synthetic frame
 envelopes and their reset queue retain their separate established behavior.
 
+Channel-local vibrato memory/control and phase also remain independent of
+source existence. Empty-route `4xy`/`6xy` execute the existing nonzero-tick
+handler without pitch targets or a fabricated voice. Explicit instrument
+selection still uses the prior E4 reset policy; note-only carries phase.
+`vibrato-empty-route-state.xm` pins the later playable consumer in Linear/Amiga
+at both sample rates without changing the reset/output ramp contract.
+
 The unchanged pinned reference below was observed across 24 independently
 generated cases at 48000/125, 48000/250 and 44100/125, including later `FFA`
 and `F03`. Measurements establish these rules:

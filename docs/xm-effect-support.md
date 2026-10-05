@@ -295,6 +295,15 @@ family restores the base. The public `vibrato-semantics.xm` fixture and
 Note-only triggers restore the mapped note's pitch at tick zero without
 resetting modulation phase. Linear range-edge behavior remains a parity boundary.
 
+Exact empty/unavailable sample routes still dispatch `4xy`/`400` and the
+vibrato half of `6xy`/`600`: nonzero nibbles write channel memory and nonzero
+ticks advance phase without creating a source or pitch event. Established
+speed/depth/control survive routing; explicit instrument selections retain the
+normal prior-E4 phase-reset policy, while note-only carries phase. The
+`vibrato-empty-route-state.xm` regression pins later playable `400`/`600`
+targets in both frequency modes at 44.1/48 kHz. This fixes skipped empty-route
+effect execution; volume-column Ax/Bx remain deferred pending a separate G10 retry.
+
 Amiga `4xy` and the vibrato half of `6xy` apply the same signed delta using
 `resultFT2 = (baseFT2 + signedDelta) mod 65536`, then
 `resultVTX = 4 * resultFT2`. C-4 at finetune 0 is FT2 1712 / VTX 6848.

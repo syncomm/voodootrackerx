@@ -1509,6 +1509,15 @@ enum PlaybackSongSyntheticAdapter {
             let sampleSelection = explicitTriggerSelection ?? selectSample(forNote: cell.note, from: instrument,
                 missingKeymapPolicy: isNoteOnly ? .fail : .firstPlayableSample)
             guard let sample = sampleSelection.sample else {
+                if hasVibrato || hasVibratoVolumeSlide {
+                    // Empty routing retires the source, not channel-local effect execution.
+                    // The existing instrument gate has already applied the prior E4 reset policy.
+                    context.vibratoEffects.append(handleVibrato(
+                        from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                        timingConfig: timingConfig, timingPlan: timingPlan,
+                        restoreAtRowEnd: restoreVibratoAtRowEnd, channelState: &channelState
+                    ))
+                }
                 if isNoteOnly, let slot = sampleSelection.mappedSampleIndex {
                     if let delay = noteDelay, delay.applied, delay.requestedTick > 0 {
                         context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,

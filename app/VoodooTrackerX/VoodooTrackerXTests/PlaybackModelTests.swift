@@ -128,6 +128,7 @@ final class PlaybackModelTests: XCTestCase {
         let setVolume = PlaybackSongVolumeColumnDecoder.decode(0x3D)
         let setPanning = PlaybackSongVolumeColumnDecoder.decode(0xCC)
         let slide = PlaybackSongVolumeColumnDecoder.decode(0x6F)
+        let vibratoSpeed = PlaybackSongVolumeColumnDecoder.decode(0xA4)
         let vibrato = PlaybackSongVolumeColumnDecoder.decode(0xB0)
         let unsupported = PlaybackSongVolumeColumnDecoder.decode(0x51)
 
@@ -148,7 +149,11 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertEqual(slide.slideDirection, .volumeDown)
         XCTAssertEqual(slide.behavior, .tickLevelAfterTick0)
         XCTAssertEqual(vibrato.command, .vibrato(amount: 0))
-        XCTAssertTrue(vibrato.deferred)
+        XCTAssertEqual(vibratoSpeed.command, .setVibratoSpeed(amount: 4))
+        XCTAssertTrue(vibratoSpeed.applied)
+        XCTAssertEqual(vibrato.classification, .supported)
+        XCTAssertTrue(vibrato.applied)
+        XCTAssertEqual(vibrato.behavior, .tickLevelAfterTick0)
         XCTAssertEqual(unsupported.command, .unsupported(rawValue: 0x51))
         XCTAssertTrue(unsupported.deferred)
     }

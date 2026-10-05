@@ -791,7 +791,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasArpeggio = isArpeggioEffect(cell)
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
             let hasTonePortamento = isTonePortamentoEffect(cell)
-            let hasVibrato = isVibratoEffect(cell)
+            let hasVibrato = isVibratoEffect(cell) || (0xB0...0xBF).contains(cell.volumeColumn)
             let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
             let hasKxxKeyOff = isKxxKeyOffEffect(cell)
             let hasLxxSetEnvelopePosition = isLxxSetEnvelopePositionEffect(cell)
@@ -884,7 +884,8 @@ enum PlaybackSongSyntheticAdapter {
             let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && handlesTonePortamento
             let channelStateBeforeVolumeColumn = channelState
             if !delaysInstrumentVolumeState {
-                volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState)
+                volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState,
+                    memorySource: effectMemorySource(source: source, channelIndex: channelIndex, cell: cell))
             }
             let hasDeferredEffectCell = hasDeferredEffect(cell, channelState: channelState)
             if !delaysInstrumentVolumeState, let update = voiceStateUpdate(
@@ -1043,21 +1044,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.extraFinePortamentoEffects.append(diagnostic)
                 context.channelStates[channelIndex] = channelState
             }
-            if hasVibrato, !(1...96).contains(cell.note), cell.note != 97 {
-                let diagnostic = handleVibrato(
-                    from: cell,
-                    source: source,
-                    channelIndex: channelIndex,
-                    syntheticRow: syntheticRow,
-                    timingConfig: timingConfig,
-                    timingPlan: timingPlan,
-                    restoreAtRowEnd: restoreVibratoAtRowEnd,
-                    channelState: &channelState
-                )
-                context.vibratoEffects.append(diagnostic)
-                context.channelStates[channelIndex] = channelState
-            }
-            if hasVibratoVolumeSlide, !(1...96).contains(cell.note), cell.note != 97 {
+            if hasVibrato || hasVibratoVolumeSlide, !(1...96).contains(cell.note), cell.note != 97 {
                 let diagnostic = handleVibrato(
                     from: cell,
                     source: source,
@@ -1702,7 +1689,8 @@ enum PlaybackSongSyntheticAdapter {
                     ))
                 }
                 let beforeVolumeColumn = channelState
-                volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState)
+                volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState,
+                    memorySource: effectMemorySource(source: source, channelIndex: channelIndex, cell: cell))
                 if handlesTonePortamento {
                     tonePortamentoInstrumentStateAfter = channelState
                 }
@@ -2134,21 +2122,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.portamentoSlideEffects.append(diagnostic)
                 context.channelStates[channelIndex] = channelState
             }
-            if hasVibrato {
-                let diagnostic = handleVibrato(
-                    from: cell,
-                    source: source,
-                    channelIndex: channelIndex,
-                    syntheticRow: syntheticRow,
-                    timingConfig: timingConfig,
-                    timingPlan: timingPlan,
-                    restoreAtRowEnd: restoreVibratoAtRowEnd,
-                    channelState: &channelState
-                )
-                context.vibratoEffects.append(diagnostic)
-                context.channelStates[channelIndex] = channelState
-            }
-            if hasVibratoVolumeSlide {
+            if hasVibrato || hasVibratoVolumeSlide {
                 let diagnostic = handleVibrato(
                     from: cell,
                     source: source,

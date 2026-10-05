@@ -34,7 +34,8 @@ extension PlaybackSongSyntheticAdapter {
 
     static func applyVolumeColumn(
         _ volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
-        to state: inout ChannelState
+        to state: inout ChannelState,
+        memorySource: PlaybackSongSyntheticEffectMemorySource? = nil
     ) -> PlaybackSongSyntheticVolumeColumnDiagnostic {
         switch volumeColumn.command {
         case let .setVolume(value):
@@ -92,8 +93,13 @@ extension PlaybackSongSyntheticAdapter {
                 effectivePanAfter: state.pan,
                 behavior: .tickLevelAfterTick0
             )
+        case let .setVibratoSpeed(amount):
+            if amount > 0 {
+                state.vibratoSpeed = amount
+                state.vibratoSpeedMemorySource = memorySource
+            }
+            return volumeColumn
         case .none,
-             .setVibratoSpeed,
              .vibrato,
              .tonePortamento,
              .unsupported:

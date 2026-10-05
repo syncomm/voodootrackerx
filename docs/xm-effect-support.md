@@ -126,7 +126,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `1xx` | Portamento up | Implemented | Partial | Own; `100` supported | Linear | Correct nonzero-tick `4 * xx` units; Amiga upward path missing (G27). |
 | `2xx` | Portamento down | Implemented | Partial | Own; `200` supported | Both | Linear `4 * xx`, Amiga `16 * xx` in VTX's 4x representation. Units are closed; shared conversion/extreme boundaries remain G30. |
 | `3xx` | Tone portamento | Implemented | Partial | Shared with volume-column `Fx`; `300` target/speed supported | Both | No retrigger, target-clamped nonzero ticks and Amiga quantized targets are established. Missing-target/speed states and glissando remain distinct; Amiga `5xy`/`Fx` are not promoted. |
-| `4xy` | Vibrato | Implemented | Partial | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay and Amiga wrap/zero-step hold are closed. Full audible interactions remain G39; volume-column dispatch is missing (G10). |
+| `4xy` | Vibrato | Implemented | Partial | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay, Amiga wrap/zero-step hold and G10 shared volume-column dispatch are closed. Full audible interactions remain G39. |
 | `5xy` | Tone portamento + volume slide | Implemented | Partial | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Linear | Seeded `500` replay and nonzero-tick slides exist. Cold `500` output/target interactions need characterization (G15); Amiga combined path missing (G28). |
 | `6xy` | Vibrato + volume slide | Implemented | Partial | Shared `4xy` vibrato and `Axy`/`5xy`/`6xy` slide byte; `600` supported | Both | Vibrato then slide on ticks `1..<speed`; no tick-zero/speed-1 slide. Unseeded `600` restores base to output with zero amount. That timing/memory contract is closed; G39 remains. |
 | `7xy` | Tremolo | Implemented | Partial | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. Onset, ramps and trigger/cut interactions remain G39; G01 removes duplicate header scaling. |
@@ -224,8 +224,8 @@ effect-column whole-command memory just because their names resemble it.
 | Set volume (`10...50`) | Implemented | Closed | None | Not applicable | Bounded channel-volume write exists; cross-cutting gain/output obligations remain. |
 | Volume slide down/up (`60...7F`) | Implemented | Closed | None | Not applicable | G08: clamp base/output on ticks `1..<effective row speed`; tick zero and speed 1 preserve volume. Zero amounts restore output from base without parameter replay. Same-tick effect-column writers follow the column write; existing gain/output boundaries remain separate. |
 | Fine volume slide down/up (`80...9F`) | Implemented | Partial | None | Not applicable | Tick-zero scheduling is closed; zero amount still restores base to output. Shared gain/output boundaries remain. |
-| Vibrato speed (`A0...AF`) | Deferred | Open | Shared vibrato speed with `4xy`/`6xy` | Not applicable | Diagnostic decoding only (G10); Linear/Amiga volume-column dispatch is missing. |
-| Vibrato depth (`B0...BF`) | Deferred | Open | Shared vibrato depth with `4xy`/`6xy` | Not applicable | Diagnostic decoding only (G10); neither missing column borrows effect-column closure. |
+| Vibrato speed (`A0...AF`) | Implemented | Closed | Shared vibrato speed with `4xy`/`6xy` | Both | G10: nonzero Ax writes at tick zero, including speed 1; A0 preserves speed. Ax alone neither executes vibrato nor advances phase. |
+| Vibrato depth (`B0...BF`) | Implemented | Closed | Shared vibrato depth with `4xy`/`6xy` | Both | G10: Bx writes nonzero depth and executes on each nonzero tick; B0 preserves depth and executes. Speed 1 has no Bx write or execution. Bx precedes same-tick 4xy/6xy writer/execution. |
 | Set panning (`C0...CF`) | Implemented | Closed | None | Not applicable | G11: tick-zero stored pan is `16 * nibble`, C8 = 128 and CF = 240. Header/Cx/8xx precedence, silent carry and G09/G06/G07 remain intact; final stereo conversion/law is separately G40. |
 | Panning slide left/right (`D0...EF`) | Implemented | Closed | None; D0/E0 are special zero cases | Not applicable | G09: ticks `1..<effective row speed`, clamped stored pan; D0 forces zero, E0 preserves it. Speed 1 has no slide. Header/Cx/8xx tick-zero order and G06/G07 remain intact; G11/G33/G40 stay separate. |
 | Tone portamento (`F0...FF`) | Implemented | Partial | Shared `3xx` speed; `F0` retains it | Linear | `64 * nibble` nonzero-tick units/no-retrigger targets are closed; Amiga column path missing (G28). |
@@ -302,7 +302,18 @@ speed/depth/control survive routing; explicit instrument selections retain the
 normal prior-E4 phase-reset policy, while note-only carries phase. The
 `vibrato-empty-route-state.xm` regression pins later playable `400`/`600`
 targets in both frequency modes at 44.1/48 kHz. This fixes skipped empty-route
-effect execution; volume-column Ax/Bx remain deferred pending a separate G10 retry.
+effect execution; Ax/Bx use this same semantic state and source boundary.
+
+G10 volume-column Ax/Bx reuse the existing vibrato handler, waveform, phase,
+and frequency-mode conversion. Nonzero Ax writes shared speed at tick zero;
+A0 preserves it, and Ax alone holds phase. Bx writes nonzero depth immediately
+before each nonzero-tick execution; B0 preserves depth and still executes.
+Mixed Bx plus 4xy/6xy retains two ordered executions and two existing pitch
+updates at the same frame. A later 400/600 consumes the shared state. Leaving
+pure Bx holds its output; the established restoration on leaving effect-column
+4xy/6xy remains unchanged. The public `volume-column-vibrato.xm` fixture and
+[VolumeColumnVibratoTests](../tests/vtx_render_bounded_xm/VolumeColumnVibratoTests.swift)
+pin both modes, rates, silent routes, reset policy and whole/window/runtime carry.
 
 Amiga `4xy` and the vibrato half of `6xy` apply the same signed delta using
 `resultFT2 = (baseFT2 + signedDelta) mod 65536`, then
@@ -373,8 +384,8 @@ support alone does not close these domains:
   (G31) and pan-clock quirks still need closure. Instrument autovibrato (G32) is
   preserved but runtime-inert and remains Phase 2 playback work; later editable
   Instrument Editor controls are a separate roadmap milestone.
-- **Volume writers and memory:** remaining volume-column vibrato (G10), Hxy
-  scheduling/H00 (G12–G13), cold A00/500 (G14–G15), and directional fine-slide
+- **Volume writers and memory:** Hxy scheduling/H00 (G12–G13), cold A00/500
+  (G14–G15), and directional fine-slide
   memory remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
   semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its
   common-XM table. ED delayed note/instrument/default interactions and

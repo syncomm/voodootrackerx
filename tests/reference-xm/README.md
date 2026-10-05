@@ -329,7 +329,23 @@ tick periods are 4615/4605/4593/4583/4575; Amiga reference periods are
 1719/1709/1697/1687/1679 before VTX's 4x mapping. Tests execute both modes at
 44.1/48 kHz and split windows before/after empty rows. The stored fixture uses
 Linear; reference Amiga verification changes Frequency Slides after loading.
-This prerequisite does not implement volume-column Ax/Bx or claim onset/pan-law parity.
+The separate Ax/Bx fixture below covers volume-column dispatch; onset and pan-law
+parity remain separate.
+
+`generated/volume-column-vibrato.xm` (1,277 bytes) extends the same project sine
+and exact empty S02 route across 25 rows. It covers Ax/A0, Bx/B0, speeds 1/3/6
+via same-row Fxx, shared 400/600 memory, ordered Bx+4xy/Bx+6xy executions,
+note-only/instrument-only resets, E4 sine/ramp/square controls and later audible
+consumption after empty routing. The first nine row-end phases are
+0/0/24/84/84/144/80/24/44. Only rows 0/11/16/23 create sources;
+empty-route rows 14/15 retain memory, and row 15 executes Bx without PCM or
+pitch events.
+Focused tests use both frequency modes at 44.1/48 kHz and split windows across
+shared writers and empty routes. The stored fixture is Linear; reference Amiga
+verification selects the existing frequency mode after loading. Whole/window
+and runtime checks retain both same-frame mixed-writer updates. Broader pitch,
+onset, autovibrato and pan-law contracts remain independent; reference WAVs and
+diagnostic captures stay outside git.
 
 `generated/envelope-release-fadeout-timing.xm` (2,869 bytes) isolates shared XM
 semantic targets. Four Linear channels and 16 rows start at speed 6/BPM 125.

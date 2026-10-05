@@ -80,7 +80,12 @@ host.
 - Parent `4xy`/`6xy` execute channel-local memory and phase updates across exact
   empty sample routes without a voice. Later playable `400`/`600` consume that
   state; prior-E4 instrument resets and note-only carry remain intact. Public
-  Linear/Amiga and both-rate regressions pin this prerequisite; G10 Ax/Bx stays deferred.
+  Linear/Amiga and both-rate regressions pin this prerequisite.
+- Volume-column Ax/Bx reuse the same 4xy/6xy vibrato memory and pitch engine.
+  Ax writes speed at tick zero; Bx writes depth and executes on nonzero ticks,
+  before any same-tick 4xy/6xy execution. G10's bounded Linear/Amiga contract
+  is closed, including silent routes and runtime/window carry. Broader pitch
+  interactions, onset, instrument autovibrato and final pan law remain separate.
 - Song gain consumes channel/output volume once with global volume. Sample
   headers initialize/restore cached defaults without another song multiplier.
   Exact mapped represented PCM remains a valid source at header volume 0;

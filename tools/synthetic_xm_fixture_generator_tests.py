@@ -30,6 +30,7 @@ ALL_FIXTURES = [
     "volume-column-slide-timing.xm",
     "volume-column-pan-slide-timing.xm",
     "vibrato-empty-route-state.xm",
+    "volume-column-vibrato.xm",
 ]
 
 
@@ -538,6 +539,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "volume-column-slide-timing.xm").resolve(),
                     (output_dir / "generated" / "volume-column-pan-slide-timing.xm").resolve(),
                     (output_dir / "generated" / "vibrato-empty-route-state.xm").resolve(),
+                    (output_dir / "generated" / "volume-column-vibrato.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -562,6 +564,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/vibrato-semantics.xm",
                     "generated/volume-column-pan-slide-timing.xm",
                     "generated/volume-column-slide-timing.xm",
+                    "generated/volume-column-vibrato.xm",
                 ],
             )
             self.assertEqual(
@@ -639,6 +642,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/vibrato-semantics.xm",
                     "generated/volume-column-pan-slide-timing.xm",
                     "generated/volume-column-slide-timing.xm",
+                    "generated/volume-column-vibrato.xm",
                     "source/basic-instrument-sample.manifest.json",
                 ],
             )
@@ -707,6 +711,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:volume-column-slide-timing.xm": "generated/volume-column-slide-timing.xm",
                     "xm:volume-column-pan-slide-timing.xm": "generated/volume-column-pan-slide-timing.xm",
                     "xm:vibrato-empty-route-state.xm": "generated/vibrato-empty-route-state.xm",
+                    "xm:volume-column-vibrato.xm": "generated/volume-column-vibrato.xm",
                 },
             )
 

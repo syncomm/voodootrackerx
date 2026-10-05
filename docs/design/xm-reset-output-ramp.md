@@ -246,6 +246,12 @@ selection still uses the prior E4 reset policy; note-only carries phase.
 `vibrato-empty-route-state.xm` pins the later playable consumer in Linear/Amiga
 at both sample rates without changing the reset/output ramp contract.
 
+G10 volume-column Ax/Bx use this same channel-owned vibrato clock and prior-E4
+instrument-reset policy. Ax only writes speed; Bx executes before a same-tick
+4xy/6xy execution, including without a source. Leaving pure Bx holds output.
+No source/reset authority, C-mixer state or onset/output ramp policy changes;
+the public `volume-column-vibrato.xm` fixture pins this bounded shared-state path.
+
 The unchanged pinned reference below was observed across 24 independently
 generated cases at 48000/125, 48000/250 and 44100/125, including later `FFA`
 and `F03`. Measurements establish these rules:

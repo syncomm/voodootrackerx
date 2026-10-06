@@ -96,6 +96,7 @@ enum PlaybackSongSyntheticAdapter {
         var portamentoUpMemory: PortamentoSlideMemory?
         var portamentoDownMemory: PortamentoSlideMemory?
         var volumeSlideMemory: VolumeSlideMemory? // Shared Axy/5xy/6xy full parameter and origin.
+        var globalVolumeSlideMemory: GlobalVolumeSlideMemory? // Hxy only; global volume itself is song-owned.
         var vibratoSpeed = 0
         var vibratoDepth = 0
         var vibratoSpeedMemorySource: PlaybackSongSyntheticEffectMemorySource?
@@ -139,6 +140,11 @@ enum PlaybackSongSyntheticAdapter {
         var slide: VolumeSlideAmounts {
             PlaybackSongSyntheticAdapter.axyVolumeSlideAmounts(effectParam: parameter)
         }
+    }
+
+    struct GlobalVolumeSlideMemory: Equatable {
+        let parameter: UInt8
+        let source: PlaybackSongSyntheticEffectMemorySource
     }
 
     struct VibratoControlState: Equatable {
@@ -758,6 +764,12 @@ enum PlaybackSongSyntheticAdapter {
                 context.effectCommandDiagnostics.append(effectCommandDiagnostic)
             }
             var channelState = context.channelStates[channelIndex]
+            // A row establishes H memory only when its nonzero-tick handler runs.
+            // Planning knows the effective speed, so F01 neither seeds nor replaces it.
+            if cell.effectType == 0x11, cell.effectParam != 0, timingConfig.speed > 1 {
+                channelState.globalVolumeSlideMemory = .init(parameter: cell.effectParam,
+                    source: effectMemorySource(source: source, channelIndex: channelIndex, cell: cell))
+            }
             let isNoteOnly = cell.instrument == 0
             let routedInstrumentIndex = isNoteOnly ? channelState.carriedInstrumentIndex ?? 0 : Int(cell.instrument)
             var instrumentOnlyReset: MixerPlaybackStateChange?
@@ -936,7 +948,7 @@ enum PlaybackSongSyntheticAdapter {
                     globalVolumeState: &context.globalVolumeState
                 ))
             }
-            if cell.effectType == 0x11 && cell.effectParam == 0 {
+            if cell.effectType == 0x11 && cell.effectParam == 0 && channelState.globalVolumeSlideMemory == nil {
                 context.voiceStateUpdates.append(contentsOf: applyGlobalVolumeSlide(
                     from: cell,
                     source: source,
@@ -2245,7 +2257,9 @@ enum PlaybackSongSyntheticAdapter {
         }
         if timingConfig.speed > 1 {
             for tick in 1..<timingConfig.speed {
-                for channelIndex in row.cells.indices where row.cells[channelIndex].effectType == 0x11 && row.cells[channelIndex].effectParam != 0 {
+                for channelIndex in row.cells.indices where row.cells[channelIndex].effectType == 0x11 {
+                    // Cold H00 has no publication. Seeded replay enters G12 unchanged.
+                    guard row.cells[channelIndex].effectParam != 0 || context.channelStates[channelIndex].globalVolumeSlideMemory != nil else { continue }
                     context.voiceStateUpdates.append(contentsOf: applyGlobalVolumeSlide(
                         from: row.cells[channelIndex], source: source, sourceChannelIndex: channelIndex,
                         syntheticRow: syntheticRow, syntheticTick: tick,

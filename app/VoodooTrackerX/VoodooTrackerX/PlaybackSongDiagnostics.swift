@@ -755,6 +755,7 @@ struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
     let globalVolumeSlideClamped: Bool?
     let globalVolumeSlideBothNibblesNonzero: Bool?
     let globalVolumeSlidePolicy: String?
+    let globalVolumeSlideResolvedParameter: UInt8?
     let volumeSlideRawUpNibble: Int?
     let volumeSlideRawDownNibble: Int?
     let volumeSlideBothNibblesNonzero: Bool?

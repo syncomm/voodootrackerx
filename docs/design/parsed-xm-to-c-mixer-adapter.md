@@ -25,7 +25,10 @@ G12 supersedes this note's historical row-level Hxy descriptions. Nonzero Hxy
 now executes on ticks `1..<effectiveSpeed`, mutating one canonical global value
 in channel order and publishing each turn's explicit gain target. Plain targets
 can remain held after the row; volume envelopes/release refresh each tick.
-Runtime, whole offline and windows share this plan. H00 remains the G13 no-op.
+Runtime, whole offline and windows share this plan. G13 also supersedes the
+historical H00 no-op descriptions below: seeded H00 resolves independent
+channel-local whole-byte memory through G12. Cold H00 remains a true no-op;
+FT2's zero-memory target-refresh artifact is intentionally not emulated.
 See [volume ownership](xm-volume-ownership.md#hxy-channel-turn-gain-publication-g12)
 and [effect support](../xm-effect-support.md) for the current bounded contract.
 

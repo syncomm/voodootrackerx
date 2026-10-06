@@ -149,7 +149,9 @@ G12's explicit Hxy channel-turn scalar snapshots use this same factor path.
 Later H writers do not revise earlier targets; plain targets stay held until a
 volume publication, while volume envelopes/release refresh every tick. The
 planner captures each turn's one canonical global value without adding a gain
-stage or changing either ramp policy. See [volume ownership](xm-volume-ownership.md#hxy-channel-turn-gain-publication-g12).
+stage or changing either ramp policy. G13 seeded H00 reuses these targets after
+resolving channel-local whole-byte memory; cold H00 generates no publication.
+FT2's cold zero-memory refresh artifact is intentionally not emulated. See [volume ownership](xm-volume-ownership.md#hxy-channel-turn-gain-publication-g12).
 
 G09 `Dx/Ex` updates supply current stored pan on those same nonzero frames.
 G06 composes its envelope displacement with that pan through the existing

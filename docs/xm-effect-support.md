@@ -155,7 +155,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `F01...F1F` / `F20...FFF` | Speed / BPM | Implemented | Closed | None | Not applicable | Nonzero command-row tick-zero timing is closed. `F20` is valid XM BPM 32. Last speed and last BPM each win in left-to-right channel order. |
 | `F00` | Zero speed boundary | Implemented | Known difference | None | Not applicable | VTX ignores it; pinned FT2 writes zero speed/tick state. Resulting traversal needs characterization and explicit closure rationale; nonzero Fxx stays closed. |
 | `Gxx` | Global volume | Implemented | Partial | None | Not applicable | Clamped `0...64` state and active/future gains exist; cross-channel writer/output interactions remain bounded by the shared-output contract. |
-| `Hxy` | Global volume slide | Implemented | Closed nonzero G12; H00 open | Own channel-local byte; `H00` replay missing | Not applicable | Nonzero ticks `1..<effectiveSpeed`, upper nibble wins, clamp `0...64`. One canonical global state mutates in channel order; each channel publishes its turn's target. Later writers do not revise earlier targets. Plain targets can persist until a volume publication; volume envelopes/release refresh each tick. G13 H00 remains no-op. |
+| `Hxy` / `H00` | Global volume slide | Implemented | Closed G12 timing / G13 memory; retained cold artifact difference | Independent channel-local whole byte; cold `H00` is a true no-op | Not applicable | Nonzero ticks `1..<effectiveSpeed`, upper nibble wins, clamp `0...64`. F01 neither seeds nor replaces memory. Seeded H00 uses G12 ascending channel turns and held targets against one song-global volume; later writers do not revise earlier targets. FT2's cold zero-memory target-refresh artifact is intentionally not emulated. |
 | `Kxx` | Key off | Implemented | Partial | None | Not applicable | Canonical-tick release, retained source and integer fadeout exist. No-envelope release zeros base/output except instrument-only K00 volume restoration. Note-97/K00/instrument/volume precedence remains G24. |
 | `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Existing volume positioning is preserved. Bounded G07 pan positioning is closed under the sounding instrument's raw volume-sustain flag, including disabled volume envelopes and silent-channel clocks. G31, G40 and pan-sustain/release differences remain open. |
 | `Pxy` | Panning slide | Deferred | Open | Own byte; pinned `P00` replays it | Not applicable | Real FT2/XM v1 target G33. Legacy handler support is not C-adapter support; remaining timing/writer/pan-envelope interactions need characterization. |
@@ -384,8 +384,9 @@ support alone does not close these domains:
   (G31) and pan-clock quirks still need closure. Instrument autovibrato (G32) is
   preserved but runtime-inert and remains Phase 2 playback work; later editable
   Instrument Editor controls are a separate roadmap milestone.
-- **Volume writers and memory:** H00 memory (G13), cold A00/500
-  (G14–G15), and directional fine-slide
+- **Volume writers and memory:** H00 replay (G13) is closed; its cold FT2
+  zero-memory target-refresh artifact is an intentional known difference.
+  Cold A00/500 (G14–G15) and directional fine-slide
   memory remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
   semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its
   common-XM table. ED delayed note/instrument/default interactions and

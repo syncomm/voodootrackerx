@@ -502,12 +502,34 @@ samples with header volumes 64/32/16 and one volume-envelope/fadeout instrument.
   H01/H10 ends at 32 with turn factors `[31,31,32,32,32]`; row 7 holds them.
 - Row 10 publishes Cxx/column volume before later-channel G20. Rows 11...16
   add the envelope source, clamp down/up and exercise H12 upper-nibble priority.
-- Row 17 pins H00's existing no-op (G13 remains open). Rows 18...21 release
-  the envelope, run a final-channel H01, refresh the envelope on the blank row,
-  then trigger a fresh note using canonical volume 32.
+- Row 17 now replays H12 through G13, taking canonical 37 to 42. Rows 18...21
+  release the envelope, run a final-channel H01, refresh the envelope on the
+  blank row, then trigger a fresh note using canonical volume 37. The fixture
+  bytes are unchanged; G12 timing/publication remains authoritative.
 
 `GlobalVolumeSlideTimingTests` also constructs independent public controls for
 H01/H10/H12 speeds 1/3/6 and early/middle/final writers, including held targets
 through pan-only commands. Whole/window/runtime-core and canonical-host checks
 use the shared gain targets at 44.1/48 kHz. Generic ramps, onset, envelope
 arithmetic and static pan law retain their separate closure boundaries.
+
+### Global-volume slide memory
+
+`generated/global-volume-slide-memory.xm` is 2,522 bytes, SHA-256
+`4ad3e67e1658d070ca731e58ddb0c978572717cc27d9614a597e5b80045580ee`.
+Its three channels use project-generated triangle/pulse/sine samples at header
+volumes 64/32/16, including a completed nonlooping source and an exact empty S02.
+
+- Rows 0...2 seed/replay without sources; later notes inherit canonical state.
+- Rows 3...6 leave an earlier 28/64 held target with canonical 27. Cold H00 on
+  channel 2 emits no publication and retains the target, matching a blank command.
+- Rows 7...11 store H12/H21, replay independent memories and exercise F01's
+  no-replacement gate followed by F03/F06 scheduling.
+- The second order replays memories from the first. Empty-route selection,
+  key-off, instrument-only state and later mapped notes retain memory.
+- Later rows seed/replay H01 at zero and H10 at 64, preserving G12's resolved
+  command publications even when the canonical clamp does not move.
+
+G13 closes seeded H00 replay. FT2's cold zero-memory target-refresh artifact is
+intentionally not emulated; this fixture makes no bit-perfect cold-H00 claim.
+Whole/window/runtime-core and canonical-host controls use both sample rates.

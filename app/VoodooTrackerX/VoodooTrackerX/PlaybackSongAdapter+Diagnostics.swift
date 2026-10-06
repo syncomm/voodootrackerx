@@ -395,7 +395,7 @@ extension PlaybackSongSyntheticAdapter {
         case 0x10:
             return .applied
         case 0x11:
-            return cell.effectParam == 0 ? .ignoredNoOp : .applied
+            return timingConfig.speed > 1 && (cell.effectParam != 0 || channelState.globalVolumeSlideMemory != nil) ? .applied : .ignoredNoOp
         case 0x15:
             return .applied
         case 0x1B:

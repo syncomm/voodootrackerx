@@ -8196,13 +8196,20 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertTrue(gxxUpdate.applied)
         XCTAssertEqual(gxxUpdate.command.label, "Gxx set global volume")
-        XCTAssertEqual(gxxUpdate.activeVoiceUpdated, true)
+        XCTAssertFalse(gxxUpdate.activeVoiceUpdated)
         XCTAssertEqual(gxxUpdate.globalVolumeBefore, 64)
         XCTAssertEqual(gxxUpdate.globalVolumeAfter, 32)
         XCTAssertEqual(try XCTUnwrap(gxxUpdate.globalVolumeMultiplierBefore), 1, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(gxxUpdate.globalVolumeMultiplierAfter), 0.5, accuracy: 0.000_001)
+        // Canonical calculation is diagnostic; the separate target owns delivery.
         XCTAssertEqual(gxxUpdate.gainBefore, 1)
         XCTAssertEqual(gxxUpdate.gainAfter, 0.5)
+        let target = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first {
+            if case .gxxChannelTarget = $0.command { return true }; return false
+        })
+        XCTAssertEqual(target.activeEventIndex, 0)
+        XCTAssertEqual(target.gainBefore, 1)
+        XCTAssertEqual(target.gainAfter, 0.5)
         XCTAssertEqual(result.pattern.events.map(\.gain), [1, 0.5])
         XCTAssertEqual(result.diagnostics.eventMappings.map(\.effectiveGlobalVolumeValue), [64, 32])
         XCTAssertFalse(result.diagnostics.deferredCellFields.contains { $0.effectType == 0x10 })
@@ -8509,8 +8516,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(runtimePlan.events.map(\.categories), [
             ["note_trigger"],
             ["note_trigger"],
-            ["gain_pan_update", "gxx_global_volume_update", "global_volume_update"],
-            ["gain_pan_update", "gxx_global_volume_update", "global_volume_update"],
+            ["gain_pan_update", "gxx_channel_target", "global_volume_update", "gxx_global_volume_update"],
+            ["gain_pan_update", "gxx_channel_target", "global_volume_update", "gxx_global_volume_update"],
             ["note_trigger", "replacement", "note_delay"],
         ])
 

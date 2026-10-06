@@ -3849,6 +3849,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "gxx_set_global_volume_active_voice_update_count": count {
                 $0.activeVoiceUpdated && isGxxSetGlobalVolumeUpdate($0)
             },
+            "gxx_channel_target_count": count {
+                if case .gxxChannelTarget = $0.command { return true }; return false
+            },
+            "gxx_channel_target_gain_update_count": count {
+                if case .gxxChannelTarget = $0.command { return isChangedGainStateUpdate($0) }; return false
+            },
             "hxy_global_volume_slide_applied": count {
                 $0.applied && isHxyGlobalVolumeSlideUpdate($0)
             },
@@ -4950,6 +4956,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return ["name": "axyVolumeSlide", "label": command.label, "up": up, "down": down]
         case let .gxxSetGlobalVolume(value):
             return ["name": "gxxSetGlobalVolume", "label": command.label, "value": value]
+        case let .gxxChannelTarget(globalVolume, reason):
+            return ["name": "gxxChannelTarget", "label": command.label,
+                "visible_global_volume": globalVolume, "publication_reason": reason]
         case let .hxyGlobalVolumeSlide(up, down):
             return ["name": "hxyGlobalVolumeSlide", "label": command.label, "up": up, "down": down]
         case let .hxyChannelTarget(globalVolume):
@@ -5009,6 +5018,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "axyVolumeSlide"
         case .gxxSetGlobalVolume:
             return "gxxSetGlobalVolume"
+        case .gxxChannelTarget:
+            return "gxxChannelTarget"
         case .hxyGlobalVolumeSlide:
             return "hxyGlobalVolumeSlide"
         case .hxyChannelTarget:

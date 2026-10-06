@@ -661,6 +661,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case effect8xxSetPanning(value: Int)
     case axyVolumeSlide(up: Int, down: Int)
     case gxxSetGlobalVolume(value: Int)
+    case gxxChannelTarget(globalVolume: Int, reason: String)
     case hxyGlobalVolumeSlide(up: Int, down: Int)
     case hxyChannelTarget(globalVolume: Int)
     case eaxFineVolumeSlideUp(amount: Int)
@@ -688,6 +689,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "Axy volume slide"
         case .gxxSetGlobalVolume:
             return "Gxx set global volume"
+        case .gxxChannelTarget:
+            return "Gxx channel-turn gain target"
         case .hxyGlobalVolumeSlide:
             return "Hxy global volume slide"
         case .hxyChannelTarget:

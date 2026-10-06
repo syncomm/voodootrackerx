@@ -693,7 +693,7 @@ Runtime C mixer trace rows may include:
 
 Adapter-sourced rows cover only event categories already supported by the
 offline adapter, such as note triggers, gain/pan updates, sample-step updates,
-`Hxy` channel-turn gain targets, `ECx` note cuts, `EDx` note delays, `E9x`
+`Gxx`/`Hxy` channel-turn gain targets, `ECx` note cuts, `EDx` note delays, `E9x`
 retriggers, `Rxy` multi-retriggers, `0xy` arpeggio updates,
 `1xx`/`2xx`/`3xx` portamento updates,
 including `100`/`200` memory-replayed sample-step updates, minimal `E1x` fine
@@ -737,6 +737,19 @@ retaining the whole byte, including both nibbles. Cold H00 has one ignored
 no-op diagnostic with missing memory and no audio publication. FT2's cold
 zero-memory target-refresh artifact is intentionally not emulated. All
 snapshots are planned in Swift; global volume remains song-global.
+
+Gxx canonical `gxxSetGlobalVolume` mutations are separate from
+`gxxChannelTarget` snapshots. The latter expose `visible_global_volume` and
+`publication_reason` (`global_volume_set`, `local_volume_writer`, or
+`envelope_or_release_tick`) in `command`, with `gain_before` holding the last
+published scalar and `gain_after` the requested value. Trigger diagnostics retain
+birth gain/global visibility; active event identity, scheduled frame, tick and
+channel establish generation and writer order. Runtime publications carry
+`gxx_channel_target`/`global_volume_update`; Gxx-row targets also retain
+`gxx_global_volume_update`. Summary `gxx_channel_target_count` and
+`gxx_channel_target_gain_update_count` distinguish snapshots from changed gain
+events. Birth-equivalent targets emit no pre-trigger gain update; real later
+writers compare against held gain, including repeated values and G00 repair.
 
 If the plan is unavailable, the runtime trace reports the fallback and the C
 mixer continues through the simpler runtime event bridge.

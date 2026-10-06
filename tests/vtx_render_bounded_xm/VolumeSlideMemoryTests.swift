@@ -173,9 +173,14 @@ final class VolumeSlideMemoryTests: XCTestCase {
         let (context, _) = inspect(module)
         let global = try XCTUnwrap(context.voiceStateUpdates.first { $0.effectType == 16 })
         XCTAssertEqual(global.syntheticTick, 0)
-        XCTAssertEqual(global.effectiveVolumeAfter, 32)
-        XCTAssertEqual(global.gainAfter, 0.25)
+        XCTAssertEqual(global.globalVolumeAfter, 32)
+        XCTAssertFalse(global.activeVoiceUpdated)
+        XCTAssertNil(global.gainAfter)
         XCTAssertEqual(context.voiceStateUpdates.filter { $0.effectType == 6 }.map(\.gainAfter), [30.0 / 128, 28.0 / 128])
+        let plan = PlaybackSongSyntheticAdapter.adapt(module, orderIndex: 0, sampleRate: 48_000)
+        let targets = plan.diagnostics.voiceStateUpdates.filter { if case .gxxChannelTarget = $0.command { return true }; return false }
+        XCTAssertEqual(targets.map(\.gainBefore), [0.5, 0.5, 30.0 / 128])
+        XCTAssertEqual(targets.map(\.gainAfter), [0.5, 30.0 / 128, 28.0 / 128])
     }
 
     func testLooped600TriggerClassificationUsesEachVisitMemory() {

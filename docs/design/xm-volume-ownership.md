@@ -16,6 +16,7 @@ Effect statuses remain owned by [XM effect support](../xm-effect-support.md).
 | Volume envelope | Point values `0...64` normalized to `0...1`; channel-local progression, projected to a live source when present | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
 | Fadeout | Channel-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
 | Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `songGain` consumes output volume once with global volume. Managed XM envelope/release voices combine it with semantic factors in one final-output target; generic voices retain existing gain/pan ramps. |
+| Held scalar gain target | Last publication by source event identity, initialized from trigger gain | Distinct from canonical global/base state and hypothetical calculated gain. A real publication compares its requested target to this held value; replacement starts a new identity. |
 | Mix/output gain | Render/host/export policy; independent of channel state | Existing mix profile, runtime headroom, and export gain policies apply downstream. Summed Float32 PCM may exceed unity; encoded PCM16 clamps at the export boundary. |
 
 The owning implementation is
@@ -426,6 +427,30 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   retain their documented status. G09 closes column panning-slide timing;
   G12 closes nonzero Hxy timing and channel-turn publication; G13 closes H00
   memory with the cold artifact excluded below.
+
+## Gxx channel-turn birth and held-target publication
+
+Gxx changes one canonical song-global value at its channel turn. A note before
+G10 starts at factor 1; a note after or in the same cell starts at 0.25. Notes
+before/between/after G20 then G10 start at `[1, 0.5, 0.25]`. Later same-tick
+writers do not retroactively backfill earlier birth/held targets. This is the
+adopted B compatibility convention where written XM ordering is ambiguous.
+
+The shared planner projects canonical transitions into `gxxChannelTarget`
+snapshots in ascending channel order, reusing the Hxy held-target mechanism.
+Plain targets persist across blank rows and pan-only commands. Cxx,
+volume-column volume and later Gxx request publication against the active
+generation's held target, even when canonical calculated gain did not change:
+repeated C40/volume-column 50/G10 repairs held 1 to 0.25; C20 after G00 repairs
+held 1 to zero. Enabled volume envelopes refresh on their next tick through the
+existing final-output path, without changing envelope arithmetic or plain-voice
+management.
+
+Birth-equivalent snapshots need no separate gain event. Changed later targets
+follow their generation's birth; offline preallocation grants no extra semantic
+rights. Whole/window/runtime consume these same causal events and existing
+ramps. Source-less writers create no voice, later notes inherit canonical state,
+and stale publications cannot target replacements. No callback interprets Gxx.
 
 ## Hxy channel-turn gain publication (G12)
 

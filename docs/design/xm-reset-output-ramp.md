@@ -153,6 +153,15 @@ stage or changing either ramp policy. G13 seeded H00 reuses these targets after
 resolving channel-local whole-byte memory; cold H00 generates no publication.
 FT2's cold zero-memory refresh artifact is intentionally not emulated. See [volume ownership](xm-volume-ownership.md#hxy-channel-turn-gain-publication-g12).
 
+Gxx uses the same scalar target projection. Fresh notes capture their own
+channel-turn global value; a later same-tick writer does not revise that birth
+target. Plain voices retain it until a real volume publication; managed volume
+envelopes refresh on the next tick as above. Publication compares the requested
+scalar to the generation's last held target, so repeated-value Cxx/Gxx and G00
+repair are delivered even when canonical calculated gain was already equal.
+Offline/window/runtime share this causal source identity/order; no ramp policy,
+G31 arithmetic or source-onset behavior changes.
+
 G09 `Dx/Ex` updates supply current stored pan on those same nonzero frames.
 G06 composes its envelope displacement with that pan through the existing
 final-L/R target; G07 positioning and envelope arithmetic are unchanged.

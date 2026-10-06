@@ -4535,6 +4535,49 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testHxyChannelTurnTargetsHaveExactRuntimeFramesAndPCMAtBothRates() throws {
+        let fixture = try referenceXMFixtureURL("generated/global-volume-slide-timing.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        for rate in [44_100.0, 48_000] {
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+            let offline = PlaybackSongOfflineRenderer().render(.init(song: song, config: config, frames: end))
+            XCTAssertEqual(runtime.plan, offline.plan)
+            let planned = runtime.events.filter { $0.categories.contains("hxy_channel_target") }
+            XCTAssertFalse(planned.isEmpty)
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: rate)
+            harness.engine.load(song: song); harness.engine.play(from: nil)
+            defer { harness.engine.stop() }
+            var rendered = 0
+            while rendered < end {
+                let count = min(4093, end - rendered)
+                let pcm = renderRuntimePCM(core, frames: count)
+                let expected = offline.block.interleavedPCM[rendered..<(rendered + count)]
+                let delivered = harness.audioEngine.renderForTesting(frameCount: count)
+                XCTAssertEqual(pcm.count, expected.count)
+                XCTAssertEqual(delivered.count, expected.count)
+                XCTAssertLessThanOrEqual(zip(pcm, expected).map { abs($0 - $1) }.max() ?? 0, 1e-7, "Core rate \(rate), frame \(rendered)")
+                XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, 1e-7, "Engine rate \(rate), frame \(rendered)")
+                rendered += count
+            }
+            for event in planned {
+                let actual = try XCTUnwrap(harness.traceWriter.events.first { $0.plannedEventID == event.id && $0.eventAppliedFrame != nil })
+                guard case let .gainPanUpdate(_, gain, _) = event.action else { return XCTFail("Missing Hxy target") }
+                XCTAssertEqual(actual.eventAppliedFrame, UInt64(event.scheduledFrame))
+                XCTAssertEqual(actual.plannedEventFrame, event.scheduledFrame)
+                XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
+                XCTAssertEqual(actual.gainAfter, gain)
+            }
+            let late = planned.filter { $0.source.rowIndex == 19 && $0.syntheticTick == 1 }
+            XCTAssertEqual(late.map(\.channelIndex), late.map(\.channelIndex).sorted())
+        }
+    }
+
+    @MainActor
     func testVolumeColumnVibratoSharedWritersHaveExactRuntimeFramesAndPCMInBothModesAndRates() throws {
         let fixture = try referenceXMFixtureURL("generated/volume-column-vibrato.xm")
         let parsed = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)

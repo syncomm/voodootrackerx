@@ -8047,7 +8047,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             frames: 3
         ))
         let axyUpdates = axy.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x0A }
-        let hxyUpdate = try XCTUnwrap(hxy.diagnostics.voiceStateUpdates.first { $0.effectType == 0x11 })
+        let hxyUpdates = hxy.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x11 }
 
         XCTAssertEqual(axyUpdates.count, 2)
         XCTAssertEqual(axyUpdates.map(\.syntheticTick), [1, 2])
@@ -8056,20 +8056,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(axyUpdates.map(\.effectiveVolumeBefore), [64, 60])
         XCTAssertEqual(axyUpdates.map(\.effectiveVolumeAfter), [60, 56])
         XCTAssertTrue(axyUpdates.allSatisfy { $0.behavior == .tickLevelAfterTick0 })
-        XCTAssertFloatArrayEqual(hxy.block.interleavedPCM, [1, 0.9980469, 0.99609375])
-        XCTAssertTrue(hxyUpdate.applied)
-        XCTAssertEqual(hxyUpdate.activeVoiceUpdated, true)
-        XCTAssertEqual(hxyUpdate.globalVolumeBefore, 64)
-        XCTAssertEqual(hxyUpdate.globalVolumeAfter, 60)
-        XCTAssertEqual(hxyUpdate.globalVolumeSlideDirection, .down)
-        XCTAssertEqual(hxyUpdate.globalVolumeSlideAmount, 4)
-        XCTAssertEqual(hxyUpdate.gainBefore, 1)
-        XCTAssertEqual(hxyUpdate.gainAfter, 0.9375)
+        // Speed 1 has no nonzero tick for Hxy, just as for Axy.
+        XCTAssertFloatArrayEqual(hxy.block.interleavedPCM, [1, 1, 1])
+        XCTAssertTrue(hxyUpdates.isEmpty)
         XCTAssertFalse(hxy.diagnostics.deferredCellFields.contains { $0.effectType == 0x11 })
     }
 
     func testPlaybackSongAdapterHxyGlobalVolumeSlideUpRaisesGainAfterPriorDownSlide() throws {
-        let sample = makePlaybackSample(pcm: [1, 1, 1, 1], volume: 1, baseSampleRate: 100)
+        let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 8), volume: 1, baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
@@ -8081,14 +8075,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 ]
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
-            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 4
+            frames: 8
         ))
         let hxyUpdates = result.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x11 }
 
@@ -8098,7 +8092,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(hxyUpdates[1].globalVolumeBefore, 60)
         XCTAssertEqual(hxyUpdates[1].globalVolumeAfter, 62)
         XCTAssertEqual(hxyUpdates[1].globalVolumeSlideDirection, .up)
-        XCTAssertGreaterThan(hxyUpdates[1].gainAfter ?? 0, hxyUpdates[0].gainAfter ?? 1)
+        let targets = result.diagnostics.voiceStateUpdates.filter { if case .hxyChannelTarget = $0.command { return true }; return false }
+        XCTAssertEqual(targets.map(\.gainAfter), [0.9375, 0.96875])
+        XCTAssertTrue(hxyUpdates.allSatisfy { !$0.activeVoiceUpdated && $0.syntheticTick == 1 })
     }
 
     func testPlaybackSongAdapterGainConsumesChannelGlobalAndEnvelopeOnce() throws {
@@ -8226,14 +8222,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 8
+            frames: 16
         ))
         let hxyUpdates = result.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x11 }
         let h00 = try XCTUnwrap(hxyUpdates.first { $0.effectParam == 0x00 })
@@ -8269,13 +8265,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 ]
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
-            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 2
+            frames: 4
         )
         let renderer = PlaybackSongOfflineRenderer()
 
@@ -8283,7 +8279,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let windowed = renderer.renderWindowed(request, windowRows: 1)
         let mapping = try XCTUnwrap(defaultRender.diagnostics.eventMappings.first)
 
-        XCTAssertFloatArrayEqual(defaultRender.block.interleavedPCM, [0, 0.9375])
+        XCTAssertFloatArrayEqual(defaultRender.block.interleavedPCM, [0, 0, 0.9375, 0])
         XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
         XCTAssertEqual(mapping.effectiveGlobalVolumeValue, 60)
         XCTAssertEqual(mapping.effectiveGlobalVolumeMultiplier, 0.9375)

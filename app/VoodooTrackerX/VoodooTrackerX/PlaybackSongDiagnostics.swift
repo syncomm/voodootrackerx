@@ -662,6 +662,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case axyVolumeSlide(up: Int, down: Int)
     case gxxSetGlobalVolume(value: Int)
     case hxyGlobalVolumeSlide(up: Int, down: Int)
+    case hxyChannelTarget(globalVolume: Int)
     case eaxFineVolumeSlideUp(amount: Int)
     case ebxFineVolumeSlideDown(amount: Int)
     case effect5xyVolumeSlide(up: Int, down: Int)
@@ -689,6 +690,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "Gxx set global volume"
         case .hxyGlobalVolumeSlide:
             return "Hxy global volume slide"
+        case .hxyChannelTarget:
+            return "Hxy channel-turn gain target"
         case .eaxFineVolumeSlideUp:
             return "EAx fine volume slide up"
         case .ebxFineVolumeSlideDown:
@@ -764,8 +767,8 @@ struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
     let effectMemoryDeferred: Bool
     let memorySource: PlaybackSongSyntheticEffectMemorySource?
     let memoryUnavailableReason: String?
-    let gainBefore: Float?
-    let gainAfter: Float?
+    var gainBefore: Float?
+    var gainAfter: Float?
     let panBefore: Float?
     let panAfter: Float?
     // Internal stored-byte projection for semantic targets, independent of G40 conversion.

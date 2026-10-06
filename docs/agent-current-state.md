@@ -92,6 +92,11 @@ host.
   zero initializes/restores silent channel state without invalidating the route.
   Empty/unrepresented routes remain source-less. Direct editor preview retains
   its existing availability and header/headroom policy.
+- Nonzero Hxy mutates one song-global volume on ticks `1..<effectiveSpeed` in
+  channel order. Explicit channel-turn gain targets can differ and plain targets
+  remain held until a volume publication. Volume envelopes/release refresh each
+  tick; later notes inherit final canonical state. Runtime/offline/window paths
+  share these targets. G12 is bounded to this contract; G13 H00 remains open.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

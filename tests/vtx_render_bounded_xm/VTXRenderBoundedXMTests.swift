@@ -2766,8 +2766,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let firstVolumeUpdate = try XCTUnwrap(updates.first { $0["command_name"] as? String == "setVolume" })
         let hxy = try XCTUnwrap(updates.first { $0["command_name"] as? String == "hxyGlobalVolumeSlide" })
 
-        XCTAssertEqual(render["volume_panning_state_update_count"] as? Int, 6)
-        XCTAssertEqual(render["active_voice_state_update_count"] as? Int, 5)
+        XCTAssertEqual(render["volume_panning_state_update_count"] as? Int, 7)
+        XCTAssertEqual(render["active_voice_state_update_count"] as? Int, 6)
         XCTAssertEqual(render["gain_pan_ramp_enabled"] as? Bool, true)
         XCTAssertEqual(render["gain_pan_ramp_frame_count"] as? Int, CSoftwareMixer.gainPanUpdateRampFrameCount)
         // CF now selects 240, so the later 8FF is a distinct pan write.
@@ -2780,8 +2780,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["axy_tick0_suppressed"] as? Int, 1)
         XCTAssertEqual(render["axy_mixed_nibble_policy"] as? String, "up_nibble_precedence_mikmod_observed")
         XCTAssertEqual(capacity["c_mixer_voice_state_event_capacity"] as? Int, CSoftwareMixer.maximumVoiceStateEventCount)
-        XCTAssertEqual(summary["total_state_updates"] as? Int, 6)
-        XCTAssertEqual(summary["active_voice_updated_count"] as? Int, 5)
+        XCTAssertEqual(summary["total_state_updates"] as? Int, 7)
+        XCTAssertEqual(summary["active_voice_updated_count"] as? Int, 6)
         XCTAssertEqual(summary["gain_pan_ramp_enabled"] as? Bool, true)
         XCTAssertEqual(summary["gain_pan_ramp_frame_count"] as? Int, CSoftwareMixer.gainPanUpdateRampFrameCount)
         XCTAssertEqual(summary["gain_pan_update_count"] as? Int, 4)

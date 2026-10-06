@@ -656,6 +656,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             case .hxyGlobalVolumeSlide:
                 categories.append("hxy_global_volume_update")
                 categories.append("global_volume_update")
+            case .hxyChannelTarget:
+                categories.append("hxy_channel_target")
+                categories.append("global_volume_update")
             case .axyVolumeSlide:
                 categories.append("axy_volume_slide")
                 if update.effectMemoryReused {

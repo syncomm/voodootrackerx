@@ -488,3 +488,26 @@ stored pan and the existing final-L/R targets. `VolumeColumnPanSlideTimingTests`
 adds constant-PCM controls for static-writer precedence, source-less/completed
 carry, G06/G07 and G08 regression at both rates. G11 conversion, G33/Pxy,
 G40 stereo law and generic/onset ramp differences remain separate.
+
+### Global-volume slide timing
+
+`generated/global-volume-slide-timing.xm` is 3,254 bytes, SHA-256
+`4297ac913447883d0f140cbcaeb928e6b7d1080d80216619a35d1c5b6486be61`.
+Its five channels use distinguishable project-generated sine/triangle/pulse
+samples with header volumes 64/32/16 and one volume-envelope/fadeout instrument.
+
+- Rows 0...3 set G20 and exercise source-less Hxy at F01/F03/F06. Row 4 notes
+  inherit final canonical volume 29 without fabricated earlier voices.
+- Rows 5...9 exercise opposed, same-direction and three writers. Opposed
+  H01/H10 ends at 32 with turn factors `[31,31,32,32,32]`; row 7 holds them.
+- Row 10 publishes Cxx/column volume before later-channel G20. Rows 11...16
+  add the envelope source, clamp down/up and exercise H12 upper-nibble priority.
+- Row 17 pins H00's existing no-op (G13 remains open). Rows 18...21 release
+  the envelope, run a final-channel H01, refresh the envelope on the blank row,
+  then trigger a fresh note using canonical volume 32.
+
+`GlobalVolumeSlideTimingTests` also constructs independent public controls for
+H01/H10/H12 speeds 1/3/6 and early/middle/final writers, including held targets
+through pan-only commands. Whole/window/runtime-core and canonical-host checks
+use the shared gain targets at 44.1/48 kHz. Generic ramps, onset, envelope
+arithmetic and static pan law retain their separate closure boundaries.

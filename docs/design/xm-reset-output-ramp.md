@@ -145,6 +145,12 @@ G08 ordinary `6x/7x` channel writes join the existing nonzero-tick target with
 its tick duration. They add no gain factor, quick-volume reset or second ramp;
 fine `8x/9x` keep their existing tick-zero publication.
 
+G12's explicit Hxy channel-turn scalar snapshots use this same factor path.
+Later H writers do not revise earlier targets; plain targets stay held until a
+volume publication, while volume envelopes/release refresh every tick. The
+planner captures each turn's one canonical global value without adding a gain
+stage or changing either ramp policy. See [volume ownership](xm-volume-ownership.md#hxy-channel-turn-gain-publication-g12).
+
 G09 `Dx/Ex` updates supply current stored pan on those same nonzero frames.
 G06 composes its envelope displacement with that pan through the existing
 final-L/R target; G07 positioning and envelope arithmetic are unchanged.

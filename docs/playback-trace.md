@@ -693,7 +693,7 @@ Runtime C mixer trace rows may include:
 
 Adapter-sourced rows cover only event categories already supported by the
 offline adapter, such as note triggers, gain/pan updates, sample-step updates,
-`Hxy` global-volume updates, `ECx` note cuts, `EDx` note delays, `E9x`
+`Hxy` channel-turn gain targets, `ECx` note cuts, `EDx` note delays, `E9x`
 retriggers, `Rxy` multi-retriggers, `0xy` arpeggio updates,
 `1xx`/`2xx`/`3xx` portamento updates,
 including `100`/`200` memory-replayed sample-step updates, minimal `E1x` fine
@@ -721,6 +721,18 @@ tagged with the `replacement` category, matching the C mixer runtime
 same-channel replacement path and the bounded/offline replacement-ramp
 diagnostics.
 Unsupported XM effects remain unsupported.
+
+G12's offline `hxyGlobalVolumeSlide` diagnostics record canonical transitions
+on nonzero ticks. Separate `hxyChannelTarget` diagnostics record the global
+value visible at each channel turn and its scalar gain target. These stay
+interleaved in source channel order; later mutations do not revise earlier
+snapshots. Runtime gain events carry `hxy_channel_target` and
+`global_volume_update`, with existing identity/frame/gain fields. Unchanged
+targets produce no gain event. The JSON summary distinguishes
+`hxy_channel_target_count` from `hxy_channel_target_gain_update_count`;
+mutation counts do not imply all-voice gain fanout. H00 remains an ignored
+no-op diagnostic for G13. All snapshots are planned in Swift.
+
 If the plan is unavailable, the runtime trace reports the fallback and the C
 mixer continues through the simpler runtime event bridge.
 

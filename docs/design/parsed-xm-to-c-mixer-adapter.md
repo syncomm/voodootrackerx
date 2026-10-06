@@ -21,6 +21,14 @@ module-rendering CLI.
 
 ## Implementation Status
 
+G12 supersedes this note's historical row-level Hxy descriptions. Nonzero Hxy
+now executes on ticks `1..<effectiveSpeed`, mutating one canonical global value
+in channel order and publishing each turn's explicit gain target. Plain targets
+can remain held after the row; volume envelopes/release refresh each tick.
+Runtime, whole offline and windows share this plan. H00 remains the G13 no-op.
+See [volume ownership](xm-volume-ownership.md#hxy-channel-turn-gain-publication-g12)
+and [effect support](../xm-effect-support.md) for the current bounded contract.
+
 PR 2.7.10 added `PlaybackSongSyntheticAdapter`, a Swift-side offline adapter
 that converts an explicit bounded order selection from `PlaybackSong` into a
 `SyntheticTrackerTimingConfig`, `SyntheticPattern`, and diagnostics. It uses

@@ -3861,6 +3861,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "hxy_global_volume_slide_active_voice_update_count": count {
                 $0.activeVoiceUpdated && isHxyGlobalVolumeSlideUpdate($0)
             },
+            "hxy_channel_target_count": count {
+                if case .hxyChannelTarget = $0.command { return true }; return false
+            },
+            "hxy_channel_target_gain_update_count": count {
+                if case .hxyChannelTarget = $0.command { return isChangedGainStateUpdate($0) }; return false
+            },
             "hxy_global_volume_slide_clamped_count": count {
                 isHxyGlobalVolumeSlideUpdate($0) && $0.globalVolumeSlideClamped == true
             },
@@ -4945,6 +4951,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return ["name": "gxxSetGlobalVolume", "label": command.label, "value": value]
         case let .hxyGlobalVolumeSlide(up, down):
             return ["name": "hxyGlobalVolumeSlide", "label": command.label, "up": up, "down": down]
+        case let .hxyChannelTarget(globalVolume):
+            return ["name": "hxyChannelTarget", "label": command.label, "visible_global_volume": globalVolume]
         case let .eaxFineVolumeSlideUp(amount):
             return [
                 "name": "eaxFineVolumeSlideUp",
@@ -5002,6 +5010,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "gxxSetGlobalVolume"
         case .hxyGlobalVolumeSlide:
             return "hxyGlobalVolumeSlide"
+        case .hxyChannelTarget:
+            return "hxyChannelTarget"
         case .eaxFineVolumeSlideUp:
             return "eaxFineVolumeSlideUp"
         case .ebxFineVolumeSlideDown:

@@ -5329,6 +5329,521 @@
       "xm_output": "generated/volume-column-vibrato.xm",
       "xm_sha256": "8410c2440c73c673461aba413857fd5b0408dac28b965fcf632a14c2379dc3c7",
       "xm_size_bytes": 1277
+    },
+    {
+      "id": "global-volume-slide-timing",
+      "intended_tests": [
+        "Hxy canonical transitions and channel-turn target ordering",
+        "plain held targets and envelope/fadeout refresh",
+        "whole/window/runtime frames and PCM at both rates"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 5,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC HXY ROUTES",
+            "note_sample_map": [
+              {
+                "end_note": 49,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 50,
+                "sample": 1,
+                "start_note": 50
+              },
+              {
+                "end_note": 96,
+                "sample": 2,
+                "start_note": 51
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC HXY S01",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "cae21393f8ec176e125faa194b4dd6ea44fbeb9de5cf0536e21cf8eb2913288d",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC HXY S02",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "ca6a786f61898c464e7b96528294d5b21d03d044b1ef44b10f494ba9731a5cd2",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC HXY S03",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "pulse"
+                },
+                "pcm_sha256": "f7d1e3755f6b048622384321f2ba80086d73db0b1a1ea7d2bf48e29dba17cff8",
+                "relative_note": 0,
+                "slot": 2,
+                "volume": 16
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 512,
+            "name": "PUBLIC HXY ENVELOPE",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC HXY S01",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "cae21393f8ec176e125faa194b4dd6ea44fbeb9de5cf0536e21cf8eb2913288d",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  4,
+                  32
+                ],
+                [
+                  100,
+                  32
+                ]
+              ],
+              "type_flags": 1
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 1,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 50,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 51,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 3,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 50,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 32,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 6,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 16,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 6,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 16,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 3,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 12,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 80
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 32,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 2,
+                "note": 49,
+                "row": 11,
+                "volume_column": 0
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 2,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 11,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 12,
+                "volume_column": 0
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 62,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 13,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 14,
+                "volume_column": 0
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 32,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 15,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 18,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 16,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 17,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 97,
+                "row": 18,
+                "volume_column": 0
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 19,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 21,
+                "volume_column": 0
+              }
+            ],
+            "rows": 22
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX HXY TICK TARGETS",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "global-volume-slide-timing.xm",
+      "purpose": "G12 ordered nonzero Hxy mutations, held channel-turn gain targets and explicit later publications.",
+      "significant_rows": [
+        "0...3: source-less Hxy with F01/F03/F06; row 4 notes inherit final global state.",
+        "5...9: opposed, same-direction and three H writers with channels before/between/after them.",
+        "10...16: local/Gxx publications, envelope source, lower/upper clamps and H12 upper-nibble precedence.",
+        "17...21: H00 remains deferred, released/fadeout voice, late H writer, forced envelope refresh and later note."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "H00 replay remains G13; no generic ramp, onset, pan-law or envelope-arithmetic closure."
+      ],
+      "xm_output": "generated/global-volume-slide-timing.xm",
+      "xm_sha256": "4297ac913447883d0f140cbcaeb928e6b7d1080d80216619a35d1c5b6486be61",
+      "xm_size_bytes": 3254
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

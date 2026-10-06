@@ -11,7 +11,7 @@ Effect statuses remain owned by [XM effect support](../xm-effect-support.md).
 | `baseChannelVolume` | Integer `0...64`; persistent, channel-local; initially 64 | Instrument/default-volume paths, `Cxx`, volume-column volume/slides, `Axy`, `EAx`/`EBx`, `5xy`/`6xy` volume components, and `Rxy` volume modes write the base. No-envelope key-off zeros it. Each retains its timing, memory, and clamp policy. |
 | `outputChannelVolume` | Integer `0...64`; channel-local output retained between writes | Follows each base write. `7xy` writes output independently; empty rows retain it. Trigger and active-voice gain construction consume output. |
 | `PlaybackSample.volume` / `activeSampleVolume` | Header `0...64` normalized to Float `0...1`; immutable sample metadata plus channel-local active selection | The header initializes/restores cached channel defaults. Active metadata also retains represented-source availability; it is never a second song-gain multiplier. |
-| Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` and the existing row-level `Hxy` approximation update the global state and active gains. Future triggers use the current global multiplier. |
+| Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` sets at tick zero; nonzero `Hxy` mutates on ticks `1..<effectiveSpeed` in channel order. Gain publications capture the global value visible at that channel's turn. Future triggers use the final canonical value. |
 | Volume envelope | Point values `0...64` normalized to `0...1`; channel-local progression, projected to a live source when present | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
 | Fadeout | Channel-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
 | Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `songGain` consumes output volume once with global volume. Managed XM envelope/release voices combine it with semantic factors in one final-output target; generic voices retain existing gain/pan ramps. |
@@ -423,7 +423,32 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   output; instrument-only K00 follows the cached-default/release ordering above.
 - Initial missing-memory `A00`, `EA0`/`EB0`, `R00`, and other deferred cases
   retain their documented status. G09 closes column panning-slide timing;
-  `Hxy` retains its timing approximation. Tremolo does not broaden that family.
+  G12 closes nonzero Hxy timing and channel-turn publication; H00 remains G13.
+
+## Hxy channel-turn gain publication (G12)
+
+Hxy mutates one canonical song-global value in ascending channel order on
+nonzero ticks. H01 at channel 0 followed by H10 at channel 2, starting at 32,
+produces canonical transitions `32 -> 31 -> 32` and channel target factors
+`[31, 31, 32]`. A later writer never recomputes an earlier turn's target.
+These are held gain snapshots by trigger identity, not per-channel global state
+or an additional multiplier. Source-less writers still change the canonical
+state; later triggers inherit it without a fabricated voice.
+
+The adapter records canonical H mutations separately from explicit
+`hxyChannelTarget` publications, interleaved by tick/channel. Each target consumes
+channel output volume and its visible global value once. Unchanged targets
+produce no redundant mixer gain event. The existing final-L/R path applies
+envelope/fadeout downstream and preserves its clocks and ramps; plain voices
+retain the existing generic ramp policy (G05 remains open).
+
+After Hxy ends, a plain target can retain an intermediate factor across blank
+rows and pan-only commands. A later note starts with the final canonical state;
+Cxx, volume-column volume, and Gxx publish at their channel turns. Volume
+envelopes and released voices refresh each tick, so an earlier channel sees the
+previous tick's final state on its next turn. Window history retains these
+publications and their existing ramp progress. No callback interprets Hxy.
+H00 remains the established deferred no-op; G13 owns replay memory.
 
 ## Maintainer smoke
 

@@ -31,6 +31,7 @@ ALL_FIXTURES = [
     "volume-column-pan-slide-timing.xm",
     "vibrato-empty-route-state.xm",
     "volume-column-vibrato.xm",
+    "global-volume-slide-timing.xm",
 ]
 
 
@@ -540,6 +541,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "volume-column-pan-slide-timing.xm").resolve(),
                     (output_dir / "generated" / "vibrato-empty-route-state.xm").resolve(),
                     (output_dir / "generated" / "volume-column-vibrato.xm").resolve(),
+                    (output_dir / "generated" / "global-volume-slide-timing.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -551,6 +553,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
                     "generated/fxx-timing.xm",
+                    "generated/global-volume-slide-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-only-volume-semantics.xm",
@@ -629,6 +632,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
                     "generated/fxx-timing.xm",
+                    "generated/global-volume-slide-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-only-volume-semantics.xm",
@@ -712,6 +716,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:volume-column-pan-slide-timing.xm": "generated/volume-column-pan-slide-timing.xm",
                     "xm:vibrato-empty-route-state.xm": "generated/vibrato-empty-route-state.xm",
                     "xm:volume-column-vibrato.xm": "generated/volume-column-vibrato.xm",
+                    "xm:global-volume-slide-timing.xm": "generated/global-volume-slide-timing.xm",
                 },
             )
 

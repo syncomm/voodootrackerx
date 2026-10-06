@@ -128,10 +128,10 @@ final class XMVolumeOwnershipTests: XCTestCase {
         let (context, states) = inspect(module)
         XCTAssertEqual(states.map(\.baseChannelVolume), [32, 32, 32, 32])
         XCTAssertTrue(states.allSatisfy { $0.activeSampleVolume == 0.25 })
-        XCTAssertEqual(context.globalVolumeState.volumeValue, 28)
+        XCTAssertEqual(context.globalVolumeState.volumeValue, 20)
         let updates = context.voiceStateUpdates.filter { $0.effectType == 0x10 || $0.effectType == 0x11 }
-        XCTAssertEqual(updates.map(\.globalVolumeAfter), [32, 28])
-        XCTAssertEqual(updates.map(\.gainAfter), [0.25, 0.21875])
+        XCTAssertEqual(updates.map(\.globalVolumeAfter), [32, 28, 24, 20])
+        XCTAssertEqual(updates.map(\.gainAfter), [0.25, 0.21875, 0.1875, 0.15625])
     }
 
     func testEnvelopeAndFadeoutRemainDownstreamWithExactPCM() {
@@ -164,8 +164,8 @@ final class XMVolumeOwnershipTests: XCTestCase {
         let hash = SHA256.hash(data: Data(bytes)).map { String(format: "%02x", $0) }.joined()
         // The final explicit note now reloads its quiet sample's default 16.
         XCTAssertEqual(bounded.diagnostics.eventMappings.last?.effectiveVolumeValue, 16)
-        XCTAssertEqual(bounded.plan.pattern.events.last?.gain, 0.109375)
-        XCTAssertEqual(hash, "d175ff575172b437b38b2d468b825ee769777ca38187355bda06c6566dfa70cd")
+        XCTAssertEqual(bounded.plan.pattern.events.last?.gain, 0.078125)
+        XCTAssertEqual(hash, "1d8d727e608fbf06743c8f5b31768fab150980f0af877cc3bdd6260dfaffe462")
         XCTAssertEqual(bounded.block.frameCount, 56)
     }
 

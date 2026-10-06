@@ -611,6 +611,7 @@ enum PlaybackSongSyntheticAdapter {
             ]
         )
 
+        planHxyChannelTargets(timingPlan: timingPlan, context: &context)
         var plan = PlaybackSongSyntheticPlan(
             timingConfig: timingConfig,
             pattern: SyntheticPattern(rowCount: traversalPlan.pathLength, events: context.events),
@@ -935,7 +936,7 @@ enum PlaybackSongSyntheticAdapter {
                     globalVolumeState: &context.globalVolumeState
                 ))
             }
-            if cell.effectType == 0x11 {
+            if cell.effectType == 0x11 && cell.effectParam == 0 {
                 context.voiceStateUpdates.append(contentsOf: applyGlobalVolumeSlide(
                     from: cell,
                     source: source,
@@ -2241,6 +2242,17 @@ enum PlaybackSongSyntheticAdapter {
                 timingPlan: timingPlan, globalVolume: context.globalVolumeState.volumeValue,
                 state: &context.channelStates[channelIndex], volumeColumnSlide: columnSlide
             ))
+        }
+        if timingConfig.speed > 1 {
+            for tick in 1..<timingConfig.speed {
+                for channelIndex in row.cells.indices where row.cells[channelIndex].effectType == 0x11 && row.cells[channelIndex].effectParam != 0 {
+                    context.voiceStateUpdates.append(contentsOf: applyGlobalVolumeSlide(
+                        from: row.cells[channelIndex], source: source, sourceChannelIndex: channelIndex,
+                        syntheticRow: syntheticRow, syntheticTick: tick,
+                        scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                        channelStates: context.channelStates, globalVolumeState: &context.globalVolumeState))
+                }
+            }
         }
         return PlaybackSongSyntheticRowDiagnostic(
             source: source,

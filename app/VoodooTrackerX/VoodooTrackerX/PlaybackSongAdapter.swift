@@ -617,7 +617,7 @@ enum PlaybackSongSyntheticAdapter {
             ]
         )
 
-        planHxyChannelTargets(timingPlan: timingPlan, context: &context)
+        planGlobalVolumeChannelTargets(timingPlan: timingPlan, context: &context)
         var plan = PlaybackSongSyntheticPlan(
             timingConfig: timingConfig,
             pattern: SyntheticPattern(rowCount: traversalPlan.pathLength, events: context.events),

@@ -6420,6 +6420,798 @@
       "xm_output": "generated/global-volume-slide-memory.xm",
       "xm_sha256": "4ad3e67e1658d070ca731e58ddb0c978572717cc27d9614a597e5b80045580ee",
       "xm_size_bytes": 2522
+    },
+    {
+      "id": "global-volume-publication",
+      "intended_tests": [
+        "before/after/same-cell and two-writer birth snapshots",
+        "blank holds and Cxx/volume-column/repeated-Gxx refresh",
+        "G00 repair, envelope ticks, silent/completed source inheritance",
+        "replacement generation safety and unchanged G12/G13 memory"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 6,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC GXX I1",
+            "note_sample_map": [
+              {
+                "end_note": 49,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 50,
+                "sample": 1,
+                "start_note": 50
+              },
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 51
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC GXX S1",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "a546e4565f4bf7904dad64c0c96ff9e1975be1513994d25b5f5c5ddc7b743e84",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC EMPTY S02",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 0
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC GXX I2",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC GXX S2",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 4096,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "pulse"
+                },
+                "pcm_sha256": "223a9ca206e58b8a3beed4958ebe94aa4f4a42293494642ecf8ff6edaf293bff",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC GXX I3",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC GXX S3",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 6144,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "99fefc31e6fa91c6140bb17f376a8c8f72501f0daa0a3036d75f493f131abdb7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC GXX I4",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC GXX S4",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "saw"
+                },
+                "pcm_sha256": "e1c0d56aeb0b9e80c7d18bcf349828f3902d06d3a489938d5b6d5c885ace6881",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC GXX I5",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC GXX S5",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 10240,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "7525f365c03046b99722eb71f361c57e6601495bf981be5823a2e9644e46351b",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC GXX I6",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC GXX S6",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 12288,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "pulse"
+                },
+                "pcm_sha256": "b8d5408a0a7ded71cac7d6b81da12f7c646f089fea30cecb5c4849cac131531c",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  64,
+                  64
+                ]
+              ],
+              "type_flags": 1
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC GXX I7",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC GXX S7",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 14336,
+                  "frame_count": 32,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "b9fbcb46f9fe0987b5fa942f7d3c84ebfc56004df0db25c37bcf307a10cb527c",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "note": 0,
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 1
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "note": 0,
+                "row": 1
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 12,
+                "note": 0,
+                "row": 3
+              },
+              {
+                "channel": 0,
+                "instrument": 2,
+                "note": 49,
+                "row": 4
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 16,
+                "note": 0,
+                "row": 4
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 5
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "note": 0,
+                "row": 6
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 7
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "note": 0,
+                "row": 7
+              },
+              {
+                "channel": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "note": 0,
+                "row": 9
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 10
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "note": 0,
+                "row": 10
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "note": 0,
+                "row": 11
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "note": 0,
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "note": 0,
+                "row": 13
+              },
+              {
+                "channel": 1,
+                "instrument": 2,
+                "note": 49,
+                "row": 13
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "instrument": 3,
+                "note": 49,
+                "row": 14
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "note": 0,
+                "row": 15
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 16
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 32,
+                "effect_type": 16,
+                "note": 0,
+                "row": 16
+              },
+              {
+                "channel": 2,
+                "instrument": 3,
+                "note": 49,
+                "row": 16
+              },
+              {
+                "channel": 3,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "note": 0,
+                "row": 16
+              },
+              {
+                "channel": 4,
+                "instrument": 5,
+                "note": 49,
+                "row": 16
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 18
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 18
+              },
+              {
+                "channel": 4,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 18
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "note": 0,
+                "row": 18
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "note": 0,
+                "row": 19
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 20
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 12,
+                "note": 0,
+                "row": 21
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "note": 0,
+                "row": 22
+              },
+              {
+                "channel": 0,
+                "instrument": 6,
+                "note": 49,
+                "row": 23
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "note": 0,
+                "row": 23
+              },
+              {
+                "channel": 5,
+                "instrument": 7,
+                "note": 49,
+                "row": 25
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 16,
+                "note": 0,
+                "row": 26
+              },
+              {
+                "channel": 5,
+                "instrument": 5,
+                "note": 49,
+                "row": 27
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "note": 0,
+                "row": 28
+              },
+              {
+                "channel": 5,
+                "instrument": 1,
+                "note": 50,
+                "row": 29
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "note": 0,
+                "row": 30
+              },
+              {
+                "channel": 5,
+                "instrument": 5,
+                "note": 49,
+                "row": 31
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "instrument": 1,
+                "note": 49,
+                "row": 32
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 33
+              },
+              {
+                "channel": 0,
+                "instrument": 2,
+                "note": 49,
+                "row": 34
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "note": 0,
+                "row": 35
+              },
+              {
+                "channel": 3,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "note": 0,
+                "row": 36
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "note": 0,
+                "row": 37
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 38
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "note": 0,
+                "row": 38
+              },
+              {
+                "channel": 3,
+                "instrument": 4,
+                "note": 49,
+                "row": 38
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 64,
+                "effect_type": 12,
+                "note": 0,
+                "row": 40
+              },
+              {
+                "channel": 3,
+                "effect_parameter": 64,
+                "effect_type": 12,
+                "note": 0,
+                "row": 40
+              }
+            ],
+            "rows": 42
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX GXX PUBLICATION",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "global-volume-publication.xm",
+      "purpose": "Gxx channel-turn birth/held targets and causal repeated-value publications shared by offline and runtime.",
+      "significant_rows": [
+        "0...5: trigger before G10, blank hold, C40 refresh, replacement before G00 and C20 repair.",
+        "6...14: volume-column 50 and repeated G10 refresh; Gxx before note and same-cell note+Gxx.",
+        "15...21: notes before/between/after G20 then G10, blank hold, C20, H01/H00 and a later note.",
+        "22...31: envelope publication, completed/empty source and later-note inheritance.",
+        "32...36: local publication before and after replacement; cold H00 stays inert.",
+        "37...41: notes around a channel-2 G10, blank hold and repeated C40."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "New-source onset, generic ramp/pan-law parity and unrelated effect closure remain separate; cold-H00 refresh is intentionally not emulated."
+      ],
+      "xm_output": "generated/global-volume-publication.xm",
+      "xm_sha256": "27861cb28fd0349cfb00b7157f3c3c4b4f5fe9fd5a299e0bddecff0a285939c9",
+      "xm_size_bytes": 5999
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

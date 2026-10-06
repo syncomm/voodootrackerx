@@ -235,13 +235,19 @@ final class TremoloTests: XCTestCase {
     }
 
     func testLaterChannelGlobalUpdatesUseHeldOutputAndTremoloUsesCurrentRowGlobalVolume() {
-        let (context, states) = inspect(song([
+        let module = song([
             cell(note: 49, instrument: 1, volume: 0x30), cell(7, 0x48), cell(),
-        ], secondary: [cell(), cell(0x10, 32), cell(0x10, 16)]))
+        ], secondary: [cell(), cell(0x10, 32), cell(0x10, 16)])
+        let (context, states) = inspect(module)
         XCTAssertEqual(tremolo(context).map { $0.0.gainAfter }, [32, 44, 54, 61, 63].map { Optional(Float($0) / 128) })
-        let globals = context.voiceStateUpdates.filter { $0.effectType == 0x10 && $0.activeVoiceUpdated }
-        XCTAssertEqual(globals.map(\.effectiveVolumeAfter), [32, 63])
-        XCTAssertEqual(globals.map(\.gainAfter), [0.25, 63 / 256])
+        let globals = context.voiceStateUpdates.filter { $0.effectType == 0x10 }
+        XCTAssertEqual(globals.map(\.globalVolumeAfter), [32, 16])
+        XCTAssertTrue(globals.allSatisfy { !$0.activeVoiceUpdated && $0.gainAfter == nil })
+        let plan = PlaybackSongSyntheticAdapter.adapt(module, orderIndex: 0, sampleRate: 48_000)
+        let targets = plan.diagnostics.voiceStateUpdates.filter {
+            if case .gxxChannelTarget = $0.command { return $0.channelIndex == 0 && $0.syntheticTick == 0 }; return false
+        }
+        XCTAssertEqual(targets.map(\.gainAfter), [0.5, 63 / 128])
         XCTAssertEqual(states.map(\.baseChannelVolume), [32, 32, 32])
         XCTAssertEqual(states.map(\.outputChannelVolume), [32, 63, 63])
     }

@@ -533,3 +533,27 @@ volumes 64/32/16, including a completed nonlooping source and an exact empty S02
 G13 closes seeded H00 replay. FT2's cold zero-memory target-refresh artifact is
 intentionally not emulated; this fixture makes no bit-perfect cold-H00 claim.
 Whole/window/runtime-core and canonical-host controls use both sample rates.
+
+## Global-volume channel-turn publication fixture
+
+`generated/global-volume-publication.xm` is 5,999 bytes, SHA-256
+`27861cb28fd0349cfb00b7157f3c3c4b4f5fe9fd5a299e0bddecff0a285939c9`.
+It has six channels, 42 rows at speed 6/BPM 125 and seven distinct mathematical
+PCM identities, including a flat volume envelope, a short completed source and
+an exact empty S02 route. The shared manifest is its sole generation input.
+
+- Rows 0...14 cover note-before-G10 birth/blank hold, repeated C40,
+  replacement-before-G00/C20 repair, volume-column 50, repeated G10,
+  Gxx-before-note and same-cell note+Gxx.
+- Rows 15...21 put notes before/between/after G20 then G10, preserving
+  `[1, 0.5, 0.25]` until real publications; H01/H00 retain G12/G13 behavior.
+- Rows 22...31 cover next-tick envelope refresh, completed/empty sources and
+  later-note inheritance without fabricated sources.
+- Rows 32...41 cover publications before/after replacement, inert cold H00,
+  notes around a channel-2 G10, blank hold and repeated C40.
+
+Both-rate tests distinguish canonical global, birth gain and generation-owned
+held targets, including real publication intent when calculated gain was already
+equal. Whole/window/runtime-core and host delivery use the same causal stream.
+Generic ramps, source onset, G31 arithmetic and full FT2 mix parity stay separate;
+reference WAVs and diagnostic artifacts remain external.

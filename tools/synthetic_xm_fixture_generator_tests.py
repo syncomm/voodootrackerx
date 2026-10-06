@@ -33,6 +33,7 @@ ALL_FIXTURES = [
     "volume-column-vibrato.xm",
     "global-volume-slide-timing.xm",
     "global-volume-slide-memory.xm",
+    "global-volume-publication.xm",
 ]
 
 
@@ -418,6 +419,30 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                          [(6, 0), (6, 2), (6, 0), (6, 0x20), (6, 0), (6, 0)])
         self.assertEqual([cells[(16, 0)], cells[(16, 1)], cells[(17, 0)]], [(6, 2), (15, 3), (6, 0)])
 
+    def test_global_volume_publication_fixture_pins_order_and_source_identities(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        fixture = next(f for f in manifest["fixtures"] if f["id"] == "global-volume-publication")
+        payload = generator.fixture_xm_bytes(manifest, fixture["name"])
+        self.assertEqual(hashlib.sha256(payload).hexdigest(),
+                         "27861cb28fd0349cfb00b7157f3c3c4b4f5fe9fd5a299e0bddecff0a285939c9")
+        module = fixture["module"]
+        self.assertEqual((module["channels"], module["speed"], module["bpm"]), (6, 6, 125))
+        self.assertEqual(module["patterns"][0]["rows"], 42)
+        instruments = module["instruments"]
+        self.assertEqual(len({i["samples"][0]["pcm_sha256"] for i in instruments}), 7)
+        self.assertTrue(instruments[5]["volume_envelope"]["enabled"])
+        self.assertEqual(instruments[6]["samples"][0]["pcm_recipe"]["frame_count"], 32)
+        self.assertEqual(instruments[0]["samples"][1]["pcm_recipe"]["frame_count"], 0)
+        cells = {(e["row"], e["channel"]): e for e in module["patterns"][0]["events"]}
+        self.assertEqual([cells[(16, ch)].get("instrument", 0) for ch in range(5)], [1, 0, 3, 0, 5])
+        self.assertEqual([cells[(16, ch)]["effect_parameter"] for ch in [1, 3]], [32, 16])
+        self.assertEqual(cells[(3, 0)]["effect_parameter"], 64)
+        self.assertEqual(cells[(8, 0)]["volume_column"], 80)
+        self.assertEqual(cells[(11, 1)]["effect_parameter"], 16)
+        self.assertEqual(cells[(4, 1)]["effect_parameter"], 0)
+        self.assertEqual(cells[(5, 0)]["effect_parameter"], 32)
+
     def test_declared_zero_payload_headers_are_unflagged_and_have_no_pcm(self):
         generator = load_module()
         manifest = generator.fixture_manifest()
@@ -544,6 +569,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "volume-column-vibrato.xm").resolve(),
                     (output_dir / "generated" / "global-volume-slide-timing.xm").resolve(),
                     (output_dir / "generated" / "global-volume-slide-memory.xm").resolve(),
+                    (output_dir / "generated" / "global-volume-publication.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -555,6 +581,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
                     "generated/fxx-timing.xm",
+                    "generated/global-volume-publication.xm",
                     "generated/global-volume-slide-memory.xm",
                     "generated/global-volume-slide-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
@@ -635,6 +662,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
                     "generated/fxx-timing.xm",
+                    "generated/global-volume-publication.xm",
                     "generated/global-volume-slide-memory.xm",
                     "generated/global-volume-slide-timing.xm",
                     "generated/instrument-envelopes-keymap.xm",
@@ -722,6 +750,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:volume-column-vibrato.xm": "generated/volume-column-vibrato.xm",
                     "xm:global-volume-slide-timing.xm": "generated/global-volume-slide-timing.xm",
                     "xm:global-volume-slide-memory.xm": "generated/global-volume-slide-memory.xm",
+                    "xm:global-volume-publication.xm": "generated/global-volume-publication.xm",
                 },
             )
 

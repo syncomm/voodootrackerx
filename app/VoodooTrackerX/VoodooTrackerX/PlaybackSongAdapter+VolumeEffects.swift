@@ -738,45 +738,8 @@ extension PlaybackSongSyntheticAdapter {
         let beforeGlobalVolume = globalVolumeState.volumeValue
         let afterGlobalVolume = clampedGlobalVolumeValue(Int(cell.effectParam))
         globalVolumeState.volumeValue = afterGlobalVolume
-        let diagnostics = channelStates.indices.compactMap { targetChannelIndex -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? in
-            let targetState = channelStates[targetChannelIndex]
-            guard targetState.activeEventIndex != nil,
-                  targetState.activeSampleVolume != nil else {
-                return nil
-            }
-            let gainBefore = targetState.activeSampleVolume.map { _ in
-                songGain(
-                    outputChannelVolume: targetState.outputChannelVolume,
-                    globalVolume: beforeGlobalVolume
-                )
-            }
-            let gainAfter = targetState.activeSampleVolume.map { _ in
-                songGain(
-                    outputChannelVolume: targetState.outputChannelVolume,
-                    globalVolume: afterGlobalVolume
-                )
-            }
-            guard gainBefore != gainAfter else {
-                return nil
-            }
-            return globalVolumeSetDiagnostic(
-                source: source,
-                sourceChannelIndex: sourceChannelIndex,
-                targetChannelIndex: targetChannelIndex,
-                syntheticRow: syntheticRow,
-                scheduledFrame: scheduledFrame,
-                cell: cell,
-                status: .applied,
-                channelState: targetState,
-                globalVolumeBefore: beforeGlobalVolume,
-                globalVolumeAfter: afterGlobalVolume,
-                activeVoiceUpdatedOverride: true
-            )
-        }
-        if !diagnostics.isEmpty {
-            return diagnostics
-        }
-
+        // Mutation is song-global; delivery is projected once per channel turn,
+        // after trigger identities and all writers at this frame are known.
         return [
             globalVolumeSetDiagnostic(
                 source: source,
@@ -943,11 +906,11 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
-    /// Projects Hxy's ordered canonical transitions into existing immutable gain publications.
+    /// Projects Gxx/Hxy canonical transitions into existing immutable gain publications.
     /// Held values are output targets by trigger identity, never channel-local global-volume state.
-    static func planHxyChannelTargets(timingPlan: PlaybackSongFxxTimingPlan, context: inout AdapterRowContext) {
+    static func planGlobalVolumeChannelTargets(timingPlan: PlaybackSongFxxTimingPlan, context: inout AdapterRowContext) {
         let original = context.voiceStateUpdates
-        guard let firstRow = original.first(where: { $0.effectType == 0x11 && $0.syntheticTick > 0 })?.syntheticRow else { return }
+        guard let firstRow = original.first(where: { $0.effectType == 0x10 || ($0.effectType == 0x11 && $0.syntheticTick > 0) })?.syntheticRow else { return }
         let updatesByRow = Dictionary(grouping: original.indices, by: { original[$0].syntheticRow })
         let controlsByRow = Dictionary(grouping: context.xmChannelRows, by: \.syntheticRow)
         struct Route { let frame: Int; let channel: Int; let event: Int? }
@@ -963,6 +926,7 @@ extension PlaybackSongSyntheticAdapter {
         let releases = Dictionary(grouping: context.keyOffEvents.filter(\.applied), by: { $0.scheduledFrame ?? -1 })
         let cuts = Dictionary(grouping: context.noteCutEffects.filter(\.applied), by: { $0.scheduledFrame ?? -1 })
         var active = [Int: Int](), heldGains = [Int: Float](), affected = Set<Int>(), released = Set<Int>()
+        var gxxAffected = Set<Int>()
         var routeCursor = 0
         // This is a read-only projection of canonical mutations, not a second arithmetic authority.
         var visibleGlobal = GlobalVolumeState.defaultValue
@@ -998,9 +962,10 @@ extension PlaybackSongSyntheticAdapter {
                 let turns = Dictionary(grouping: indices, by: { original[$0].channelIndex })
                 let hasH = indices.contains { if case .hxyGlobalVolumeSlide = original[$0].command { return original[$0].applied }; return false }
                 let hasG = indices.contains { if case .gxxSetGlobalVolume = original[$0].command { return original[$0].applied }; return false }
-                // An H row's tick-zero Gxx publication also follows channel turns.
-                // This does not change Gxx planning outside the H-owned surface.
+                // Keep G12/H00 target ownership, extending the same held-state
+                // contract to G-only generations without creating another global.
                 if hasH || (tick == 0 && rowHasH) { affected.formUnion(active.values) }
+                if hasG { gxxAffected.formUnion(active.values) }
                 for rowControl in rowControls {
                     let channel = rowControl.channelIndex
                     var state = controls[channel] ?? rowControl.controls
@@ -1011,14 +976,14 @@ extension PlaybackSongSyntheticAdapter {
                         case .gxxSetGlobalVolume, .hxyGlobalVolumeSlide:
                             if update.applied, let value = update.globalVolumeAfter { visibleGlobal = value }
                         default:
-                            if update.applied, hxyVolumeWriter(update.command) {
+                            if update.applied, isVolumePublicationWriter(update.command) {
                                 if let output = update.effectiveVolumeAfter { state.outputChannelVolume = output }
                                 localVolumePublication = true
                             }
                         }
                         var retained = update
                         if let event = update.activeEventIndex {
-                            if affected.contains(event) {
+                            if affected.contains(event) || gxxAffected.contains(event) {
                                 // Keep typed writer/quick-volume intent and pan metadata, but let
                                 // the channel-turn snapshot own this frame's scalar gain once.
                                 retained.gainBefore = nil; retained.gainAfter = nil
@@ -1029,12 +994,14 @@ extension PlaybackSongSyntheticAdapter {
                         if row >= firstRow { result.append(retained) }
                     }
                     controls[channel] = state
-                    guard let event = active[channel], affected.contains(event),
+                    guard let event = active[channel], affected.contains(event) || gxxAffected.contains(event),
                           hasH || hasG || localVolumePublication || context.events[event].volumeEnvelope != nil || released.contains(event) else { continue }
                     state.activeEventIndex = event
                     state.activeSampleVolume = sampleVolumes[event]
-                    var target = hxyChannelTarget(source: timing.source, channel: channel, row: row, tick: tick,
-                        frame: frame, state: state, globalVolume: visibleGlobal)
+                    var target = globalVolumeChannelTarget(source: timing.source, channel: channel, row: row, tick: tick,
+                        frame: frame, state: state, globalVolume: visibleGlobal,
+                        gxxReason: affected.contains(event) ? nil : hasG ? "global_volume_set" :
+                            localVolumePublication ? "local_volume_writer" : "envelope_or_release_tick")
                     target.gainBefore = heldGains[event] ?? context.events[event].gain
                     heldGains[event] = target.gainAfter
                     result.append(target)
@@ -1047,12 +1014,13 @@ extension PlaybackSongSyntheticAdapter {
         if let last = timingPlan.rowTimings.last {
             let row = last.syntheticRow + 1
             for channel in active.keys.sorted() {
-                guard let event = active[channel], affected.contains(event),
+                guard let event = active[channel], affected.contains(event) || gxxAffected.contains(event),
                       context.events[event].volumeEnvelope != nil || released.contains(event),
                       var state = lastControls[channel] else { continue }
                 state.activeEventIndex = event; state.activeSampleVolume = sampleVolumes[event]
-                var target = hxyChannelTarget(source: last.source, channel: channel, row: row, tick: 0,
-                    frame: timingPlan.frameFor(row: row), state: state, globalVolume: visibleGlobal)
+                var target = globalVolumeChannelTarget(source: last.source, channel: channel, row: row, tick: 0,
+                    frame: timingPlan.frameFor(row: row), state: state, globalVolume: visibleGlobal,
+                    gxxReason: affected.contains(event) ? nil : "envelope_or_release_tick")
                 target.gainBefore = heldGains[event] ?? context.events[event].gain
                 result.append(target)
             }
@@ -1060,7 +1028,7 @@ extension PlaybackSongSyntheticAdapter {
         context.voiceStateUpdates = result
     }
 
-    private static func hxyVolumeWriter(_ command: PlaybackSongSyntheticVoiceStateUpdateCommand) -> Bool {
+    private static func isVolumePublicationWriter(_ command: PlaybackSongSyntheticVoiceStateUpdateCommand) -> Bool {
         switch command {
         case .instrumentDefaultVolume, .cxxSetVolume, .keyOffWithoutEnvelope, .axyVolumeSlide,
              .eaxFineVolumeSlideUp, .ebxFineVolumeSlideDown, .effect5xyVolumeSlide, .effect6xyVolumeSlide, .tremolo:
@@ -1074,11 +1042,11 @@ extension PlaybackSongSyntheticAdapter {
         }
     }
 
-    private static func hxyChannelTarget(source: PlaybackPosition, channel: Int, row: Int, tick: Int,
-        frame: Int, state: ChannelState, globalVolume: Int) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
+    private static func globalVolumeChannelTarget(source: PlaybackPosition, channel: Int, row: Int, tick: Int,
+        frame: Int, state: ChannelState, globalVolume: Int, gxxReason: String? = nil) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
         voiceStateUpdateDiagnostic(source: source, channelIndex: channel, syntheticRow: row, syntheticTick: tick,
             scheduledFrame: frame, cell: PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
-            commandSource: .effectColumn, command: .hxyChannelTarget(globalVolume: globalVolume),
+            commandSource: .effectColumn, command: gxxReason.map { .gxxChannelTarget(globalVolume: globalVolume, reason: $0) } ?? .hxyChannelTarget(globalVolume: globalVolume),
             // Snapshots also refresh at tick zero; their explicit frame owns timing.
             rawVolumeColumn: nil, effectType: nil, effectParam: nil, status: .applied, behavior: nil,
             channelStateBefore: state, channelStateAfter: state, globalVolumeBefore: globalVolume,

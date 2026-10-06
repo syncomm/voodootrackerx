@@ -653,6 +653,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             case .gxxSetGlobalVolume:
                 categories.append("gxx_global_volume_update")
                 categories.append("global_volume_update")
+            case let .gxxChannelTarget(_, reason):
+                categories.append("gxx_channel_target")
+                categories.append("global_volume_update")
+                if reason == "global_volume_set" { categories.append("gxx_global_volume_update") }
             case .hxyGlobalVolumeSlide:
                 categories.append("hxy_global_volume_update")
                 categories.append("global_volume_update")

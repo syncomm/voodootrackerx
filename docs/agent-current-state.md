@@ -92,6 +92,11 @@ host.
   zero initializes/restores silent channel state without invalidating the route.
   Empty/unrepresented routes remain source-less. Direct editor preview retains
   its existing availability and header/headroom policy.
+- Gxx fresh notes capture the global volume visible at their channel turn;
+  later same-tick writers do not backfill earlier birth/held targets. Real later
+  volume publications compare against the source generation's held target,
+  including repeated C40/Gxx and G00 repair. Whole/window/runtime delivery uses
+  the same causal events; plain holds and envelope tick refresh remain distinct.
 - Nonzero Hxy mutates one song-global volume on ticks `1..<effectiveSpeed` in
   channel order. Explicit channel-turn gain targets can differ and plain targets
   remain held until a volume publication. Volume envelopes/release refresh each

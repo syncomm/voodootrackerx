@@ -5835,15 +5835,591 @@
         "0...3: source-less Hxy with F01/F03/F06; row 4 notes inherit final global state.",
         "5...9: opposed, same-direction and three H writers with channels before/between/after them.",
         "10...16: local/Gxx publications, envelope source, lower/upper clamps and H12 upper-nibble precedence.",
-        "17...21: H00 remains deferred, released/fadeout voice, late H writer, forced envelope refresh and later note."
+        "17...21: H00 replays H12 memory, released/fadeout voice, late H writer, forced envelope refresh and later note."
       ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
-        "H00 replay remains G13; no generic ramp, onset, pan-law or envelope-arithmetic closure."
+        "G13 adds H00 replay; no generic ramp, onset, pan-law or envelope-arithmetic closure."
       ],
       "xm_output": "generated/global-volume-slide-timing.xm",
       "xm_sha256": "4297ac913447883d0f140cbcaeb928e6b7d1080d80216619a35d1c5b6486be61",
       "xm_size_bytes": 3254
+    },
+    {
+      "id": "global-volume-slide-memory",
+      "intended_tests": [
+        "cold H00 retains held targets without publication",
+        "whole-byte replay and independent ascending channel turns",
+        "F01 memory gate and F03/F06 replay scheduling",
+        "source-less, completed and empty-route replay across order/window boundaries",
+        "seeded clamp replay through existing G12 snapshots"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 3,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC H00 I1",
+            "note_sample_map": [
+              {
+                "end_note": 49,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 50,
+                "sample": 1,
+                "start_note": 50
+              },
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 51
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC H00 S01",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "ca6a786f61898c464e7b96528294d5b21d03d044b1ef44b10f494ba9731a5cd2",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC EMPTY S02",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 0
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC H00 I2",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC H00 S01",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 32,
+                  "period_frames": 16,
+                  "waveform": "pulse"
+                },
+                "pcm_sha256": "7785bb3a19b25542bde42bf3e681cbe3c0ddc986f047b9323c73362af63fd007",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC H00 I3",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC H00 S01",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "cae21393f8ec176e125faa194b4dd6ea44fbeb9de5cf0536e21cf8eb2913288d",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 16
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0,
+          1
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 16,
+                "instrument": 1,
+                "note": 49,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 2,
+                "note": 49,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 3,
+                "note": 49,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 6,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 18,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 7,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 33,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 7,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 1,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 11,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 11,
+                "volume_column": 0
+              }
+            ],
+            "rows": 12
+          },
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 50,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 97,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 2,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 64,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 6,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 16,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 7,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 2,
+                "effect_parameter": 32,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 17,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 11,
+                "volume_column": 0
+              }
+            ],
+            "rows": 12
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX H00 MEMORY",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "global-volume-slide-memory.xm",
+      "purpose": "G13 whole-byte channel-local Hxy memory, seeded H00 replay through G12 and intentional cold-H00 no-publication policy.",
+      "significant_rows": [
+        "0...2: source-less H01 seed and H00 replay before notes inherit canonical state.",
+        "3...6: H01 on channel 1 leaves an earlier held target; cold H00 on channel 2 does not refresh it.",
+        "7...11: H12/H21 seeds, independent H00 writers, F01 does not replace memory; F03/F06 replay.",
+        "12...15: order boundary preserves memory; empty route, key-off and instrument-only state do not clear it.",
+        "16...23: H01/H00 at zero and H10/H00 at 64 remain resolved commands; later notes inherit canonical state."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "FT2 cold zero-memory target-refresh artifact is intentionally not emulated; no cold-H00 bit-perfect claim."
+      ],
+      "xm_output": "generated/global-volume-slide-memory.xm",
+      "xm_sha256": "4ad3e67e1658d070ca731e58ddb0c978572717cc27d9614a597e5b80045580ee",
+      "xm_size_bytes": 2522
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

@@ -730,8 +730,13 @@ snapshots. Runtime gain events carry `hxy_channel_target` and
 `global_volume_update`, with existing identity/frame/gain fields. Unchanged
 targets produce no gain event. The JSON summary distinguishes
 `hxy_channel_target_count` from `hxy_channel_target_gain_update_count`;
-mutation counts do not imply all-voice gain fanout. H00 remains an ignored
-no-op diagnostic for G13. All snapshots are planned in Swift.
+mutation counts do not imply all-voice gain fanout. G13 seeded H00 uses the
+same nonzero-tick diagnostics and targets, with `effect_memory_reused`,
+`memory_source` provenance and `global_volume_slide_resolved_parameter`
+retaining the whole byte, including both nibbles. Cold H00 has one ignored
+no-op diagnostic with missing memory and no audio publication. FT2's cold
+zero-memory target-refresh artifact is intentionally not emulated. All
+snapshots are planned in Swift; global volume remains song-global.
 
 If the plan is unavailable, the runtime trace reports the fallback and the C
 mixer continues through the simpler runtime event bridge.

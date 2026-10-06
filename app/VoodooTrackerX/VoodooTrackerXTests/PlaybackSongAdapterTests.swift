@@ -8208,7 +8208,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertFalse(result.diagnostics.deferredCellFields.contains { $0.effectType == 0x10 })
     }
 
-    func testPlaybackSongAdapterHxyClampsAndDiagnosesNoOpAndBothNibblePolicy() throws {
+    func testPlaybackSongAdapterHxyClampsAndDiagnosesMemoryAndBothNibblePolicy() throws {
         let rows = [
             makePlaybackRow(index: 0, effectType: 0x11, effectParam: 0x10),
             makePlaybackRow(index: 1, effectType: 0x11, effectParam: 0x00),
@@ -8241,9 +8241,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(maxClamp.globalVolumeBefore, 64)
         XCTAssertEqual(maxClamp.globalVolumeAfter, 64)
         XCTAssertEqual(maxClamp.globalVolumeSlideClamped, true)
-        XCTAssertTrue(h00.ignoredAsNoOp)
-        XCTAssertEqual(h00.globalVolumeSlideDirection, PlaybackSongSyntheticGlobalVolumeSlideDirection.none)
-        XCTAssertEqual(h00.globalVolumeSlidePolicy, "h00_no_effect_memory_no_op")
+        XCTAssertTrue(h00.applied)
+        XCTAssertTrue(h00.effectMemoryReused)
+        XCTAssertEqual(h00.globalVolumeSlideDirection, .up)
+        XCTAssertEqual(h00.globalVolumeSlideResolvedParameter, 0x10)
+        XCTAssertEqual(h00.globalVolumeSlideClamped, true)
         XCTAssertTrue(bothNibble.applied)
         XCTAssertEqual(bothNibble.globalVolumeBefore, 64)
         XCTAssertEqual(bothNibble.globalVolumeAfter, 64)

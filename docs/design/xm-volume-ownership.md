@@ -11,7 +11,8 @@ Effect statuses remain owned by [XM effect support](../xm-effect-support.md).
 | `baseChannelVolume` | Integer `0...64`; persistent, channel-local; initially 64 | Instrument/default-volume paths, `Cxx`, volume-column volume/slides, `Axy`, `EAx`/`EBx`, `5xy`/`6xy` volume components, and `Rxy` volume modes write the base. No-envelope key-off zeros it. Each retains its timing, memory, and clamp policy. |
 | `outputChannelVolume` | Integer `0...64`; channel-local output retained between writes | Follows each base write. `7xy` writes output independently; empty rows retain it. Trigger and active-voice gain construction consume output. |
 | `PlaybackSample.volume` / `activeSampleVolume` | Header `0...64` normalized to Float `0...1`; immutable sample metadata plus channel-local active selection | The header initializes/restores cached channel defaults. Active metadata also retains represented-source availability; it is never a second song-gain multiplier. |
-| Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` sets at tick zero; nonzero `Hxy` mutates on ticks `1..<effectiveSpeed` in channel order. Gain publications capture the global value visible at that channel's turn. Future triggers use the final canonical value. |
+| Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` sets at tick zero; resolved nonzero `Hxy`/`H00` mutates on ticks `1..<effectiveSpeed` in channel order. Gain publications capture the global value visible at that channel's turn. Future triggers use the final canonical value. |
+| Hxy memory | Optional whole nonzero byte and provenance; independent per tracker channel; initially absent | Executed nonzero Hxy establishes it; H00 recalls it without writing zero. F01 does not seed or replace it. Independent of shared Axy/5xy/6xy memory and song-global volume. |
 | Volume envelope | Point values `0...64` normalized to `0...1`; channel-local progression, projected to a live source when present | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
 | Fadeout | Channel-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
 | Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `songGain` consumes output volume once with global volume. Managed XM envelope/release voices combine it with semantic factors in one final-output target; generic voices retain existing gain/pan ramps. |
@@ -423,7 +424,8 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   output; instrument-only K00 follows the cached-default/release ordering above.
 - Initial missing-memory `A00`, `EA0`/`EB0`, `R00`, and other deferred cases
   retain their documented status. G09 closes column panning-slide timing;
-  G12 closes nonzero Hxy timing and channel-turn publication; H00 remains G13.
+  G12 closes nonzero Hxy timing and channel-turn publication; G13 closes H00
+  memory with the cold artifact excluded below.
 
 ## Hxy channel-turn gain publication (G12)
 
@@ -448,7 +450,41 @@ Cxx, volume-column volume, and Gxx publish at their channel turns. Volume
 envelopes and released voices refresh each tick, so an earlier channel sees the
 previous tick's final state on its next turn. Window history retains these
 publications and their existing ramp progress. No callback interprets Hxy.
-H00 remains the established deferred no-op; G13 owns replay memory.
+Seeded H00 follows this same G12 publication contract.
+
+## H00 effect-memory replay (G13)
+
+H00 effect-memory replay is **CLOSED**. Each tracker channel owns an optional
+nonzero Hxy byte and its source provenance, independently of Axy/5xy/6xy.
+H01/H10/H12/H21 retain exactly `01`/`10`/`12`/`21`; replay resolves the whole
+byte before applying upper-nibble precedence. H00 never overwrites it with zero.
+Memory is established only when the row executes nonzero ticks: F01 neither
+seeds a cold channel nor replaces prior memory. F01/F03/F06 replay executes
+0/2/5 times. Notes, instruments, key-off, blank rows, pattern/order changes,
+empty routes and completed sources preserve memory; a fresh song plan initializes
+it absent. Window reconstruction retains the already-planned transitions.
+
+A seeded H00, including H01 at global zero or H10 at 64, uses G12's existing
+ascending channel turns, clamp and target publications. There is still exactly
+one song-global volume, no per-channel global value and no additional gain stage.
+Starting at 32, H01 then H00 ends at 27 then 22; H10/H12 ends at 37 then 42;
+H21 ends at 42 then 52.
+
+The explicit compatibility decision classifies whole-byte channel-local replay
+as **A: intended semantics**, and FT2's cold zero-memory target refresh as
+**C: implementation artifact**. The latter is **INTENTIONALLY NOT EMULATED**,
+a known reference difference. Cold H00 is a true no-op with no audio publication.
+In the public counterexample, channel 1 H01 takes canonical 32 to 27 while an
+earlier plain channel holds 28/64. A later cold H00 on channel 0 or 2 leaves
+canonical 27 and held 28/64, with PCM identical to a blank command. Pinned FT2
+instead refreshes that held target to 27/64 through its unconditional zero-amount
+volume flag. No bit-perfect cold-H00 parity is claimed.
+
+The [pinned H handler](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2068-L2097)
+is behavioral evidence only. Project-authored tests/fixtures cover whole-byte
+resolution, independence, mixed cold/seeded turns, Fxx, lifetime, Gxx, clamp
+replay and whole/window/runtime parity at 44.1/48 kHz. G12 remains authoritative;
+this contract changes no envelope arithmetic, DSP, host or callback behavior.
 
 ## Maintainer smoke
 

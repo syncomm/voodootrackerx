@@ -845,7 +845,9 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         let beforeGlobalVolume = globalVolumeState.volumeValue
-        let slide = globalVolumeSlidePlan(effectParam: cell.effectParam)
+        let channelState = channelStates.indices.contains(sourceChannelIndex) ? channelStates[sourceChannelIndex] : ChannelState()
+        let resolvedParameter = cell.effectParam != 0 ? cell.effectParam : channelState.globalVolumeSlideMemory?.parameter ?? 0
+        let slide = globalVolumeSlidePlan(effectParam: resolvedParameter)
         guard slide.amount > 0 else {
             return [
                 globalVolumeSlideDiagnostic(
@@ -858,7 +860,7 @@ extension PlaybackSongSyntheticAdapter {
                     cell: cell,
                     status: .ignoredNoOp,
                     slide: slide,
-                    channelState: channelStates.indices.contains(sourceChannelIndex) ? channelStates[sourceChannelIndex] : ChannelState(),
+                    channelState: channelState,
                     globalVolumeBefore: beforeGlobalVolume,
                     globalVolumeAfter: beforeGlobalVolume,
                     clamped: false,
@@ -882,7 +884,7 @@ extension PlaybackSongSyntheticAdapter {
                 cell: cell,
                 status: .applied,
                 slide: slide,
-                channelState: channelStates.indices.contains(sourceChannelIndex) ? channelStates[sourceChannelIndex] : ChannelState(),
+                channelState: channelState,
                 globalVolumeBefore: beforeGlobalVolume,
                 globalVolumeAfter: afterGlobalVolume,
                 clamped: clamped,
@@ -932,6 +934,11 @@ extension PlaybackSongSyntheticAdapter {
             globalVolumeSlideClamped: clamped,
             globalVolumeSlideBothNibblesNonzero: slide.bothNibblesNonzero,
             globalVolumeSlidePolicy: slide.policy,
+            globalVolumeSlideResolvedParameter: cell.effectParam != 0 ? cell.effectParam : channelState.globalVolumeSlideMemory?.parameter ?? 0,
+            effectMemoryReused: cell.effectParam == 0 && channelState.globalVolumeSlideMemory != nil,
+            effectMemoryMissing: cell.effectParam == 0 && channelState.globalVolumeSlideMemory == nil,
+            memorySource: channelState.globalVolumeSlideMemory?.source,
+            memoryUnavailableReason: cell.effectParam == 0 && channelState.globalVolumeSlideMemory == nil ? "h00_unseeded_channel_true_no_op" : nil,
             activeVoiceUpdatedOverride: activeVoiceUpdatedOverride
         )
     }
@@ -1198,6 +1205,7 @@ extension PlaybackSongSyntheticAdapter {
         globalVolumeSlideClamped: Bool? = nil,
         globalVolumeSlideBothNibblesNonzero: Bool? = nil,
         globalVolumeSlidePolicy: String? = nil,
+        globalVolumeSlideResolvedParameter: UInt8? = nil,
         volumeSlide: VolumeSlideAmounts? = nil,
         volumeSlideClamped: Bool? = nil,
         volumeSlideTick0Suppressed: Bool? = nil,
@@ -1266,6 +1274,7 @@ extension PlaybackSongSyntheticAdapter {
             globalVolumeSlideClamped: globalVolumeSlideClamped,
             globalVolumeSlideBothNibblesNonzero: globalVolumeSlideBothNibblesNonzero,
             globalVolumeSlidePolicy: globalVolumeSlidePolicy,
+            globalVolumeSlideResolvedParameter: globalVolumeSlideResolvedParameter,
             volumeSlideRawUpNibble: volumeSlide?.rawUpNibble,
             volumeSlideRawDownNibble: volumeSlide?.rawDownNibble,
             volumeSlideBothNibblesNonzero: volumeSlide?.bothNibblesNonzero,

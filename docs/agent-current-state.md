@@ -96,7 +96,10 @@ host.
   channel order. Explicit channel-turn gain targets can differ and plain targets
   remain held until a volume publication. Volume envelopes/release refresh each
   tick; later notes inherit final canonical state. Runtime/offline/window paths
-  share these targets. G12 is bounded to this contract; G13 H00 remains open.
+  share these targets. G12 remains authoritative for resolved Hxy/H00.
+  G13 H00 effect-memory replay is closed: independent channel-local whole-byte
+  memory, established only by executed nonzero ticks. Cold H00 is a true no-op;
+  FT2's zero-memory target-refresh artifact is intentionally not emulated.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

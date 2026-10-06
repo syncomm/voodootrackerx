@@ -3,22 +3,17 @@ import Foundation
 import XCTest
 
 final class GlobalVolumeSlideTimingTests: XCTestCase {
-    func testPinnedNonzeroTickArithmeticSpeedsClampsAndH00AtBothRates() {
+    func testPinnedNonzeroTickArithmeticSpeedsAndClampsAtBothRates() {
         for rate in [44_100.0, 48_000] {
             for speed in [1, 3, 6] {
                 for (param, delta): (UInt8, Int) in [(1, -1), (0x10, 1), (0x12, 1)] {
                     let plan = adapt(song([[c(note: 49, instrument: 1, effect: 16, param: 32)],
-                        [c(effect: 17, param: param)], [c(effect: 17)], [c()]], speed: speed), rate)
+                        [c(effect: 17, param: param)], [c()], [c()]], speed: speed), rate)
                     let mutations = slides(plan)
                     XCTAssertEqual(mutations.map(\.syntheticTick), Array(1..<speed))
                     XCTAssertEqual(mutations.map(\.globalVolumeAfter), (1..<speed).map { 32 + $0 * delta })
                     XCTAssertEqual(mutations.map(\.scheduledFrame), (1..<speed).map { (speed + $0) * Int(rate / 50) })
                     XCTAssertTrue(mutations.allSatisfy { $0.behavior == .tickLevelAfterTick0 && !$0.activeVoiceUpdated })
-                    let zero = plan.diagnostics.voiceStateUpdates.filter { $0.effectType == 17 && $0.effectParam == 0 }
-                    XCTAssertEqual(zero.count, 1)
-                    XCTAssertTrue(zero[0].ignoredAsNoOp)
-                    XCTAssertEqual(zero[0].globalVolumeBefore, 32 + (speed - 1) * delta)
-                    XCTAssertEqual(zero[0].globalVolumeSlidePolicy, "h00_no_effect_memory_no_op")
                     XCTAssertTrue(targets(plan).filter { $0.syntheticRow == 2 }.isEmpty)
                 }
             }
@@ -153,8 +148,9 @@ final class GlobalVolumeSlideTimingTests: XCTestCase {
             XCTAssertEqual(slides(plan).filter { $0.syntheticRow == 9 }.last?.globalVolumeAfter, 17)
             XCTAssertEqual(targets(plan).filter { $0.syntheticRow == 10 && $0.syntheticTick == 0 }.map(\.globalVolumeAfter), [17, 17, 17, 17, 32])
             XCTAssertEqual(slides(plan).filter { $0.syntheticRow == 16 }.map(\.globalVolumeAfter), [33, 34, 35, 36, 37])
-            XCTAssertTrue(plan.diagnostics.voiceStateUpdates.first { $0.syntheticRow == 17 && $0.effectType == 17 }?.ignoredAsNoOp == true)
-            XCTAssertEqual(plan.diagnostics.eventMappings.last?.effectiveGlobalVolumeValue, 32)
+            XCTAssertEqual(slides(plan).filter { $0.syntheticRow == 17 }.map(\.globalVolumeAfter), [38, 39, 40, 41, 42])
+            XCTAssertTrue(slides(plan).filter { $0.syntheticRow == 17 }.allSatisfy(\.effectMemoryReused))
+            XCTAssertEqual(plan.diagnostics.eventMappings.last?.effectiveGlobalVolumeValue, 37)
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: module, sampleRate: rate)
             let end = try XCTUnwrap(runtime.plannedSongEndFrame)
             let renderer = PlaybackSongOfflineRenderer()
@@ -174,7 +170,7 @@ final class GlobalVolumeSlideTimingTests: XCTestCase {
     }
 
     private func slides(_ plan: PlaybackSongSyntheticPlan) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
-        plan.diagnostics.voiceStateUpdates.filter { $0.effectType == 17 && $0.effectParam != 0 }
+        plan.diagnostics.voiceStateUpdates.filter { $0.effectType == 17 && $0.applied }
     }
     private func targets(_ plan: PlaybackSongSyntheticPlan) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         plan.diagnostics.voiceStateUpdates.filter { if case .hxyChannelTarget = $0.command { return true }; return false }

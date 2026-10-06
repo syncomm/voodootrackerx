@@ -1897,7 +1897,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
             "Minimal Gxx set-global-volume commands are row-level bounded offline adapter updates that clamp the XM global volume value to 0...64.",
-            "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",
+            "Hxy and seeded H00 execute on ticks 1..<speed in ascending channel turns with held gain targets. Hxy memory is channel-local and whole-byte; global volume is song-global. Cold H00 is a true no-op: FT2's zero-memory target-refresh artifact is intentionally not emulated. Mixed nibbles retain upper-nibble precedence.",
             "Focused traversal planning applies Dxx pattern break, Bxx position jump, and E6x pattern loop in the Swift adapter path; EEx pattern delay remains deferred.",
             "Dxx row targets use XM BCD decoding; invalid BCD targets are diagnosed and clamped safely.",
             "When Bxx and Dxx share a row, Bxx selects the target order and Dxx supplies the target row.",
@@ -4105,6 +4105,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         put(update.globalVolumeSlideClamped, forKey: "global_volume_slide_clamped", into: &object)
         put(update.globalVolumeSlideBothNibblesNonzero, forKey: "global_volume_slide_both_nibbles_nonzero", into: &object)
         put(update.globalVolumeSlidePolicy, forKey: "global_volume_slide_policy", into: &object)
+        put(update.globalVolumeSlideResolvedParameter.map { Int($0) }, forKey: "global_volume_slide_resolved_parameter", into: &object)
         put(update.gainBefore.map { Double($0) }, forKey: "gain_before", into: &object)
         put(update.gainAfter.map { Double($0) }, forKey: "gain_after", into: &object)
         put(update.panBefore.map { Double($0) }, forKey: "pan_before", into: &object)

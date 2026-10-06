@@ -4536,13 +4536,23 @@ final class RuntimeCMixerTests: XCTestCase {
 
     @MainActor
     func testHxyChannelTurnTargetsHaveExactRuntimeFramesAndPCMAtBothRates() throws {
-        let fixture = try referenceXMFixtureURL("generated/global-volume-slide-timing.xm")
+        try assertGlobalVolumeSlideRuntimeParity(fixtureName: "global-volume-slide-timing.xm")
+    }
+
+    @MainActor
+    func testH00MemoryReplayHasExactRuntimeFramesAndPCMAtBothRates() throws {
+        try assertGlobalVolumeSlideRuntimeParity(fixtureName: "global-volume-slide-memory.xm")
+    }
+
+    @MainActor
+    private func assertGlobalVolumeSlideRuntimeParity(fixtureName: String) throws {
+        let fixture = try referenceXMFixtureURL("generated/" + fixtureName)
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
         for rate in [44_100.0, 48_000] {
             let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
             let end = try XCTUnwrap(runtime.plannedSongEndFrame)
-            let offline = PlaybackSongOfflineRenderer().render(.init(song: song, config: config, frames: end))
+            let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             let planned = runtime.events.filter { $0.categories.contains("hxy_channel_target") }
             XCTAssertFalse(planned.isEmpty)
@@ -4572,8 +4582,53 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
                 XCTAssertEqual(actual.gainAfter, gain)
             }
-            let late = planned.filter { $0.source.rowIndex == 19 && $0.syntheticTick == 1 }
+            let targetIDs = Set(planned.map(\.id))
+            let deliveredTargets = harness.traceWriter.events.filter { targetIDs.contains($0.plannedEventID ?? -1) && $0.eventAppliedFrame != nil }
+            XCTAssertEqual(deliveredTargets.map(\.plannedEventID), planned.map { Optional($0.id) })
+            let late = planned.filter { $0.source.rowIndex == (fixtureName == "global-volume-slide-timing.xm" ? 19 : 0) &&
+                $0.source.orderIndex == (fixtureName == "global-volume-slide-timing.xm" ? 0 : 1) && $0.syntheticTick == 1 }
+            XCTAssertFalse(late.isEmpty)
             XCTAssertEqual(late.map(\.channelIndex), late.map(\.channelIndex).sorted())
+        }
+    }
+
+    @MainActor
+    func testColdH00HeldTargetProducesIdenticalRuntimeScheduleAndPCMToBlank() throws {
+        let fixture = try referenceXMFixtureURL("generated/global-volume-slide-memory.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        var patterns = song.patternsByIndex
+        let pattern = try XCTUnwrap(patterns[0])
+        var rows = pattern.rows
+        var cells = rows[6].cells
+        XCTAssertEqual(cells[2].effectType, 17)
+        XCTAssertEqual(cells[2].effectParam, 0)
+        cells[2] = .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
+        rows[6] = .init(index: 6, cells: cells)
+        patterns[0] = .init(index: 0, rows: rows)
+        let blank = PlaybackSong(title: song.title, orders: song.orders, patternsByIndex: patterns,
+            instrumentsByIndex: song.instrumentsByIndex, restartOrderIndex: song.restartOrderIndex,
+            endBehavior: song.endBehavior, initialTiming: song.initialTiming, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+            xmSampleSlotProvenanceByInstrument: song.xmSampleSlotProvenanceByInstrument)
+        for rate in [44_100.0, 48_000] {
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let control = RuntimeCMixerAdapterEventPlan.make(song: blank, sampleRate: rate)
+            XCTAssertEqual(runtime.events, control.events)
+            let plan = try XCTUnwrap(runtime.plan)
+            XCTAssertTrue(plan.diagnostics.voiceStateUpdates.filter { $0.syntheticRow == 6 }.allSatisfy { !$0.activeVoiceUpdated })
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            let cores = [runtime, control].map { plan -> RuntimeCMixerRenderCore in
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(plan.events, runtimeFrameOffset: 0)
+                return core
+            }
+            let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+            var rendered = 0
+            while rendered < end {
+                let count = min(4093, end - rendered)
+                XCTAssertTrue(renderRuntimePCM(cores[0], frames: count) == renderRuntimePCM(cores[1], frames: count))
+                rendered += count
+            }
         }
     }
 

@@ -380,7 +380,7 @@ extension PlaybackSongSyntheticAdapter {
             let depth = Int(cell.effectParam & 0x0F)
             return cell.effectParam == 0 || speed == 0 || depth == 0 ? .ignoredNoOp : .applied
         case 0x06:
-            return resolved6xyVolumeSlide(from: cell, rowSpeed: timingConfig.speed, channelState: channelState).amount > 0
+            return timingConfig.speed > 1 || resolved6xyVolumeSlide(from: cell, rowSpeed: timingConfig.speed, channelState: channelState).amount > 0
                 ? .applied : .ignoredNoOp
         case 0x01...0x02:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied

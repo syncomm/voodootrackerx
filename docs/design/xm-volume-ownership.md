@@ -530,8 +530,22 @@ or calculated gain is unchanged, and identical targets deduplicate.
 Silent routes restore persistent output for later explicit note-only inheritance
 without PCM fabrication or source resurrection. `ColdA00Tests` and the public
 fixture cover rates, speed/Fxx, resets, envelopes, shared seeds and generations.
-Cold H00 remains a true no-op under G13. Cold 500 and the separate cold-600
-numeric-no-op target-refresh difference are outside G14.
+Cold H00 remains a true no-op under G13. Cold 500 remains G15; cold 600's
+separate publication completion is below.
+
+## Cold 600 local publication
+
+The established `600` zero-slide half assigns base to output on ticks
+`1..<effectiveSpeed` and declares local volume-publication intent even when
+both values are numerically unchanged. The existing causal path compares the
+composed base/global/envelope/fadeout target with the eligible source generation's
+held target: base/output 64 and global 16 refresh held 1 to .25 at tick 1.
+Identical targets deduplicate. Numeric 63→32 restoration retains its tick/target.
+Absent A/5/6 memory stays absent; real whole-byte seeds and their origins survive.
+Vibrato speed/depth/phase/E4, column interaction and Linear/Amiga pitch remain
+independent. Silent/completed routes cannot fabricate or revive sources.
+`Cold600Tests` pin speed/Fxx, source identity, envelope/fadeout and window carry.
+G14 cold A00, inert cold H00, cold 500/G15 and G31 arithmetic are unchanged.
 
 ## Maintainer smoke
 

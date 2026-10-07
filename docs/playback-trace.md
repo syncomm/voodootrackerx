@@ -139,7 +139,7 @@ Base arithmetic stays unchanged while output before/after records restoration.
 Existing source/channel/tick/frame, gain fields and generation identity expose
 delivery; Gxx-affected generations use `publication_reason: local_volume_writer`
 and held gain before/after. Applied/no-op A00 counts measure execution rather
-than memory reuse. The schema is unchanged; cold 500/600 and H00 stay separate.
+than memory reuse. The schema is unchanged; cold 500 and H00 stay separate.
 Same-cell `6xy` note triggers keep effect metadata without a tick-zero slide.
 `6xy`/`600` apply vibrato then the shared volume slide on ticks `1..<speed`;
 `600` replays the last same-channel nonzero
@@ -154,6 +154,13 @@ with runtime `gain_pan_update` or same-cell trigger application fields
 (`plannedEventFrame`, `eventAppliedFrame`, `plannedVsAppliedDelta`). Successful
 replays carry `vibrato_volume_slide_600_memory_reused`, without a deferred/no-op
 classification. This changes no trace schema.
+Cold `600` zero-slide updates report `effect_type: 6`, `effect_param: 0`, zero
+slide amount, `applied: true` on nonzero ticks, absent `memory_source`, and false
+memory-reused/missing/deferred flags. Gxx-affected generations expose
+`publication_reason: local_volume_writer` with held gain before/after; a stale
+1→.25 target refresh is visible even with unchanged local base/output. Equal
+held targets emit no duplicate gain event. Join the unchanged vibrato diagnostics
+and source/tick/frame/generation fields to verify both halves and delivery.
 Vibrato speed/depth start at zero; an unseeded `400` or `6xy` consumes that
 valid zero state without a missing-memory diagnostic. Nonzero `4xy` nibbles
 update their independent memory on nonzero ticks; `400`, `40y`, and `4x0`

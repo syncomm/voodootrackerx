@@ -493,19 +493,20 @@ extension PlaybackSongSyntheticAdapter {
             let unclamped = before.baseChannelVolume + slide.up - slide.down
             channelState.baseChannelVolume = clampedVolumeValue(unclamped)
             if slide.amount > 0 { channelState.volumeValueZeroedByAxy = false }
-            let applied = slide.amount > 0 || before.outputChannelVolume != channelState.outputChannelVolume
+            // Zero slide still writes local output; publication must compare the
+            // composed target with this generation's held gain, not local arithmetic.
             updates.append(voiceStateUpdateDiagnostic(
                 source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,
                 scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick), cell: cell,
                 commandSource: .effectColumn, command: .effect6xyVolumeSlide(up: slide.up, down: slide.down),
                 rawVolumeColumn: nil, effectType: cell.effectType, effectParam: cell.effectParam,
-                status: applied ? .applied : .ignoredNoOp, behavior: .tickLevelAfterTick0,
+                status: .applied, behavior: .tickLevelAfterTick0,
                 channelStateBefore: before, channelStateAfter: channelState,
                 globalVolumeBefore: globalVolumeValue, globalVolumeAfter: globalVolumeValue,
                 volumeSlide: slide, volumeSlideClamped: unclamped != channelState.baseChannelVolume,
                 volumeSlideTick0Suppressed: true, volumeSlideRowSpeed: rowSpeed,
                 effectMemoryReused: remembered != nil, memorySource: remembered?.source,
-                activeVoiceUpdatedOverride: applied && before.activeEventIndex != nil && before.activeSampleVolume != nil
+                activeVoiceUpdatedOverride: before.activeEventIndex != nil && before.activeSampleVolume != nil
             ))
         }
         return updates

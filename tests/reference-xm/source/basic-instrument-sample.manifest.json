@@ -7436,6 +7436,136 @@
       "xm_output": "generated/cold-a00-output-restoration.xm",
       "xm_sha256": "c989d1eb331553c71d37389434e6a1b11f75dee58ea55ee1b4720c8e4a7456b1",
       "xm_size_bytes": 1230
+    },
+    {
+      "id": "cold-600-local-publication",
+      "intended_tests": [
+        "cold 600 nonzero-tick publication with unchanged base/output and absent slide memory",
+        "held source identity and repeated-target deduplication",
+        "whole/window/runtime delivery at both rates"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC HELD SOURCE",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC 600 S01",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "a546e4565f4bf7904dad64c0c96ff9e1975be1513994d25b5f5c5ddc7b743e84",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 6,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              }
+            ],
+            "rows": 4
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX COLD 600",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "cold-600-local-publication.xm",
+      "purpose": "Cold 600 local zero-slide intent refreshes a stale held generation target without seeding memory.",
+      "significant_rows": [
+        "0: source is born at global 64 before later-channel G10; held gain stays 1.",
+        "2: cold 600 tick 1 publishes held 1 to current target 0.25 with base/output still 64.",
+        "3: repeated cold 600 executes without duplicate publication or memory provenance."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "cold 500 remains a separate G15 contract",
+        "generic ramps, onset and Q8 envelope arithmetic"
+      ],
+      "xm_output": "generated/cold-600-local-publication.xm",
+      "xm_sha256": "2270f9adb7fe5f47d3b9589b3736ed48e9625abd221fb7c000a4942902152420",
+      "xm_size_bytes": 1174
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

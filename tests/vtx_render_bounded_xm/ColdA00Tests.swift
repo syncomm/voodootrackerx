@@ -110,15 +110,15 @@ final class ColdA00Tests: XCTestCase {
         }
     }
 
-    func testPublicationUsesHeldGenerationWhileColdH00And600StayUnchanged() throws {
+    func testPublicationUsesHeldGenerationWhileColdH00And500StayUnchanged() throws {
         for rate in [44_100.0, 48_000] {
             for family: UInt8 in [10, 17, 6, 5] {
                 let module = song([[c(note: 49, instrument: 1), c(16, 16)], [], [c(family)], [c(family)]], base: 64)
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: module, sampleRate: rate)
                 let gains = gainEvents(runtime, row: 2)
-                XCTAssertEqual(gains.count, family == 10 ? 1 : 0)
+                XCTAssertEqual(gains.count, family == 10 || family == 6 ? 1 : 0)
                 XCTAssertTrue(gainEvents(runtime, row: 3).isEmpty) // Identical held targets deduplicate.
-                if family == 10 {
+                if family == 10 || family == 6 {
                     let target = try XCTUnwrap(runtime.plan?.diagnostics.voiceStateUpdates.first {
                         if case .gxxChannelTarget = $0.command { return $0.syntheticRow == 2 }; return false
                     })

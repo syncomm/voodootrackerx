@@ -166,8 +166,11 @@ G14 cold A00 restores output from current base on nonzero ticks and joins this
 same causal local-publication path without seeding slide memory. Managed voices
 recompute the existing envelope/fadeout target; plain voices retain their
 existing generic ramp. Tremolo/E7 state, source identity, target deduplication,
-speed-1 holds and window carry are preserved. Cold H00 remains a no-op; cold
-500/600 boundaries, G31 arithmetic and generic ramp parity are unchanged.
+speed-1 holds and window carry are preserved. Cold 600's established nonzero-tick
+zero slide also declares local publication when base/output are unchanged;
+the existing held-target comparison refreshes stale gain and deduplicates equal
+targets without seeding memory or changing vibrato. Cold H00 remains a no-op;
+cold 500/G15, G31 arithmetic and generic ramp parity are unchanged.
 
 G09 `Dx/Ex` updates supply current stored pan on those same nonzero frames.
 G06 composes its envelope displacement with that pan through the existing

@@ -47,7 +47,8 @@ final class VolumeSlideMemoryTests: XCTestCase {
                 let last = context.voiceStateUpdates.last!
                 XCTAssertEqual(last.effectMemoryReused, slide)
                 XCTAssertFalse(last.effectMemoryDeferred)
-                XCTAssertEqual(last.applied, slide)
+                XCTAssertTrue(last.applied) // Executed zero slides also request local publication.
+                XCTAssertEqual(states.last?[0].volumeSlideMemory != nil, slide)
                 XCTAssertEqual(last.command, .effect6xyVolumeSlide(up: 0, down: slide ? 2 : 0))
                 XCTAssertTrue(context.vibratoEffects.allSatisfy { !$0.effectMemoryMissing && !$0.effectMemoryDeferred })
                 XCTAssertEqual(context.vibratoEffects.last?.vibratoSpeedSource, vibrato ? "4xy_channel_state" : "initial_zero_state")

@@ -35,6 +35,7 @@ ALL_FIXTURES = [
     "global-volume-slide-memory.xm",
     "global-volume-publication.xm",
     "cold-a00-output-restoration.xm",
+    "cold-600-local-publication.xm",
 ]
 
 
@@ -572,6 +573,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "global-volume-slide-memory.xm").resolve(),
                     (output_dir / "generated" / "global-volume-publication.xm").resolve(),
                     (output_dir / "generated" / "cold-a00-output-restoration.xm").resolve(),
+                    (output_dir / "generated" / "cold-600-local-publication.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -579,6 +581,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 [
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
+                    "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
                     "generated/effect-memory.xm",
                     "generated/empty-slot-playback-state.xm",
@@ -661,6 +664,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 [
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
+                    "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
                     "generated/effect-memory.xm",
                     "generated/empty-slot-playback-state.xm",
@@ -756,6 +760,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:global-volume-slide-memory.xm": "generated/global-volume-slide-memory.xm",
                     "xm:global-volume-publication.xm": "generated/global-volume-publication.xm",
                     "xm:cold-a00-output-restoration.xm": "generated/cold-a00-output-restoration.xm",
+                    "xm:cold-600-local-publication.xm": "generated/cold-600-local-publication.xm",
                 },
             )
 

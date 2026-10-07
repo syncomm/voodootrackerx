@@ -109,6 +109,10 @@ host.
   restoring output from current base volume through causal local publication.
   It creates no Axy/5xy/6xy memory provenance and preserves tremolo/E7 state;
   seeded replay and the distinct cold-H00 no-op policy remain intact.
+- Cold 600 retains its zero-slide base-to-output assignment on nonzero ticks
+  and declares local publication even when base/output are unchanged. The
+  current source's held target refreshes if stale; equal targets deduplicate.
+  Slide memory stays absent, vibrato is preserved, and cold 500 remains G15.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

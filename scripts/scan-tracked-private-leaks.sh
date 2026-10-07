@@ -50,6 +50,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/global-volume-slide-timing.xm | \
     tests/reference-xm/generated/global-volume-slide-memory.xm | \
     tests/reference-xm/generated/global-volume-publication.xm | \
+    tests/reference-xm/generated/cold-a00-output-restoration.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

@@ -162,6 +162,13 @@ repair are delivered even when canonical calculated gain was already equal.
 Offline/window/runtime share this causal source identity/order; no ramp policy,
 G31 arithmetic or source-onset behavior changes.
 
+G14 cold A00 restores output from current base on nonzero ticks and joins this
+same causal local-publication path without seeding slide memory. Managed voices
+recompute the existing envelope/fadeout target; plain voices retain their
+existing generic ramp. Tremolo/E7 state, source identity, target deduplication,
+speed-1 holds and window carry are preserved. Cold H00 remains a no-op; cold
+500/600 boundaries, G31 arithmetic and generic ramp parity are unchanged.
+
 G09 `Dx/Ex` updates supply current stored pan on those same nonzero frames.
 G06 composes its envelope displacement with that pan through the existing
 final-L/R target; G07 positioning and envelope arithmetic are unchanged.

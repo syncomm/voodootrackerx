@@ -107,8 +107,8 @@ while `EA0`/`EB0` remain effect-memory-deferred no-ops.
 Same-cell nonzero `Axy` note triggers keep effect metadata and trigger once at
 the tick-0 channel volume. The Swift adapter then emits `Axy` gain updates on
 ticks `1...(speed - 1)` for the row. Nonzero `Axy`/`5xy`/`6xy` volume slides on rows with nonzero ticks store
-shared per-channel memory, `A00` replays that memory when available, and missing
-memory remains a diagnosed no-op/deferred case. Mixed nibbles keep the
+shared per-channel memory; seeded `A00` replays it and cold `A00` executes zero
+without seeding, as described below. Mixed nibbles keep the
 FT2 up-nibble precedence policy.
 Same-cell `9xx` note triggers keep effect metadata, and `900` note triggers are
 tagged when they reuse prior same-channel nonzero `9xx` sample-offset memory.
@@ -131,6 +131,15 @@ updates. Same-cell note `5xy` rows set the tone-portamento target without
 retriggering, empty-note rows continue an existing target when available, and
 `500` reuses shared Axy-style volume-slide memory when available. Missing
 `500` volume-slide memory remains a diagnosed no-op/deferred case.
+Cold `A00` instead emits applied zero-slide updates on nonzero ticks with
+`volume_slide_policy: a00_cold_zero_slide_output_restoration`, zero slide
+amount, no `memory_source`, and false memory-reused/missing/deferred flags.
+Speed 1 reports `a00_cold_zero_slide_no_nonzero_ticks` without publication.
+Base arithmetic stays unchanged while output before/after records restoration.
+Existing source/channel/tick/frame, gain fields and generation identity expose
+delivery; Gxx-affected generations use `publication_reason: local_volume_writer`
+and held gain before/after. Applied/no-op A00 counts measure execution rather
+than memory reuse. The schema is unchanged; cold 500/600 and H00 stay separate.
 Same-cell `6xy` note triggers keep effect metadata without a tick-zero slide.
 `6xy`/`600` apply vibrato then the shared volume slide on ticks `1..<speed`;
 `600` replays the last same-channel nonzero

@@ -2866,10 +2866,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let render = try XCTUnwrap(object["render"] as? [String: Any])
         let summary = try XCTUnwrap(object["volume_panning_state_update_summary"] as? [String: Any])
         let updates = try XCTUnwrap(object["volume_panning_state_updates"] as? [[String: Any]])
-        let missingA00 = try XCTUnwrap(updates.first {
+        let coldA00 = try XCTUnwrap(updates.first {
             ($0["command_name"] as? String) == "axyVolumeSlide" &&
                 ($0["effect_param"] as? Int) == 0 &&
-                ($0["effect_memory_missing"] as? Bool) == true
+                ($0["volume_slide_policy"] as? String) == "a00_cold_zero_slide_output_restoration"
         })
         let reusedA00 = try XCTUnwrap(updates.first {
             ($0["command_name"] as? String) == "axyVolumeSlide" &&
@@ -2885,19 +2885,20 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let sourcePosition = try XCTUnwrap(source["source"] as? [String: Any])
 
         XCTAssertEqual(render["axy_a00_detected_count"] as? Int, 2)
-        XCTAssertEqual(render["axy_a00_applied_count"] as? Int, 1)
-        XCTAssertEqual(render["axy_a00_no_op_count"] as? Int, 1)
+        XCTAssertEqual(render["axy_a00_applied_count"] as? Int, 2)
+        XCTAssertEqual(render["axy_a00_no_op_count"] as? Int, 0)
         XCTAssertEqual(render["axy_volume_slide_memory_reused_count"] as? Int, 1)
-        XCTAssertEqual(render["axy_volume_slide_memory_missing_count"] as? Int, 1)
+        XCTAssertEqual(render["axy_volume_slide_memory_missing_count"] as? Int, 0)
         XCTAssertEqual(render["axy_volume_slide_memory_reused_gain_update_count"] as? Int, 1)
         XCTAssertEqual(render["tone_portamento_volume_slide_5xy_500_memory_reused_count"] as? Int, 1)
         XCTAssertEqual(render["tone_portamento_volume_slide_5xy_500_memory_missing_count"] as? Int, 0)
         XCTAssertEqual(summary["axy_a00_detected"] as? Int, 2)
-        XCTAssertEqual(summary["axy_a00_applied"] as? Int, 1)
-        XCTAssertEqual(summary["axy_a00_no_op"] as? Int, 1)
+        XCTAssertEqual(summary["axy_a00_applied"] as? Int, 2)
+        XCTAssertEqual(summary["axy_a00_no_op"] as? Int, 0)
         XCTAssertEqual(summary["tone_portamento_volume_slide_5xy_500_memory_reused"] as? Int, 1)
-        XCTAssertEqual(missingA00["effect_memory_deferred"] as? Bool, true)
-        XCTAssertEqual(missingA00["memory_unavailable_reason"] as? String, "missing_axy_volume_slide_memory")
+        XCTAssertEqual(coldA00["effect_memory_deferred"] as? Bool, false)
+        XCTAssertEqual(coldA00["effect_memory_missing"] as? Bool, false)
+        XCTAssertTrue(coldA00["memory_source"] is NSNull)
         XCTAssertEqual(reusedA00["axy_volume_slide_memory_reused"] as? Bool, true)
         XCTAssertEqual(reusedA00["volume_slide_direction"] as? String, "down")
         XCTAssertEqual(reusedA00["memory_volume_slide_amount"] as? Int, 1)

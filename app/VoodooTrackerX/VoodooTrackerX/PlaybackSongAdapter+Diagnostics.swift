@@ -389,7 +389,7 @@ extension PlaybackSongSyntheticAdapter {
         case 0x08, 0x0C:
             return .applied
         case 0x0A:
-            return cell.effectParam == 0 ? .ignoredNoOp : .applied
+            return cell.effectParam == 0 && timingConfig.speed == 1 ? .ignoredNoOp : .applied
         case 0x0F:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x10:
@@ -601,8 +601,7 @@ extension PlaybackSongSyntheticAdapter {
             return channelState.portamentoDownMemory == nil
         }
         if cell.effectType == 0x04 || cell.effectType == 0x06 { return false }
-        if (cell.effectType == 0x0A || cell.effectType == 0x05),
-           cell.effectParam == 0 {
+        if cell.effectType == 0x05, cell.effectParam == 0 {
             return channelState.volumeSlideMemory == nil
         }
         return hasDeferredEffect(cell)

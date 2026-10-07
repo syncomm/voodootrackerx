@@ -132,7 +132,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `7xy` | Tremolo | Implemented | Partial | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. Onset, ramps and trigger/cut interactions remain G39; G01 removes duplicate header scaling. |
 | `8xx` | Set panning | Implemented | Known difference | None | Not applicable | Exact tick-zero panning state exists. Final stereo pan law differs (G40); this is separate from E8 and pan envelopes. |
 | `9xx` | Sample offset | Implemented | Partial | Own; `900` supported | Not applicable | Same-cell source offset/memory exists; end/loop/offset boundaries remain G41. Safely skipping an out-of-range offset does not prove FT2 parity. |
-| `Axy` | Volume slide | Implemented | Partial | Shared with `5xy`/`6xy`; seeded `A00` supported | Not applicable | Nonzero-tick slides exist. Cold `A00` fails to restore output from base volume with valid initial-zero slide memory (G14). |
+| `Axy` | Volume slide | Implemented | Closed G14 cold restoration and seeded replay | Shared with `5xy`/`6xy`; cold `A00` executes implicit zero without seeding | Not applicable | Nonzero-tick slides and cold base-to-output restoration use causal local publication. Speed 1 is inert; tremolo/E7 state and real seeded provenance are preserved. Broader output interactions remain separate. |
 | `Bxx` | Position jump | Implemented | Needs characterization | None | Not applicable | Focused traversal exists; conflicting B/D/E6 precedence, restart and bounds remain G38. |
 | `Cxx` | Set volume | Implemented | Closed | None | Not applicable | Bounded tick-zero channel-volume state/clamp is supported; audible header/gain/ramp obligations remain separate. |
 | `Dxx` | Pattern break | Implemented | Needs characterization | None | Not applicable | BCD target/traversal exists; broader B/D/E6 precedence remains G38. |
@@ -258,7 +258,18 @@ Intervening rows/effects and note/instrument triggers preserve the memory.
 Channel initialization starts it at zero, so unseeded `600` supplies no slide
 amount; FT2 still copies base volume to output. Vibrato state is independent.
 
-`Axy`/`5xy` scheduling and memory are unchanged. `6xy`/`600` now follow FT2's
+Seeded `Axy`/`5xy` scheduling and memory are unchanged. Cold `A00` is a
+compatibility-supported zero-slide execution on ticks `1..<effectiveSpeed`:
+base stays unchanged, output is restored from current base, and a causal local
+publication refreshes a differing held target. It creates no seeded provenance,
+preserves tremolo/E7 state, and works on silent channel semantics without a
+fabricated voice. The manuals do not specify the cold boundary; this is a bounded
+B compatibility convention, distinct from the excluded cold-H00 refresh artifact.
+`cold-a00-output-restoration.xm` and `ColdA00Tests` pin both rates and window carry.
+Cold `500` remains G15. Cold `600`'s numeric-no-op held-target refresh difference
+is a separate future boundary; its existing zero-slide restoration is unchanged.
+
+`6xy`/`600` follow FT2's
 [nonzero-tick dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2234-L2287): vibrato then the shared slide on ticks `1..<speed`.
 [Tick-zero dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L985-L1031) does not slide; speed 1 has no slide, output restoration, or memory write/replay.
 Each slide clamps base volume to `0...64` then copies it to output; unseeded
@@ -386,7 +397,8 @@ support alone does not close these domains:
   Instrument Editor controls are a separate roadmap milestone.
 - **Volume writers and memory:** H00 replay (G13) is closed; its cold FT2
   zero-memory target-refresh artifact is an intentional known difference.
-  Cold A00/500 (G14–G15) and directional fine-slide
+  Cold A00 restoration (G14) is closed under the bounded B convention above.
+  Cold 500 (G15), cold 600 held-target refresh, and directional fine-slide
   memory remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
   semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its
   common-XM table. ED delayed note/instrument/default interactions and

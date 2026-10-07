@@ -13,6 +13,7 @@ Effect statuses remain owned by [XM effect support](../xm-effect-support.md).
 | `PlaybackSample.volume` / `activeSampleVolume` | Header `0...64` normalized to Float `0...1`; immutable sample metadata plus channel-local active selection | The header initializes/restores cached channel defaults. Active metadata also retains represented-source availability; it is never a second song-gain multiplier. |
 | Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` sets at tick zero; resolved nonzero `Hxy`/`H00` mutates on ticks `1..<effectiveSpeed` in channel order. Gain publications capture the global value visible at that channel's turn. Future triggers use the final canonical value. |
 | Hxy memory | Optional whole nonzero byte and provenance; independent per tracker channel; initially absent | Executed nonzero Hxy establishes it; H00 recalls it without writing zero. F01 does not seed or replace it. Independent of shared Axy/5xy/6xy memory and song-global volume. |
+| Axy/5xy/6xy memory | Optional whole nonzero byte and provenance; channel-local; initially absent | Cold A00 executes implicit zero on nonzero ticks without creating history. A real nonzero A/5/6 seed enables the existing shared replay path. |
 | Volume envelope | Point values `0...64` normalized to `0...1`; channel-local progression, projected to a live source when present | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
 | Fadeout | Channel-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
 | Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `songGain` consumes output volume once with global volume. Managed XM envelope/release voices combine it with semantic factors in one final-output target; generic voices retain existing gain/pan ramps. |
@@ -423,8 +424,8 @@ all tremolo update states. This is not a waveform-identical rendering claim:
 - Instrument-associated note 97 and note-plus-instrument `K00` retain their
   separate default-volume dispatch boundary. Ordinary no-envelope release zeros
   output; instrument-only K00 follows the cached-default/release ordering above.
-- Initial missing-memory `A00`, `EA0`/`EB0`, `R00`, and other deferred cases
-  retain their documented status. G09 closes column panning-slide timing;
+- Cold `A00` restoration is closed under G14 below. `EA0`/`EB0`, `R00`, and
+  other deferred cases retain their documented status. G09 closes column panning-slide timing;
   G12 closes nonzero Hxy timing and channel-turn publication; G13 closes H00
   memory with the cold artifact excluded below.
 
@@ -510,6 +511,27 @@ is behavioral evidence only. Project-authored tests/fixtures cover whole-byte
 resolution, independence, mixed cold/seeded turns, Fxx, lifetime, Gxx, clamp
 replay and whole/window/runtime parity at 44.1/48 kHz. G12 remains authoritative;
 this contract changes no envelope arithmetic, DSP, host or callback behavior.
+
+## Cold A00 base-to-output restoration (G14)
+
+Cold A00 is a bounded **B compatibility convention**: on ticks
+`1..<effectiveSpeed`, leave base volume unchanged, restore output from current
+base, and request an explicit causal local volume publication. No tick-zero or
+speed-1 restoration occurs. Absent memory stays absent; later real Axy/5xy/6xy
+seeds retain their original whole byte and provenance.
+
+After base 32 and speed-6 748, output 63 becomes 32 at A00 tick 1; phase 80,
+speed 4, depth 8 and E7 control remain intact. Later 700 resumes that state.
+Current Cxx, volume-column and reset-established bases are authoritative.
+Envelope/fadeout clocks and final composition are unchanged. A publication
+compares against the source generation's held target even when base arithmetic
+or calculated gain is unchanged, and identical targets deduplicate.
+
+Silent routes restore persistent output for later explicit note-only inheritance
+without PCM fabrication or source resurrection. `ColdA00Tests` and the public
+fixture cover rates, speed/Fxx, resets, envelopes, shared seeds and generations.
+Cold H00 remains a true no-op under G13. Cold 500 and the separate cold-600
+numeric-no-op target-refresh difference are outside G14.
 
 ## Maintainer smoke
 

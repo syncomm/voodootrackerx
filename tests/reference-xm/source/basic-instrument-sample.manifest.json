@@ -7212,6 +7212,230 @@
       "xm_output": "generated/global-volume-publication.xm",
       "xm_sha256": "27861cb28fd0349cfb00b7157f3c3c4b4f5fe9fd5a299e0bddecff0a285939c9",
       "xm_size_bytes": 5999
+    },
+    {
+      "id": "cold-a00-output-restoration",
+      "intended_tests": [
+        "cold A00 tick/frame, output and honest absent-memory diagnostics",
+        "tremolo/E7 state, empty-route inheritance and source generation",
+        "whole/window/runtime delivery at both rates"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC A00 I1",
+            "note_sample_map": [
+              {
+                "end_note": 49,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 50,
+                "sample": 1,
+                "start_note": 50
+              },
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 51
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC A00 S01",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "a546e4565f4bf7904dad64c0c96ff9e1975be1513994d25b5f5c5ddc7b743e84",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC EMPTY S02",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 50,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 118,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 72,
+                "effect_type": 7,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 72,
+                "effect_type": 7,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 10,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 10,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 7,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 49,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 10,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 10,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              }
+            ],
+            "rows": 7
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX COLD A00",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "cold-a00-output-restoration.xm",
+      "purpose": "G14 cold A00 nonzero-tick base-to-output restoration without seeded A/5/6 provenance.",
+      "significant_rows": [
+        "0...3: represented and exact empty routes retain 748 output until cold A00 tick 1.",
+        "4: later 700 resumes phase; represented note-only inherits restored silent-channel output.",
+        "5...6: repeated cold A00 restores again without creating memory or duplicate targets."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "cold 500/600 and cold H00 remain separate policies",
+        "generic ramps, onset, Q8 envelope arithmetic and final pan law parity"
+      ],
+      "xm_output": "generated/cold-a00-output-restoration.xm",
+      "xm_sha256": "c989d1eb331553c71d37389434e6a1b11f75dee58ea55ee1b4720c8e4a7456b1",
+      "xm_size_bytes": 1230
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

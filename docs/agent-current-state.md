@@ -105,6 +105,10 @@ host.
   G13 H00 effect-memory replay is closed: independent channel-local whole-byte
   memory, established only by executed nonzero ticks. Cold H00 is a true no-op;
   FT2's zero-memory target-refresh artifact is intentionally not emulated.
+- Cold A00 executes a compatibility-supported zero slide on nonzero ticks,
+  restoring output from current base volume through causal local publication.
+  It creates no Axy/5xy/6xy memory provenance and preserves tremolo/E7 state;
+  seeded replay and the distinct cold-H00 no-op policy remain intact.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

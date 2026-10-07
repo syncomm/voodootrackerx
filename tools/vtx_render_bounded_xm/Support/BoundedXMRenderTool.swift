@@ -1718,8 +1718,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let axyA00MemoryReusedCount = Set(axyA00MemoryReusedUpdates.map(stateUpdateCoordinateKey)).count
         let axyA00MemoryMissingCount = Set(axyA00MemoryMissingUpdates.map(stateUpdateCoordinateKey)).count
         let axyA00DetectedCount = axyEffectDiagnostics.filter { $0.effectParam == 0 }.count
-        let axyA00AppliedCount = axyA00MemoryReusedCount
-        let axyA00NoOpCount = axyA00MemoryMissingCount
+        let axyA00AppliedCount = Set(axyA00Updates.filter(\.applied).map(stateUpdateCoordinateKey)).count
+        let axyA00NoOpCount = Set(axyA00Updates.filter(\.ignoredAsNoOp).map(stateUpdateCoordinateKey)).count
         let axyMemoryReusedGainUpdateCount = axyA00MemoryReusedUpdates.filter(isChangedGainStateUpdate).count
         let axyMemoryMissingCoordinates = firstStateUpdateCoordinate(axyA00MemoryMissingUpdates)
         let axyMemoryReusedCoordinates = firstStateUpdateCoordinate(axyA00MemoryReusedUpdates)
@@ -3769,8 +3769,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             },
             "axy_tick0_suppressed": axyTick0SuppressedCoordinateCount,
             "axy_a00_detected": Set(axyA00Updates.map(stateUpdateCoordinateKey)).count,
-            "axy_a00_applied": Set(axyA00MemoryReused.map(stateUpdateCoordinateKey)).count,
-            "axy_a00_no_op": Set(axyA00MemoryMissing.map(stateUpdateCoordinateKey)).count,
+            "axy_a00_applied": Set(axyA00Updates.filter(\.applied).map(stateUpdateCoordinateKey)).count,
+            "axy_a00_no_op": Set(axyA00Updates.filter(\.ignoredAsNoOp).map(stateUpdateCoordinateKey)).count,
             "axy_volume_slide_memory_reused": Set(axyA00MemoryReused.map(stateUpdateCoordinateKey)).count,
             "axy_volume_slide_memory_missing": Set(axyA00MemoryMissing.map(stateUpdateCoordinateKey)).count,
             "axy_volume_slide_memory_reused_gain_update_count": count {

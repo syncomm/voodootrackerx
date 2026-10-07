@@ -7501,7 +7501,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(update.volumeSlidePolicy, "up_nibble_precedence_mikmod_observed")
     }
 
-    func testPlaybackSongAdapterA00RemainsNoOpWithoutVolumeSlideMemory() throws {
+    func testPlaybackSongAdapterColdA00ExecutesZeroWithoutVolumeSlideMemory() throws {
         let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -7515,18 +7515,23 @@ final class PlaybackSongAdapterTests: XCTestCase {
         )
 
         let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
-        let update = try XCTUnwrap(plan.diagnostics.voiceStateUpdates.first { $0.effectType == 0x0A })
+        let updates = plan.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x0A }
+        let update = try XCTUnwrap(updates.first)
 
-        XCTAssertEqual(update.status, .ignoredNoOp)
-        XCTAssertEqual(update.syntheticTick, 0)
+        XCTAssertEqual(updates.map(\.syntheticTick), [1, 2])
+        XCTAssertTrue(updates.allSatisfy(\.applied))
+        XCTAssertEqual(update.status, .applied)
+        XCTAssertEqual(update.syntheticTick, 1)
         XCTAssertEqual(update.command, .axyVolumeSlide(up: 0, down: 0))
         XCTAssertEqual(update.effectiveVolumeBefore, 32)
         XCTAssertEqual(update.effectiveVolumeAfter, 32)
-        XCTAssertEqual(update.volumeSlidePolicy, "a00_no_volume_slide_memory_no_op")
-        XCTAssertEqual(update.effectMemoryMissing, true)
-        XCTAssertEqual(update.effectMemoryDeferred, true)
-        XCTAssertEqual(update.memoryUnavailableReason, "missing_axy_volume_slide_memory")
-        XCTAssertFalse(update.activeVoiceUpdated)
+        XCTAssertEqual(update.volumeSlidePolicy, "a00_cold_zero_slide_output_restoration")
+        XCTAssertFalse(update.effectMemoryMissing)
+        XCTAssertFalse(update.effectMemoryDeferred)
+        XCTAssertFalse(update.effectMemoryReused)
+        XCTAssertNil(update.memoryUnavailableReason)
+        XCTAssertNil(update.memorySource)
+        XCTAssertTrue(update.activeVoiceUpdated)
     }
 
     func testPlaybackSongAdapterA00ReusesPriorAxyVolumeSlideMemory() throws {
@@ -7591,9 +7596,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(channel0.status, .applied)
         XCTAssertEqual(channel0.effectMemoryReused, true)
         XCTAssertEqual(channel0.command, .axyVolumeSlide(up: 0, down: 1))
-        XCTAssertEqual(channel1.status, .ignoredNoOp)
-        XCTAssertEqual(channel1.effectMemoryMissing, true)
-        XCTAssertEqual(channel1.memoryUnavailableReason, "missing_axy_volume_slide_memory")
+        XCTAssertEqual(channel1.status, .applied)
+        XCTAssertEqual(channel1.syntheticTick, 1)
+        XCTAssertEqual(channel1.command, .axyVolumeSlide(up: 0, down: 0))
+        XCTAssertFalse(channel1.effectMemoryMissing)
+        XCTAssertFalse(channel1.effectMemoryReused)
+        XCTAssertNil(channel1.memoryUnavailableReason)
+        XCTAssertNil(channel1.memorySource)
     }
 
     func testPlaybackSongAdapterSameCellNoteA00TriggersOnceAndReusesMemoryAfterTick0() throws {

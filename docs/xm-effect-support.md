@@ -127,7 +127,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `2xx` | Portamento down | Implemented | Partial | Own; `200` supported | Both | Linear `4 * xx`, Amiga `16 * xx` in VTX's 4x representation. Units are closed; shared conversion/extreme boundaries remain G30. |
 | `3xx` | Tone portamento | Implemented | Partial | Shared with volume-column `Fx`; `300` target/speed supported | Both | No retrigger, target-clamped nonzero ticks and Amiga quantized targets are established. Missing-target/speed states and glissando remain distinct; Amiga `5xy`/`Fx` are not promoted. |
 | `4xy` | Vibrato | Implemented | Partial | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay, Amiga wrap/zero-step hold and G10 shared volume-column dispatch are closed. Full audible interactions remain G39. |
-| `5xy` | Tone portamento + volume slide | Implemented | Partial | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Linear | Seeded `500` replay and nonzero-tick slides exist. Cold `500` output/target interactions need characterization (G15); Amiga combined path missing (G28). |
+| `5xy` | Tone portamento + volume slide | Implemented | Partial | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Linear | G15 cold Linear `500` restores output and publishes on nonzero ticks independently of tone target/speed. Seeded replay and no-retrigger tone semantics are preserved. Existing partial Amiga behavior remains unclosed (G28). |
 | `6xy` | Vibrato + volume slide | Implemented | Partial | Shared `4xy` vibrato and `Axy`/`5xy`/`6xy` slide byte; `600` supported | Both | Vibrato then slide on ticks `1..<speed`; no tick-zero/speed-1 slide. Unseeded `600` restores base to output with zero amount and publishes against the held source target even when local values are unchanged. Timing/memory/local publication are closed; G39 remains. |
 | `7xy` | Tremolo | Implemented | Partial | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. Onset, ramps and trigger/cut interactions remain G39; G01 removes duplicate header scaling. |
 | `8xx` | Set panning | Implemented | Known difference | None | Not applicable | Exact tick-zero panning state exists. Final stereo pan law differs (G40); this is separate from E8 and pan envelopes. |
@@ -266,7 +266,16 @@ preserves tremolo/E7 state, and works on silent channel semantics without a
 fabricated voice. The manuals do not specify the cold boundary; this is a bounded
 B compatibility convention, distinct from the excluded cold-H00 refresh artifact.
 `cold-a00-output-restoration.xm` and `ColdA00Tests` pin both rates and window carry.
-Cold `500` remains G15. Cold `600` retains its existing zero-slide restoration;
+G15 cold Linear `500` executes an implicit zero slide on ticks `1..<speed`
+independently of tone target/speed availability: restore output from base and
+compare the composed target with the active generation's held target. It restores
+63→32 after 748 and refreshes stale held 1→.25 with unchanged base/output 64.
+Speed 1 is inert; no memory is created and repeated equal targets deduplicate.
+Tone target/speed, no-retrigger routing, tremolo/E7 and envelope clocks are
+unchanged. `Cold500Tests` and `cold-500-local-publication.xm` cover both rates.
+This is A independent composition plus B cold restoration; redundant reference
+period-refresh flags (C) are not required. Partial Amiga 5xy stays open G28.
+Cold `600` retains its existing zero-slide restoration;
 that slide half is a real local writer on every nonzero tick. Publication
 compares the composed target with the active generation's held target, so
 base/output 64 with global 16 refreshes stale held gain 1 to .25 at tick 1.
@@ -402,8 +411,8 @@ support alone does not close these domains:
 - **Volume writers and memory:** H00 replay (G13) is closed; its cold FT2
   zero-memory target-refresh artifact is an intentional known difference.
   Cold A00 restoration (G14) is closed under the bounded B convention above.
-  Cold 600 held-target refresh is closed. Cold 500 (G15) and directional fine-slide
-  memory remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
+  Cold 600 held-target refresh and G15 cold Linear 500 are closed. Directional
+  fine-slide memory and G28 Amiga combined semantics remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
   semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its
   common-XM table. ED delayed note/instrument/default interactions and
   note-97/K00/instrument/volume precedence remain G23–G24.

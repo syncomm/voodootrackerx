@@ -7566,6 +7566,146 @@
       "xm_output": "generated/cold-600-local-publication.xm",
       "xm_sha256": "2270f9adb7fe5f47d3b9589b3736ed48e9625abd221fb7c000a4942902152420",
       "xm_size_bytes": 1174
+    },
+    {
+      "id": "cold-500-local-publication",
+      "intended_tests": [
+        "independent cold volume and tone halves on nonzero ticks",
+        "held source generation, stale target refresh and repeated-target deduplication",
+        "whole/window/runtime delivery at both rates"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC HELD SOURCE",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC 500 S01",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "a546e4565f4bf7904dad64c0c96ff9e1975be1513994d25b5f5c5ddc7b743e84",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 3,
+                "instrument": 0,
+                "note": 53,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 5,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 5,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              }
+            ],
+            "rows": 4
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX COLD 500",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "cold-500-local-publication.xm",
+      "purpose": "Cold Linear 500 restores the held source target independently of tone movement without seeding slide memory.",
+      "significant_rows": [
+        "0: source born at global 64 before later-channel G10; held gain stays 1.",
+        "1: note-only 301 establishes a tone target and speed without retriggering.",
+        "2: cold 500 tick 1 refreshes held gain to 0.25 with unchanged base/output 64.",
+        "3: repeated cold 500 retains tone movement without duplicate gain publication."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Amiga 5xy closure remains G28",
+        "generic ramps, onset and Q8 envelope arithmetic"
+      ],
+      "xm_output": "generated/cold-500-local-publication.xm",
+      "xm_sha256": "7ed2e7d4c902e5bfaefa60cc3edea78984ea58d976882679e6fe6b378e2ef2df",
+      "xm_size_bytes": 1177
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

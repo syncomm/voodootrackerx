@@ -19,7 +19,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let effectCommandDiagnostics: [PlaybackSongSyntheticEffectCommandDiagnostic]
     let rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]
     let volumeColumnMappings: [PlaybackSongSyntheticVolumeColumnMapping]
-    let voiceStateUpdates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
+    var voiceStateUpdates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
     let sampleOffsetEffects: [PlaybackSongSyntheticSampleOffsetDiagnostic]
     let setFinetuneEffects: [PlaybackSongSyntheticSetFinetuneDiagnostic]
     let envelopePositionEffects: [PlaybackSongSyntheticEnvelopePositionDiagnostic]
@@ -743,7 +743,7 @@ struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
     let status: PlaybackSongSyntheticVoiceStateUpdateStatus
     let behavior: PlaybackSongSyntheticVolumeColumnBehavior?
     let targetChannelIndex: Int?
-    let activeVoiceUpdated: Bool
+    var activeVoiceUpdated: Bool
     let activeEventIndex: Int?
     let effectiveVolumeBefore: Int?
     let effectiveVolumeAfter: Int?

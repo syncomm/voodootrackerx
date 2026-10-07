@@ -4341,7 +4341,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(fiveEffects.first?.effectParam, 0x01)
     }
 
-    func testPlaybackSongAdapterTonePortamentoVolumeSlide500WithoutTargetDiagnosesNoOp() throws {
+    func testPlaybackSongAdapterCold500ExecutesVolumeWithoutToneTarget() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -4364,10 +4364,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(tone.status, .noTarget)
         XCTAssertFalse(tone.applied)
         XCTAssertTrue(tone.ignoredAsNoOp)
-        XCTAssertEqual(volume.status, .ignoredNoOp)
+        XCTAssertEqual(volume.status, .applied)
         XCTAssertEqual(volume.command, .effect5xyVolumeSlide(up: 0, down: 0))
-        XCTAssertEqual(volume.volumeSlidePolicy, "500_no_volume_slide_memory_no_op")
-        XCTAssertFalse(volume.activeVoiceUpdated)
+        XCTAssertEqual(volume.volumeSlidePolicy, "500_cold_zero_slide_output_restoration")
+        XCTAssertEqual(volume.syntheticTick, 1)
+        XCTAssertTrue(volume.activeVoiceUpdated)
+        XCTAssertFalse(volume.effectMemoryReused)
+        XCTAssertFalse(volume.effectMemoryMissing)
     }
 
     func testPlaybackSongAdapterTonePortamentoVolumeSlide5xyNoActiveVoiceIsDiagnosed() throws {

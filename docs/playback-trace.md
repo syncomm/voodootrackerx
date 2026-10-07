@@ -129,8 +129,16 @@ missing portamento memory remains diagnosed as effect-memory-deferred/no-op.
 sample-step updates and the `Axy` tick-level volume-slide policy for gain
 updates. Same-cell note `5xy` rows set the tone-portamento target without
 retriggering, empty-note rows continue an existing target when available, and
-`500` reuses shared Axy-style volume-slide memory when available. Missing
-`500` volume-slide memory remains a diagnosed no-op/deferred case.
+`500` reuses shared Axy-style volume-slide memory when available. Cold Linear
+`500` instead reports applied implicit-zero updates on nonzero ticks using
+`volume_slide_policy: 500_cold_zero_slide_output_restoration`; speed 1 reports
+`500_cold_zero_slide_no_nonzero_ticks`. Memory-source is absent and reused,
+missing and deferred flags are false. Partial Amiga cold 500 stays deferred.
+Join tone diagnostics (target, speed, status, step updates) independently of
+volume execution. `publication_reason: local_volume_writer`, held gain and
+source-generation fields distinguish execution from an actual changed target.
+Completed cold-500 sources retain applied semantic updates with
+`active_voice_updated: false`; no C gain publication is scheduled.
 Cold `A00` instead emits applied zero-slide updates on nonzero ticks with
 `volume_slide_policy: a00_cold_zero_slide_output_restoration`, zero slide
 amount, no `memory_source`, and false memory-reused/missing/deferred flags.
@@ -139,7 +147,7 @@ Base arithmetic stays unchanged while output before/after records restoration.
 Existing source/channel/tick/frame, gain fields and generation identity expose
 delivery; Gxx-affected generations use `publication_reason: local_volume_writer`
 and held gain before/after. Applied/no-op A00 counts measure execution rather
-than memory reuse. The schema is unchanged; cold 500 and H00 stay separate.
+than memory reuse. The schema is unchanged; cold H00 remains a no-op.
 Same-cell `6xy` note triggers keep effect metadata without a tick-zero slide.
 `6xy`/`600` apply vibrato then the shared volume slide on ticks `1..<speed`;
 `600` replays the last same-channel nonzero

@@ -4577,6 +4577,51 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testCold500HeldPublicationMatchesRuntimeCoreAndEngineAtBothRates() throws {
+        try assertGlobalVolumeRuntimeParity(fixtureName: "cold-500-local-publication.xm")
+    }
+
+    func testCold500CannotChangeCompletedCSourceInAnyToneState() throws {
+        for rate in [44_100.0, 48_000] {
+            for (target, speed): (UInt8, UInt8) in [(0, 0), (53, 1), (53, 0), (0, 1)] {
+                let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+                    pcm: Array(repeating: 1 / 32, count: 32), volume: 0.5,
+                    relativeNote: 0, finetune: 0, baseSampleRate: 8363)
+                let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+                    PlaybackRow(index: 0, cells: [
+                        .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                        .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 16, effectParam: 16)]),
+                    makePlaybackRow(index: 1, note: target, effectType: 3, effectParam: speed),
+                    makePlaybackRow(index: 2, effectType: 7, effectParam: 0x48),
+                    makePlaybackRow(index: 3, effectType: 5)]],
+                    instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                XCTAssertFalse(runtime.events.contains { event in
+                    if case .gainPanUpdate = event.action { return event.source.rowIndex == 3 }; return false
+                })
+                let tick = Int(rate / 50)
+                let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1), maximumRenderFrames: 4096)
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var frame = 0
+                while frame < 18 * tick {
+                    let count = min(4093, 18 * tick - frame)
+                    _ = renderRuntimePCM(core, frames: count); frame += count
+                }
+                let before = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertFalse(before.active)
+                while frame < 24 * tick {
+                    let count = min(4093, 24 * tick - frame)
+                    XCTAssertTrue(renderRuntimePCM(core, frames: count).allSatisfy { $0 == 0 }); frame += count
+                }
+                let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertFalse(after.active)
+                XCTAssertEqual(after.gain, before.gain)
+                XCTAssertEqual(after.samplePosition, before.samplePosition)
+            }
+        }
+    }
+
+    @MainActor
     private func assertGlobalVolumeRuntimeParity(fixtureName: String) throws {
         let fixture = try referenceXMFixtureURL("generated/" + fixtureName)
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
@@ -4619,7 +4664,7 @@ final class RuntimeCMixerTests: XCTestCase {
             let targetIDs = Set(planned.map(\.id))
             let deliveredTargets = harness.traceWriter.events.filter { targetIDs.contains($0.plannedEventID ?? -1) && $0.eventAppliedFrame != nil }
             XCTAssertEqual(deliveredTargets.map(\.plannedEventID), planned.map { Optional($0.id) })
-            if fixtureName != "global-volume-publication.xm" {
+            if fixtureName == "global-volume-slide-timing.xm" || fixtureName == "global-volume-slide-memory.xm" {
                 let late = planned.filter { $0.source.rowIndex == (fixtureName == "global-volume-slide-timing.xm" ? 19 : 0) &&
                     $0.source.orderIndex == (fixtureName == "global-volume-slide-timing.xm" ? 0 : 1) && $0.syntheticTick == 1 }
                 XCTAssertFalse(late.isEmpty)

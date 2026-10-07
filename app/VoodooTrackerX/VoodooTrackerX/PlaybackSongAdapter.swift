@@ -3,7 +3,7 @@ import Foundation
 struct PlaybackSongSyntheticPlan: Equatable {
     let timingConfig: SyntheticTrackerTimingConfig
     let pattern: SyntheticPattern
-    let diagnostics: PlaybackSongSyntheticDiagnostics
+    var diagnostics: PlaybackSongSyntheticDiagnostics
     var noteOnlyEventIndices: Set<Int> = []
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
@@ -668,12 +668,41 @@ enum PlaybackSongSyntheticAdapter {
         plan.xmChannelRows = context.xmChannelRows
         plan.xmEmptyRoutes = context.xmEmptyRoutes
         plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
+        // Eligibility must see managed envelope/release lifetime. Only completed
+        // cold-500 sources require rebuilding targets after gain admission changes.
+        if excludeCompletedCold500Publications(from: &plan) {
+            plan.xmAudibleTimeline = PlaybackXMAudibleTimeline(plan: plan)
+        }
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
             startedAt: totalStart,
             fields: AdapterPlanProfileFields.playbackSong(song) + AdapterPlanProfileFields.syntheticPlan(plan)
         )
         return plan
+    }
+
+    /// Keeps cold-500 semantic execution while excluding completed sources from C gain scheduling.
+    private static func excludeCompletedCold500Publications(from plan: inout PlaybackSongSyntheticPlan) -> Bool {
+        var completedChannelsByFrame = [Int: Set<Int>]()
+        for update in plan.diagnostics.voiceStateUpdates {
+            guard case .effect5xyVolumeSlide = update.command,
+                  update.applied, update.effectParam == 0,
+                  !update.effectMemoryReused, update.activeVoiceUpdated,
+                  let eventIndex = update.activeEventIndex,
+                  !PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: eventIndex, at: update.scheduledFrame, plan: plan) else { continue }
+            completedChannelsByFrame[update.scheduledFrame, default: []].insert(update.channelIndex)
+        }
+        guard !completedChannelsByFrame.isEmpty else { return false }
+        for index in plan.diagnostics.voiceStateUpdates.indices {
+            let update = plan.diagnostics.voiceStateUpdates[index]
+            guard completedChannelsByFrame[update.scheduledFrame]?.contains(update.channelIndex) == true else { continue }
+            switch update.command {
+            case .effect5xyVolumeSlide, .gxxChannelTarget(_, reason: "local_volume_writer"):
+                plan.diagnostics.voiceStateUpdates[index].activeVoiceUpdated = false
+            default: break
+            }
+        }
+        return true
     }
 
     static func traversalEffectStatuses(
@@ -785,6 +814,7 @@ enum PlaybackSongSyntheticAdapter {
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
                     channelState: &channelState,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     globalVolumeValue: context.globalVolumeState.volumeValue
                 )
                 if !axyUpdates.isEmpty {
@@ -2223,7 +2253,8 @@ enum PlaybackSongSyntheticAdapter {
                     context.voiceStateUpdates.append(contentsOf: applyEffectColumnVolumeSlide(
                         from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
                         timingConfig: timingConfig, timingPlan: timingPlan,
-                        channelState: &context.channelStates[channelIndex], globalVolumeValue: context.globalVolumeState.volumeValue,
+                        channelState: &context.channelStates[channelIndex], usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                        globalVolumeValue: context.globalVolumeState.volumeValue,
                         volumeColumnSlide: columnSlide))
                 } else if cell.effectType != 0x06 && cell.effectType != 0x07 && timingConfig.speed > 1 {
                     var firstTick = 1

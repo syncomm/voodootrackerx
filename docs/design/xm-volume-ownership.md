@@ -13,7 +13,7 @@ Effect statuses remain owned by [XM effect support](../xm-effect-support.md).
 | `PlaybackSample.volume` / `activeSampleVolume` | Header `0...64` normalized to Float `0...1`; immutable sample metadata plus channel-local active selection | The header initializes/restores cached channel defaults. Active metadata also retains represented-source availability; it is never a second song-gain multiplier. |
 | Global volume | Integer `0...64`; persistent, song-local; initially 64 | `Gxx` sets at tick zero; resolved nonzero `Hxy`/`H00` mutates on ticks `1..<effectiveSpeed` in channel order. Gain publications capture the global value visible at that channel's turn. Future triggers use the final canonical value. |
 | Hxy memory | Optional whole nonzero byte and provenance; independent per tracker channel; initially absent | Executed nonzero Hxy establishes it; H00 recalls it without writing zero. F01 does not seed or replace it. Independent of shared Axy/5xy/6xy memory and song-global volume. |
-| Axy/5xy/6xy memory | Optional whole nonzero byte and provenance; channel-local; initially absent | Cold A00 executes implicit zero on nonzero ticks without creating history. A real nonzero A/5/6 seed enables the existing shared replay path. |
+| Axy/5xy/6xy memory | Optional whole nonzero byte and provenance; channel-local; initially absent | Cold A00 and Linear 500 execute implicit zero on nonzero ticks without creating history. A real nonzero A/5/6 seed enables the existing shared replay path. |
 | Volume envelope | Point values `0...64` normalized to `0...1`; channel-local progression, projected to a live source when present | `PlaybackXMEnvelopeTimeline` publishes logical position/value at canonical Fxx tick frames, including release and `Lxx`. C holds the imported target until the next publication. |
 | Fadeout | Channel-local integer `0...32768`, initially 32768; factor `accumulator / 32768` | The shared timeline subtracts instrument fadeout on the release tick and every subsequent XM tick, clamping at zero. C holds the factor without advancing a second clock. |
 | Planned voice gain | Float `0...1`; trigger value with scheduled active-voice updates | `songGain` consumes output volume once with global volume. Managed XM envelope/release voices combine it with semantic factors in one final-output target; generic voices retain existing gain/pan ramps. |
@@ -530,8 +530,8 @@ or calculated gain is unchanged, and identical targets deduplicate.
 Silent routes restore persistent output for later explicit note-only inheritance
 without PCM fabrication or source resurrection. `ColdA00Tests` and the public
 fixture cover rates, speed/Fxx, resets, envelopes, shared seeds and generations.
-Cold H00 remains a true no-op under G13. Cold 500 remains G15; cold 600's
-separate publication completion is below.
+Cold H00 remains a true no-op under G13. Cold 600 and Linear cold 500
+publication are described below.
 
 ## Cold 600 local publication
 
@@ -545,7 +545,29 @@ Absent A/5/6 memory stays absent; real whole-byte seeds and their origins surviv
 Vibrato speed/depth/phase/E4, column interaction and Linear/Amiga pitch remain
 independent. Silent/completed routes cannot fabricate or revive sources.
 `Cold600Tests` pin speed/Fxx, source identity, envelope/fadeout and window carry.
-G14 cold A00, inert cold H00, cold 500/G15 and G31 arithmetic are unchanged.
+G14 cold A00, inert cold H00 and G31 arithmetic are unchanged.
+
+## Cold Linear 500 independent halves (G15)
+
+Cold Linear `500` executes an implicit zero slide on ticks `1..<effectiveSpeed`
+regardless of tone target/speed availability. Its volume half restores current
+base to output and declares local publication; its tone half retains existing
+3xx/5xy target/speed gates and no-retrigger source/cursor policy. No target, speed
+or A/5/6 memory provenance is created. Seeded whole-byte replay is unchanged.
+
+Base 32 after speed-6 748 restores 63→32 at tick 1 in all four tone states.
+Base/output 64 with canonical global 16 refreshes held 1→.25 even without local
+arithmetic change. Equal held targets deduplicate against the current source
+generation. Existing source-lifetime reconstruction excludes completed cold-500
+publications from C gain scheduling; semantic execution still applies.
+Silent/empty/completed routes restore semantics without a new voice;
+envelope/fadeout clocks, tremolo/E7 and later 700 remain intact.
+
+This is A independent composition plus B cold restoration/publication. Redundant
+reference pitch-refresh flags are C and need not produce repeated C updates.
+`Cold500Tests` and the public fixture pin both-rate whole/window/runtime delivery.
+The explicit Linear guard leaves existing partial Amiga 5xy behavior unchanged;
+G28 remains open.
 
 ## Maintainer smoke
 

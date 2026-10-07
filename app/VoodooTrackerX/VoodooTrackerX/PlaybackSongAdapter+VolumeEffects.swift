@@ -520,6 +520,7 @@ extension PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
         channelState: inout ChannelState,
+        usesLinearFrequencyTable: Bool,
         globalVolumeValue: Int,
         volumeColumnSlide: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
@@ -530,9 +531,12 @@ extension PlaybackSongSyntheticAdapter {
         let requestedSlide = axyVolumeSlideAmounts(effectParam: cell.effectParam)
         rememberVolumeSlide(from: cell, source: source, channelIndex: channelIndex,
                             rowSpeed: timingConfig.speed, channelState: &channelState)
-        // G14: A00 executes implicit zero without inventing A/5/6 memory history.
-        // Cold 500 retains its separate missing-memory policy.
+        // Cold A00 and supported Linear 500 execute zero independently of tone
+        // admission, without inventing A/5/6 history or broadening Amiga 5xy.
         let coldA00 = cell.effectType == 0x0A && cell.effectParam == 0 && channelState.volumeSlideMemory == nil
+        let cold500 = usesLinearFrequencyTable && cell.effectType == 0x05 && cell.effectParam == 0 && channelState.volumeSlideMemory == nil
+        let coldZeroSlide = coldA00 || cold500
+        let coldPolicy = coldA00 ? "a00_cold_zero_slide" : "500_cold_zero_slide"
         let slide: VolumeSlideAmounts
         let memorySource: PlaybackSongSyntheticEffectMemorySource?
         let effectMemoryReused: Bool
@@ -558,13 +562,13 @@ extension PlaybackSongSyntheticAdapter {
             slide = requestedSlide
             memorySource = nil
             effectMemoryReused = false
-            effectMemoryMissing = !coldA00
-            effectMemoryDeferred = !coldA00
-            memoryUnavailableReason = coldA00 ? nil : volumeSlideMemoryUnavailableReason(for: cell)
+            effectMemoryMissing = !coldZeroSlide
+            effectMemoryDeferred = !coldZeroSlide
+            memoryUnavailableReason = coldZeroSlide ? nil : volumeSlideMemoryUnavailableReason(for: cell)
         }
         let rowSpeed = max(1, timingConfig.speed)
         let command = volumeSlideCommand(for: cell, up: slide.up, down: slide.down)
-        guard slide.amount > 0 || (coldA00 && rowSpeed > 1) else {
+        guard slide.amount > 0 || (coldZeroSlide && rowSpeed > 1) else {
             let before = channelState
             var updates = [
                 voiceStateUpdateDiagnostic(
@@ -589,7 +593,7 @@ extension PlaybackSongSyntheticAdapter {
                     volumeSlideClamped: false,
                     volumeSlideTick0Suppressed: true,
                     volumeSlideRowSpeed: rowSpeed,
-                    volumeSlidePolicyOverride: coldA00 ? "a00_cold_zero_slide_no_nonzero_ticks" : zeroVolumeSlidePolicy(for: cell),
+                    volumeSlidePolicyOverride: coldZeroSlide ? coldPolicy + "_no_nonzero_ticks" : zeroVolumeSlidePolicy(for: cell),
                     effectMemoryReused: effectMemoryReused,
                     effectMemoryMissing: effectMemoryMissing,
                     effectMemoryDeferred: effectMemoryDeferred,
@@ -621,7 +625,7 @@ extension PlaybackSongSyntheticAdapter {
             let before = channelState
             let unclampedAfter = before.baseChannelVolume + slide.up - slide.down
             // The base setter restores output even for zero arithmetic. Applied
-            // A00 ticks remain explicit local writers for held-target publication.
+            // Cold zero-slide ticks remain local writers for held-target publication.
             channelState.baseChannelVolume = clampedVolumeValue(unclampedAfter)
             if slide.amount > 0 { channelState.volumeValueZeroedByAxy = channelState.baseChannelVolume == 0 }
             let clamped = channelState.baseChannelVolume != unclampedAfter
@@ -648,7 +652,7 @@ extension PlaybackSongSyntheticAdapter {
                 volumeSlideClamped: clamped,
                 volumeSlideTick0Suppressed: true,
                 volumeSlideRowSpeed: rowSpeed,
-                volumeSlidePolicyOverride: coldA00 ? "a00_cold_zero_slide_output_restoration" : nil,
+                volumeSlidePolicyOverride: coldZeroSlide ? coldPolicy + "_output_restoration" : nil,
                 effectMemoryReused: effectMemoryReused,
                 effectMemoryMissing: effectMemoryMissing,
                 effectMemoryDeferred: effectMemoryDeferred,
@@ -687,6 +691,7 @@ extension PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
         channelState: inout ChannelState,
+        usesLinearFrequencyTable: Bool,
         globalVolumeValue: Int
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         applyEffectColumnVolumeSlide(
@@ -697,6 +702,7 @@ extension PlaybackSongSyntheticAdapter {
             timingConfig: timingConfig,
             timingPlan: timingPlan,
             channelState: &channelState,
+            usesLinearFrequencyTable: usesLinearFrequencyTable,
             globalVolumeValue: globalVolumeValue
         )
     }

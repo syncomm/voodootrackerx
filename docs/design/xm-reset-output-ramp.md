@@ -170,7 +170,11 @@ speed-1 holds and window carry are preserved. Cold 600's established nonzero-tic
 zero slide also declares local publication when base/output are unchanged;
 the existing held-target comparison refreshes stale gain and deduplicates equal
 targets without seeding memory or changing vibrato. Cold H00 remains a no-op;
-cold 500/G15, G31 arithmetic and generic ramp parity are unchanged.
+G31 arithmetic and generic ramp parity are unchanged. G15 cold Linear 500
+uses the same zero-slide local writer independently of tone target/speed gates:
+63→32 restoration and stale held 1→.25 refresh occur at the first nonzero tick.
+Equal targets deduplicate; absent memory, source identity and no-retrigger tone
+semantics persist. It does not extend the partial Amiga path or close G28.
 
 G09 `Dx/Ex` updates supply current stored pan on those same nonzero frames.
 G06 composes its envelope displacement with that pan through the existing

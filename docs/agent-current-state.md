@@ -112,7 +112,11 @@ host.
 - Cold 600 retains its zero-slide base-to-output assignment on nonzero ticks
   and declares local publication even when base/output are unchanged. The
   current source's held target refreshes if stale; equal targets deduplicate.
-  Slide memory stays absent, vibrato is preserved, and cold 500 remains G15.
+  Slide memory stays absent and vibrato is preserved.
+- G15 cold Linear 500 executes the zero-slide volume half on nonzero ticks
+  independently of tone target/speed availability. It restores current base to
+  output and refreshes a differing held source target without creating memory,
+  retriggering or changing tone admission. Partial Amiga 5xy remains open G28.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

@@ -4600,13 +4600,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
     private static func finePortamentoUpDiagnosticJSON(
         _ diagnostic: PlaybackSongSyntheticFinePortamentoUpDiagnostic
     ) -> [String: Any] {
-        [
+        let fields: [String: Any] = [
             "source": positionJSON(diagnostic.source),
             "channel_index": diagnostic.channelIndex,
             "synthetic_row": diagnostic.syntheticRow,
             "synthetic_tick": diagnostic.syntheticTick,
             "effect_type": Int(diagnostic.effectType),
             "effect_param": Int(diagnostic.effectParam),
+            "direction": "up",
             "status": finePortamentoUpStatusName(diagnostic.status),
             "current_status": finePortamentoUpStatusName(diagnostic.status),
             "detected": diagnostic.detected,
@@ -4636,18 +4637,20 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "clamped": diagnostic.clamped,
             "policy": diagnostic.policy,
         ]
+        return fields.merging(finePitchExecutionJSON(diagnostic.execution)) { _, value in value }
     }
 
     private static func finePortamentoDownDiagnosticJSON(
         _ diagnostic: PlaybackSongSyntheticFinePortamentoDownDiagnostic
     ) -> [String: Any] {
-        [
+        let fields: [String: Any] = [
             "source": positionJSON(diagnostic.source),
             "channel_index": diagnostic.channelIndex,
             "synthetic_row": diagnostic.syntheticRow,
             "synthetic_tick": diagnostic.syntheticTick,
             "effect_type": Int(diagnostic.effectType),
             "effect_param": Int(diagnostic.effectParam),
+            "direction": "down",
             "status": finePortamentoDownStatusName(diagnostic.status),
             "current_status": finePortamentoDownStatusName(diagnostic.status),
             "detected": diagnostic.detected,
@@ -4676,6 +4679,26 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
             "clamped": diagnostic.clamped,
             "policy": diagnostic.policy,
+        ]
+        return fields.merging(finePitchExecutionJSON(diagnostic.execution)) { _, value in value }
+    }
+
+    private static func finePitchExecutionJSON(_ execution: PlaybackSongSyntheticFinePitchExecution) -> [String: Any] {
+        [
+            "fine_memory_value": execution.memoryValue.map { $0 as Any } ?? NSNull(),
+            "fine_memory_origin": execution.memoryOrigin.map(effectMemorySourceJSON) ?? NSNull(),
+            "memory_source": execution.effectMemoryReused ? execution.memoryOrigin.map(effectMemorySourceJSON) ?? NSNull() : NSNull(),
+            "effect_memory_reused": execution.effectMemoryReused,
+            "cold": execution.cold,
+            "frequency_table": execution.usesLinearFrequencyTable ? "linear" : "amiga",
+            "canonical_pitch_valid": execution.canonicalPitchValid,
+            "output_linear_period_before": execution.outputLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "output_linear_period_after": execution.outputLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
+            "publication_requested": execution.publicationRequested,
+            "source_eligible": execution.sourceEligible,
+            "coalesced_vibrato_exit": execution.coalescedVibratoExit,
+            "publication_suppressed": execution.publicationRequested && execution.publicationSuppressionReason != nil,
+            "publication_suppression_reason": execution.publicationSuppressionReason.map { $0 as Any } ?? NSNull(),
         ]
     }
 

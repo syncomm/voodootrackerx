@@ -122,6 +122,12 @@ host.
   from base and publish a differing held target without creating memory
   provenance. Clamps, silent routes and trigger/order carry preserve those
   memories. Cold H00 remains intentionally inert; A00/500/600 stay unchanged.
+- G17 Linear E1x/E2x own independent per-channel directional fine-pitch memories.
+  Seeded E10/E20 replay once at tick zero. Cold forms leave canonical pitch
+  unchanged and restore a differing held output from it without provenance.
+  Converged targets deduplicate; uninitialized and completed sources receive no
+  step publication or new voice. FT2's source-less cold-E10 0→1 clamp artifact
+  is intentionally omitted. Amiga fine/extra-fine remains G29; X10/X20 is G18.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

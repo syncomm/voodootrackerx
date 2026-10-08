@@ -137,8 +137,8 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Cxx` | Set volume | Implemented | Closed | None | Not applicable | Bounded tick-zero channel-volume state/clamp is supported; audible header/gain/ramp obligations remain separate. |
 | `Dxx` | Pattern break | Implemented | Needs characterization | None | Not applicable | BCD target/traversal exists; broader B/D/E6 precedence remains G38. |
 | `E0x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch. VTX's no-op needs no audible XM filter; MOD hardware-filter semantics are a separate target. |
-| `E1x` | Fine portamento up | Implemented | Partial | Own directional fine-up state; `E10` replay missing | Linear | Nonzero tick-zero `4 * x` adjustment, including same-cell notes, exists. Zero memory gap G17; Amiga path missing G29. |
-| `E2x` | Fine portamento down | Implemented | Partial | Own directional fine-down state; `E20` replay missing | Linear | Same bounded timing/units as E1. Separate downward memory gap G17; Amiga path missing G29. |
+| `E1x` | Fine portamento up | Implemented | Closed G17 Linear memory/restoration | Own per-channel up amount; seeded `E10` supported | Linear | Tick-zero `4 * x` arithmetic and same-cell folding. Cold E10 restores held output from meaningful canonical pitch without provenance; converged/ineligible publications are suppressed. Amiga remains G29. |
+| `E2x` | Fine portamento down | Implemented | Closed G17 Linear memory/restoration | Own per-channel down amount; seeded `E20` supported | Linear | Same bounded timing, independent downward memory and cold restoration as E1. Parent clamps are unchanged; Amiga remains G29. |
 | `E3x` | Glissando control | Deferred | Open | Special; persistent enable/disable control | Not applicable | Genuine FT2 v1 target G36, separate from inert E0/E8/EF. Linear/Amiga tone-output quantization still needs a focused oracle. |
 | `E4x` | Vibrato control | Implemented | Closed | Special; persistent control for `4xy`/`6xy` | Not applicable | All 16 controls: sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 ignored. Bounded control contract only. |
 | `E5x` | Set finetune | Implemented | Partial | None; no-note form inert in pinned control | Linear | Same-cell note-trigger adjustment exists; Amiga path missing (G29). Diagnostic no-note deferral is not missing FT2 memory. |
@@ -178,11 +178,25 @@ Pinned FT2 [fine-pitch handlers](https://github.com/8bitbubsy/ft2-clone/blob/87b
 and [extra-fine handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1182-L1219)
 establish independent up/down memories within each family. E10/E20, EA0/EB0
 and X10/X20 continue their respective directional amounts at tick zero.
-VTX implements G16 EA0/EB0 directional replay; E10/E20 and X10/X20 remain
-missing-memory obligations, not inert FT2 bytes. Fine-volume memory is separate
+VTX implements G16 EA0/EB0 and G17 Linear E10/E20 directional replay; X10/X20
+remains the G18 missing-memory obligation. Fine-volume memory is separate
 from A/5/6 and volume-column 8x/9x; extra-fine memory is separate from fine/regular
 pitch. Current Linear nonzero units stay closed; missing Amiga pitch execution
 cannot borrow that closure.
+
+E1x/E2x retain separate channel-local amount/origin memories, independent of
+1/2/3, X1/X2 and shared vibrato state. Nonzero and seeded zero commands execute
+once at tick zero, with existing Linear arithmetic/clamps and same-cell trigger
+folding. Cold E10/E20 perform zero arithmetic on meaningful canonical real pitch
+and restore held output from it, publishing only when the current source is
+eligible and its held step differs. A later fine publication subsumes a preceding
+vibrato exit at the same frame; converged cold commands keep the existing exit.
+Cold forms create no memory provenance and preserve vibrato speed/depth/phase,
+E4 control and later continuation. Completed/empty
+routes may restore retained semantic pitch but cannot resurrect a C voice;
+uninitialized pitch remains absent. Pinned FT2's source-less cold-E10 0→1 clamp
+mutation and redundant refresh flags are intentionally not emulated. This is a
+bounded Linear contract; Amiga fine/extra-fine and same-cell E5 remain G29.
 
 EAx and EBx use independent directional per-channel memories. Seeded EA0/EB0
 replay their own amount once at tick zero. Cold EA0/EB0 execute implicit zero
@@ -424,8 +438,9 @@ support alone does not close these domains:
   zero-memory target-refresh artifact is an intentional known difference.
   Cold A00 restoration (G14) is closed under the bounded B convention above.
   Cold 600 held-target refresh, G15 cold Linear 500 and G16 fine-volume memory
-  are closed. Directional fine-pitch/extra-fine memory (G17/G18) and G28 Amiga
-  combined semantics remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
+  and G17 Linear fine-pitch memory/restoration are closed. Extra-fine memory
+  (G18), G29 Amiga fine-pitch and G28 Amiga combined semantics remain open.
+  Rxy counter lifetime, nibble memory, tick-zero dispatch,
   semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its
   common-XM table. ED delayed note/instrument/default interactions and
   note-97/K00/instrument/volume precedence remain G23–G24.

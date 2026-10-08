@@ -429,6 +429,12 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 .filter(\.applied)
                 .compactMap(\.activeEventIndex)
         )
+        let finePitchTriggerExecutions = Dictionary(uniqueKeysWithValues:
+            adaptedPlan.diagnostics.finePortamentoUpEffects.filter(\.appliedToInitialPlaybackStep).compactMap { command in
+                command.activeEventIndex.map { ($0, command.execution) }
+            } + adaptedPlan.diagnostics.finePortamentoDownEffects.filter(\.appliedToInitialPlaybackStep).compactMap { command in
+                command.activeEventIndex.map { ($0, command.execution) }
+            })
         let appliedExtraFinePortamentoByEventIndex = adaptedPlan.diagnostics.extraFinePortamentoEffects
             .filter(\.applied)
             .reduce(into: [Int: PlaybackSongSyntheticExtraFinePortamentoDiagnostic]()) { result, diagnostic in
@@ -531,6 +537,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 ((mapping.effectParam >> 4) & 0x0F) == 0x02
             if isFinePortamentoDown {
                 categories.append("e2x_fine_portamento_down")
+            }
+            if let finePitch = finePitchTriggerExecutions[eventIndex] {
+                if finePitch.effectMemoryReused { categories.append("effect_memory_reused") }
+                if finePitch.cold { categories.append("cold_fine_pitch_restoration") }
             }
             let bridgedExtraFinePortamento: PlaybackSongSyntheticExtraFinePortamentoDiagnostic? =
                 mapping.effectType == 0x21 ? appliedExtraFinePortamentoByEventIndex[eventIndex] : nil
@@ -790,7 +800,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     syntheticTick: update.syntheticTick,
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
-                    categories: ["step_update", "e1x_fine_portamento_up"],
+                    categories: ["step_update", "e1x_fine_portamento_up"] +
+                        (diagnostic.execution.effectMemoryReused ? ["effect_memory_reused"] : []) +
+                        (diagnostic.execution.cold ? ["cold_fine_pitch_restoration"] : []),
                     effectType: diagnostic.effectType,
                     effectParam: diagnostic.effectParam
                 ))
@@ -810,7 +822,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     syntheticTick: update.syntheticTick,
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
-                    categories: ["step_update", "e2x_fine_portamento_down"],
+                    categories: ["step_update", "e2x_fine_portamento_down"] +
+                        (diagnostic.execution.effectMemoryReused ? ["effect_memory_reused"] : []) +
+                        (diagnostic.execution.cold ? ["cold_fine_pitch_restoration"] : []),
                     effectType: diagnostic.effectType,
                     effectParam: diagnostic.effectParam
                 ))

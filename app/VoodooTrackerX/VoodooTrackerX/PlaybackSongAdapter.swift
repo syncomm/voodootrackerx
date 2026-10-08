@@ -96,6 +96,8 @@ enum PlaybackSongSyntheticAdapter {
         var portamentoUpMemory: PortamentoSlideMemory?
         var portamentoDownMemory: PortamentoSlideMemory?
         var volumeSlideMemory: VolumeSlideMemory? // Shared Axy/5xy/6xy full parameter and origin.
+        var fineVolumeUpMemory: FineVolumeSlideMemory?
+        var fineVolumeDownMemory: FineVolumeSlideMemory?
         var globalVolumeSlideMemory: GlobalVolumeSlideMemory? // Hxy only; global volume itself is song-owned.
         var vibratoSpeed = 0
         var vibratoDepth = 0
@@ -144,6 +146,11 @@ enum PlaybackSongSyntheticAdapter {
 
     struct GlobalVolumeSlideMemory: Equatable {
         let parameter: UInt8
+        let source: PlaybackSongSyntheticEffectMemorySource
+    }
+
+    struct FineVolumeSlideMemory: Equatable {
+        let amount: Int
         let source: PlaybackSongSyntheticEffectMemorySource
     }
 

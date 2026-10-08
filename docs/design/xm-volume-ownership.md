@@ -424,8 +424,10 @@ all tremolo update states. This is not a waveform-identical rendering claim:
 - Instrument-associated note 97 and note-plus-instrument `K00` retain their
   separate default-volume dispatch boundary. Ordinary no-envelope release zeros
   output; instrument-only K00 follows the cached-default/release ordering above.
-- Cold `A00` restoration is closed under G14 below. `EA0`/`EB0`, `R00`, and
-  other deferred cases retain their documented status. G09 closes column panning-slide timing;
+- Cold `A00` restoration is closed under G14 below. G16 closes directional
+  `EA0`/`EB0` replay and cold tick-zero base-to-output publication without memory
+  provenance; equal held targets deduplicate. `R00` remains deferred.
+  G09 closes column panning-slide timing;
   G12 closes nonzero Hxy timing and channel-turn publication; G13 closes H00
   memory with the cold artifact excluded below.
 

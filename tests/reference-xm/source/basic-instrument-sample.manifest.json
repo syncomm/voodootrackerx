@@ -7706,6 +7706,351 @@
       "xm_output": "generated/cold-500-local-publication.xm",
       "xm_sha256": "7ed2e7d4c902e5bfaefa60cc3edea78984ea58d976882679e6fe6b378e2ef2df",
       "xm_size_bytes": 1177
+    },
+    {
+      "id": "fine-volume-directional-memory",
+      "intended_tests": [
+        "EA1/EA0 and EB1/EB0 directional replay",
+        "cold stale-held and tremolo repair without memory provenance",
+        "channel, A/5/6 and volume-column memory independence",
+        "tick-zero speed/Fxx and pattern/order/window carry"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "name": "BASIC SAMPLE",
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "SINE64",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 48,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "47a72c66257b66e4f88bb5e0debaf033873db681b1355945de9370f4bac43984",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0,
+          1
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 160,
+                "effect_type": 14,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 16,
+                "effect_type": 16,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 176,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 72,
+                "effect_type": 7,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 160,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 7,
+                "instrument": 0,
+                "note": 0,
+                "row": 6,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 176,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 7,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 163,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 180,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 160,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 176,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 11,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 160,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 176,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 11,
+                "volume_column": 0
+              }
+            ],
+            "rows": 12
+          },
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 160,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 176,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 160,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 145
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 176,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 130
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 10,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 5,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 6,
+                "instrument": 0,
+                "note": 0,
+                "row": 6,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 160,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 7,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 7,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 176,
+                "effect_type": 14,
+                "instrument": 1,
+                "note": 51,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 160,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 49,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 160,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 80
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 176,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 97,
+                "row": 11,
+                "volume_column": 0
+              }
+            ],
+            "rows": 12
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX FINE VOL MEMORY",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "fine-volume-directional-memory.xm",
+      "purpose": "G16 independent directional fine-volume replay and cold tick-zero local publication.",
+      "significant_rows": [
+        "0...3: cold EA0/EB0 on current and stale-global targets; blank holds.",
+        "4...7: tremolo then cold EA0/EB0; later tremolo continuation.",
+        "8...11: EA3/EB4/EA0/EB0; channel 1 remains unseeded.",
+        "12...15: order-boundary replay and volume-column 8x/9x independence.",
+        "16...19: Axy/5xy/6xy then fine replay at F01.",
+        "20...23: same-cell explicit and note-only replay at F03/F06, clamps and key-off."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "G17/G18 pitch memories, G31 arithmetic, onset and full FT2 PCM parity remain separate."
+      ],
+      "xm_output": "generated/fine-volume-directional-memory.xm",
+      "xm_sha256": "b3edfe69592fb5edf89a7d37c104fff63847b4ec30eec40af7ebcc6354f65279",
+      "xm_size_bytes": 1027
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

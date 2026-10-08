@@ -4146,14 +4146,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
         case let .eaxFineVolumeSlideUp(amount):
             object["fine_volume_slide_direction"] = "up"
             object["fine_amount"] = amount
-            object["fine_amount_nibble"] = amount
-            object["effect_memory_deferred"] = update.ignoredAsNoOp && amount == 0
+            object["fine_amount_nibble"] = update.effectParam.map { Int($0 & 15) } ?? amount
+            object["effect_memory_deferred"] = update.effectMemoryDeferred
             object["no_active_voice"] = isFineVolumeSlideNoActiveVoice(update)
         case let .ebxFineVolumeSlideDown(amount):
             object["fine_volume_slide_direction"] = "down"
             object["fine_amount"] = amount
-            object["fine_amount_nibble"] = amount
-            object["effect_memory_deferred"] = update.ignoredAsNoOp && amount == 0
+            object["fine_amount_nibble"] = update.effectParam.map { Int($0 & 15) } ?? amount
+            object["effect_memory_deferred"] = update.effectMemoryDeferred
             object["no_active_voice"] = isFineVolumeSlideNoActiveVoice(update)
         case let .effect5xyVolumeSlide(up, down):
             let rawUp = update.volumeSlideRawUpNibble ?? update.effectParam.map { Int(($0 & 0xF0) >> 4) }

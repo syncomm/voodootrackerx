@@ -101,9 +101,13 @@ No-note `X1x`/`X2x` rows with an active voice are emitted as row-start
 sample-step updates, `X10`/`X20` remain effect-memory-deferred no-ops, and
 other `X` subcommands remain deferred diagnostics.
 Same-cell `EAx`/`EBx` fine volume slide note triggers keep effect metadata and
-trigger with the row-level adjusted channel volume. Empty-note nonzero
-`EAx`/`EBx` rows with an active voice are emitted as row-start gain updates,
-while `EA0`/`EB0` remain effect-memory-deferred no-ops.
+trigger with the tick-zero adjusted channel volume. EAx/EBx own independent
+per-channel directional memories. Seeded EA0/EB0 replay their own amount; cold
+forms assign output from base with implicit zero arithmetic and local publication
+intent, without memory provenance. Empty-note forms publish a row-start gain
+update when the composed held target differs, including cold stale-target repair.
+Equal targets deduplicate. Diagnostics retain the raw nibble, resolved amount
+and seeded origin; cold H00 remains intentionally inert.
 Same-cell nonzero `Axy` note triggers keep effect metadata and trigger once at
 the tick-0 channel volume. The Swift adapter then emits `Axy` gain updates on
 ticks `1...(speed - 1)` for the row. Nonzero `Axy`/`5xy`/`6xy` volume slides on rows with nonzero ticks store

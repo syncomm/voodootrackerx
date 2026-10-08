@@ -424,7 +424,7 @@ extension PlaybackSongSyntheticAdapter {
         case 0x0E where isFinePortamentoDownEffect(cell):
             return finePortamentoDownAmount(from: cell) == 0 ? .ignoredNoOp : .applied
         case 0x0E where isFineVolumeSlideEffect(cell):
-            return fineVolumeSlideAmount(from: cell) == 0 ? .ignoredNoOp : .applied
+            return .applied
         case 0x0E where isVibratoControlEffect(cell):
             return supportedVibratoWaveform(controlValue: Int(cell.effectParam & 0x0F)) == nil
                 ? .deferredUnsupported

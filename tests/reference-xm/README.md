@@ -72,6 +72,15 @@ explicitly approves committing that exact artifact.
 
 ## Generated Fixtures
 
+`generated/fine-volume-directional-memory.xm` is the G16 two-channel, two-order
+control with a looped mathematical sample at header volume 32. Rows 0–7 pin cold
+current/stale-global and tremolo restoration; 8–11 pin independent EA3/EB4/EA0/EB0
+with a cold second channel. The second order pins boundary replay, volume-column
+8x/9x and A/5/6 independence, F01/F03/F06, same-cell and note-only controls, clamps
+and key-off. `FineVolumeMemoryTests` adds parameterized lifetimes, empty/completed
+routes, envelope/fadeout and whole/window parity. Runtime tests compare every
+event frame and source order at 44.1/48 kHz. Reference WAVs stay outside git.
+
 `generated/cold-a00-output-restoration.xm` is the small G14 compatibility
 control: two channels, seven rows, one looped mathematical sample and one exact
 empty slot. 748 leaves output 63; cold A00 restores current base 32 at tick 1

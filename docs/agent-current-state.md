@@ -117,6 +117,11 @@ host.
   independently of tone target/speed availability. It restores current base to
   output and refreshes a differing held source target without creating memory,
   retriggering or changing tone admission. Partial Amiga 5xy remains open G28.
+- G16 EAx/EBx execute once at tick zero with independent per-channel up/down
+  memories. Seeded EA0/EB0 replay their own amount; cold forms restore output
+  from base and publish a differing held target without creating memory
+  provenance. Clamps, silent routes and trigger/order carry preserve those
+  memories. Cold H00 remains intentionally inert; A00/500/600 stay unchanged.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

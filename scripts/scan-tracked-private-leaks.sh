@@ -53,6 +53,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/cold-a00-output-restoration.xm | \
     tests/reference-xm/generated/cold-600-local-publication.xm | \
     tests/reference-xm/generated/cold-500-local-publication.xm | \
+    tests/reference-xm/generated/fine-volume-directional-memory.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

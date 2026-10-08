@@ -37,6 +37,7 @@ ALL_FIXTURES = [
     "cold-a00-output-restoration.xm",
     "cold-600-local-publication.xm",
     "cold-500-local-publication.xm",
+    "fine-volume-directional-memory.xm",
 ]
 
 
@@ -576,6 +577,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "cold-a00-output-restoration.xm").resolve(),
                     (output_dir / "generated" / "cold-600-local-publication.xm").resolve(),
                     (output_dir / "generated" / "cold-500-local-publication.xm").resolve(),
+                    (output_dir / "generated" / "fine-volume-directional-memory.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -589,6 +591,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/effect-memory.xm",
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
+                    "generated/fine-volume-directional-memory.xm",
                     "generated/fxx-timing.xm",
                     "generated/global-volume-publication.xm",
                     "generated/global-volume-slide-memory.xm",
@@ -673,6 +676,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/effect-memory.xm",
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
+                    "generated/fine-volume-directional-memory.xm",
                     "generated/fxx-timing.xm",
                     "generated/global-volume-publication.xm",
                     "generated/global-volume-slide-memory.xm",
@@ -766,6 +770,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:cold-a00-output-restoration.xm": "generated/cold-a00-output-restoration.xm",
                     "xm:cold-600-local-publication.xm": "generated/cold-600-local-publication.xm",
                     "xm:cold-500-local-publication.xm": "generated/cold-500-local-publication.xm",
+                    "xm:fine-volume-directional-memory.xm": "generated/fine-volume-directional-memory.xm",
                 },
             )
 

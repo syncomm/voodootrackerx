@@ -146,8 +146,8 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `E7x` | Tremolo control | Implemented | Closed | Special; persistent control independent of E4 | Not applicable | All nibble aliases and phase-reset suppression are supported; ramp retains FT2's vibrato-phase sign quirk. Full `7xy` audio remains G39. |
 | `E8x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; current no-op matches. OpenMPT's audible panning alias is outside FT2 v1; use supported `8xx`. |
 | `E9x` | Retrigger note | Implemented | Partial | Special; no ordinary interval replay | Not applicable | Nonzero intervals exist. `E90` is a missing special tick-zero retrigger (G19), not reuse of the preceding interval. `Rxy` is separate. |
-| `EAx` | Fine volume slide up | Implemented | Partial | Own directional fine-up amount; `EA0` replay missing | Not applicable | Nonzero tick-zero parent exists; current zero no-op is G16, independent of EB/A/5/6 memory. |
-| `EBx` | Fine volume slide down | Implemented | Partial | Own directional fine-down amount; `EB0` replay missing | Not applicable | Nonzero tick-zero parent exists; current zero no-op is G16, independent of EA/A/5/6 memory. |
+| `EAx` | Fine volume slide up | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-up amount | Not applicable | Tick-zero +x, clamped to 64; seeded EA0 replays up memory. Cold EA0 restores base to output and publishes against the held target without seeding memory. Independent of EB/A/5/6 and volume-column 8x/9x. |
+| `EBx` | Fine volume slide down | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-down amount | Not applicable | Tick-zero -x, clamped to 0; seeded EB0 replays down memory. Cold EB0 restores base to output and publishes against the held target without seeding memory. Independent of EA/A/5/6 and volume-column 8x/9x. |
 | `ECx` | Note cut | Implemented | Known difference | None | Not applicable | VTX hard-retires the source. FT2 zeros base/output with a quick ramp and retains the cursor/source for recovery (G04). Internal hard stop is separate. |
 | `EDx` | Note delay | Implemented | Partial | None | Not applicable | Valid same-cell ED0/nonzero delayed notes exist. Delayed instrument-only/default/reset interactions remain G23; out-of-row no-op is not full precedence closure. |
 | `EEx` | Pattern delay | Deferred | Open | None | Not applicable | Standard FT2/XM v1 traversal/timing target G35. Row-duration/tick replay needs its own contract, separate from unrelated E effects. |
@@ -178,10 +178,22 @@ Pinned FT2 [fine-pitch handlers](https://github.com/8bitbubsy/ft2-clone/blob/87b
 and [extra-fine handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1182-L1219)
 establish independent up/down memories within each family. E10/E20, EA0/EB0
 and X10/X20 continue their respective directional amounts at tick zero.
-VTX currently returns zero-form no-ops; those are missing-memory obligations,
-not inert FT2 bytes. Fine-volume memory is separate from A/5/6, and extra-fine
-memory is separate from fine/regular pitch. Current Linear nonzero units stay
-closed; missing Amiga execution cannot borrow that closure.
+VTX implements G16 EA0/EB0 directional replay; E10/E20 and X10/X20 remain
+missing-memory obligations, not inert FT2 bytes. Fine-volume memory is separate
+from A/5/6 and volume-column 8x/9x; extra-fine memory is separate from fine/regular
+pitch. Current Linear nonzero units stay closed; missing Amiga pitch execution
+cannot borrow that closure.
+
+EAx and EBx use independent directional per-channel memories. Seeded EA0/EB0
+replay their own amount once at tick zero. Cold EA0/EB0 execute implicit zero
+fine-volume operations, assign local output from base and declare local
+publication intent without creating memory provenance. A differing composed
+target refreshes the active generation; equal held targets deduplicate. This is
+A seeded memory plus B bounded cold compatibility behavior. Cold H00 remains
+intentionally inert; cold A00/500/600 retain their nonzero-tick local writes.
+`FineVolumeMemoryTests` and `fine-volume-directional-memory.xm` cover both rates,
+clamps, source lifetimes, independent families, speed/Fxx and window carry.
+Envelope/fadeout composition and existing ramp policy remain unchanged.
 
 The pinned [E dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L733-L750)
 and [nonzero-tick dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2209-L2227)
@@ -411,8 +423,9 @@ support alone does not close these domains:
 - **Volume writers and memory:** H00 replay (G13) is closed; its cold FT2
   zero-memory target-refresh artifact is an intentional known difference.
   Cold A00 restoration (G14) is closed under the bounded B convention above.
-  Cold 600 held-target refresh and G15 cold Linear 500 are closed. Directional
-  fine-slide memory and G28 Amiga combined semantics remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
+  Cold 600 held-target refresh, G15 cold Linear 500 and G16 fine-volume memory
+  are closed. Directional fine-pitch/extra-fine memory (G17/G18) and G28 Amiga
+  combined semantics remain open. Rxy counter lifetime, nibble memory, tick-zero dispatch,
   semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its
   common-XM table. ED delayed note/instrument/default interactions and
   note-97/K00/instrument/volume precedence remain G23–G24.

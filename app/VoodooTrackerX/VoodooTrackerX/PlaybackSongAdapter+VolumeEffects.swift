@@ -415,31 +415,22 @@ extension PlaybackSongSyntheticAdapter {
             )
         case 0x0E where isFineVolumeSlideEffect(cell):
             let before = channelState
-            let amount = fineVolumeSlideAmount(from: cell)
+            let rawAmount = fineVolumeSlideAmount(from: cell)
             let isSlideUp = isFineVolumeSlideUpEffect(cell)
+            let remembered = isSlideUp ? before.fineVolumeUpMemory : before.fineVolumeDownMemory
+            if rawAmount > 0 {
+                let memory = FineVolumeSlideMemory(amount: rawAmount, source: .init(
+                    source: source, channelIndex: channelIndex, effectType: cell.effectType, effectParam: cell.effectParam))
+                if isSlideUp { channelState.fineVolumeUpMemory = memory }
+                else { channelState.fineVolumeDownMemory = memory }
+            }
+            let reused = rawAmount == 0 ? remembered : nil
+            let amount = rawAmount > 0 ? rawAmount : reused?.amount ?? 0
             let command: PlaybackSongSyntheticVoiceStateUpdateCommand = isSlideUp
                 ? .eaxFineVolumeSlideUp(amount: amount)
                 : .ebxFineVolumeSlideDown(amount: amount)
-            guard amount > 0 else {
-                return voiceStateUpdateDiagnostic(
-                    source: source,
-                    channelIndex: channelIndex,
-                    syntheticRow: syntheticRow,
-                    scheduledFrame: scheduledFrame,
-                    cell: cell,
-                    commandSource: .effectColumn,
-                    command: command,
-                    rawVolumeColumn: nil,
-                    effectType: cell.effectType,
-                    effectParam: cell.effectParam,
-                    status: .ignoredNoOp,
-                    behavior: .rowLevelApproximation,
-                    channelStateBefore: before,
-                    channelStateAfter: before,
-                    globalVolumeBefore: globalVolumeValue,
-                    globalVolumeAfter: globalVolumeValue
-                )
-            }
+            // Even cold zero writes base to output at tick 0. Applied writer intent
+            // lets the existing causal projection repair a stale held target.
             if isSlideUp {
                 channelState.baseChannelVolume = clampedVolumeValue(before.baseChannelVolume + amount)
             } else {
@@ -462,7 +453,10 @@ extension PlaybackSongSyntheticAdapter {
                 channelStateBefore: before,
                 channelStateAfter: channelState,
                 globalVolumeBefore: globalVolumeValue,
-                globalVolumeAfter: globalVolumeValue
+                globalVolumeAfter: globalVolumeValue,
+                effectMemoryReused: reused != nil,
+                effectMemoryMissing: rawAmount == 0 && reused == nil,
+                memorySource: reused?.source
             )
         default:
             return nil

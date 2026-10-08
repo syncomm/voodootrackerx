@@ -4581,6 +4581,43 @@ final class RuntimeCMixerTests: XCTestCase {
         try assertGlobalVolumeRuntimeParity(fixtureName: "cold-500-local-publication.xm")
     }
 
+    @MainActor
+    func testFineVolumeMemoryMatchesRuntimeCoreAndEngineAtBothRates() throws {
+        try assertGlobalVolumeRuntimeParity(fixtureName: "fine-volume-directional-memory.xm")
+    }
+
+    func testColdFineVolumeCannotResurrectCompletedCSource() throws {
+        for rate in [44_100.0, 48_000] {
+            for zero: UInt8 in [0xA0, 0xB0] {
+                let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 1 / 32, count: 32),
+                    volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: 8363)
+                let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: 7, effectParam: 0x48),
+                    makePlaybackRow(index: 2, effectType: 14, effectParam: zero)]],
+                    instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1), maximumRenderFrames: 4096)
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                let rowFrames = 6 * Int(rate / 50)
+                var frame = 0
+                while frame < rowFrames * 2 {
+                    let count = min(4093, rowFrames * 2 - frame)
+                    _ = renderRuntimePCM(core, frames: count); frame += count
+                }
+                let before = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertFalse(before.active)
+                while frame < rowFrames * 3 {
+                    let count = min(4093, rowFrames * 3 - frame)
+                    XCTAssertTrue(renderRuntimePCM(core, frames: count).allSatisfy { $0 == 0 }); frame += count
+                }
+                let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertFalse(after.active)
+                XCTAssertEqual(after.gain, 0.5); XCTAssertEqual(after.samplePosition, before.samplePosition)
+            }
+        }
+    }
+
     func testCold500CannotChangeCompletedCSourceInAnyToneState() throws {
         for rate in [44_100.0, 48_000] {
             for (target, speed): (UInt8, UInt8) in [(0, 0), (53, 1), (53, 0), (0, 1)] {
@@ -4631,7 +4668,16 @@ final class RuntimeCMixerTests: XCTestCase {
             let end = try XCTUnwrap(runtime.plannedSongEndFrame)
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
-            let planned = runtime.events.filter { $0.categories.contains("hxy_channel_target") || $0.categories.contains("gxx_channel_target") }
+            let planned = runtime.events.filter { event in
+                if fixtureName == "fine-volume-directional-memory.xm" {
+                    guard event.scheduledFrame < end else { return false }
+                    switch event.action {
+                    case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
+                    default: return false // Semantic trace rows intentionally omit event IDs.
+                    }
+                }
+                return event.categories.contains("hxy_channel_target") || event.categories.contains("gxx_channel_target")
+            }
             XCTAssertFalse(planned.isEmpty)
             // Multiple replacement slots can sum in a different Float32 order.
             let pcmTolerance: Float = fixtureName == "global-volume-publication.xm" ? Float.ulpOfOne : 1e-7
@@ -4641,10 +4687,12 @@ final class RuntimeCMixerTests: XCTestCase {
             let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: rate)
             harness.engine.load(song: song); harness.engine.play(from: nil)
             defer { harness.engine.stop() }
+            var applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
             var rendered = 0
             while rendered < end {
                 let count = min(4093, end - rendered)
                 let pcm = renderRuntimePCM(core, frames: count)
+                applied += core.drainAppliedAdapterEventDiagnostics()
                 let expected = offline.block.interleavedPCM[rendered..<(rendered + count)]
                 let delivered = harness.audioEngine.renderForTesting(frameCount: count)
                 XCTAssertEqual(pcm.count, expected.count)
@@ -4653,16 +4701,23 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
+            if fixtureName == "fine-volume-directional-memory.xm" {
+                XCTAssertEqual(applied.map(\.event), runtime.events.filter { $0.scheduledFrame < end })
+                XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
+            }
             for event in planned {
-                let actual = try XCTUnwrap(harness.traceWriter.events.first { $0.plannedEventID == event.id && $0.eventAppliedFrame != nil })
-                guard case let .gainPanUpdate(_, gain, _) = event.action else { return XCTFail("Missing global-volume target") }
+                let actual = try XCTUnwrap(harness.traceWriter.events.first { $0.plannedEventID == event.id && $0.eventAppliedFrame != nil },
+                    "Missing event \(event.id), frame \(event.scheduledFrame), action \(event.action), end \(end)")
                 XCTAssertEqual(actual.eventAppliedFrame, UInt64(event.scheduledFrame))
                 XCTAssertEqual(actual.plannedEventFrame, event.scheduledFrame)
                 XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
-                XCTAssertEqual(actual.gainAfter, gain)
+                XCTAssertEqual(actual.plannedSourceChannelIndex, event.channelIndex)
+                if case let .gainPanUpdate(_, gain, _) = event.action { XCTAssertEqual(actual.gainAfter, gain) }
             }
             let targetIDs = Set(planned.map(\.id))
-            let deliveredTargets = harness.traceWriter.events.filter { targetIDs.contains($0.plannedEventID ?? -1) && $0.eventAppliedFrame != nil }
+            // A replacement trigger has a companion old-source ramp trace with the same ID.
+            let deliveredTargets = harness.traceWriter.events.filter { targetIDs.contains($0.plannedEventID ?? -1) &&
+                $0.eventAppliedFrame != nil && $0.runtimeAction != "c_mixer_stop_channel_ramped" }
             XCTAssertEqual(deliveredTargets.map(\.plannedEventID), planned.map { Optional($0.id) })
             if fixtureName == "global-volume-slide-timing.xm" || fixtureName == "global-volume-slide-memory.xm" {
                 let late = planned.filter { $0.source.rowIndex == (fixtureName == "global-volume-slide-timing.xm" ? 19 : 0) &&

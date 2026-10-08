@@ -542,13 +542,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     categories.append("x2x_extra_fine_portamento_down")
                 }
             }
-            let fineVolumeSlideAmount = mapping.effectParam & 0x0F
             let isFineVolumeSlideUp = mapping.effectType == 0x0E &&
-                ((mapping.effectParam >> 4) & 0x0F) == 0x0A &&
-                fineVolumeSlideAmount > 0
+                ((mapping.effectParam >> 4) & 0x0F) == 0x0A
             let isFineVolumeSlideDown = mapping.effectType == 0x0E &&
-                ((mapping.effectParam >> 4) & 0x0F) == 0x0B &&
-                fineVolumeSlideAmount > 0
+                ((mapping.effectParam >> 4) & 0x0F) == 0x0B
             if isFineVolumeSlideUp {
                 categories.append("eax_fine_volume_slide_up")
             }
@@ -675,8 +672,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories.append("instrument_default_volume_update")
             case .eaxFineVolumeSlideUp:
                 categories.append("eax_fine_volume_slide_up")
+                if update.effectMemoryReused { categories.append("effect_memory_reused") }
             case .ebxFineVolumeSlideDown:
                 categories.append("ebx_fine_volume_slide_down")
+                if update.effectMemoryReused { categories.append("effect_memory_reused") }
             case .effect5xyVolumeSlide:
                 categories.append("tone_portamento_volume_slide_5xy")
                 if update.effectMemoryReused {

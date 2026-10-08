@@ -28,8 +28,8 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let retriggerEffects: [PlaybackSongSyntheticRetriggerDiagnostic]
     let tonePortamentoEffects: [PlaybackSongSyntheticTonePortamentoDiagnostic]
     let portamentoSlideEffects: [PlaybackSongSyntheticPortamentoSlideDiagnostic]
-    let finePortamentoUpEffects: [PlaybackSongSyntheticFinePortamentoUpDiagnostic]
-    let finePortamentoDownEffects: [PlaybackSongSyntheticFinePortamentoDownDiagnostic]
+    var finePortamentoUpEffects: [PlaybackSongSyntheticFinePortamentoUpDiagnostic]
+    var finePortamentoDownEffects: [PlaybackSongSyntheticFinePortamentoDownDiagnostic]
     let extraFinePortamentoEffects: [PlaybackSongSyntheticExtraFinePortamentoDiagnostic]
     let arpeggioEffects: [PlaybackSongSyntheticArpeggioDiagnostic]
     let vibratoControlEffects: [PlaybackSongSyntheticVibratoControlDiagnostic]
@@ -1198,6 +1198,22 @@ struct PlaybackSongSyntheticPortamentoSlideDiagnostic: Equatable {
     let policy: String
 }
 
+/// Separates fine-pitch execution and memory from an admitted source publication.
+struct PlaybackSongSyntheticFinePitchExecution: Equatable {
+    var memoryValue: Int?
+    var memoryOrigin: PlaybackSongSyntheticEffectMemorySource?
+    var effectMemoryReused = false
+    var cold = false
+    var usesLinearFrequencyTable = false
+    var canonicalPitchValid = false
+    var outputLinearPeriodBefore: Double?
+    var outputLinearPeriodAfter: Double?
+    var publicationRequested = false
+    var sourceEligible = false
+    var publicationSuppressionReason: String?
+    var coalescedVibratoExit = false
+}
+
 struct PlaybackSongSyntheticFinePortamentoUpDiagnostic: Equatable {
     enum Status: Equatable {
         case applied
@@ -1232,9 +1248,10 @@ struct PlaybackSongSyntheticFinePortamentoUpDiagnostic: Equatable {
     let rowBPM: Int
     let scheduledFrame: Int?
     let appliedToInitialPlaybackStep: Bool
-    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
+    var stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let clamped: Bool
     let policy: String
+    var execution = PlaybackSongSyntheticFinePitchExecution()
 }
 
 struct PlaybackSongSyntheticFinePortamentoDownDiagnostic: Equatable {
@@ -1271,9 +1288,10 @@ struct PlaybackSongSyntheticFinePortamentoDownDiagnostic: Equatable {
     let rowBPM: Int
     let scheduledFrame: Int?
     let appliedToInitialPlaybackStep: Bool
-    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
+    var stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let clamped: Bool
     let policy: String
+    var execution = PlaybackSongSyntheticFinePitchExecution()
 }
 
 struct PlaybackSongSyntheticExtraFinePortamentoDiagnostic: Equatable {
@@ -1402,7 +1420,7 @@ struct PlaybackSongSyntheticVibratoDiagnostic: Equatable {
     let currentPlaybackStepAfter: Double?
     let rowSpeed: Int
     let rowBPM: Int
-    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
+    var stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let policy: String
 }
 

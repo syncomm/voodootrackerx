@@ -2917,7 +2917,7 @@ final class PlaybackSongOfflineRenderer {
         )
     }
 
-    /// Reuses window/lifetime reconstruction to check a planned source before a gain publication.
+    /// Reuses window/lifetime reconstruction to check a planned source before a local publication.
     static func hasActiveSource(eventIndex: Int, at frame: Int, plan: PlaybackSongSyntheticPlan) -> Bool {
         sameChannelVoiceIsActive(.init(eventIndex: eventIndex, rampCompletionFrame: nil), at: frame,
             plan: plan, scheduler: SyntheticTrackerScheduler(config: plan.timingConfig))

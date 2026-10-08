@@ -420,9 +420,9 @@ extension PlaybackSongSyntheticAdapter {
         case 0x0E where isSetFinetuneEffect(cell):
             return (1...96).contains(cell.note) ? .applied : .deferredUnsupported
         case 0x0E where isFinePortamentoUpEffect(cell):
-            return finePortamentoUpAmount(from: cell) == 0 ? .ignoredNoOp : .applied
+            return .applied
         case 0x0E where isFinePortamentoDownEffect(cell):
-            return finePortamentoDownAmount(from: cell) == 0 ? .ignoredNoOp : .applied
+            return .applied
         case 0x0E where isFineVolumeSlideEffect(cell):
             return .applied
         case 0x0E where isVibratoControlEffect(cell):

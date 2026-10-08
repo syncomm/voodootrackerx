@@ -403,29 +403,102 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
+    static func appendFinePitch(_ command: PlaybackSongSyntheticFinePortamentoUpDiagnostic, to context: inout AdapterRowContext) {
+        var command = command
+        command.execution.coalescedVibratoExit = coalesceVibratoExit(updates: command.stepUpdates,
+            eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
+        context.finePortamentoUpEffects.append(command)
+    }
+
+    static func appendFinePitch(_ command: PlaybackSongSyntheticFinePortamentoDownDiagnostic, to context: inout AdapterRowContext) {
+        var command = command
+        command.execution.coalescedVibratoExit = coalesceVibratoExit(updates: command.stepUpdates,
+            eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
+        context.finePortamentoDownEffects.append(command)
+    }
+
+    /// A later fine writer subsumes the prior row's same-frame vibrato exit.
+    /// Search only the current/preceding row; trigger folds and converged cold
+    /// commands keep the existing exit publication and source-start ordering.
+    private static func coalesceVibratoExit(updates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        eventIndex: Int?, syntheticRow: Int, context: inout AdapterRowContext) -> Bool {
+        guard let update = updates.first, let eventIndex else { return false }
+        for index in context.vibratoEffects.indices.reversed() {
+            let vibrato = context.vibratoEffects[index]
+            if vibrato.syntheticRow < syntheticRow - 1 { break }
+            guard vibrato.syntheticRow == syntheticRow - 1,
+                  vibrato.activeEventIndex == eventIndex, let exit = vibrato.stepUpdates.last,
+                  exit.syntheticTick == vibrato.rowSpeed, exit.reachedTarget,
+                  exit.scheduledFrame == update.scheduledFrame else { continue }
+            context.vibratoEffects[index].stepUpdates.removeLast()
+            return true
+        }
+        return false
+    }
+
+    /// Resolves only this Linear direction's memory, even on a source-less channel.
+    private static func resolveFinePitch(
+        from cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        up: Bool, usesLinearFrequencyTable: Bool, sampleRate: Double,
+        channelState: inout ChannelState
+    ) -> (amount: Int, execution: PlaybackSongSyntheticFinePitchExecution) {
+        let raw = Int(cell.effectParam & 15)
+        if raw > 0 && usesLinearFrequencyTable {
+            let memory = FinePitchMemory(amount: raw, source: effectMemorySource(
+                source: source, channelIndex: channelIndex, cell: cell))
+            if up { channelState.finePitchUpMemory = memory }
+            else { channelState.finePitchDownMemory = memory }
+        }
+        let memory = up ? channelState.finePitchUpMemory : channelState.finePitchDownMemory
+        let valid = usesLinearFrequencyTable && channelState.activeUsesLinearFrequencyTable == true &&
+            (channelState.activeEventIndex != nil || channelState.semanticInstrumentIndex != nil) &&
+            channelState.activeLinearPeriod.map { $0.isFinite && $0 > 0 } == true &&
+            channelState.activePlaybackStep.map { $0.isFinite && $0 > 0 } == true &&
+            channelState.activeSampleBaseSampleRate.map { $0.isFinite && $0 > 0 } == true
+        var output = channelState.activeLinearPeriod
+        // The held step is authoritative: another writer may have superseded the
+        // vibrato cache without changing its phase or memory.
+        if let period = channelState.vibratoOutputLinearPeriod,
+           let rate = channelState.activeSampleBaseSampleRate,
+           playbackStep(linearPeriod: period, baseSampleRate: rate, outputSampleRate: sampleRate) == channelState.activePlaybackStep {
+            output = period
+        }
+        return (raw > 0 ? raw : memory?.amount ?? 0, .init(
+            memoryValue: memory?.amount, memoryOrigin: memory?.source,
+            effectMemoryReused: raw == 0 && memory != nil, cold: raw == 0 && memory == nil,
+            usesLinearFrequencyTable: usesLinearFrequencyTable, canonicalPitchValid: valid,
+            outputLinearPeriodBefore: output, outputLinearPeriodAfter: output,
+            sourceEligible: valid && channelState.activeEventIndex != nil))
+    }
+
     static func handleFinePortamentoUp(
         from cell: PlaybackCell,
         source: PlaybackPosition,
         channelIndex: Int,
         syntheticRow: Int,
         timingConfig: SyntheticTrackerTimingConfig,
+        usesLinearFrequencyTable: Bool,
         timingPlan: PlaybackSongFxxTimingPlan,
         channelState: inout ChannelState
     ) -> PlaybackSongSyntheticFinePortamentoUpDiagnostic {
-        let amount = finePortamentoUpAmount(from: cell)
+        let resolved = resolveFinePitch(from: cell, source: source, channelIndex: channelIndex,
+            up: true, usesLinearFrequencyTable: usesLinearFrequencyTable, sampleRate: timingConfig.sampleRate,
+            channelState: &channelState)
+        let amount = resolved.amount
+        var execution = resolved.execution
         let hasActiveVoice = channelState.activeEventIndex != nil
         let currentLinearPeriodBefore = channelState.activeLinearPeriod
         let currentPlaybackStepBefore = channelState.activePlaybackStep
         let scheduledFrame = timingPlan.frameFor(row: syntheticRow, tick: 0)
 
-        guard amount > 0 else {
+        guard amount > 0 || execution.canonicalPitchValid else {
             return finePortamentoUpDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
                 timingConfig: timingConfig,
                 cell: cell,
-                status: .zeroAmountEffectMemoryDeferred,
+                status: usesLinearFrequencyTable ? .noActiveVoice : .unsupportedFrequencyTable,
                 activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
@@ -438,7 +511,8 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: false,
-                policy: "e10_effect_memory_deferred_no_op"
+                policy: "cold_fine_pitch_no_meaningful_canonical_state",
+                execution: execution
             )
         }
 
@@ -462,7 +536,8 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: false,
-                policy: "no_active_voice_no_playback_invented"
+                policy: "no_active_voice_no_playback_invented",
+                execution: execution
             )
         }
 
@@ -489,12 +564,13 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: false,
-                policy: "linear_frequency_only_first_pass"
+                policy: "linear_frequency_only_first_pass",
+                execution: execution
             )
         }
 
         let rawAfter = currentLinearPeriod - Double(amount) * xmLinearPortamentoUnitsPerParam
-        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let afterPeriod = amount == 0 ? currentLinearPeriod : clampedLinearPeriod(rawAfter)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = playbackStep(
             linearPeriod: afterPeriod,
@@ -520,7 +596,8 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: clamped,
-                policy: "fine_portamento_up_pitch_out_of_range"
+                policy: "fine_portamento_up_pitch_out_of_range",
+                execution: execution
             )
         }
 
@@ -536,6 +613,10 @@ extension PlaybackSongSyntheticAdapter {
         )
         channelState.activeLinearPeriod = afterPeriod
         channelState.activePlaybackStep = nextStep
+        channelState.vibratoOutputLinearPeriod = nil
+        execution.outputLinearPeriodAfter = afterPeriod
+        execution.publicationRequested = true
+        execution.publicationSuppressionReason = nextStep == currentPlaybackStep ? "held_pitch_converged" : nil
 
         return finePortamentoUpDiagnostic(
             source: source,
@@ -554,9 +635,10 @@ extension PlaybackSongSyntheticAdapter {
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             scheduledFrame: scheduledFrame,
             appliedToInitialPlaybackStep: false,
-            stepUpdates: [update],
+            stepUpdates: hasActiveVoice && nextStep != currentPlaybackStep ? [update] : [],
             clamped: clamped,
-            policy: "row_start_fine_linear_period_up_first_pass"
+            policy: "row_start_fine_linear_period_up_first_pass",
+            execution: execution
         )
     }
 
@@ -566,46 +648,31 @@ extension PlaybackSongSyntheticAdapter {
         channelIndex: Int,
         syntheticRow: Int,
         timingConfig: SyntheticTrackerTimingConfig,
+        usesLinearFrequencyTable: Bool,
+        channelState: inout ChannelState,
         basePitchMapping: PlaybackStepMapping,
         baseSampleRate: Double,
         activeEventIndex: Int,
         activeEventMappingIndex: Int,
         scheduledFrame: Int
     ) -> (pitchMapping: PlaybackStepMapping, diagnostic: PlaybackSongSyntheticFinePortamentoUpDiagnostic) {
-        let amount = finePortamentoUpAmount(from: cell)
+        let resolved = resolveFinePitch(from: cell, source: source, channelIndex: channelIndex,
+            up: true, usesLinearFrequencyTable: usesLinearFrequencyTable, sampleRate: timingConfig.sampleRate,
+            channelState: &channelState)
+        let amount = resolved.amount
+        var execution = resolved.execution
         let currentLinearPeriodBefore = basePitchMapping.linearPeriod
         let currentPlaybackStepBefore = basePitchMapping.applied ? basePitchMapping.playbackStep : nil
 
-        guard amount > 0 else {
-            return (basePitchMapping, finePortamentoUpDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                timingConfig: timingConfig,
-                cell: cell,
-                status: .zeroAmountEffectMemoryDeferred,
-                activeVoiceFound: true,
-                activeEventIndex: activeEventIndex,
-                activeEventMappingIndex: activeEventMappingIndex,
-                fineAmount: amount,
-                currentLinearPeriodBefore: currentLinearPeriodBefore,
-                currentLinearPeriodAfter: currentLinearPeriodBefore,
-                currentPlaybackStepBefore: currentPlaybackStepBefore,
-                currentPlaybackStepAfter: currentPlaybackStepBefore,
-                scheduledFrame: scheduledFrame,
-                appliedToInitialPlaybackStep: false,
-                stepUpdates: [],
-                clamped: false,
-                policy: "e10_effect_memory_deferred_no_op"
-            ))
-        }
+        execution.outputLinearPeriodBefore = basePitchMapping.linearPeriod
+        execution.outputLinearPeriodAfter = basePitchMapping.linearPeriod
 
-        guard basePitchMapping.applied,
+        guard usesLinearFrequencyTable, basePitchMapping.applied,
               let linearPeriod = basePitchMapping.linearPeriod,
               baseSampleRate.isFinite,
               baseSampleRate > 0 else {
             let status: PlaybackSongSyntheticFinePortamentoUpDiagnostic.Status =
-                basePitchMapping.amigaFrequencyDeferred ? .unsupportedFrequencyTable : .outOfRange
+                !usesLinearFrequencyTable || basePitchMapping.amigaFrequencyDeferred ? .unsupportedFrequencyTable : .outOfRange
             return (basePitchMapping, finePortamentoUpDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -627,12 +694,13 @@ extension PlaybackSongSyntheticAdapter {
                 clamped: false,
                 policy: status == .unsupportedFrequencyTable
                     ? "linear_frequency_only_first_pass"
-                    : "fine_portamento_up_pitch_out_of_range"
+                    : "fine_portamento_up_pitch_out_of_range",
+                execution: execution
             ))
         }
 
         let rawAfter = linearPeriod - Double(amount) * xmLinearPortamentoUnitsPerParam
-        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let afterPeriod = amount == 0 ? linearPeriod : clampedLinearPeriod(rawAfter)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = playbackStep(
             linearPeriod: afterPeriod,
@@ -658,9 +726,16 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: clamped,
-                policy: "fine_portamento_up_pitch_out_of_range"
+                policy: "fine_portamento_up_pitch_out_of_range",
+                execution: execution
             ))
         }
+
+        execution.canonicalPitchValid = true
+        execution.outputLinearPeriodAfter = afterPeriod
+        execution.publicationRequested = true
+        execution.sourceEligible = true
+        execution.publicationSuppressionReason = "folded_into_trigger"
 
         let adjustedMapping = PlaybackStepMapping(
             playbackStep: nextStep,
@@ -699,7 +774,8 @@ extension PlaybackSongSyntheticAdapter {
             appliedToInitialPlaybackStep: true,
             stepUpdates: [],
             clamped: clamped,
-            policy: "same_cell_note_initial_playback_step_fine_linear_period_up_first_pass"
+            policy: "same_cell_note_initial_playback_step_fine_linear_period_up_first_pass",
+            execution: execution
         ))
     }
 
@@ -722,7 +798,8 @@ extension PlaybackSongSyntheticAdapter {
         appliedToInitialPlaybackStep: Bool,
         stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
         clamped: Bool,
-        policy: String
+        policy: String,
+        execution: PlaybackSongSyntheticFinePitchExecution = .init()
     ) -> PlaybackSongSyntheticFinePortamentoUpDiagnostic {
         let applied = status == .applied
         let effectMemoryDeferred = status == .zeroAmountEffectMemoryDeferred
@@ -745,7 +822,7 @@ extension PlaybackSongSyntheticAdapter {
             activeEventIndex: activeEventIndex,
             activeEventMappingIndex: activeEventMappingIndex,
             fineAmount: fineAmount,
-            fineAmountNibble: fineAmount,
+            fineAmountNibble: Int(cell.effectParam & 15),
             currentLinearPeriodBefore: currentLinearPeriodBefore,
             currentLinearPeriodAfter: currentLinearPeriodAfter,
             currentPlaybackStepBefore: currentPlaybackStepBefore,
@@ -756,7 +833,8 @@ extension PlaybackSongSyntheticAdapter {
             appliedToInitialPlaybackStep: appliedToInitialPlaybackStep,
             stepUpdates: stepUpdates,
             clamped: clamped,
-            policy: policy
+            policy: policy,
+            execution: execution
         )
     }
 
@@ -766,23 +844,28 @@ extension PlaybackSongSyntheticAdapter {
         channelIndex: Int,
         syntheticRow: Int,
         timingConfig: SyntheticTrackerTimingConfig,
+        usesLinearFrequencyTable: Bool,
         timingPlan: PlaybackSongFxxTimingPlan,
         channelState: inout ChannelState
     ) -> PlaybackSongSyntheticFinePortamentoDownDiagnostic {
-        let amount = finePortamentoDownAmount(from: cell)
+        let resolved = resolveFinePitch(from: cell, source: source, channelIndex: channelIndex,
+            up: false, usesLinearFrequencyTable: usesLinearFrequencyTable, sampleRate: timingConfig.sampleRate,
+            channelState: &channelState)
+        let amount = resolved.amount
+        var execution = resolved.execution
         let hasActiveVoice = channelState.activeEventIndex != nil
         let currentLinearPeriodBefore = channelState.activeLinearPeriod
         let currentPlaybackStepBefore = channelState.activePlaybackStep
         let scheduledFrame = timingPlan.frameFor(row: syntheticRow, tick: 0)
 
-        guard amount > 0 else {
+        guard amount > 0 || execution.canonicalPitchValid else {
             return finePortamentoDownDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
                 timingConfig: timingConfig,
                 cell: cell,
-                status: .zeroAmountEffectMemoryDeferred,
+                status: usesLinearFrequencyTable ? .noActiveVoice : .unsupportedFrequencyTable,
                 activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
@@ -795,7 +878,8 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: false,
-                policy: "e20_effect_memory_deferred_no_op"
+                policy: "cold_fine_pitch_no_meaningful_canonical_state",
+                execution: execution
             )
         }
 
@@ -819,7 +903,8 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: false,
-                policy: "no_active_voice_no_playback_invented"
+                policy: "no_active_voice_no_playback_invented",
+                execution: execution
             )
         }
 
@@ -846,12 +931,13 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: false,
-                policy: "linear_frequency_only_first_pass"
+                policy: "linear_frequency_only_first_pass",
+                execution: execution
             )
         }
 
         let rawAfter = currentLinearPeriod + Double(amount) * xmLinearPortamentoUnitsPerParam
-        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let afterPeriod = amount == 0 ? currentLinearPeriod : clampedLinearPeriod(rawAfter)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = playbackStep(
             linearPeriod: afterPeriod,
@@ -877,7 +963,8 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: clamped,
-                policy: "fine_portamento_down_pitch_out_of_range"
+                policy: "fine_portamento_down_pitch_out_of_range",
+                execution: execution
             )
         }
 
@@ -893,6 +980,10 @@ extension PlaybackSongSyntheticAdapter {
         )
         channelState.activeLinearPeriod = afterPeriod
         channelState.activePlaybackStep = nextStep
+        channelState.vibratoOutputLinearPeriod = nil
+        execution.outputLinearPeriodAfter = afterPeriod
+        execution.publicationRequested = true
+        execution.publicationSuppressionReason = nextStep == currentPlaybackStep ? "held_pitch_converged" : nil
 
         return finePortamentoDownDiagnostic(
             source: source,
@@ -911,9 +1002,10 @@ extension PlaybackSongSyntheticAdapter {
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             scheduledFrame: scheduledFrame,
             appliedToInitialPlaybackStep: false,
-            stepUpdates: [update],
+            stepUpdates: hasActiveVoice && nextStep != currentPlaybackStep ? [update] : [],
             clamped: clamped,
-            policy: "row_start_fine_linear_period_down_first_pass"
+            policy: "row_start_fine_linear_period_down_first_pass",
+            execution: execution
         )
     }
 
@@ -923,46 +1015,31 @@ extension PlaybackSongSyntheticAdapter {
         channelIndex: Int,
         syntheticRow: Int,
         timingConfig: SyntheticTrackerTimingConfig,
+        usesLinearFrequencyTable: Bool,
+        channelState: inout ChannelState,
         basePitchMapping: PlaybackStepMapping,
         baseSampleRate: Double,
         activeEventIndex: Int,
         activeEventMappingIndex: Int,
         scheduledFrame: Int
     ) -> (pitchMapping: PlaybackStepMapping, diagnostic: PlaybackSongSyntheticFinePortamentoDownDiagnostic) {
-        let amount = finePortamentoDownAmount(from: cell)
+        let resolved = resolveFinePitch(from: cell, source: source, channelIndex: channelIndex,
+            up: false, usesLinearFrequencyTable: usesLinearFrequencyTable, sampleRate: timingConfig.sampleRate,
+            channelState: &channelState)
+        let amount = resolved.amount
+        var execution = resolved.execution
         let currentLinearPeriodBefore = basePitchMapping.linearPeriod
         let currentPlaybackStepBefore = basePitchMapping.applied ? basePitchMapping.playbackStep : nil
 
-        guard amount > 0 else {
-            return (basePitchMapping, finePortamentoDownDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                timingConfig: timingConfig,
-                cell: cell,
-                status: .zeroAmountEffectMemoryDeferred,
-                activeVoiceFound: true,
-                activeEventIndex: activeEventIndex,
-                activeEventMappingIndex: activeEventMappingIndex,
-                fineAmount: amount,
-                currentLinearPeriodBefore: currentLinearPeriodBefore,
-                currentLinearPeriodAfter: currentLinearPeriodBefore,
-                currentPlaybackStepBefore: currentPlaybackStepBefore,
-                currentPlaybackStepAfter: currentPlaybackStepBefore,
-                scheduledFrame: scheduledFrame,
-                appliedToInitialPlaybackStep: false,
-                stepUpdates: [],
-                clamped: false,
-                policy: "e20_effect_memory_deferred_no_op"
-            ))
-        }
+        execution.outputLinearPeriodBefore = basePitchMapping.linearPeriod
+        execution.outputLinearPeriodAfter = basePitchMapping.linearPeriod
 
-        guard basePitchMapping.applied,
+        guard usesLinearFrequencyTable, basePitchMapping.applied,
               let linearPeriod = basePitchMapping.linearPeriod,
               baseSampleRate.isFinite,
               baseSampleRate > 0 else {
             let status: PlaybackSongSyntheticFinePortamentoDownDiagnostic.Status =
-                basePitchMapping.amigaFrequencyDeferred ? .unsupportedFrequencyTable : .outOfRange
+                !usesLinearFrequencyTable || basePitchMapping.amigaFrequencyDeferred ? .unsupportedFrequencyTable : .outOfRange
             return (basePitchMapping, finePortamentoDownDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -984,12 +1061,13 @@ extension PlaybackSongSyntheticAdapter {
                 clamped: false,
                 policy: status == .unsupportedFrequencyTable
                     ? "linear_frequency_only_first_pass"
-                    : "fine_portamento_down_pitch_out_of_range"
+                    : "fine_portamento_down_pitch_out_of_range",
+                execution: execution
             ))
         }
 
         let rawAfter = linearPeriod + Double(amount) * xmLinearPortamentoUnitsPerParam
-        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let afterPeriod = amount == 0 ? linearPeriod : clampedLinearPeriod(rawAfter)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = playbackStep(
             linearPeriod: afterPeriod,
@@ -1015,9 +1093,16 @@ extension PlaybackSongSyntheticAdapter {
                 appliedToInitialPlaybackStep: false,
                 stepUpdates: [],
                 clamped: clamped,
-                policy: "fine_portamento_down_pitch_out_of_range"
+                policy: "fine_portamento_down_pitch_out_of_range",
+                execution: execution
             ))
         }
+
+        execution.canonicalPitchValid = true
+        execution.outputLinearPeriodAfter = afterPeriod
+        execution.publicationRequested = true
+        execution.sourceEligible = true
+        execution.publicationSuppressionReason = "folded_into_trigger"
 
         let adjustedMapping = PlaybackStepMapping(
             playbackStep: nextStep,
@@ -1056,7 +1141,8 @@ extension PlaybackSongSyntheticAdapter {
             appliedToInitialPlaybackStep: true,
             stepUpdates: [],
             clamped: clamped,
-            policy: "same_cell_note_initial_playback_step_fine_linear_period_down_first_pass"
+            policy: "same_cell_note_initial_playback_step_fine_linear_period_down_first_pass",
+            execution: execution
         ))
     }
 
@@ -1079,7 +1165,8 @@ extension PlaybackSongSyntheticAdapter {
         appliedToInitialPlaybackStep: Bool,
         stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
         clamped: Bool,
-        policy: String
+        policy: String,
+        execution: PlaybackSongSyntheticFinePitchExecution = .init()
     ) -> PlaybackSongSyntheticFinePortamentoDownDiagnostic {
         let applied = status == .applied
         let effectMemoryDeferred = status == .zeroAmountEffectMemoryDeferred
@@ -1102,7 +1189,7 @@ extension PlaybackSongSyntheticAdapter {
             activeEventIndex: activeEventIndex,
             activeEventMappingIndex: activeEventMappingIndex,
             fineAmount: fineAmount,
-            fineAmountNibble: fineAmount,
+            fineAmountNibble: Int(cell.effectParam & 15),
             currentLinearPeriodBefore: currentLinearPeriodBefore,
             currentLinearPeriodAfter: currentLinearPeriodAfter,
             currentPlaybackStepBefore: currentPlaybackStepBefore,
@@ -1113,7 +1200,8 @@ extension PlaybackSongSyntheticAdapter {
             appliedToInitialPlaybackStep: appliedToInitialPlaybackStep,
             stepUpdates: stepUpdates,
             clamped: clamped,
-            policy: policy
+            policy: policy,
+            execution: execution
         )
     }
 

@@ -89,7 +89,11 @@ final class PortamentoScalingTests: XCTestCase {
                         ? (up ? diagnostics.finePortamentoUpEffects.flatMap(\.stepUpdates)
                               : diagnostics.finePortamentoDownEffects.flatMap(\.stepUpdates))
                         : diagnostics.extraFinePortamentoEffects.flatMap(\.stepUpdates)
-                    XCTAssertEqual(updates.count, 1) // Same-cell adjustment is folded into the trigger; zero stays no-op.
+                    XCTAssertEqual(updates.count, fine ? 2 : 1) // Fine zero replays; G18 extra-fine zero stays deferred.
+                    if fine {
+                        XCTAssertEqual(updates[1].scheduledFrame, 7_680)
+                        assertStep(updates[1], before: 4_608 + 2 * delta, after: 4_608 + 3 * delta, linear: true)
+                    }
                     let update = try XCTUnwrap(updates.first)
                     XCTAssertEqual(update.syntheticTick, 0)
                     XCTAssertEqual(update.scheduledFrame, 3_840)

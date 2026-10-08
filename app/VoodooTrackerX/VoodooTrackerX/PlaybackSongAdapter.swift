@@ -95,6 +95,8 @@ enum PlaybackSongSyntheticAdapter {
         var sampleOffsetMemory: SampleOffsetMemory?
         var portamentoUpMemory: PortamentoSlideMemory?
         var portamentoDownMemory: PortamentoSlideMemory?
+        var finePitchUpMemory: FinePitchMemory?
+        var finePitchDownMemory: FinePitchMemory?
         var volumeSlideMemory: VolumeSlideMemory? // Shared Axy/5xy/6xy full parameter and origin.
         var fineVolumeUpMemory: FineVolumeSlideMemory?
         var fineVolumeDownMemory: FineVolumeSlideMemory?
@@ -142,6 +144,11 @@ enum PlaybackSongSyntheticAdapter {
         var slide: VolumeSlideAmounts {
             PlaybackSongSyntheticAdapter.axyVolumeSlideAmounts(effectParam: parameter)
         }
+    }
+
+    struct FinePitchMemory: Equatable {
+        let amount: Int
+        let source: PlaybackSongSyntheticEffectMemorySource
     }
 
     struct GlobalVolumeSlideMemory: Equatable {
@@ -675,6 +682,7 @@ enum PlaybackSongSyntheticAdapter {
         plan.xmChannelRows = context.xmChannelRows
         plan.xmEmptyRoutes = context.xmEmptyRoutes
         plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
+        admitFinePitchPublications(in: &plan)
         // Eligibility must see managed envelope/release lifetime. Only completed
         // cold-500 sources require rebuilding targets after gain admission changes.
         if excludeCompletedCold500Publications(from: &plan) {
@@ -686,6 +694,34 @@ enum PlaybackSongSyntheticAdapter {
             fields: AdapterPlanProfileFields.playbackSong(song) + AdapterPlanProfileFields.syntheticPlan(plan)
         )
         return plan
+    }
+
+    /// Checks only fine-pitch commands against the existing source-lifetime model.
+    private static func admitFinePitchPublications(in plan: inout PlaybackSongSyntheticPlan) {
+        for index in plan.diagnostics.finePortamentoUpEffects.indices {
+            let command = plan.diagnostics.finePortamentoUpEffects[index]
+            guard command.applied, !command.appliedToInitialPlaybackStep else { continue }
+            let eligible = command.activeEventIndex.map {
+                PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: $0, at: command.scheduledFrame ?? 0, plan: plan)
+            } ?? false
+            plan.diagnostics.finePortamentoUpEffects[index].execution.sourceEligible = eligible
+            if !eligible {
+                plan.diagnostics.finePortamentoUpEffects[index].stepUpdates = []
+                plan.diagnostics.finePortamentoUpEffects[index].execution.publicationSuppressionReason = "no_active_source"
+            }
+        }
+        for index in plan.diagnostics.finePortamentoDownEffects.indices {
+            let command = plan.diagnostics.finePortamentoDownEffects[index]
+            guard command.applied, !command.appliedToInitialPlaybackStep else { continue }
+            let eligible = command.activeEventIndex.map {
+                PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: $0, at: command.scheduledFrame ?? 0, plan: plan)
+            } ?? false
+            plan.diagnostics.finePortamentoDownEffects[index].execution.sourceEligible = eligible
+            if !eligible {
+                plan.diagnostics.finePortamentoDownEffects[index].stepUpdates = []
+                plan.diagnostics.finePortamentoDownEffects[index].execution.publicationSuppressionReason = "no_active_source"
+            }
+        }
     }
 
     /// Keeps cold-500 semantic execution while excluding completed sources from C gain scheduling.
@@ -1062,10 +1098,11 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                context.finePortamentoUpEffects.append(diagnostic)
+                appendFinePitch(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
             if hasFinePortamentoDownEffect, !(1...96).contains(cell.note) {
@@ -1075,10 +1112,11 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                context.finePortamentoDownEffects.append(diagnostic)
+                appendFinePitch(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
             if hasXxyExtraFinePortamentoEffect, !(1...96).contains(cell.note) {
@@ -1402,10 +1440,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.finePortamentoUpEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasFinePortamentoDownEffect {
                     let diagnostic = handleFinePortamentoDown(
@@ -1414,10 +1453,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.finePortamentoDownEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasXxyExtraFinePortamentoEffect {
                     let diagnostic = handleExtraFinePortamento(
@@ -1489,10 +1529,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.finePortamentoUpEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasFinePortamentoDownEffect {
                     let diagnostic = handleFinePortamentoDown(
@@ -1501,10 +1542,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.finePortamentoDownEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasXxyExtraFinePortamentoEffect {
                     let diagnostic = handleExtraFinePortamento(
@@ -1621,10 +1663,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.finePortamentoUpEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasFinePortamentoDownEffect {
                     let diagnostic = handleFinePortamentoDown(
@@ -1633,10 +1676,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.finePortamentoDownEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasXxyExtraFinePortamentoEffect {
                     let diagnostic = handleExtraFinePortamento(
@@ -1807,10 +1851,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.finePortamentoUpEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasFinePortamentoDownEffect {
                     let diagnostic = handleFinePortamentoDown(
@@ -1819,10 +1864,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.finePortamentoDownEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasXxyExtraFinePortamentoEffect {
                     let diagnostic = handleExtraFinePortamento(
@@ -1973,6 +2019,8 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                    channelState: &channelState,
                     basePitchMapping: pitchMapping,
                     baseSampleRate: sample.baseSampleRate,
                     activeEventIndex: eventIndex,
@@ -1980,7 +2028,7 @@ enum PlaybackSongSyntheticAdapter {
                     scheduledFrame: scheduledNoteFrame
                 )
                 pitchMapping = result.pitchMapping
-                context.finePortamentoUpEffects.append(result.diagnostic)
+                appendFinePitch(result.diagnostic, to: &context)
             }
             if hasFinePortamentoDownEffect {
                 let result = finePortamentoDownAdjustedPitchMapping(
@@ -1989,6 +2037,8 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                    channelState: &channelState,
                     basePitchMapping: pitchMapping,
                     baseSampleRate: sample.baseSampleRate,
                     activeEventIndex: eventIndex,
@@ -1996,7 +2046,7 @@ enum PlaybackSongSyntheticAdapter {
                     scheduledFrame: scheduledNoteFrame
                 )
                 pitchMapping = result.pitchMapping
-                context.finePortamentoDownEffects.append(result.diagnostic)
+                appendFinePitch(result.diagnostic, to: &context)
             }
             if hasXxyExtraFinePortamentoEffect {
                 let result = extraFinePortamentoAdjustedPitchMapping(

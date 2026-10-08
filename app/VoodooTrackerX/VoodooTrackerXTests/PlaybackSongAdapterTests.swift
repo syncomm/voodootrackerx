@@ -3450,7 +3450,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertGreaterThan(e1f.playbackStepAfter, e11.playbackStepAfter)
     }
 
-    func testPlaybackSongAdapterE10IsEffectMemoryDeferredNoOp() throws {
+    func testPlaybackSongAdapterE10ColdConvergedPitchExecutesWithoutPublication() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -3465,15 +3465,19 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let diagnostic = try XCTUnwrap(plan.diagnostics.finePortamentoUpEffects.first)
         let command = try XCTUnwrap(plan.diagnostics.effectCommandDiagnostics.first { $0.decodedLabel == "E1x fine portamento up" })
 
-        XCTAssertEqual(diagnostic.status, .zeroAmountEffectMemoryDeferred)
-        XCTAssertFalse(diagnostic.applied)
-        XCTAssertTrue(diagnostic.deferred)
-        XCTAssertTrue(diagnostic.ignoredAsNoOp)
-        XCTAssertTrue(diagnostic.effectMemoryDeferred)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.applied)
+        XCTAssertFalse(diagnostic.deferred)
+        XCTAssertFalse(diagnostic.ignoredAsNoOp)
+        XCTAssertFalse(diagnostic.effectMemoryDeferred)
         XCTAssertTrue(diagnostic.activeVoiceFound)
         XCTAssertEqual(diagnostic.fineAmount, 0)
         XCTAssertEqual(diagnostic.stepUpdates, [])
-        XCTAssertEqual(command.status, .ignoredNoOp)
+        XCTAssertEqual(command.status, .applied)
+        XCTAssertTrue(diagnostic.execution.cold)
+        XCTAssertTrue(diagnostic.execution.publicationRequested)
+        XCTAssertEqual(diagnostic.execution.publicationSuppressionReason, "held_pitch_converged")
+        XCTAssertNil(diagnostic.execution.memoryOrigin)
     }
 
     func testPlaybackSongAdapterE1xNoActiveVoiceIsDiagnosed() throws {
@@ -3620,7 +3624,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertLessThan(e2f.playbackStepAfter, e21.playbackStepAfter)
     }
 
-    func testPlaybackSongAdapterE20IsEffectMemoryDeferredNoOp() throws {
+    func testPlaybackSongAdapterE20ColdConvergedPitchExecutesWithoutPublication() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -3635,15 +3639,19 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let diagnostic = try XCTUnwrap(plan.diagnostics.finePortamentoDownEffects.first)
         let command = try XCTUnwrap(plan.diagnostics.effectCommandDiagnostics.first { $0.decodedLabel == "E2x fine portamento down" })
 
-        XCTAssertEqual(diagnostic.status, .zeroAmountEffectMemoryDeferred)
-        XCTAssertFalse(diagnostic.applied)
-        XCTAssertTrue(diagnostic.deferred)
-        XCTAssertTrue(diagnostic.ignoredAsNoOp)
-        XCTAssertTrue(diagnostic.effectMemoryDeferred)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.applied)
+        XCTAssertFalse(diagnostic.deferred)
+        XCTAssertFalse(diagnostic.ignoredAsNoOp)
+        XCTAssertFalse(diagnostic.effectMemoryDeferred)
         XCTAssertTrue(diagnostic.activeVoiceFound)
         XCTAssertEqual(diagnostic.fineAmount, 0)
         XCTAssertEqual(diagnostic.stepUpdates, [])
-        XCTAssertEqual(command.status, .ignoredNoOp)
+        XCTAssertEqual(command.status, .applied)
+        XCTAssertTrue(diagnostic.execution.cold)
+        XCTAssertTrue(diagnostic.execution.publicationRequested)
+        XCTAssertEqual(diagnostic.execution.publicationSuppressionReason, "held_pitch_converged")
+        XCTAssertNil(diagnostic.execution.memoryOrigin)
     }
 
     func testPlaybackSongAdapterE2xNoActiveVoiceIsDiagnosed() throws {

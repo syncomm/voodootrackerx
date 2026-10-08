@@ -4563,27 +4563,98 @@ final class RuntimeCMixerTests: XCTestCase {
 
     @MainActor
     func testHxyChannelTurnTargetsHaveExactRuntimeFramesAndPCMAtBothRates() throws {
-        try assertGlobalVolumeRuntimeParity(fixtureName: "global-volume-slide-timing.xm")
+        try assertFixtureRuntimeParity(fixtureName: "global-volume-slide-timing.xm")
     }
 
     @MainActor
     func testH00MemoryReplayHasExactRuntimeFramesAndPCMAtBothRates() throws {
-        try assertGlobalVolumeRuntimeParity(fixtureName: "global-volume-slide-memory.xm")
+        try assertFixtureRuntimeParity(fixtureName: "global-volume-slide-memory.xm")
     }
 
     @MainActor
     func testGxxHeldPublicationsHaveExactRuntimeFramesAndPCMAtBothRates() throws {
-        try assertGlobalVolumeRuntimeParity(fixtureName: "global-volume-publication.xm")
+        try assertFixtureRuntimeParity(fixtureName: "global-volume-publication.xm")
     }
 
     @MainActor
     func testCold500HeldPublicationMatchesRuntimeCoreAndEngineAtBothRates() throws {
-        try assertGlobalVolumeRuntimeParity(fixtureName: "cold-500-local-publication.xm")
+        try assertFixtureRuntimeParity(fixtureName: "cold-500-local-publication.xm")
     }
 
     @MainActor
     func testFineVolumeMemoryMatchesRuntimeCoreAndEngineAtBothRates() throws {
-        try assertGlobalVolumeRuntimeParity(fixtureName: "fine-volume-directional-memory.xm")
+        try assertFixtureRuntimeParity(fixtureName: "fine-volume-directional-memory.xm")
+    }
+
+    @MainActor
+    func testFinePitchMemoryMatchesRuntimeCoreAndEngineAtBothRates() throws {
+        try assertFixtureRuntimeParity(fixtureName: "fine-pitch-directional-memory.xm")
+    }
+
+    func testFinePitchAfterVibratoExitOwnsFinalHeldStepAtBothRates() throws {
+        for rate in [44_100.0, 48_000] {
+            for (seed, zero, expected): (UInt8, UInt8, Double) in [(0x13, 0x10, 4584), (0x24, 0x20, 4640)] {
+                for writer: UInt8 in [4, 6] {
+                    for parameter in [seed, zero] {
+                        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 1 / 32, count: 256),
+                            volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 256, loopType: 1)
+                        let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+                            PlaybackRow(index: 0, cells: [.init(note: 49, instrument: 1, volumeColumn: 0xA4, effectType: 14, effectParam: seed)]),
+                            PlaybackRow(index: 1, cells: [.init(note: 0, instrument: 0, volumeColumn: writer == 6 ? 0xB8 : 0, effectType: writer, effectParam: writer == 4 ? 0x48 : 0)]),
+                            makePlaybackRow(index: 2, effectType: 14, effectParam: parameter)]],
+                            instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+                        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                        let boundary = 12 * Int(rate / 50)
+                        XCTAssertEqual(runtime.events.filter { $0.scheduledFrame == boundary && $0.categories.contains("step_update") }.count, 1)
+                        let fine = runtime.plan!.diagnostics.finePortamentoUpEffects.map(\.execution) + runtime.plan!.diagnostics.finePortamentoDownEffects.map(\.execution)
+                        XCTAssertTrue(fine.last!.coalescedVibratoExit)
+                        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1), maximumRenderFrames: 4096)
+                        core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                        var frame = 0
+                        while frame <= boundary {
+                            let count = min(4093, boundary + 1 - frame)
+                            _ = renderRuntimePCM(core, frames: count); frame += count
+                        }
+                        let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                        XCTAssertTrue(voice.active)
+                        XCTAssertEqual(voice.sampleStep, try XCTUnwrap(PlaybackSongSyntheticAdapter.playbackStep(linearPeriod: expected, baseSampleRate: 8363, outputSampleRate: rate)), accuracy: 1e-12)
+                    }
+                }
+            }
+        }
+    }
+
+    func testColdFinePitchCannotPublishToCompletedCSource() throws {
+        for rate in [44_100.0, 48_000] {
+            for zero: UInt8 in [0x10, 0x20] {
+                let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 1 / 32, count: 32),
+                    volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: 8363)
+                let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+                    PlaybackRow(index: 0, cells: [.init(note: 49, instrument: 1, volumeColumn: 0xA4, effectType: 0, effectParam: 0)]),
+                    PlaybackRow(index: 1, cells: [.init(note: 0, instrument: 0, volumeColumn: 0xB8, effectType: 0, effectParam: 0)]),
+                    makePlaybackRow(index: 2, effectType: 14, effectParam: zero)]],
+                    instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                XCTAssertFalse(runtime.events.contains { $0.source.rowIndex == 2 && $0.categories.contains("step_update") })
+                let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1), maximumRenderFrames: 4096)
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                let boundary = 12 * Int(rate / 50)
+                var frame = 0
+                while frame < boundary {
+                    let count = min(4093, boundary - frame)
+                    _ = renderRuntimePCM(core, frames: count); frame += count
+                }
+                let before = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertFalse(before.active)
+                while frame < boundary + 6 * Int(rate / 50) {
+                    let count = min(4093, boundary + 6 * Int(rate / 50) - frame)
+                    XCTAssertTrue(renderRuntimePCM(core, frames: count).allSatisfy { $0 == 0 }); frame += count
+                }
+                let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertFalse(after.active)
+                XCTAssertEqual(after.sampleStep, before.sampleStep); XCTAssertEqual(after.samplePosition, before.samplePosition)
+            }
+        }
     }
 
     func testColdFineVolumeCannotResurrectCompletedCSource() throws {
@@ -4659,7 +4730,7 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
-    private func assertGlobalVolumeRuntimeParity(fixtureName: String) throws {
+    private func assertFixtureRuntimeParity(fixtureName: String) throws {
         let fixture = try referenceXMFixtureURL("generated/" + fixtureName)
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
         for rate in [44_100.0, 48_000] {
@@ -4669,7 +4740,7 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             let planned = runtime.events.filter { event in
-                if fixtureName == "fine-volume-directional-memory.xm" {
+                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm"].contains(fixtureName) {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
                     case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
@@ -4701,8 +4772,8 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
-            if fixtureName == "fine-volume-directional-memory.xm" {
-                XCTAssertEqual(applied.map(\.event), runtime.events.filter { $0.scheduledFrame < end })
+            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm"].contains(fixtureName) {
+                XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
             }
             for event in planned {
@@ -4713,6 +4784,11 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
                 XCTAssertEqual(actual.plannedSourceChannelIndex, event.channelIndex)
                 if case let .gainPanUpdate(_, gain, _) = event.action { XCTAssertEqual(actual.gainAfter, gain) }
+                if case let .stepUpdate(index, step) = event.action {
+                    XCTAssertEqual(actual.adapterActiveEventIndex, index)
+                    XCTAssertEqual(try XCTUnwrap(actual.sampleStepRequested), step, accuracy: 1e-12)
+                    XCTAssertEqual(try XCTUnwrap(actual.sampleStepAfter), step, accuracy: 1e-12)
+                }
             }
             let targetIDs = Set(planned.map(\.id))
             // A replacement trigger has a companion old-source ramp trace with the same ID.

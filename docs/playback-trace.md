@@ -84,16 +84,29 @@ triggers keep the original `effectCommand`/`effectParameter` metadata in the
 trace context. The applied sample-step and effective finetune are planned by the
 shared adapter diagnostics; no-note `E5x` cases remain diagnosed as deferred
 effect-memory/no-note cases instead of being treated as current-voice memory.
-Same-cell `E1x` fine portamento up note triggers also keep effect metadata; the
-deterministic first-pass policy folds the fine upward pitch adjustment into the
-new note's initial sample step. No-note `E1x` rows with an active voice are
-emitted as row-start sample-step updates, while `E10` remains an
-effect-memory-deferred no-op.
-Same-cell `E2x` fine portamento down note triggers also keep effect metadata;
-the deterministic first-pass policy folds the fine downward pitch adjustment
-into the new note's initial sample step. No-note `E2x` rows with an active
-voice are emitted as row-start sample-step updates, while `E20` remains an
-effect-memory-deferred no-op.
+Linear E1x/E2x own independent per-channel directional amount/origin memories.
+Seeded E10/E20 replay at tick zero; cold forms restore held output from meaningful
+canonical real pitch with zero arithmetic and no provenance. Same-cell forms fold
+into the one trigger's initial step. Empty-note forms preserve source identity
+and cursor, publishing only a differing step to an eligible current generation.
+Converged targets deduplicate; completed/empty routes may restore retained
+semantic output without C publication. FT2's source-less cold-E10 0→1 clamp
+artifact is intentionally omitted. Amiga fine/extra-fine remains G29.
+
+Bounded-render `fine_portamento_up_effects` / `fine_portamento_down_effects`
+retain their existing aliases and period/step/source/frame fields. Additive fields
+include `direction`, `fine_memory_value`, `fine_memory_origin`,
+`effect_memory_reused`, `memory_source`, `cold`, `frequency_table`,
+`canonical_pitch_valid`, `output_linear_period_before/after`, `source_eligible`,
+`publication_requested`, `publication_suppressed`,
+`publication_suppression_reason` and `coalesced_vibrato_exit`. A later admitted
+fine write subsumes the preceding row's same-frame vibrato exit so the old target
+cannot overwrite it; converged cold commands retain the existing exit.
+`fine_amount_nibble` is the stored nibble;
+`fine_amount` is the resolved amount. `memory_source` identifies a reused origin;
+cold forms keep both origin fields null. Runtime categories retain E1/E2 family
+names, with `effect_memory_reused` or `cold_fine_pitch_restoration` when applicable;
+planned/applied step traces retain current-generation identity and exact frames.
 Same-cell `X1x`/`X2x` extra fine portamento note triggers keep effect metadata
 when the supported linear-frequency adjustment is bridged; the first-pass
 policy folds the row-level adjustment into the new note's initial sample step.

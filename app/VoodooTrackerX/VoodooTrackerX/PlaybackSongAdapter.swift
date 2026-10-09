@@ -97,6 +97,8 @@ enum PlaybackSongSyntheticAdapter {
         var portamentoDownMemory: PortamentoSlideMemory?
         var finePitchUpMemory: FinePitchMemory?
         var finePitchDownMemory: FinePitchMemory?
+        var extraFinePitchUpMemory: FinePitchMemory?
+        var extraFinePitchDownMemory: FinePitchMemory?
         var volumeSlideMemory: VolumeSlideMemory? // Shared Axy/5xy/6xy full parameter and origin.
         var fineVolumeUpMemory: FineVolumeSlideMemory?
         var fineVolumeDownMemory: FineVolumeSlideMemory?
@@ -696,7 +698,7 @@ enum PlaybackSongSyntheticAdapter {
         return plan
     }
 
-    /// Checks only fine-pitch commands against the existing source-lifetime model.
+    /// Checks only fine/extra-fine pitch commands against the existing source-lifetime model.
     private static func admitFinePitchPublications(in plan: inout PlaybackSongSyntheticPlan) {
         for index in plan.diagnostics.finePortamentoUpEffects.indices {
             let command = plan.diagnostics.finePortamentoUpEffects[index]
@@ -720,6 +722,18 @@ enum PlaybackSongSyntheticAdapter {
             if !eligible {
                 plan.diagnostics.finePortamentoDownEffects[index].stepUpdates = []
                 plan.diagnostics.finePortamentoDownEffects[index].execution.publicationSuppressionReason = "no_active_source"
+            }
+        }
+        for index in plan.diagnostics.extraFinePortamentoEffects.indices {
+            let command = plan.diagnostics.extraFinePortamentoEffects[index]
+            guard command.applied, !command.appliedToInitialPlaybackStep else { continue }
+            let eligible = command.activeEventIndex.map {
+                PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: $0, at: command.scheduledFrame ?? 0, plan: plan)
+            } ?? false
+            plan.diagnostics.extraFinePortamentoEffects[index].execution.sourceEligible = eligible
+            if !eligible {
+                plan.diagnostics.extraFinePortamentoEffects[index].stepUpdates = []
+                plan.diagnostics.extraFinePortamentoEffects[index].execution.publicationSuppressionReason = "no_active_source"
             }
         }
     }
@@ -1126,10 +1140,11 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                context.extraFinePortamentoEffects.append(diagnostic)
+                appendFinePitch(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
             if hasVibrato || hasVibratoVolumeSlide, !(1...96).contains(cell.note), cell.note != 97 {
@@ -1466,10 +1481,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.extraFinePortamentoEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasLxxSetEnvelopePosition {
                     context.envelopePositionEffects.append(envelopePositionDiagnostic(
@@ -1555,10 +1571,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.extraFinePortamentoEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasLxxSetEnvelopePosition {
                     context.envelopePositionEffects.append(envelopePositionDiagnostic(
@@ -1689,10 +1706,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.extraFinePortamentoEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 if hasLxxSetEnvelopePosition {
                     context.envelopePositionEffects.append(envelopePositionDiagnostic(
@@ -1877,10 +1895,11 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
+                        usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    context.extraFinePortamentoEffects.append(diagnostic)
+                    appendFinePitch(diagnostic, to: &context)
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -2055,6 +2074,8 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                    channelState: &channelState,
                     basePitchMapping: pitchMapping,
                     baseSampleRate: sample.baseSampleRate,
                     activeEventIndex: eventIndex,
@@ -2062,7 +2083,7 @@ enum PlaybackSongSyntheticAdapter {
                     scheduledFrame: scheduledNoteFrame
                 )
                 pitchMapping = result.pitchMapping
-                context.extraFinePortamentoEffects.append(result.diagnostic)
+                appendFinePitch(result.diagnostic, to: &context)
             }
             let gain = songGain(
                 outputChannelVolume: channelState.outputChannelVolume,

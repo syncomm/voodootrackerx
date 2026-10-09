@@ -1648,14 +1648,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let noActive = try XCTUnwrap(effects.first { $0.status == .noActiveVoice })
         let up = try XCTUnwrap(effects.first { $0.status == .applied && $0.direction == .up })
         let down = try XCTUnwrap(effects.first { $0.status == .applied && $0.direction == .down })
-        let zeros = effects.filter { $0.status == .zeroAmountEffectMemoryDeferred }
+        let zeros = effects.filter { $0.amountNibble == 0 }
         let unsupported = try XCTUnwrap(effects.first { $0.status == .unsupportedSubcommand })
         let commandStatuses = diagnostics.effectCommandDiagnostics
             .filter { $0.decodedLabel == "Xxy extra fine portamento" }
             .map(\.status)
 
         XCTAssertEqual(diagnostics.extraFinePortamentoEffectCount, 6)
-        XCTAssertEqual(commandStatuses, [.applied, .applied, .applied, .ignoredNoOp, .ignoredNoOp, .deferredUnsupported])
+        XCTAssertEqual(commandStatuses, [.applied, .applied, .applied, .applied, .applied, .deferredUnsupported])
         XCTAssertEqual(noActive.direction, .up)
         XCTAssertEqual(noActive.amount, 15)
         XCTAssertFalse(noActive.activeVoiceFound)
@@ -1670,7 +1670,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(down.currentLinearPeriodAfter), try XCTUnwrap(down.currentLinearPeriodBefore))
         XCTAssertLessThan(try XCTUnwrap(down.currentPlaybackStepAfter), try XCTUnwrap(down.currentPlaybackStepBefore))
         XCTAssertEqual(zeros.compactMap(\.direction), [.up, .down])
-        XCTAssertTrue(zeros.allSatisfy(\.effectMemoryDeferred))
+        XCTAssertTrue(zeros.allSatisfy { $0.applied && $0.execution.effectMemoryReused && !$0.effectMemoryDeferred })
+        XCTAssertEqual(zeros.map(\.amount), [1, 1])
         XCTAssertEqual(unsupported.subcommand, 3)
         XCTAssertTrue(unsupported.deferred)
         XCTAssertEqual(unsupported.stepUpdates, [])

@@ -107,12 +107,17 @@ cannot overwrite it; converged cold commands retain the existing exit.
 cold forms keep both origin fields null. Runtime categories retain E1/E2 family
 names, with `effect_memory_reused` or `cold_fine_pitch_restoration` when applicable;
 planned/applied step traces retain current-generation identity and exact frames.
-Same-cell `X1x`/`X2x` extra fine portamento note triggers keep effect metadata
-when the supported linear-frequency adjustment is bridged; the first-pass
-policy folds the row-level adjustment into the new note's initial sample step.
-No-note `X1x`/`X2x` rows with an active voice are emitted as row-start
-sample-step updates, `X10`/`X20` remain effect-memory-deferred no-ops, and
-other `X` subcommands remain deferred diagnostics.
+Linear X1x/X2x use independent directional extra-fine memory, separate from
+E1/E2. Seeded X10/X20 replay at tick zero; cold forms restore meaningful canonical
+real pitch to held output with zero arithmetic and no provenance. Same-cell
+forms fold into one trigger. Empty-note forms retain identity/cursor; completed
+and empty routes cannot receive C step writes. Converged targets deduplicate;
+uninitialized cold X10 intentionally omits FT2's 0→1 clamp artifact. Amiga stays
+G29 and other X subcommands stay deferred. `xxy_extra_fine_portamento_effects`
+retains raw `amount_nibble` and resolved `amount`, with the execution fields above
+and `extra_fine_memory_value` / `extra_fine_memory_origin` in place of the fine
+memory names. Runtime family categories add `effect_memory_reused` or
+`cold_extra_fine_pitch_restoration`; source identity and frames remain explicit.
 Same-cell `EAx`/`EBx` fine volume slide note triggers keep effect metadata and
 trigger with the tick-zero adjusted channel volume. EAx/EBx own independent
 per-channel directional memories. Seeded EA0/EB0 replay their own amount; cold

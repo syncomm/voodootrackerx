@@ -4591,22 +4591,28 @@ final class RuntimeCMixerTests: XCTestCase {
         try assertFixtureRuntimeParity(fixtureName: "fine-pitch-directional-memory.xm")
     }
 
+    @MainActor
+    func testExtraFinePitchMemoryFixtureWholeOfflineRuntimeParityAtBothRates() throws {
+        try assertFixtureRuntimeParity(fixtureName: "extra-fine-pitch-directional-memory.xm")
+    }
+
     func testFinePitchAfterVibratoExitOwnsFinalHeldStepAtBothRates() throws {
         for rate in [44_100.0, 48_000] {
-            for (seed, zero, expected): (UInt8, UInt8, Double) in [(0x13, 0x10, 4584), (0x24, 0x20, 4640)] {
+            for (command, seed, zero, expected): (UInt8, UInt8, UInt8, Double) in [(14, 0x13, 0x10, 4584), (14, 0x24, 0x20, 4640), (33, 0x13, 0x10, 4602), (33, 0x24, 0x20, 4616)] {
                 for writer: UInt8 in [4, 6] {
                     for parameter in [seed, zero] {
                         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 1 / 32, count: 256),
                             volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 256, loopType: 1)
                         let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
-                            PlaybackRow(index: 0, cells: [.init(note: 49, instrument: 1, volumeColumn: 0xA4, effectType: 14, effectParam: seed)]),
+                            PlaybackRow(index: 0, cells: [.init(note: 49, instrument: 1, volumeColumn: 0xA4, effectType: command, effectParam: seed)]),
                             PlaybackRow(index: 1, cells: [.init(note: 0, instrument: 0, volumeColumn: writer == 6 ? 0xB8 : 0, effectType: writer, effectParam: writer == 4 ? 0x48 : 0)]),
-                            makePlaybackRow(index: 2, effectType: 14, effectParam: parameter)]],
+                            makePlaybackRow(index: 2, effectType: command, effectParam: parameter)]],
                             instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
                         let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
                         let boundary = 12 * Int(rate / 50)
                         XCTAssertEqual(runtime.events.filter { $0.scheduledFrame == boundary && $0.categories.contains("step_update") }.count, 1)
-                        let fine = runtime.plan!.diagnostics.finePortamentoUpEffects.map(\.execution) + runtime.plan!.diagnostics.finePortamentoDownEffects.map(\.execution)
+                        let fine = command == 33 ? runtime.plan!.diagnostics.extraFinePortamentoEffects.map(\.execution)
+                            : runtime.plan!.diagnostics.finePortamentoUpEffects.map(\.execution) + runtime.plan!.diagnostics.finePortamentoDownEffects.map(\.execution)
                         XCTAssertTrue(fine.last!.coalescedVibratoExit)
                         let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1), maximumRenderFrames: 4096)
                         core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
@@ -4626,13 +4632,13 @@ final class RuntimeCMixerTests: XCTestCase {
 
     func testColdFinePitchCannotPublishToCompletedCSource() throws {
         for rate in [44_100.0, 48_000] {
-            for zero: UInt8 in [0x10, 0x20] {
+            for (command, zero): (UInt8, UInt8) in [(14, 0x10), (14, 0x20), (33, 0x10), (33, 0x20)] {
                 let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 1 / 32, count: 32),
                     volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: 8363)
                 let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
                     PlaybackRow(index: 0, cells: [.init(note: 49, instrument: 1, volumeColumn: 0xA4, effectType: 0, effectParam: 0)]),
                     PlaybackRow(index: 1, cells: [.init(note: 0, instrument: 0, volumeColumn: 0xB8, effectType: 0, effectParam: 0)]),
-                    makePlaybackRow(index: 2, effectType: 14, effectParam: zero)]],
+                    makePlaybackRow(index: 2, effectType: command, effectParam: zero)]],
                     instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
                 XCTAssertFalse(runtime.events.contains { $0.source.rowIndex == 2 && $0.categories.contains("step_update") })
@@ -4740,7 +4746,7 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             let planned = runtime.events.filter { event in
-                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm"].contains(fixtureName) {
+                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm"].contains(fixtureName) {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
                     case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
@@ -4772,7 +4778,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
-            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm"].contains(fixtureName) {
+            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm"].contains(fixtureName) {
                 XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
             }

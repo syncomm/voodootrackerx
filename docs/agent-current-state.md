@@ -127,7 +127,14 @@ host.
   unchanged and restore a differing held output from it without provenance.
   Converged targets deduplicate; uninitialized and completed sources receive no
   step publication or new voice. FT2's source-less cold-E10 0→1 clamp artifact
-  is intentionally omitted. Amiga fine/extra-fine remains G29; X10/X20 is G18.
+  is intentionally omitted. Amiga fine/extra-fine remains G29.
+- G18 Linear X1x/X2x own independent per-channel directional extra-fine memories,
+  separate from E1/E2 and regular/tone/modulation state. Seeded X10/X20 replay
+  once at tick zero. Cold forms perform zero arithmetic and restore meaningful
+  canonical pitch to held output without provenance. Converged targets deduplicate;
+  empty/completed routes cannot receive C step writes or a new voice. Uninitialized
+  pitch stays absent, intentionally omitting FT2's cold-X10 0→1 clamp artifact.
+  Parent units/ranges remain unchanged; Amiga extra-fine remains G29.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

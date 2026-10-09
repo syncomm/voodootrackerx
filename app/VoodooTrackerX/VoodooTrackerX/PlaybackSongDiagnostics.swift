@@ -30,7 +30,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let portamentoSlideEffects: [PlaybackSongSyntheticPortamentoSlideDiagnostic]
     var finePortamentoUpEffects: [PlaybackSongSyntheticFinePortamentoUpDiagnostic]
     var finePortamentoDownEffects: [PlaybackSongSyntheticFinePortamentoDownDiagnostic]
-    let extraFinePortamentoEffects: [PlaybackSongSyntheticExtraFinePortamentoDiagnostic]
+    var extraFinePortamentoEffects: [PlaybackSongSyntheticExtraFinePortamentoDiagnostic]
     let arpeggioEffects: [PlaybackSongSyntheticArpeggioDiagnostic]
     let vibratoControlEffects: [PlaybackSongSyntheticVibratoControlDiagnostic]
     let vibratoEffects: [PlaybackSongSyntheticVibratoDiagnostic]
@@ -1331,9 +1331,10 @@ struct PlaybackSongSyntheticExtraFinePortamentoDiagnostic: Equatable {
     let rowBPM: Int
     let scheduledFrame: Int?
     let appliedToInitialPlaybackStep: Bool
-    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
+    var stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let clamped: Bool
     let policy: String
+    var execution = PlaybackSongSyntheticFinePitchExecution()
 }
 
 struct PlaybackSongSyntheticArpeggioDiagnostic: Equatable {

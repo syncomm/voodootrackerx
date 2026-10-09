@@ -1448,9 +1448,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
         )
         object["direction"] = diagnostic.direction.map { $0.rawValue as Any } ?? NSNull()
         object["amount"] = diagnostic.amount
+        object["amount_nibble"] = diagnostic.amountNibble
         object["subcommand"] = diagnostic.subcommand
         object["effect_memory_deferred"] = diagnostic.effectMemoryDeferred
-        return object
+        return object.merging(finePitchExecutionJSON(diagnostic.execution, memoryPrefix: "extra_fine")) { _, value in value }
     }
 
     private static func vibratoControlCoverageJSON(_ diagnostic: PlaybackSongSyntheticVibratoControlDiagnostic) -> [String: Any] {
@@ -4683,10 +4684,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
         return fields.merging(finePitchExecutionJSON(diagnostic.execution)) { _, value in value }
     }
 
-    private static func finePitchExecutionJSON(_ execution: PlaybackSongSyntheticFinePitchExecution) -> [String: Any] {
+    private static func finePitchExecutionJSON(_ execution: PlaybackSongSyntheticFinePitchExecution, memoryPrefix: String = "fine") -> [String: Any] {
         [
-            "fine_memory_value": execution.memoryValue.map { $0 as Any } ?? NSNull(),
-            "fine_memory_origin": execution.memoryOrigin.map(effectMemorySourceJSON) ?? NSNull(),
+            "\(memoryPrefix)_memory_value": execution.memoryValue.map { $0 as Any } ?? NSNull(),
+            "\(memoryPrefix)_memory_origin": execution.memoryOrigin.map(effectMemorySourceJSON) ?? NSNull(),
             "memory_source": execution.effectMemoryReused ? execution.memoryOrigin.map(effectMemorySourceJSON) ?? NSNull() : NSNull(),
             "effect_memory_reused": execution.effectMemoryReused,
             "cold": execution.cold,
@@ -4705,7 +4706,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
     private static func extraFinePortamentoDiagnosticJSON(
         _ diagnostic: PlaybackSongSyntheticExtraFinePortamentoDiagnostic
     ) -> [String: Any] {
-        [
+        let fields: [String: Any] = [
             "source": positionJSON(diagnostic.source),
             "channel_index": diagnostic.channelIndex,
             "synthetic_row": diagnostic.syntheticRow,
@@ -4750,6 +4751,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "clamped": diagnostic.clamped,
             "policy": diagnostic.policy,
         ]
+        return fields.merging(finePitchExecutionJSON(diagnostic.execution, memoryPrefix: "extra_fine")) { _, value in value }
     }
 
     private static func vibratoDiagnosticJSON(

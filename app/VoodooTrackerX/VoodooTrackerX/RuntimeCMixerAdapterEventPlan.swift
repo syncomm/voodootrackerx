@@ -546,6 +546,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 mapping.effectType == 0x21 ? appliedExtraFinePortamentoByEventIndex[eventIndex] : nil
             if let bridgedExtraFinePortamento {
                 categories.append("xxy_extra_fine_portamento")
+                if bridgedExtraFinePortamento.execution.effectMemoryReused { categories.append("effect_memory_reused") }
+                if bridgedExtraFinePortamento.execution.cold { categories.append("cold_extra_fine_pitch_restoration") }
                 if bridgedExtraFinePortamento.direction == .up {
                     categories.append("x1x_extra_fine_portamento_up")
                 } else if bridgedExtraFinePortamento.direction == .down {
@@ -838,6 +840,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             }
             for update in diagnostic.stepUpdates {
                 var categories = ["step_update", "xxy_extra_fine_portamento"]
+                if diagnostic.execution.effectMemoryReused { categories.append("effect_memory_reused") }
+                if diagnostic.execution.cold { categories.append("cold_extra_fine_pitch_restoration") }
                 if diagnostic.direction == .up {
                     categories.append("x1x_extra_fine_portamento_up")
                 } else if diagnostic.direction == .down {

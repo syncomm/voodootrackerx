@@ -408,7 +408,7 @@ extension PlaybackSongSyntheticAdapter {
             guard isSupportedXxyExtraFinePortamentoEffect(cell) else {
                 return .deferredUnsupported
             }
-            return xxyAmount(from: cell) == 0 ? .ignoredNoOp : .applied
+            return .applied
         case 0x0E where cell.effectParam >> 4 == 0x07:
             return .applied
         case 0x0E where isRetriggerEffect(cell):

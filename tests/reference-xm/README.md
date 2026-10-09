@@ -72,6 +72,18 @@ explicitly approves committing that exact artifact.
 
 ## Generated Fixtures
 
+`generated/extra-fine-pitch-directional-memory.xm` is the G18 two-channel,
+two-order Linear control with a looped mathematical sample. Rows 0–4 pin cold
+same-cell folding, B8 restoration and B0 continuation; later rows pin independent
+direction/channel memory, E13 independence, F01/F03/F06, order carry, same-cell
+replay, amount-F, effect-vibrato exit, key-off and note-only controls.
+`ExtraFinePitchMemoryTests` adds canonical-empty/completed/uninitialized
+qualification, converged deduplication, E1/E2/regular/tone/modulation independence,
+parent range and the unchanged Amiga guard. Whole/window/core/engine checks use
+44.1/48 kHz. Cold commands restore meaningful canonical pitch without provenance;
+FT2's source-less cold-X10 0→1 artifact is omitted. Amiga remains G29; reference
+WAVs stay external.
+
 `generated/fine-pitch-directional-memory.xm` is the G17 two-channel, two-order
 Linear control using a looped mathematical sample. Rows 0–4 pin cold same-cell
 folding, B8 restoration and later B0 continuation. Rows 5–11 and the second order
@@ -81,7 +93,7 @@ F01/F03/F06, same-cell replay, amount-F, key-off and note-only controls.
 parent clamp boundaries, converged deduplication, regular/tone/modulation memory
 independence and the unchanged Amiga guard. Whole/window/core/engine checks use
 44.1/48 kHz. Uninitialized cold E10 intentionally omits FT2's 0→1 artifact;
-Amiga fine-pitch stays G29 and X10/X20 stays G18. Reference WAVs remain external.
+Amiga fine-pitch stays G29; G18 is covered separately above. Reference WAVs remain external.
 
 `generated/fine-volume-directional-memory.xm` is the G16 two-channel, two-order
 control with a looped mathematical sample at header volume 32. Rows 0–7 pin cold

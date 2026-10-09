@@ -161,7 +161,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Pxy` | Panning slide | Deferred | Open | Own byte; pinned `P00` replays it | Not applicable | Real FT2/XM v1 target G33. Legacy handler support is not C-adapter support; remaining timing/writer/pan-envelope interactions need characterization. |
 | `Rxy` | Multi retrigger | Implemented | Partial | Own independent interval/mode nibbles; replay missing | Not applicable | First-pass active-voice scheduler and common-XM volume modes exist. R00/zero-nibble memory G20, persistent counter/tick-zero/carry G21 and exact FT2 arithmetic G22 remain open. |
 | `Txy` | Tremor | Deferred | Open | Own byte; pinned `T00` replays it | Not applicable | Real FT2/XM v1 target G34. Counter/phase, cold state, trigger carry and volume-writer interactions still need characterization. |
-| `X1x` / `X2x` | Extra fine portamento | Implemented | Partial | Own directional extra-fine states; `X10`/`X20` replay missing | Linear | Nonzero tick-zero `x` units exist. Missing memory G18 and Amiga paths G29 are separate from X extensions. |
+| `X1x` / `X2x` | Extra fine portamento | Implemented | Closed G18 Linear replay and cold restoration | Own independent per-channel up/down amount/origin | Linear | Tick-zero `x` units; seeded X10/X20 replay their direction. Cold forms restore meaningful canonical pitch without provenance; converged/ineligible C writes are suppressed. Amiga remains G29. |
 | `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug commands | Extension | Outside v1 | Not applicable | Not applicable | No runtime/offline support. Extension/hack families require a separately accepted compatibility target. |
 | `Vxx`, `Wxx` | High-byte diagnostic unknowns | Classification-only | Outside v1 | None in pinned FT2 | Not applicable | Unused/dummy in pinned FT2 dispatch. Diagnostic occurrence does not establish an FT2 effect or identify an extension. |
 
@@ -178,8 +178,8 @@ Pinned FT2 [fine-pitch handlers](https://github.com/8bitbubsy/ft2-clone/blob/87b
 and [extra-fine handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1182-L1219)
 establish independent up/down memories within each family. E10/E20, EA0/EB0
 and X10/X20 continue their respective directional amounts at tick zero.
-VTX implements G16 EA0/EB0 and G17 Linear E10/E20 directional replay; X10/X20
-remains the G18 missing-memory obligation. Fine-volume memory is separate
+VTX implements G16 EA0/EB0, G17 Linear E10/E20 and G18 Linear X10/X20
+directional replay. Fine-volume memory is separate
 from A/5/6 and volume-column 8x/9x; extra-fine memory is separate from fine/regular
 pitch. Current Linear nonzero units stay closed; missing Amiga pitch execution
 cannot borrow that closure.
@@ -197,6 +197,16 @@ routes may restore retained semantic pitch but cannot resurrect a C voice;
 uninitialized pitch remains absent. Pinned FT2's source-less cold-E10 0→1 clamp
 mutation and redundant refresh flags are intentionally not emulated. This is a
 bounded Linear contract; Amiga fine/extra-fine and same-cell E5 remain G29.
+
+X1x/X2x have separate channel-local directional extra-fine memories. Seeded
+X10/X20 replay their own amount; cold forms restore held output from meaningful
+canonical realPeriod at tick zero with zero arithmetic and no memory provenance.
+Only a differing held step on an eligible generation receives a C write. Empty
+and completed routes may restore semantic pitch without fabricating a source;
+uninitialized pitch stays absent. FT2's cold-X10 0→1 clamp and redundant refreshes
+are intentionally omitted. Vibrato speed/depth/phase, E4 controls and later
+column-vibrato continuation survive. Same-cell forms fold into one trigger;
+existing nonzero units and period bounds are protected. Amiga extra-fine is G29.
 
 EAx and EBx use independent directional per-channel memories. Seeded EA0/EB0
 replay their own amount once at tick zero. Cold EA0/EB0 execute implicit zero
@@ -438,8 +448,8 @@ support alone does not close these domains:
   zero-memory target-refresh artifact is an intentional known difference.
   Cold A00 restoration (G14) is closed under the bounded B convention above.
   Cold 600 held-target refresh, G15 cold Linear 500 and G16 fine-volume memory
-  and G17 Linear fine-pitch memory/restoration are closed. Extra-fine memory
-  (G18), G29 Amiga fine-pitch and G28 Amiga combined semantics remain open.
+  and G17/G18 Linear fine/extra-fine memory/restoration are closed.
+  G29 Amiga fine/extra-fine and G28 Amiga combined semantics remain open.
   Rxy counter lifetime, nibble memory, tick-zero dispatch,
   semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its
   common-XM table. ED delayed note/instrument/default interactions and

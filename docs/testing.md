@@ -367,6 +367,21 @@ queries, visited entries and fallback full scans; row fields also estimate the
 additional ordinal-array bytes. Public stress tests bound work without timing
 thresholds. These diagnostics do not change plan events or audio output.
 
+Fine/extra-fine admission additionally reports `fine_pitch_source_history_build`
+and `fine_pitch_source_eligibility`. The latter includes the build and both are
+inside adapter adaptation; do not sum these overlapping phases. Fields report
+one build (zero when no source queries exist), source/compact-record counts and
+strides, logical index bytes, diagnostics visited once, eligibility/position
+query counts and binary-search visits. Construction scans each pitch family once
+and stably orders scalar records per source; queries use O(log source-history)
+position lookup and the existing lifetime rules, with no song-wide pitch scans.
+Construction is O(n log n) in the single-source worst case because ordering must
+preserve the scan's cross-family frame/tick ties; it is never repeated per query.
+`PitchSourceHistoryTests` compares the indexed and scan predicates, complete
+G17/G18 plans, runtime payload/order/categories, whole/window PCM, nonzero-order
+starts, replacement boundaries and independent rebuilds. Deterministic scaling
+tests bound query work rather than asserting machine-dependent elapsed times.
+
 The local corpus runtime metrics helper enables this profile automatically and
 adds parsed adapter-plan profile summaries to its local-only JSON/Markdown
 outputs. Those outputs must remain under `/tmp` or another ignored local

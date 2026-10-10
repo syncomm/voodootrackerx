@@ -2917,17 +2917,130 @@ final class PlaybackSongOfflineRenderer {
         )
     }
 
+    /// Plan-local scalar projection of the existing pitch histories and inclusive source cuts.
+    /// Source indices are generations, never reusable channel/voice slots. No PCM is retained.
+    struct PitchSourceHistory {
+        struct Segment {
+            let frame: Int
+            let position: Double
+            let step: Double
+        }
+        private struct Entry {
+            let lower: Int
+            let upper: Int
+            let cutFrame: Int?
+        }
+        final class Work {
+            var lookupCount = 0
+            var entriesVisited = 0
+        }
+        private let entries: [Entry]
+        private let segments: [Segment]
+        let diagnosticsVisited: Int
+        let work: Work?
+        var sourceCount: Int { entries.count }
+        var recordCount: Int { segments.count }
+        var logicalBytes: Int {
+            entries.count * MemoryLayout<Entry>.stride + segments.count * MemoryLayout<Segment>.stride
+        }
+        var sourceStride: Int { MemoryLayout<Entry>.stride }
+        var recordStride: Int { MemoryLayout<Segment>.stride }
+
+        init(plan: PlaybackSongSyntheticPlan, work: Work? = nil) {
+            self.work = work
+            typealias Step = PlaybackSongSyntheticTonePortamentoStepUpdate
+            struct Point {
+                let frame: Int
+                let tick: Int
+                let step: Double
+            }
+            var bySource = Array(repeating: [Point](), count: plan.pattern.events.count)
+            var visited = 0, stepCount = 0
+            func append(_ steps: [Step], source: Int?, applied: Bool) {
+                visited += 1
+                guard applied, let source, bySource.indices.contains(source) else { return }
+                for step in steps {
+                    bySource[source].append(.init(frame: step.scheduledFrame, tick: step.syntheticTick, step: step.playbackStepAfter))
+                }
+                stepCount += steps.count
+            }
+            // Match the scan's family order; the stable sort keeps equal-frame/tick writers exact.
+            let d = plan.diagnostics
+            for x in d.tonePortamentoEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            for x in d.portamentoSlideEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            for x in d.finePortamentoUpEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            for x in d.finePortamentoDownEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            for x in d.extraFinePortamentoEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            for x in d.arpeggioEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            for x in d.vibratoEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            diagnosticsVisited = visited
+            var cuts = [Int: Int]()
+            func cut(_ source: Int?, at frame: Int) {
+                guard let source else { return }
+                cuts[source] = min(cuts[source] ?? frame, frame)
+            }
+            for route in plan.xmEmptyRoutes { cut(route.stoppedEventIndex, at: route.scheduledFrame) }
+            for x in d.noteCutEffects where x.applied { cut(x.activeEventIndex, at: x.scheduledFrame ?? Int.max) }
+            for x in d.retriggerEffects where x.applied {
+                for (source, frame) in zip(x.replacedEventIndices, x.retriggerFrames) { cut(source, at: frame) }
+            }
+            let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+            var entries = [Entry](), segments = [Segment]()
+            entries.reserveCapacity(bySource.count)
+            segments.reserveCapacity(bySource.count + stepCount)
+            for (source, event) in plan.pattern.events.enumerated() {
+                bySource[source].sort {
+                    $0.frame == $1.frame ? $0.tick < $1.tick : $0.frame < $1.frame
+                }
+                let start = scheduler.frame(for: event), lower = segments.count
+                var cursor = start, position = Double(max(0, event.initialSourceFrame)), step = event.playbackStep
+                segments.append(.init(frame: start, position: position, step: step))
+                for update in bySource[source] where update.frame > start {
+                    // Preserve the scan's sequential Double operations, including equal-frame writes.
+                    position += Double(max(0, update.frame - cursor)) * step
+                    cursor = update.frame
+                    step = update.step
+                    segments.append(.init(frame: cursor, position: position, step: step))
+                }
+                entries.append(.init(lower: lower, upper: segments.count, cutFrame: cuts[source]))
+            }
+            self.entries = entries
+            self.segments = segments
+        }
+
+        func cutFrame(for source: Int) -> Int? {
+            entries.indices.contains(source) ? entries[source].cutFrame : nil
+        }
+
+        /// Strict-before lookup matches boundary events queued at local frame zero.
+        func advancedPosition(for source: Int, at frame: Int) -> Double? {
+            guard entries.indices.contains(source) else { return nil }
+            work?.lookupCount += 1
+            let entry = entries[source]
+            var lower = entry.lower + 1, upper = entry.upper
+            while lower < upper {
+                work?.entriesVisited += 1
+                let middle = lower + (upper - lower) / 2
+                if segments[middle].frame < frame { lower = middle + 1 } else { upper = middle }
+            }
+            let segment = segments[lower - 1]
+            return segment.position + Double(max(0, frame - segment.frame)) * segment.step
+        }
+    }
+
     /// Reuses window/lifetime reconstruction to check a planned source before a local publication.
-    static func hasActiveSource(eventIndex: Int, at frame: Int, plan: PlaybackSongSyntheticPlan) -> Bool {
+    static func hasActiveSource(eventIndex: Int, at frame: Int, plan: PlaybackSongSyntheticPlan,
+                                pitchHistory: PitchSourceHistory? = nil) -> Bool {
         sameChannelVoiceIsActive(.init(eventIndex: eventIndex, rampCompletionFrame: nil), at: frame,
-            plan: plan, scheduler: SyntheticTrackerScheduler(config: plan.timingConfig))
+            plan: plan, scheduler: SyntheticTrackerScheduler(config: plan.timingConfig), pitchHistory: pitchHistory)
     }
 
     private static func sameChannelVoiceIsActive(
         _ voice: SameChannelActiveVoice,
         at frame: Int,
         plan: PlaybackSongSyntheticPlan,
-        scheduler: SyntheticTrackerScheduler
+        scheduler: SyntheticTrackerScheduler,
+        pitchHistory: PitchSourceHistory? = nil
     ) -> Bool {
         if let rampCompletionFrame = voice.rampCompletionFrame,
            frame >= rampCompletionFrame {
@@ -2941,7 +3054,9 @@ final class PlaybackSongOfflineRenderer {
         guard eventStartFrame <= frame else {
             return false
         }
-        if hasAppliedNoteCut(
+        if let pitchHistory {
+            if let cut = pitchHistory.cutFrame(for: voice.eventIndex), cut <= frame { return false }
+        } else if hasAppliedNoteCut(
             eventIndex: voice.eventIndex,
             atOrBefore: frame,
             plan: plan
@@ -2957,13 +3072,15 @@ final class PlaybackSongOfflineRenderer {
             eventIndex: voice.eventIndex,
             plan: plan,
             eventStartFrame: eventStartFrame,
-            boundaryFrame: frame
+            boundaryFrame: frame,
+            pitchHistory: pitchHistory
         ) != nil else {
             return false
         }
         if plan.xmEnvelopeTimeline?.updatesByEvent[voice.eventIndex] != nil { return true }
         if let state = reconstructedPlaybackState(for: event, eventIndex: voice.eventIndex, plan: plan,
-                                                  eventStartFrame: eventStartFrame, boundaryFrame: frame) {
+                                                  eventStartFrame: eventStartFrame, boundaryFrame: frame,
+                                                  pitchHistory: pitchHistory) {
             return state.fadeout > 0
         }
         let releasedFrames = releasedFrameCount(
@@ -2988,7 +3105,7 @@ final class PlaybackSongOfflineRenderer {
     /// The legacy path is retained when no new transitions exist, preserving existing render output.
     private static func reconstructedPlaybackState(
         for event: SyntheticTrackerEvent, eventIndex: Int, plan: PlaybackSongSyntheticPlan,
-        eventStartFrame: Int, boundaryFrame: Int
+        eventStartFrame: Int, boundaryFrame: Int, pitchHistory: PitchSourceHistory? = nil
     ) -> ReconstructedPlaybackState? {
         let changes = carriedPlaybackStateEvents(for: plan).filter { $0.activeEventIndex == eventIndex }
         guard !changes.isEmpty else { return nil }
@@ -3025,7 +3142,7 @@ final class PlaybackSongOfflineRenderer {
             }
             cursor = item.frame
             guard state.fadeout > 0, sourcePositionState(for: event, eventIndex: eventIndex, plan: plan,
-                eventStartFrame: eventStartFrame, boundaryFrame: item.frame) != nil else {
+                eventStartFrame: eventStartFrame, boundaryFrame: item.frame, pitchHistory: pitchHistory) != nil else {
                 state.fadeout = 0
                 return state
             }
@@ -3173,7 +3290,8 @@ final class PlaybackSongOfflineRenderer {
         eventIndex: Int,
         plan: PlaybackSongSyntheticPlan,
         eventStartFrame: Int,
-        boundaryFrame: Int
+        boundaryFrame: Int,
+        pitchHistory: PitchSourceHistory? = nil
     ) -> SourcePositionState? {
         let sampleFrameCount = event.sample.frameCount
         guard sampleFrameCount > 0,
@@ -3189,17 +3307,20 @@ final class PlaybackSongOfflineRenderer {
         var advancedPosition = initialPosition
         var cursorFrame = eventStartFrame
         var currentStep = event.playbackStep
-        for update in sampleStepUpdates(for: eventIndex, plan: plan) {
-            guard update.scheduledFrame > eventStartFrame,
-                  update.scheduledFrame < boundaryFrame else {
-                continue
+        if let pitchHistory {
+            guard let position = pitchHistory.advancedPosition(for: eventIndex, at: boundaryFrame) else { return nil }
+            advancedPosition = position
+        } else {
+            for update in sampleStepUpdates(for: eventIndex, plan: plan) {
+                guard update.scheduledFrame > eventStartFrame,
+                      update.scheduledFrame < boundaryFrame else { continue }
+                let segmentFrames = max(0, update.scheduledFrame - cursorFrame)
+                advancedPosition += Double(segmentFrames) * currentStep
+                cursorFrame = update.scheduledFrame
+                currentStep = update.playbackStepAfter
             }
-            let segmentFrames = max(0, update.scheduledFrame - cursorFrame)
-            advancedPosition += Double(segmentFrames) * currentStep
-            cursorFrame = update.scheduledFrame
-            currentStep = update.playbackStepAfter
+            advancedPosition += Double(max(0, boundaryFrame - cursorFrame)) * currentStep
         }
-        advancedPosition += Double(max(0, boundaryFrame - cursorFrame)) * currentStep
         guard advancedPosition.isFinite,
               advancedPosition >= 0,
               advancedPosition <= Double(UInt32.max) else {

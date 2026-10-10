@@ -503,6 +503,26 @@ enum PlaybackSongSyntheticAdapter {
         sampleRate: Double,
         profileSession: AdapterPlanProfileSession? = nil
     ) -> PlaybackSongSyntheticPlan {
+        adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
+              profileSession: profileSession, eligibilityOracle: nil)
+    }
+
+    #if DEBUG
+    /// Equivalence oracle only: production uses the indexed projection of this same predicate.
+    static func adaptUsingScanEligibility(_ song: PlaybackSong, startOrderIndex: Int = 0,
+                                          orderCount: Int, sampleRate: Double) -> PlaybackSongSyntheticPlan {
+        adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
+              profileSession: nil, eligibilityOracle: { event, frame, plan in
+                  PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: event, at: frame, plan: plan)
+              })
+    }
+    #endif
+
+    private static func adapt(
+        _ song: PlaybackSong, startOrderIndex: Int, orderCount: Int, sampleRate: Double,
+        profileSession: AdapterPlanProfileSession?,
+        eligibilityOracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?
+    ) -> PlaybackSongSyntheticPlan {
         let totalStart = profileSession?.beginPhase()
         let traversalStart = profileSession?.beginPhase()
         let traversalPlan = PlaybackSongTraversalPlanner.plan(
@@ -684,7 +704,7 @@ enum PlaybackSongSyntheticAdapter {
         plan.xmChannelRows = context.xmChannelRows
         plan.xmEmptyRoutes = context.xmEmptyRoutes
         plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
-        admitFinePitchPublications(in: &plan)
+        admitFinePitchPublications(in: &plan, profileSession: profileSession, oracle: eligibilityOracle)
         // Eligibility must see managed envelope/release lifetime. Only completed
         // cold-500 sources require rebuilding targets after gain admission changes.
         if excludeCompletedCold500Publications(from: &plan) {
@@ -699,12 +719,34 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     /// Checks only fine/extra-fine pitch commands against the existing source-lifetime model.
-    private static func admitFinePitchPublications(in plan: inout PlaybackSongSyntheticPlan) {
+    private static func admitFinePitchPublications(in plan: inout PlaybackSongSyntheticPlan,
+        profileSession: AdapterPlanProfileSession?, oracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?) {
+        let start = profileSession?.beginPhase(), buildStart = profileSession?.beginPhase()
+        let hasQueries = plan.diagnostics.finePortamentoUpEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
+            plan.diagnostics.finePortamentoDownEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
+            plan.diagnostics.extraFinePortamentoEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil }
+        let work = profileSession == nil ? nil : PlaybackSongOfflineRenderer.PitchSourceHistory.Work()
+        // Admission only removes writes to an already dead source. Its earlier, eligible
+        // positive-step prefix is unchanged, so this immutable projection stays valid.
+        let history = hasQueries && oracle == nil ? PlaybackSongOfflineRenderer.PitchSourceHistory(plan: plan, work: work) : nil
+        let fields: [AdapterPlanProfileField] = [
+            .init("index_build_count", history == nil ? 0 : 1), .init("source_count", history?.sourceCount ?? 0),
+            .init("pitch_diagnostics_visited", history?.diagnosticsVisited ?? 0),
+            .init("history_record_count", history?.recordCount ?? 0), .init("source_stride", history?.sourceStride ?? 0),
+            .init("history_record_stride", history?.recordStride ?? 0), .init("index_logical_bytes", history?.logicalBytes ?? 0)
+        ]
+        if history != nil { profileSession?.recordPhase("fine_pitch_source_history_build", startedAt: buildStart, fields: fields) }
+        var queryCount = 0
+        let eligibleSource: (Int, Int, PlaybackSongSyntheticPlan) -> Bool = { event, frame, plan in
+            queryCount += 1
+            return oracle?(event, frame, plan) ?? PlaybackSongOfflineRenderer.hasActiveSource(
+                eventIndex: event, at: frame, plan: plan, pitchHistory: history)
+        }
         for index in plan.diagnostics.finePortamentoUpEffects.indices {
             let command = plan.diagnostics.finePortamentoUpEffects[index]
             guard command.applied, !command.appliedToInitialPlaybackStep else { continue }
             let eligible = command.activeEventIndex.map {
-                PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: $0, at: command.scheduledFrame ?? 0, plan: plan)
+                eligibleSource($0, command.scheduledFrame ?? 0, plan)
             } ?? false
             plan.diagnostics.finePortamentoUpEffects[index].execution.sourceEligible = eligible
             if !eligible {
@@ -716,7 +758,7 @@ enum PlaybackSongSyntheticAdapter {
             let command = plan.diagnostics.finePortamentoDownEffects[index]
             guard command.applied, !command.appliedToInitialPlaybackStep else { continue }
             let eligible = command.activeEventIndex.map {
-                PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: $0, at: command.scheduledFrame ?? 0, plan: plan)
+                eligibleSource($0, command.scheduledFrame ?? 0, plan)
             } ?? false
             plan.diagnostics.finePortamentoDownEffects[index].execution.sourceEligible = eligible
             if !eligible {
@@ -728,7 +770,7 @@ enum PlaybackSongSyntheticAdapter {
             let command = plan.diagnostics.extraFinePortamentoEffects[index]
             guard command.applied, !command.appliedToInitialPlaybackStep else { continue }
             let eligible = command.activeEventIndex.map {
-                PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: $0, at: command.scheduledFrame ?? 0, plan: plan)
+                eligibleSource($0, command.scheduledFrame ?? 0, plan)
             } ?? false
             plan.diagnostics.extraFinePortamentoEffects[index].execution.sourceEligible = eligible
             if !eligible {
@@ -736,6 +778,10 @@ enum PlaybackSongSyntheticAdapter {
                 plan.diagnostics.extraFinePortamentoEffects[index].execution.publicationSuppressionReason = "no_active_source"
             }
         }
+        profileSession?.recordPhase("fine_pitch_source_eligibility", startedAt: start, fields: fields + [
+            .init("eligibility_query_count", queryCount), .init("position_lookup_count", work?.lookupCount ?? 0),
+            .init("position_entries_visited", work?.entriesVisited ?? 0)
+        ])
     }
 
     /// Keeps cold-500 semantic execution while excluding completed sources from C gain scheduling.

@@ -43,6 +43,11 @@ host.
 - Runtime queues reuse immutable adapter-event storage through lightweight
   ordered references. Queue replacement/reset keeps references and their storage
   together under the existing render lock, including pattern-loop iterations.
+- Fine/extra-fine source eligibility builds one planning-only scalar pitch/cut
+  index per adapted plan. Source-event identities remain generation keys;
+  strict-before position lookups reuse the existing lifetime predicate without
+  rescanning song-wide pitch histories. G17/G18 semantics and runtime/window
+  delivery are unchanged; no index survives into a replacement plan or callback.
 - Nonzero Fxx speed/BPM commands govern their own row from tick 0 through the
   shared frame plan, including runtime event application and sample-time follow.
 - Ordinary volume-column `6x/7x` slides update base/output on nonzero ticks of

@@ -131,6 +131,7 @@ final class PlaybackEngineTests: XCTestCase {
             "traversal_effect_status_indexing",
             "event_generation",
             "pattern_row_iteration",
+            "fine_pitch_source_eligibility",
             "playback_song_synthetic_adapter_adapt_total",
             "adapter_diagnostic_indexing",
             "adapter_event_generation",
@@ -153,6 +154,8 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(output.contains("wide_event_sort_count=0"))
         XCTAssertTrue(output.contains("full_width_plan_copy_count=0"))
         XCTAssertTrue(output.contains("ordering_entries_precomputed=true"))
+        XCTAssertTrue(output.contains("index_build_count=0"))
+        XCTAssertTrue(output.contains("eligibility_query_count=0"))
         XCTAssertFalse(output.contains("private"))
         XCTAssertFalse(output.contains("/"))
     }

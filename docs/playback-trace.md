@@ -834,6 +834,17 @@ remain planning work; publication counts, tick folds and history lookup rules
 retain their established semantics. Deterministic projection work counts pin
 snapshot/value counts, reference/value stride and zero full-controls map copies.
 
+G17/G18 publication admission builds a planning-only pitch/source index once.
+It projects the existing seven pitch families into compact per-source position
+prefixes in exact frame/tick/writer order, plus inclusive empty-route/cut/retrigger
+bounds. Strict-before binary lookup preserves the renderer's sequential Double
+integration and uses that same source-lifetime predicate; it introduces no pitch
+or playback authority. Source-event indices identify generations, and the local
+index retains no PCM or cross-plan cache. Completed-source suppression cannot
+alter an earlier eligible positive-step prefix. G17/G18 memory, cold restoration,
+deduplication, retained compatibility differences and window/runtime output stay
+unchanged. The scan oracle is exposed only to Debug equivalence tests.
+
 Only the large note-trigger action payload is indirect. Its immutable storage is
 allocated during planning and retained with the plan; semantic tick events do
 not reserve that payload's width. Runtime consumption reads the existing payload.

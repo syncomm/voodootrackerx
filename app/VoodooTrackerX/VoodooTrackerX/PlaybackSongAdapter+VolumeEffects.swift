@@ -49,7 +49,8 @@ extension PlaybackSongSyntheticAdapter {
         // K00 releases without restarting envelopes. Volume-column portamento
         // takes precedence over K00; phase reset uses the same existing gate.
         let releasesImmediately = cell.effectType == 0x14 && cell.effectParam == 0 && cell.volumeColumn >> 4 != 0x0F
-        guard !releasesImmediately else { return nil }
+        // E90 + NOTE_OFF restores cached volume/pan, but never triggers the instrument.
+        guard !releasesImmediately, cell.note != 97 else { return nil }
         let reset = MixerPlaybackStateChange.reset(.init(volumeEnvelope: true, panEnvelope: true, keyOn: true, fadeout: true))
         if let event = channelState.activeEventIndex {
             resets.append(.init(activeEventIndex: event, channelIndex: channelIndex,

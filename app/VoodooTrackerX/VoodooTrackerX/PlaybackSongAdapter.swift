@@ -62,6 +62,9 @@ enum PlaybackSongSyntheticAdapter {
         var semanticInstrumentIndex: Int?
         var semanticSampleIndex: Int?
         var semanticVolumeEnvelopeEnabled = false
+        // Last triggered XM note survives source completion and exact empty routing.
+        // Keep this byte beside the flag, using existing alignment padding.
+        var carriedNote: UInt8 = 0
         var triggeredSampleDefaultVolume = 0
         var triggeredSampleDefaultPan: UInt8 = 128
         var keyOffWithoutVoice = false
@@ -877,7 +880,7 @@ enum PlaybackSongSyntheticAdapter {
             ))
         }
         for channelIndex in row.cells.indices {
-            let cell = row.cells[channelIndex]
+            var cell = row.cells[channelIndex]
             if context.eventCoverage.visit(cell) {
                 // Empty cells have no row writers. Capture the unchanged controls once,
                 // retaining every occurrence and diagnostic without copying a working
@@ -909,6 +912,14 @@ enum PlaybackSongSyntheticAdapter {
                 context.effectCommandDiagnostics.append(effectCommandDiagnostic)
             }
             var channelState = context.channelStates[channelIndex]
+            let isE90 = cell.effectType == 0x0E && cell.effectParam == 0x90
+            let e90PreviousEvent = isE90 ? channelState.activeEventIndex : nil
+            let e90PreviousMapping = isE90 ? channelState.activeEventMappingIndex : nil
+            let firstRowEvent = context.events.count
+            if isE90, cell.note == 0 {
+                cell = PlaybackCell(note: channelState.carriedNote, instrument: cell.instrument,
+                    volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
+            }
             // A row establishes H memory only when its nonzero-tick handler runs.
             // Planning knows the effective speed, so F01 neither seeds nor replaces it.
             if cell.effectType == 0x11, cell.effectParam != 0, timingConfig.speed > 1 {
@@ -919,6 +930,11 @@ enum PlaybackSongSyntheticAdapter {
             let routedInstrumentIndex = isNoteOnly ? channelState.carriedInstrumentIndex ?? 0 : Int(cell.instrument)
             var instrumentOnlyReset: MixerPlaybackStateChange?
             defer {
+                if isE90 {
+                    context.retriggerEffects.append(e90Diagnostic(cell: cell, source: source,
+                        channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,
+                        previousEventIndex: e90PreviousEvent, firstRowEvent: firstRowEvent, context: context))
+                }
                 context.xmChannelRows.append(.init(source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame, controls: channelState,
                     instrumentOnlyReset: instrumentOnlyReset))
@@ -941,7 +957,7 @@ enum PlaybackSongSyntheticAdapter {
             let extendedSubcommand = cell.effectType == 0x0E ? ((cell.effectParam >> 4) & 0x0F) : nil
             let hasNoteCutEffect = extendedSubcommand == 0x0C
             let hasNoteDelayEffect = extendedSubcommand == 0x0D
-            let hasRetriggerEffect = isRetriggerEffect(cell)
+            let hasRetriggerEffect = isRetriggerEffect(cell) && !isE90
             let hasSetFinetuneEffect = extendedSubcommand == 0x05
             let hasFinePortamentoUpEffect = extendedSubcommand == 0x01
             let hasFinePortamentoDownEffect = extendedSubcommand == 0x02
@@ -956,7 +972,12 @@ enum PlaybackSongSyntheticAdapter {
             let hasLxxSetEnvelopePosition = isLxxSetEnvelopePositionEffect(cell)
             var volumeColumn = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
             let hasVolumeColumnTonePortamento = isTonePortamentoVolumeColumn(volumeColumn)
-            let handlesTonePortamento = hasTonePortamento || hasVolumeColumnTonePortamento
+            let handlesTonePortamento = !isE90 && (hasTonePortamento || hasVolumeColumnTonePortamento)
+            if (1...96).contains(cell.note), !handlesTonePortamento,
+               !(hasKxxKeyOff && cell.effectParam == 0),
+               !hasNoteDelayEffect || Int(cell.effectParam & 15) < timingConfig.speed {
+                channelState.carriedNote = cell.note
+            }
             let hasValidImmediateNoteInstrument = (1...96).contains(cell.note) &&
                 cell.instrument > 0 &&
                 !hasNoteDelayEffect
@@ -967,7 +988,8 @@ enum PlaybackSongSyntheticAdapter {
             if hasValidImmediateNoteInstrument, !handlesTonePortamento, !hasRetriggerEffect,
                !(hasKxxKeyOff && cell.effectParam == 0),
                let instrument = song.instrumentsByIndex[Int(cell.instrument)] {
-                explicitTriggerSelection = selectSample(forNote: cell.note, from: instrument)
+                explicitTriggerSelection = selectSample(forNote: cell.note, from: instrument,
+                    missingKeymapPolicy: isE90 ? .fail : .firstPlayableSample)
             } else {
                 explicitTriggerSelection = nil
             }
@@ -983,6 +1005,17 @@ enum PlaybackSongSyntheticAdapter {
                 selectedEmptyPitch = selectEmptyHeader(header, cell: cell, instrumentIndex: Int(cell.instrument),
                     song: song, timingConfig: timingConfig, state: &channelState)
             }
+            if isE90, let selection = explicitTriggerSelection, selection.sample == nil,
+               selectedEmptyPitch == nil {
+                let slot = selection.mappedSampleIndex
+                context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
+                    scheduledFrame: scheduledStartFrame, instrumentIndex: routedInstrumentIndex, sampleIndex: slot,
+                    stoppedEventIndex: channelState.activeEventIndex))
+                clearSourceAssociation(&channelState)
+                channelState.semanticInstrumentIndex = routedInstrumentIndex
+                channelState.semanticSampleIndex = slot
+                channelState.semanticVolumeEnvelopeEnabled = song.instrumentsByIndex[routedInstrumentIndex]?.volumeEnvelope.enabled == true
+            }
             // Note-only selects a source/header but does not reload tracker volume/pan
             // or restart instrument clocks. Resolve before the same-cell writers.
             if isNoteOnly, (1...96).contains(cell.note), !handlesTonePortamento,
@@ -990,7 +1023,8 @@ enum PlaybackSongSyntheticAdapter {
                !hasNoteDelayEffect || cell.effectParam == 0xD0,
                let instrument = song.instrumentsByIndex[routedInstrumentIndex] {
                 let selection = selectSample(forNote: cell.note, from: instrument, missingKeymapPolicy: .fail)
-                if selection.sample == nil, let slot = selection.mappedSampleIndex {
+                if selection.sample == nil, selection.mappedSampleIndex != nil || isE90 {
+                    let slot = selection.mappedSampleIndex
                     context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
                         scheduledFrame: scheduledStartFrame, instrumentIndex: routedInstrumentIndex, sampleIndex: slot,
                         stoppedEventIndex: channelState.activeEventIndex, preservesChannelState: true))
@@ -1013,7 +1047,7 @@ enum PlaybackSongSyntheticAdapter {
             if cell.instrument > 0, song.instrumentsByIndex[Int(cell.instrument)] != nil {
                 channelState.carriedInstrumentIndex = Int(cell.instrument)
             }
-            let restoresInstrumentOnlyDefaults = cell.note == 0 && cell.instrument > 0 &&
+            let restoresInstrumentOnlyDefaults = (cell.note == 0 || (isE90 && cell.note == 97)) && cell.instrument > 0 &&
                 song.instrumentsByIndex[Int(cell.instrument)] != nil &&
                 !(hasNoteDelayEffect && cell.effectParam & 15 != 0)
             if restoresInstrumentOnlyDefaults {
@@ -1662,7 +1696,7 @@ enum PlaybackSongSyntheticAdapter {
                 continue
             }
             let sampleSelection = explicitTriggerSelection ?? selectSample(forNote: cell.note, from: instrument,
-                missingKeymapPolicy: isNoteOnly ? .fail : .firstPlayableSample)
+                missingKeymapPolicy: isNoteOnly || isE90 ? .fail : .firstPlayableSample)
             guard let sample = sampleSelection.sample else {
                 if hasVibrato || hasVibratoVolumeSlide {
                     // Empty routing retires the source, not channel-local effect execution.
@@ -2036,10 +2070,16 @@ enum PlaybackSongSyntheticAdapter {
                 from: instrument.volumeEnvelope,
                 timingConfig: timingConfig
             )
-            let envelopeSemantics = volumeEnvelopeSemantics(
+            var envelopeSemantics = volumeEnvelopeSemantics(
                 from: instrument.volumeEnvelope,
                 mapping: envelopeMapping
             )
+            if isE90, isNoteOnly, let parent = e90PreviousMapping,
+               context.eventMappings[parent].volumeEnvelopeSemantics.keyOffEncountered {
+                // Inherit the finalized causal annotation; the channel timeline owns
+                // carried release/fadeout clocks. This source is not released again.
+                envelopeSemantics = context.eventMappings[parent].volumeEnvelopeSemantics
+            }
             let scheduledNoteFrame = noteDelay?.delayedFrame ?? scheduledStartFrame
             let scheduledNoteTick = noteDelay?.applied == true ? noteDelay?.requestedTick ?? 0 : 0
             if scheduledNoteTick > 0 {
@@ -2177,6 +2217,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.eventCoverage.recordDeferredCellWithoutSkip()
             }
             channelState.activeEventIndex = eventIndex
+            channelState.carriedNote = cell.note
             channelState.activeEventMappingIndex = context.eventMappings.count
             channelState.activeInstrumentIndex = instrumentIndex
             channelState.activeSampleIndex = sample.sampleIndex

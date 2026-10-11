@@ -277,6 +277,110 @@ final class NoteOnlyRoutingTests: XCTestCase {
         return (context, states)
     }
 
+    func testE90RowShapesResolveExactSourcesAndApplyDefaultsOnlyWithInstrument() throws {
+        for rate in [44_100.0, 48_000] {
+            let plan = Adapter.adapt(song([cell(note: 37, instrument: 1), cell(volume: 0xC3, effect: 12, param: 16),
+                cell(effect: 14, param: 0x90), cell(note: 49, effect: 14, param: 0x90),
+                cell(instrument: 2, effect: 14, param: 0x90),
+                cell(note: 37, instrument: 1, volume: 0x20, effect: 14, param: 0x90),
+                cell(note: 97, instrument: 2, effect: 14, param: 0x90)]), orderIndex: 0, sampleRate: rate)
+            let maps = plan.diagnostics.eventMappings, events = plan.pattern.events
+            XCTAssertEqual(maps.map(\.note), [37, 37, 49, 49, 37])
+            XCTAssertEqual(maps.map(\.instrumentIndex), [1, 1, 1, 2, 1])
+            XCTAssertEqual(maps.map(\.sampleIndex), [0, 0, 1, 1, 0])
+            XCTAssertTrue(maps.allSatisfy { $0.sampleSelectionMethod == .sampleMap && !$0.firstPlayableSampleFallbackUsed })
+            XCTAssertEqual(events.map(\.gain), [1, 0.25, 0.25, 0.625, 0.25])
+            XCTAssertEqual(events.map(\.initialSourceFrame), [0, 0, 0, 0, 0])
+            XCTAssertEqual(events[1].pan, PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: 48))
+            XCTAssertEqual(events[2].pan, events[1].pan)
+            XCTAssertEqual(events[3].pan, PlaybackSamplePanningPolicy.plannedPan(224))
+            XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[1]?.first?.state.volumeTick, 12)
+            XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[2]?.first?.state.volumeTick, 18)
+            XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[3]?.first?.state.volumeTick, 0)
+            XCTAssertEqual(plan.diagnostics.retriggerEffects.map(\.status), [.applied, .applied, .applied, .applied, .e90NoteOff])
+            XCTAssertEqual(plan.diagnostics.retriggerEffects.filter(\.applied).map(\.retriggerTicks), [[0], [0], [0], [0]])
+            XCTAssertTrue(plan.playbackStateEvents.isEmpty) // No reset/start on the old source.
+        }
+    }
+
+    func testE90HasNoIntervalMemoryAndKeepsOffsetAndRxyIndependent() throws {
+        XCTAssertFalse(Adapter.hasDeferredEffect(cell(effect: 14, param: 0x90)))
+        XCTAssertTrue(Adapter.hasDeferredEffect(cell(effect: 27, param: 0x90)))
+        for speed in [1, 2, 3, 6] {
+            let plan = Adapter.adapt(song([cell(note: 37, instrument: 1), cell(effect: 14, param: 0x93),
+                cell(effect: 14, param: 0x90), cell(effect: 27)], speed: speed), orderIndex: 0, sampleRate: 48_000)
+            XCTAssertEqual(plan.diagnostics.retriggerEffects[0].retriggerTicks, speed == 6 ? [3] : [])
+            XCTAssertEqual(plan.diagnostics.retriggerEffects[1].retriggerTicks, [0])
+            XCTAssertEqual(plan.diagnostics.retriggerEffects[1].retriggerFrames, [2 * speed * 960])
+            XCTAssertEqual(plan.diagnostics.retriggerEffects[2].status, .ignoredRxyZeroIntervalNoEffectMemory)
+        }
+        let (context, states) = inspect(song([cell(note: 37, instrument: 1, effect: 9, param: 1),
+            cell(effect: 14, param: 0x90), cell(note: 37, effect: 9), cell(effect: 14, param: 0x93)], sampleFrames: 512))
+        XCTAssertEqual(context.events.map(\.initialSourceFrame), [256, 0, 256, 256])
+        XCTAssertEqual(states.map { $0.sampleOffsetMemory?.offsetFrames }, [256, 256, 256, 256])
+        let rxy = Adapter.adapt(song([cell(note: 37, instrument: 1), cell(effect: 27, param: 0x93),
+            cell(effect: 14, param: 0x90), cell(effect: 27)]), orderIndex: 0, sampleRate: 48_000)
+        XCTAssertEqual(rxy.diagnostics.retriggerEffects.map(\.retriggerTicks), [[3], [0], []])
+        XCTAssertEqual(rxy.diagnostics.retriggerEffects.last?.status, .ignoredRxyZeroIntervalNoEffectMemory)
+    }
+
+    func testE90CarriesReleasedClocksAndLatestAnnotationButExplicitInstrumentRekeys() throws {
+        for rate in [44_100.0, 48_000] {
+            let plan = Adapter.adapt(song([cell(note: 37, instrument: 1), cell(note: 97),
+                cell(effect: 20, param: 2), cell(effect: 14, param: 0x90),
+                cell(instrument: 2, effect: 14, param: 0x90)]), orderIndex: 0, sampleRate: rate)
+            let carried = try XCTUnwrap(plan.xmEnvelopeTimeline?.updatesByEvent[1]?.first?.state)
+            XCTAssertFalse(carried.keyOn)
+            XCTAssertEqual(carried.volumeTick, 18)
+            XCTAssertLessThan(carried.fadeoutAccumulator, 32_768)
+            XCTAssertEqual(plan.diagnostics.eventMappings[1].volumeEnvelopeSemantics,
+                           plan.diagnostics.eventMappings[0].volumeEnvelopeSemantics)
+            XCTAssertNil(plan.pattern.events[1].keyOffFrame)
+            let reset = try XCTUnwrap(plan.xmEnvelopeTimeline?.updatesByEvent[2]?.first?.state)
+            XCTAssertTrue(reset.keyOn)
+            XCTAssertEqual(reset.volumeTick, 0)
+            XCTAssertEqual(reset.panTick, 0)
+            XCTAssertEqual(reset.fadeoutAccumulator, 32_768)
+            XCTAssertFalse(plan.diagnostics.eventMappings[2].volumeEnvelopeSemantics.keyOffEncountered)
+        }
+    }
+
+    func testE90ColdCompletedAndUnavailableSourcesRemainHonest() throws {
+        let (released, states) = inspect(song([cell(note: 37, instrument: 1), cell(volume: 0xC3, effect: 12, param: 16),
+            cell(note: 97, instrument: 2, effect: 14, param: 0x90)]))
+        XCTAssertEqual(released.events.count, 1)
+        XCTAssertEqual(states.last?.baseChannelVolume, 64)
+        XCTAssertEqual(states.last?.panningValue, 64)
+        XCTAssertTrue(released.playbackStateEvents.isEmpty)
+        let cold = Adapter.adapt(song([cell(effect: 14, param: 0x90), cell(instrument: 1, effect: 14, param: 0x90)]),
+            orderIndex: 0, sampleRate: 48_000)
+        XCTAssertTrue(cold.pattern.events.isEmpty)
+        XCTAssertEqual(cold.diagnostics.retriggerEffects.map(\.status), [.e90NoRoute, .e90NoRoute])
+        let (absent, absentStates) = inspect(song([cell(note: 37, instrument: 1),
+            cell(instrument: 2, effect: 14, param: 0x90), cell(effect: 14, param: 0x90)], missingMap: true))
+        XCTAssertEqual(absent.events.count, 1)
+        XCTAssertNil(absentStates.last?.activeEventIndex)
+        XCTAssertNil(absentStates.last?.semanticSampleIndex)
+        XCTAssertTrue(absent.xmEmptyRoutes.allSatisfy { $0.sampleIndex == nil })
+        XCTAssertEqual(absent.xmEmptyRoutes.first?.stoppedEventIndex, 0)
+        let completed = song([cell(note: 37, instrument: 3), cell(), cell(effect: 14, param: 0x90)])
+        let request = PlaybackSongOfflineRenderRequest(song: completed, config: .init(sampleRate: 48_000), rows: 3)
+        let renderer = PlaybackSongOfflineRenderer(), result = renderer.render(request)
+        XCTAssertEqual(result.plan.pattern.events.count, 2)
+        XCTAssertTrue(result.block.interleavedPCM[11_520 * 2..<12_480 * 2].contains { $0 != 0 })
+        XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, result.block.interleavedPCM)
+        for empty in [false, true] {
+            let (context, states) = inspect(song([cell(note: 37, instrument: 1),
+                cell(note: 49, instrument: 2, effect: 14, param: 0x90), cell(effect: 14, param: 0x90)],
+                missing: !empty, empty: empty))
+            XCTAssertEqual(context.events.count, 1)
+            XCTAssertNil(states.last?.activeEventIndex)
+            XCTAssertEqual(states.last?.carriedNote, 49)
+            XCTAssertEqual(context.retriggerEffects.map(\.status), [.e90NoRoute, .e90NoRoute])
+            XCTAssertEqual(context.xmEmptyRoutes.map(\.sampleIndex), empty ? [1, 1] : [15, 15])
+        }
+    }
+
     private func cell(note: UInt8 = 0, instrument: UInt8 = 0, volume: UInt8 = 0, effect: UInt8 = 0, param: UInt8 = 0) -> PlaybackCell {
         .init(note: note, instrument: instrument, volumeColumn: volume, effectType: effect, effectParam: param)
     }
@@ -284,9 +388,10 @@ final class NoteOnlyRoutingTests: XCTestCase {
     private func song(_ cells: [PlaybackCell], envelope: Bool = true, panEnvelope: Bool = true,
                       secondPoints: [(Int, Int)] = [(0, 32), (4, 64), (40, 64)], secondSampleVolume: Float = 0.625,
                       missing: Bool = false, empty: Bool = false, missingMap: Bool = false,
-                      emptyVolume: UInt8 = 40, emptyFinetune: Int = 0, emptyRelativeNote: Int = 0) -> PlaybackSong {
+                      emptyVolume: UInt8 = 40, emptyFinetune: Int = 0, emptyRelativeNote: Int = 0,
+                      speed: Int = 6, sampleFrames: Int = 256) -> PlaybackSong {
         func sample(_ instrument: Int, _ slot: Int, _ volume: Float, _ pan: UInt8) -> PlaybackSample {
-            let count = instrument == 3 ? 2 : 256
+            let count = instrument == 3 ? 2 : sampleFrames
             return .init(instrumentIndex: instrument, sampleIndex: slot,
                 pcm: Array(repeating: slot == 0 ? 0.25 : -0.125, count: count), volume: volume, panning: pan,
                 relativeNote: 0, finetune: 0, baseSampleRate: 100, loopStart: 0,
@@ -307,7 +412,7 @@ final class NoteOnlyRoutingTests: XCTestCase {
                     volumeEnvelope: volume(secondPoints, 512), panningEnvelope: pan,
                     noteSampleMap: missingMap ? nil : missing ? Array(repeating: 0, count: 48) + Array(repeating: 15, count: 48) : map),
                 3: .init(index: 3, samples: [sample(3, 0, 1, 128)], noteSampleMap: Array(repeating: 0, count: 96))],
-            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: true,
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: speed, bpm: 125), usesLinearFrequencyTable: true,
             xmSampleSlotProvenanceByInstrument: empty ? [2: [.init(sampleIndex: 1, decodedPayloadLength: 0,
                 isCanonicalEmptySlotHeader: false, volume: emptyVolume, panning: 128,
                 finetune: emptyFinetune, relativeNote: emptyRelativeNote)]] : [:])

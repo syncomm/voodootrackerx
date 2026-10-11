@@ -6,6 +6,15 @@ remain intentionally deferred.
 
 ## Purpose
 
+`e90-row-entry-retrigger.xm` covers G19's special tick-zero source trigger:
+carried and explicit note/instrument shapes, distinct mapped samples, cold and
+completed one-shot channels, NOTE_OFF suppression, released envelope/fadeout
+carry, explicit instrument reset, volume/pan ordering, concurrent channels,
+E93 then E90, and 9xx/900 and Rxy separation. E90 has no interval memory;
+instrumentless starts preserve channel state. Its original mathematical PCM
+and recipes are redistributable. FT2 renders and local diagnostics stay outside
+the repository; this fixture does not close mixer-ramp or Rxy gaps.
+
 The pack provides small redistributable XM modules for parser, editor,
 instrument/sample, preview-availability, and later audio-comparison tests.
 Existing `tests/fixtures/minimal.xm` remains a tiny parser smoke fixture, but it

@@ -518,6 +518,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             let isRxyMultiRetrigger = mapping.effectType == 0x1B
             if isE9xRetrigger {
                 categories.append("retrigger")
+                if mapping.effectParam == 0x90 {
+                    categories.append("e90_row_entry_retrigger")
+                }
             }
             if isRxyMultiRetrigger {
                 categories.append("retrigger")

@@ -520,7 +520,7 @@ def retrigger_status(retrigger: dict[str, Any]) -> str:
         return "applied"
     if status == "ignored_e90_no_effect_memory" or bool(retrigger.get("deferred")):
         return "deferred/no-op"
-    if status in {"no_active_voice", "out_of_row_no_op"} or bool(retrigger.get("ignored_as_no_op")):
+    if status in {"no_active_voice", "out_of_row_no_op", "e90_no_route", "e90_note_off"} or bool(retrigger.get("ignored_as_no_op")):
         return "ignored/no-op"
     return "unknown"
 

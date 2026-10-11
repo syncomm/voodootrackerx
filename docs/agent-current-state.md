@@ -50,6 +50,12 @@ host.
   delivery are unchanged; no index survives into a replacement plan or callback.
 - Nonzero Fxx speed/BPM commands govern their own row from tick 0 through the
   shared frame plan, including runtime event application and sample-time follow.
+- G19 E90 is a special row-entry source trigger at cursor zero, with no interval
+  memory. Instrumentless rows carry volume, pan, envelopes, release/fadeout and
+  effect memory; explicit instruments resolve the exact note map and reset once
+  before same-cell overrides. NOTE_OFF suppresses the start. Cold/unavailable
+  routes create no source; completed sources can restart from retained identity.
+  Nonzero E9 and Rxy retain their separate contracts; mixer ramps are unchanged.
 - Ordinary volume-column `6x/7x` slides update base/output on nonzero ticks of
   the effective Fxx row speed, including silent channel state. Speed 1 has no
   slide; zero amounts restore output without memory. Fine `8x/9x` stay at tick

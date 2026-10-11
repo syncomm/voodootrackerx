@@ -9,7 +9,7 @@ import unittest
 import wave
 from pathlib import Path
 
-from tools.vtx_diag import effect_coverage, runtime_trace_correlate_window, runtime_trace_summary
+from tools.vtx_diag import effect_coverage, reference_triage_correlate, runtime_trace_correlate_window, runtime_trace_summary
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "audio-compare.py"
@@ -1700,6 +1700,12 @@ class FocusedWindowVoiceTimelineTests(unittest.TestCase):
 
 
 class EffectCoverageSummaryTests(unittest.TestCase):
+    def test_e90_dispatch_outcomes_are_applied_or_honest_no_ops(self):
+        for status, expected in (("applied", "applied"), ("e90_no_route", "ignored/no-op"),
+                                 ("e90_note_off", "ignored/no-op")):
+            self.assertEqual(effect_coverage.diagnostic_status({"status": status}), expected)
+            self.assertEqual(reference_triage_correlate.retrigger_status({"status": status}), expected)
+
     def test_effect_coverage_summary_counts_statuses_deterministically(self):
         summary = effect_coverage.build_summary_from_payloads([
             ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())

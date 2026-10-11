@@ -1879,7 +1879,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
             "Minimal 9xx sample offset is applied only in bounded offline adapter renders; 900 reuses prior nonzero 9xx per-channel memory when available and remains diagnosed as effect-memory-deferred/no-op when unavailable.",
             "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
-            "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
+            "E90 triggers at row entry without interval memory; instrumentless E90 carries channel state, while E91...E9F retain nonzero-tick resets.",
             "Minimal Rxy multi retrigger is first-pass common-XM behavior in the shared runtime/offline C mixer adapter path; R00 effect memory remains deferred/no-op.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
             "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy reuses the existing 3xx tone-portamento target/speed and Axy-style volume-slide paths; volume-column tone portamento reuses the 3xx target/sample-step path as a first pass.",
@@ -5201,8 +5201,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
         switch status {
         case .applied:
             return "applied"
-        case .ignoredE90NoEffectMemory:
-            return "ignored_e90_no_effect_memory"
+        case .e90NoRoute:
+            return "e90_no_route"
+        case .e90NoteOff:
+            return "e90_note_off"
         case .ignoredRxyZeroIntervalNoEffectMemory:
             return "ignored_rxy_zero_interval_no_effect_memory"
         case .noActiveVoice:

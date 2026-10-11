@@ -9063,6 +9063,511 @@
       "xm_output": "generated/extra-fine-pitch-directional-memory.xm",
       "xm_sha256": "c2dfca37a9e3fd89efae85a353ef591f0c33e5aab26b4ed08c9e71572a473659",
       "xm_size_bytes": 1061
+    },
+    {
+      "id": "e90-row-entry-retrigger",
+      "intended_tests": [
+        "E90 exact keymap routing and row shapes",
+        "release carry versus explicit instrument reset",
+        "bounded offline/window/runtime parity"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 256,
+            "name": "E90 FIRST",
+            "note_sample_map": [
+              {
+                "end_note": 48,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 96,
+                "sample": 1,
+                "start_note": 49
+              }
+            ],
+            "panning_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  16
+                ],
+                [
+                  24,
+                  64
+                ],
+                [
+                  48,
+                  32
+                ]
+              ],
+              "type_flags": 1
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 1024,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "E90 TRIANGLE",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 1024,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "ddaf4a454eba159ff8762aa5194420fc667ade1576eaf43450244c6e9a7c5163",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 1024,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "E90 SAW",
+                "panning": 224,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 1024,
+                  "period_frames": 16,
+                  "waveform": "saw"
+                },
+                "pcm_sha256": "61803ef37572ab793609b62af87249bcf8d5cbf40690475fa983f4533c2dfa4f",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 40
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  24,
+                  16
+                ],
+                [
+                  48,
+                  0
+                ]
+              ],
+              "type_flags": 1
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 256,
+            "name": "E90 SECOND",
+            "note_sample_map": [
+              {
+                "end_note": 48,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 96,
+                "sample": 1,
+                "start_note": 49
+              }
+            ],
+            "panning_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  16
+                ],
+                [
+                  24,
+                  64
+                ],
+                [
+                  48,
+                  32
+                ]
+              ],
+              "type_flags": 1
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 1024,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "E90 TRIANGLE",
+                "panning": 64,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 1024,
+                  "period_frames": 16,
+                  "waveform": "saw"
+                },
+                "pcm_sha256": "61803ef37572ab793609b62af87249bcf8d5cbf40690475fa983f4533c2dfa4f",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 1024,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "E90 SAW",
+                "panning": 48,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 1024,
+                  "period_frames": 16,
+                  "waveform": "saw"
+                },
+                "pcm_sha256": "61803ef37572ab793609b62af87249bcf8d5cbf40690475fa983f4533c2dfa4f",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 24
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  24,
+                  16
+                ],
+                [
+                  48,
+                  0
+                ]
+              ],
+              "type_flags": 1
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 256,
+            "name": "E90 ONE SHOT",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "E90 TRIANGLE",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 64,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "c9b65af07cc40e7b373ab9376f128037fe6f2f0a483a1b3c2005e17517a9e118",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 3,
+                "note": 49,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 3,
+                "note": 49,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 147,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 97,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 2,
+                "note": 53,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 195
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 45,
+                "row": 6,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 2,
+                "note": 0,
+                "row": 7,
+                "volume_column": 32
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 97,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 20,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 1,
+                "note": 53,
+                "row": 11,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 9,
+                "instrument": 1,
+                "note": 49,
+                "row": 12,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 13,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 9,
+                "instrument": 0,
+                "note": 49,
+                "row": 14,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 147,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 14,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 15,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 15,
+                "volume_column": 0
+              }
+            ],
+            "rows": 16
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "E90 ROW ENTRY",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "e90-row-entry-retrigger.xm",
+      "purpose": "G19 FT2 row-entry E90 routing, carried release state and instrument resets.",
+      "significant_rows": [
+        "0...4: cold, completed one-shot E93 then E90 and concurrent channels; active E9 retirement remains separately protected.",
+        "5...10: volume/pan carry, note-only and instrument-only E90, NOTE_OFF and release carry.",
+        "11...15: explicit instrument rekey, prior 9xx/900 and Rxy independence."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Nonzero E9 offsets and resets retain their existing contract.",
+        "Rxy memory/counter closure, Amiga effects and mixer ramps remain separate."
+      ],
+      "xm_output": "generated/e90-row-entry-retrigger.xm",
+      "xm_sha256": "d3332355d507111d2dbed93848fd1fcd91ce96916c5aaa6d983b786180c7fc91",
+      "xm_size_bytes": 9743
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

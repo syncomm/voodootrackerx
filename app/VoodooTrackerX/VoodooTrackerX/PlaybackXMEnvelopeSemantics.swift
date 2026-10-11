@@ -122,13 +122,13 @@ struct PlaybackXMChannelHistoryIndex {
     }
 }
 
-/// An exact mapped route with no represented audio source. Undeclared headers add no defaults.
+/// A source-less route; absent maps retain nil sample identity and invent no defaults.
 struct PlaybackXMEmptyRoute: Equatable {
     let source: PlaybackPosition
     let channelIndex: Int
     let scheduledFrame: Int
     let instrumentIndex: Int
-    let sampleIndex: Int
+    let sampleIndex: Int?
     let stoppedEventIndex: Int?
     var preservesChannelState = false
     var tick = 0
@@ -138,7 +138,8 @@ struct PlaybackXMEmptyRoute: Equatable {
 struct PlaybackXMChannelUpdate: Equatable {
     let channelIndex: Int
     let instrumentIndex: Int
-    let sampleIndex: Int
+    // XM map entries are bytes. Preserve absence without widening every runtime event.
+    let sampleIndex: UInt8?
     let sourceEventIndex: Int?
     let source: PlaybackPosition
     let tick: Int
@@ -364,7 +365,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             let eventIndex: Int?
             let channelIndex: Int
             let instrumentIndex: Int
-            let sampleIndex: Int
+            let sampleIndex: Int?
             let frame: Int
             let preservesChannelState: Bool
         }
@@ -548,7 +549,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     }
                     let sourceIndex = frame < sourceEnd ? index : nil
                     channelUpdates.append(.init(channelIndex: channel, instrumentIndex: route.instrumentIndex,
-                        sampleIndex: route.sampleIndex, sourceEventIndex: sourceIndex, source: tick.source,
+                        sampleIndex: route.sampleIndex.flatMap(UInt8.init(exactly:)), sourceEventIndex: sourceIndex, source: tick.source,
                         tick: tick.tick, scheduledFrame: frame, bpm: tick.bpm, speed: tick.speed, state: state,
                         carriedInstrumentIndex: carriedInstruments.byRow[tick.row] ?? carriedInstruments.lastCarriedInstrument,
                         cachedDefaultVolume: routeControls?.triggeredSampleDefaultVolume,

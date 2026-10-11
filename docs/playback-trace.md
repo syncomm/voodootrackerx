@@ -768,6 +768,14 @@ same-channel replacement path and the bounded/offline replacement-ramp
 diagnostics.
 Unsupported XM effects remain unsupported.
 
+E90 note triggers additionally carry `e90_row_entry_retrigger`, at tick zero
+and cursor zero. Instrumentless starts retain the channel's envelope/release
+state and finalized release annotation; explicit instruments reset before
+same-cell volume/pan overrides. Diagnostics report `applied`, `e90_no_route`
+or `e90_note_off`, never an interval-memory deferral. No-route and NOTE_OFF
+rows create no source generation. Nonzero E9 interval/reset/offset behavior and
+Rxy memory/counter/volume semantics retain their existing separate contracts.
+
 G12's offline `hxyGlobalVolumeSlide` diagnostics record canonical transitions
 on nonzero ticks. Separate `hxyChannelTarget` diagnostics record the global
 value visible at each channel turn and its scalar gain target. These stay

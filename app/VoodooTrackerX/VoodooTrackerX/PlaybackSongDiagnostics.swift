@@ -984,7 +984,8 @@ struct PlaybackSongSyntheticNoteDelayDiagnostic: Equatable {
 struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {
     enum Status: Equatable {
         case applied
-        case ignoredE90NoEffectMemory
+        case e90NoRoute
+        case e90NoteOff
         case ignoredRxyZeroIntervalNoEffectMemory
         case noActiveVoice
         case outOfRowNoOp

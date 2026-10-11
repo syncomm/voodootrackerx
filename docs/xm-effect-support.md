@@ -36,8 +36,8 @@ incorporated into MIT VTX.
 **Implemented + Partial** is valid. **Closed** does not assert complete audible
 parity or close a neighboring family. FT2-inert no-op behavior is compatible
 with this target, even where legacy diagnostics call the byte deferred.
-Diagnostic strings such as `ignored_e90_no_effect_memory` describe VTX's current
-outcome, not FT2 semantics; this cleanup changes no diagnostic schema.
+Legacy diagnostic reason strings are historical VTX outcomes, not FT2 semantic
+authority. E90 now reports applied, no-route or NOTE_OFF-suppressed dispatch.
 
 ## Fixture-Backed FT2/XM Effect Closure
 
@@ -145,7 +145,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `E6x` | Pattern loop | Implemented | Partial | Special; channel loop start/counter | Not applicable | Explicit E60 start exists. Implicit initial loop start missing (G37); B/D/E6 ordering remains G38. |
 | `E7x` | Tremolo control | Implemented | Closed | Special; persistent control independent of E4 | Not applicable | All nibble aliases and phase-reset suppression are supported; ramp retains FT2's vibrato-phase sign quirk. Full `7xy` audio remains G39. |
 | `E8x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; current no-op matches. OpenMPT's audible panning alias is outside FT2 v1; use supported `8xx`. |
-| `E9x` | Retrigger note | Implemented | Partial | Special; no ordinary interval replay | Not applicable | Nonzero intervals exist. `E90` is a missing special tick-zero retrigger (G19), not reuse of the preceding interval. `Rxy` is separate. |
+| `E9x` | Retrigger note | Implemented | Partial | Special; no ordinary interval replay | Not applicable | G19 `E90` row-entry routing/carry/reset is closed. E91...E9F retain existing nonzero-tick resets and offsets. Onset/ramp parity and `Rxy` are separate. |
 | `EAx` | Fine volume slide up | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-up amount | Not applicable | Tick-zero +x, clamped to 64; seeded EA0 replays up memory. Cold EA0 restores base to output and publishes against the held target without seeding memory. Independent of EB/A/5/6 and volume-column 8x/9x. |
 | `EBx` | Fine volume slide down | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-down amount | Not applicable | Tick-zero -x, clamped to 0; seeded EB0 replays down memory. Cold EB0 restores base to output and publishes against the held target without seeding memory. Independent of EA/A/5/6 and volume-column 8x/9x. |
 | `ECx` | Note cut | Implemented | Known difference | None | Not applicable | VTX hard-retires the source. FT2 zeros base/output with a quick ramp and retains the cursor/source for recovery (G04). Internal hard stop is separate. |
@@ -223,6 +223,18 @@ The pinned [E dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac
 and [nonzero-tick dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2209-L2227)
 leave E0/E8/EF inert. The [note dispatch](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1394-L1460)
 handles E90 at tick zero; the nonzero E9 handler does not replay an interval.
+G19 treats this as intended FT2/XM behavior (A). Empty-note E90 uses the retained
+note; a row note replaces it. The carried or explicit instrument's exact keymap
+selects the source, starting at cursor zero without consuming 9xx memory.
+Instrumentless E90 carries base/output volume, pan, envelope clocks/segments,
+release/fadeout and modulation/effect memory. An explicit instrument resets once
+before same-cell volume/pan overrides. NOTE_OFF releases without a source start;
+cold and unavailable routes invent neither a note nor a fallback sample.
+Completed sources can restart from retained identity. E93 followed by E90
+produces one row-entry start, with no tick-3 replay. Existing nonzero E9 offsets
+and resets, Rxy behavior and mixer ramps remain protected. The public
+`e90-row-entry-retrigger.xm` and both-rate routing/runtime/window tests pin this
+bounded contract; complete FT2 PCM parity remains outside it.
 P00 and T00 use their own whole-byte memories in the
 [pinned handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2106-L2161).
 These are source-confirmed obligations, not claims of complete render-tested
@@ -247,7 +259,8 @@ and [retrigger dispatch](../app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapte
 [VolumeSlideMemoryTests](../tests/vtx_render_bounded_xm/VolumeSlideMemoryTests.swift),
 [TremoloTests](../tests/vtx_render_bounded_xm/TremoloTests.swift) and the
 [adapter tests](../app/VoodooTrackerX/VoodooTrackerXTests/PlaybackSongAdapterTests.swift)
-pin existing units, replay, modulation and current zero/E90 no-ops.
+pin existing units, replay, modulation and zero-command contracts; E90 row-entry
+tests additionally pin exact source routing, carry, reset and release metadata.
 The matrix retains the distinguishing reference controls and remaining gaps.
 
 ## Volume Column Commands

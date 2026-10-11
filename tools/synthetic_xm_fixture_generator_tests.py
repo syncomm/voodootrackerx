@@ -40,6 +40,7 @@ ALL_FIXTURES = [
     "fine-volume-directional-memory.xm",
     "fine-pitch-directional-memory.xm",
     "extra-fine-pitch-directional-memory.xm",
+    "e90-row-entry-retrigger.xm",
 ]
 
 
@@ -582,6 +583,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "fine-volume-directional-memory.xm").resolve(),
                     (output_dir / "generated" / "fine-pitch-directional-memory.xm").resolve(),
                     (output_dir / "generated" / "extra-fine-pitch-directional-memory.xm").resolve(),
+                    (output_dir / "generated" / "e90-row-entry-retrigger.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -592,6 +594,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/cold-500-local-publication.xm",
                     "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
+                    "generated/e90-row-entry-retrigger.xm",
                     "generated/effect-memory.xm",
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
@@ -679,6 +682,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/cold-500-local-publication.xm",
                     "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
+                    "generated/e90-row-entry-retrigger.xm",
                     "generated/effect-memory.xm",
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
@@ -781,6 +785,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:fine-volume-directional-memory.xm": "generated/fine-volume-directional-memory.xm",
                     "xm:fine-pitch-directional-memory.xm": "generated/fine-pitch-directional-memory.xm",
                     "xm:extra-fine-pitch-directional-memory.xm": "generated/extra-fine-pitch-directional-memory.xm",
+                    "xm:e90-row-entry-retrigger.xm": "generated/e90-row-entry-retrigger.xm",
                 },
             )
 

@@ -5278,14 +5278,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertPCMEqual(result.block.interleavedPCM, [1, 0.5, 0.25, 0])
     }
 
-    func testPlaybackSongAdapterRetriggerE90IsDeferredNoEffectMemory() throws {
+    func testPlaybackSongAdapterE90TriggersAtRowEntryWithoutIntervalMemory() throws {
         let sample = makePlaybackSample(pcm: [1, 0.5, 0.25], baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x90)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5300,14 +5300,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let effect = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first)
 
         XCTAssertEqual(result.plan.pattern.events.count, 1)
-        XCTAssertEqual(retrigger.status, .ignoredE90NoEffectMemory)
-        XCTAssertTrue(retrigger.deferred)
-        XCTAssertTrue(retrigger.ignoredAsNoOp)
+        XCTAssertEqual(retrigger.status, .applied)
+        XCTAssertFalse(retrigger.deferred)
+        XCTAssertFalse(retrigger.ignoredAsNoOp)
         XCTAssertEqual(retrigger.retriggerIntervalTicks, 0)
-        XCTAssertEqual(retrigger.retriggerFrames, [])
-        XCTAssertTrue(mapping.hasIgnoredEffect)
-        XCTAssertEqual(effect.status, .ignoredNoOp)
-        XCTAssertEqual(result.diagnostics.deferredCellFields.map(\.field), [.effect])
+        XCTAssertEqual(retrigger.retriggerFrames, [0])
+        XCTAssertFalse(mapping.hasIgnoredEffect)
+        XCTAssertEqual(effect.status, .applied)
+        XCTAssertTrue(result.diagnostics.deferredCellFields.isEmpty)
     }
 
     func testPlaybackSongAdapterRetriggerE9xNoActiveVoiceIsDiagnosed() throws {

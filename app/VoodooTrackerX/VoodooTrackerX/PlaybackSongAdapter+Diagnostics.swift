@@ -412,6 +412,7 @@ extension PlaybackSongSyntheticAdapter {
         case 0x0E where cell.effectParam >> 4 == 0x07:
             return .applied
         case 0x0E where isRetriggerEffect(cell):
+            if cell.effectParam == 0x90 { return .applied }
             let interval = retriggerIntervalNibble(from: cell)
             guard interval > 0 else {
                 return .ignoredNoOp
@@ -640,7 +641,7 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func isSupportedRetriggerEffect(_ cell: PlaybackCell) -> Bool {
-        isRetriggerEffect(cell) && retriggerIntervalNibble(from: cell) > 0
+        isRetriggerEffect(cell) && ((cell.effectType == 0x0E && cell.effectParam == 0x90) || retriggerIntervalNibble(from: cell) > 0)
     }
 
     static func isGlobalVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {

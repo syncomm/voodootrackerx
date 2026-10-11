@@ -4596,6 +4596,41 @@ final class RuntimeCMixerTests: XCTestCase {
         try assertFixtureRuntimeParity(fixtureName: "extra-fine-pitch-directional-memory.xm")
     }
 
+    @MainActor
+    func testE90FixtureWholeOfflineWindowedAndRuntimeParityAtBothRates() throws {
+        try assertFixtureRuntimeParity(fixtureName: "e90-row-entry-retrigger.xm")
+        let fixture = try referenceXMFixtureURL("generated/e90-row-entry-retrigger.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        for rate in [44_100.0, 48_000] {
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 16)
+            let renderer = PlaybackSongOfflineRenderer(), full = renderer.render(request)
+            for rows in [1, 2, 3, 4] {
+                let windowed = renderer.renderWindowed(request, windowRows: rows)
+                assertFixturePCMEqual(windowed.block.interleavedPCM, full.block.interleavedPCM[...])
+            }
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096)
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            // Stop exactly at the E93 -> E90 boundary, then deliver its first frame.
+            let boundary = 18 * Int(rate / 50)
+            var frame = 0
+            while frame < boundary {
+                let count = min(4093, boundary - frame)
+                _ = renderRuntimePCM(core, frames: count); frame += count
+            }
+            let mapping = try XCTUnwrap(runtime.plan?.diagnostics.eventMappings.first {
+                $0.channelIndex == 0 && $0.syntheticRow == 3
+            })
+            XCTAssertNil(core.adapterVoiceDiagnosticForTesting(eventIndex: mapping.eventIndex))
+            _ = renderRuntimePCM(core, frames: 1)
+            let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: mapping.eventIndex))
+            XCTAssertTrue(voice.active)
+            XCTAssertEqual(voice.samplePosition, mapping.playbackStep, accuracy: 1e-10)
+            XCTAssertEqual(core.drainAppliedAdapterEventDiagnostics().last { $0.event.categories.contains("e90_row_entry_retrigger") }?.eventFrameDelta, 0)
+        }
+    }
+
     func testFinePitchAfterVibratoExitOwnsFinalHeldStepAtBothRates() throws {
         for rate in [44_100.0, 48_000] {
             for (command, seed, zero, expected): (UInt8, UInt8, UInt8, Double) in [(14, 0x13, 0x10, 4584), (14, 0x24, 0x20, 4640), (33, 0x13, 0x10, 4602), (33, 0x24, 0x20, 4616)] {
@@ -4746,7 +4781,7 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             let planned = runtime.events.filter { event in
-                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm"].contains(fixtureName) {
+                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm"].contains(fixtureName) {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
                     case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
@@ -4778,7 +4813,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
-            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm"].contains(fixtureName) {
+            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm"].contains(fixtureName) {
                 XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
             }
@@ -4789,7 +4824,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertEqual(actual.plannedEventFrame, event.scheduledFrame)
                 XCTAssertEqual(actual.plannedVsAppliedDelta, 0)
                 XCTAssertEqual(actual.plannedSourceChannelIndex, event.channelIndex)
-                if case let .gainPanUpdate(_, gain, _) = event.action { XCTAssertEqual(actual.gainAfter, gain) }
+                if case let .gainPanUpdate(_, gain?, _) = event.action { XCTAssertEqual(actual.gainAfter, gain) }
                 if case let .stepUpdate(index, step) = event.action {
                     XCTAssertEqual(actual.adapterActiveEventIndex, index)
                     XCTAssertEqual(try XCTUnwrap(actual.sampleStepRequested), step, accuracy: 1e-12)

@@ -23,6 +23,8 @@ EFFECT_MEMORY_STATUS_MARKERS = {
     "zero_amount_effect_memory_deferred",
 }
 NO_OP_STATUS_MARKERS = EFFECT_MEMORY_STATUS_MARKERS | {
+    "e90_no_route",
+    "e90_note_off",
     "no_note_deferred",
     "out_of_row_no_op",
 }
@@ -531,7 +533,7 @@ def diagnostic_status(item: dict[str, Any], default: str = "unknown") -> str:
     raw_status = str(item.get("current_status") or item.get("status") or default)
     if bool(item.get("applied")) or raw_status == "applied":
         return "applied"
-    if raw_status in {"ignored/no-op", "ignored_no_op", "out_of_row_no_op"} or bool(item.get("ignored_as_no_op")):
+    if raw_status in {"ignored/no-op", "ignored_no_op", "out_of_row_no_op", "e90_no_route", "e90_note_off"} or bool(item.get("ignored_as_no_op")):
         return "ignored/no-op"
     if raw_status in {
         "ignored_900_no_op",

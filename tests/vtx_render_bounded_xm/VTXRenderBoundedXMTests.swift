@@ -2105,6 +2105,31 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual((firstSkipped.first?["source"] as? [String: Any])?["row"] as? Int, 3)
     }
 
+    func testE90FixtureDiagnosticsAndWindowedPCMAtBothRates() throws {
+        let url = repoRoot().appendingPathComponent("tests/reference-xm/generated/e90-row-entry-retrigger.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: url.path), modulePath: url.path)
+        for rate in [44_100.0, 48_000] {
+            let renderer = PlaybackSongOfflineRenderer()
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: .init(sampleRate: rate), rows: 16)
+            let full = renderer.render(request)
+            for rows in [1, 2, 3, 4] {
+                let split = renderer.renderWindowed(request, windowRows: rows)
+                XCTAssertEqual(split.block.frameCount, full.block.frameCount)
+                XCTAssertLessThanOrEqual(zip(split.block.interleavedPCM, full.block.interleavedPCM).map { abs($0 - $1) }.max() ?? 0, 1e-7)
+            }
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            XCTAssertEqual(runtime.plan, full.plan)
+            XCTAssertEqual(runtime.events.filter { $0.categories.contains("e90_row_entry_retrigger") }.count, 12)
+            let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: full)
+            let retriggers = try XCTUnwrap(object["retrigger_effects"] as? [[String: Any]])
+            let e90 = retriggers.filter { $0["effect_type"] as? Int == 14 && $0["effect_param"] as? Int == 0x90 }
+            XCTAssertEqual(e90.filter { $0["status"] as? String == "applied" }.count, 12)
+            XCTAssertEqual(e90.filter { $0["status"] as? String == "e90_no_route" }.count, 1)
+            XCTAssertEqual(e90.filter { $0["status"] as? String == "e90_note_off" }.count, 2)
+            XCTAssertTrue(e90.allSatisfy { $0["deferred"] as? Bool == false && $0["retrigger_interval_ticks"] as? Int == 0 })
+        }
+    }
+
     func testDiagnosticsJSONIncludesE9xRetriggerDetails() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

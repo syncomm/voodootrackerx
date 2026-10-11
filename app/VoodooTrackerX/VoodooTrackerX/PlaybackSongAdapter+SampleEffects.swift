@@ -247,6 +247,34 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
+    /// Reports the row-entry trigger already resolved through ordinary note routing.
+    static func e90Diagnostic(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        syntheticRow: Int, timingConfig: SyntheticTrackerTimingConfig, previousEventIndex: Int?,
+        firstRowEvent: Int, context: AdapterRowContext) -> PlaybackSongSyntheticRetriggerDiagnostic {
+        let mapping = context.eventMappings.last.flatMap {
+            $0.eventIndex >= firstRowEvent && $0.channelIndex == channelIndex ? $0 : nil
+        }
+        let event = mapping.map { context.events[$0.eventIndex] }
+        let applied = event != nil
+        return .init(source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: 0,
+            effectType: cell.effectType, effectParam: cell.effectParam,
+            status: applied ? .applied : (cell.note == 97 ? .e90NoteOff : .e90NoRoute),
+            detected: true, applied: applied, deferred: false, ignoredAsNoOp: !applied, outOfRow: false,
+            activeVoiceFound: previousEventIndex != nil, retriggerIntervalTicks: 0,
+            rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm,
+            retriggerTicks: applied ? [0] : [], retriggerFrames: event.flatMap { $0.scheduledStartFrame }.map { [$0] } ?? [],
+            retriggerEventIndices: mapping.map { [$0.eventIndex] } ?? [],
+            // These indices authorize legacy interval cuts. E90 uses ordinary
+            // same-channel replacement retirement, with the parent reported above.
+            replacedEventIndices: [],
+            volumeModeNibble: 0, intervalNibble: 0, volumeChangePolicy: nil, volumeChangeCount: 0,
+            volumeValuesBefore: [], volumeValuesAfter: [], retriggerGains: event.map { [$0.gain] } ?? [],
+            activeEventIndexBefore: previousEventIndex, selectedSampleIndex: mapping?.sampleIndex,
+            selectedSampleLength: mapping?.selectedSampleLength, initialSourceFrame: event?.initialSourceFrame,
+            playbackStep: event?.playbackStep, gain: event?.gain, pan: event?.pan,
+            envelopePolicy: cell.instrument == 0 ? "row_entry_carries_channel_state" : "row_entry_resets_instrument")
+    }
+
     @discardableResult
     static func handleRetrigger(
         from cell: PlaybackCell,
@@ -288,10 +316,8 @@ extension PlaybackSongSyntheticAdapter {
             retriggerGains: [Float] = []
         ) -> PlaybackSongSyntheticRetriggerDiagnostic {
             let applied = status == .applied
-            let deferred = status == .ignoredE90NoEffectMemory ||
-                status == .ignoredRxyZeroIntervalNoEffectMemory
-            let ignoredAsNoOp = status == .ignoredE90NoEffectMemory ||
-                status == .ignoredRxyZeroIntervalNoEffectMemory ||
+            let deferred = status == .ignoredRxyZeroIntervalNoEffectMemory
+            let ignoredAsNoOp = status == .ignoredRxyZeroIntervalNoEffectMemory ||
                 status == .noActiveVoice ||
                 status == .outOfRowNoOp
             let outOfRow = status == .outOfRowNoOp
@@ -342,7 +368,7 @@ extension PlaybackSongSyntheticAdapter {
 
         guard interval > 0 else {
             let result = diagnostic(
-                status: isRxyMultiRetriggerEffect(cell) ? .ignoredRxyZeroIntervalNoEffectMemory : .ignoredE90NoEffectMemory
+                status: .ignoredRxyZeroIntervalNoEffectMemory
             )
             retriggerEffects.append(result)
             return result

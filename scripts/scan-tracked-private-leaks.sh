@@ -56,6 +56,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/fine-volume-directional-memory.xm | \
     tests/reference-xm/generated/fine-pitch-directional-memory.xm | \
     tests/reference-xm/generated/extra-fine-pitch-directional-memory.xm | \
+    tests/reference-xm/generated/e90-row-entry-retrigger.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

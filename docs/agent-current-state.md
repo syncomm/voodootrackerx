@@ -110,6 +110,11 @@ host.
   G13 H00 effect-memory replay is closed: independent channel-local whole-byte
   memory, established only by executed nonzero ticks. Cold H00 is a true no-op;
   FT2's zero-memory target-refresh artifact is intentionally not emulated.
+- Global-volume target projection carries only output volume beside immutable
+  row references, materializing complete diagnostic controls only for a target
+  publication. This temporary plan-local representation preserves Gxx/Hxy
+  channel-turn visibility, source-generation held gains and all G12/G13 semantics;
+  canonical channel-state/snapshot width and runtime delivery are unchanged.
 - Cold A00 executes a compatibility-supported zero slide on nonzero ticks,
   restoring output from current base volume through causal local publication.
   It creates no Axy/5xy/6xy memory provenance and preserves tremolo/E7 state;

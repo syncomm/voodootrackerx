@@ -382,6 +382,16 @@ G17/G18 plans, runtime payload/order/categories, whole/window PCM, nonzero-order
 starts, replacement boundaries and independent rebuilds. Deterministic scaling
 tests bound query work rather than asserting machine-dependent elapsed times.
 
+`global_volume_channel_projection` measures the Gxx/Hxy target pass inside
+adapter adaptation. It reports compact record count/stride/logical bytes, peak
+row record count, channel turns, zero full-controls turn copies and target-state
+materializations. Logical bytes total the records constructed across rows, not
+retained RSS. Canonical channel-state width is unchanged. `GlobalVolumeProjectionTests`
+pins bounded temporary work and compares complete plans, runtime payload/order,
+categories and whole/window PCM against a frozen pre-compaction Debug oracle.
+The oracle covers public G12–G18 controls, nonzero starts and replacement plans;
+it is not a second production projection or playback authority.
+
 The local corpus runtime metrics helper enables this profile automatically and
 adds parsed adapter-plan profile summaries to its local-only JSON/Markdown
 outputs. Those outputs must remain under `/tmp` or another ignored local

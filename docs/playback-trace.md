@@ -784,6 +784,12 @@ no-op diagnostic with missing memory and no audio publication. FT2's cold
 zero-memory target-refresh artifact is intentionally not emulated. All
 snapshots are planned in Swift; global volume remains song-global.
 
+The temporary channel projection carries a row-snapshot reference and output
+volume, rather than copying full controls at every channel turn. Full diagnostic
+controls materialize only for target publications, including the existing tail
+rules. Gxx/Hxy semantics, diagnostic payloads, held gains and writer order are
+unchanged; this state is released before the adapter returns.
+
 Gxx canonical `gxxSetGlobalVolume` mutations are separate from
 `gxxChannelTarget` snapshots. The latter expose `visible_global_volume` and
 `publication_reason` (`global_volume_set`, `local_volume_writer`, or

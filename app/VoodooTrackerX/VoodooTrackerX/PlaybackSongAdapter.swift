@@ -516,12 +516,21 @@ enum PlaybackSongSyntheticAdapter {
                   PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: event, at: frame, plan: plan)
               })
     }
+
+    /// Test-only injection of the frozen pre-compaction projection into a complete adapter plan.
+    static func adaptUsingGlobalVolumeProjection(_ song: PlaybackSong, startOrderIndex: Int = 0,
+        orderCount: Int, sampleRate: Double,
+        oracle: @escaping (PlaybackSongFxxTimingPlan, inout AdapterRowContext) -> Void) -> PlaybackSongSyntheticPlan {
+        adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
+              profileSession: nil, eligibilityOracle: nil, globalVolumeProjectionOracle: oracle)
+    }
     #endif
 
     private static func adapt(
         _ song: PlaybackSong, startOrderIndex: Int, orderCount: Int, sampleRate: Double,
         profileSession: AdapterPlanProfileSession?,
-        eligibilityOracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?
+        eligibilityOracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?,
+        globalVolumeProjectionOracle: ((PlaybackSongFxxTimingPlan, inout AdapterRowContext) -> Void)? = nil
     ) -> PlaybackSongSyntheticPlan {
         let totalStart = profileSession?.beginPhase()
         let traversalStart = profileSession?.beginPhase()
@@ -653,7 +662,11 @@ enum PlaybackSongSyntheticAdapter {
             ]
         )
 
-        planGlobalVolumeChannelTargets(timingPlan: timingPlan, context: &context)
+        if let globalVolumeProjectionOracle {
+            globalVolumeProjectionOracle(timingPlan, &context)
+        } else {
+            planGlobalVolumeChannelTargets(timingPlan: timingPlan, context: &context, profileSession: profileSession)
+        }
         var plan = PlaybackSongSyntheticPlan(
             timingConfig: timingConfig,
             pattern: SyntheticPattern(rowCount: traversalPlan.pathLength, events: context.events),

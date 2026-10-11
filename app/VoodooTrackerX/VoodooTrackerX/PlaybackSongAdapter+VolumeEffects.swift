@@ -913,9 +913,41 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
+    /// Plan-local output carry; all other controls remain in the immutable row snapshot.
+    struct GlobalVolumeChannelProjection {
+        let snapshot: PlaybackXMChannelRow
+        var outputVolume: Int
+
+        init(_ snapshot: PlaybackXMChannelRow) {
+            self.snapshot = snapshot
+            outputVolume = snapshot.controls.outputChannelVolume
+        }
+
+        func targetState(event: Int, sampleVolume: Float?) -> ChannelState {
+            var state = snapshot.controls
+            state.outputChannelVolume = outputVolume
+            state.activeEventIndex = event
+            state.activeSampleVolume = sampleVolume
+            return state
+        }
+    }
+
     /// Projects Gxx/Hxy canonical transitions into existing immutable gain publications.
     /// Held values are output targets by trigger identity, never channel-local global-volume state.
-    static func planGlobalVolumeChannelTargets(timingPlan: PlaybackSongFxxTimingPlan, context: inout AdapterRowContext) {
+    static func planGlobalVolumeChannelTargets(timingPlan: PlaybackSongFxxTimingPlan, context: inout AdapterRowContext,
+                                               profileSession: AdapterPlanProfileSession? = nil) {
+        let start = profileSession?.beginPhase()
+        var records = 0, channelTurns = 0, targetStates = 0, peakRecords = 0
+        defer {
+            profileSession?.recordPhase("global_volume_channel_projection", startedAt: start, fields: [
+                .init("projection_record_count", records),
+                .init("projection_record_stride", MemoryLayout<GlobalVolumeChannelProjection>.stride),
+                .init("projection_logical_bytes", records * MemoryLayout<GlobalVolumeChannelProjection>.stride),
+                .init("peak_projection_record_count", peakRecords), .init("channel_turn_count", channelTurns),
+                .init("full_controls_turn_copy_count", 0), .init("target_state_materialization_count", targetStates),
+                .init("channel_state_stride", MemoryLayout<ChannelState>.stride)
+            ])
+        }
         let original = context.voiceStateUpdates
         guard let firstRow = original.first(where: { $0.effectType == 0x10 || ($0.effectType == 0x11 && $0.syntheticTick > 0) })?.syntheticRow else { return }
         let updatesByRow = Dictionary(grouping: original.indices, by: { original[$0].syntheticRow })
@@ -939,13 +971,16 @@ extension PlaybackSongSyntheticAdapter {
         var visibleGlobal = GlobalVolumeState.defaultValue
         var result = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         result.reserveCapacity(original.count)
-        var lastControls = [Int: ChannelState]()
+        var lastControls = [GlobalVolumeChannelProjection]()
         for timing in timingPlan.rowTimings {
             let row = timing.syntheticRow
             let rowControls = (controlsByRow[row] ?? []).sorted { $0.channelIndex < $1.channelIndex }
             let byTick = Dictionary(grouping: updatesByRow[row] ?? [], by: { original[$0].syntheticTick })
             let rowHasH = (updatesByRow[row] ?? []).contains { original[$0].effectType == 0x11 && original[$0].syntheticTick > 0 }
-            var controls = Dictionary(uniqueKeysWithValues: rowControls.map { ($0.channelIndex, $0.controls) })
+            var controls = rowControls.map(GlobalVolumeChannelProjection.init)
+            records += controls.count
+            channelTurns += controls.count * timing.effectiveSpeed
+            peakRecords = max(peakRecords, controls.count)
             if row < firstRow { result.append(contentsOf: (updatesByRow[row] ?? []).map { original[$0] }) }
             for tick in 0..<timing.effectiveSpeed {
                 let frame = timingPlan.frameFor(row: row, tick: tick)
@@ -973,9 +1008,10 @@ extension PlaybackSongSyntheticAdapter {
                 // contract to G-only generations without creating another global.
                 if hasH || (tick == 0 && rowHasH) { affected.formUnion(active.values) }
                 if hasG { gxxAffected.formUnion(active.values) }
-                for rowControl in rowControls {
+                for projectionIndex in controls.indices {
+                    let rowControl = controls[projectionIndex].snapshot
                     let channel = rowControl.channelIndex
-                    var state = controls[channel] ?? rowControl.controls
+                    var outputVolume = controls[projectionIndex].outputVolume
                     var localVolumePublication = false
                     for ordinal in turns[channel] ?? [] {
                         let update = original[ordinal]
@@ -984,7 +1020,7 @@ extension PlaybackSongSyntheticAdapter {
                             if update.applied, let value = update.globalVolumeAfter { visibleGlobal = value }
                         default:
                             if update.applied, isVolumePublicationWriter(update.command) {
-                                if let output = update.effectiveVolumeAfter { state.outputChannelVolume = output }
+                                if let output = update.effectiveVolumeAfter { outputVolume = output }
                                 localVolumePublication = true
                             }
                         }
@@ -1000,11 +1036,12 @@ extension PlaybackSongSyntheticAdapter {
                         }
                         if row >= firstRow { result.append(retained) }
                     }
-                    controls[channel] = state
+                    controls[projectionIndex].outputVolume = outputVolume
                     guard let event = active[channel], affected.contains(event) || gxxAffected.contains(event),
                           hasH || hasG || localVolumePublication || context.events[event].volumeEnvelope != nil || released.contains(event) else { continue }
-                    state.activeEventIndex = event
-                    state.activeSampleVolume = sampleVolumes[event]
+                    // Materialize full controls only for a published diagnostic, never a plain turn.
+                    let state = controls[projectionIndex].targetState(event: event, sampleVolume: sampleVolumes[event])
+                    targetStates += 1
                     var target = globalVolumeChannelTarget(source: timing.source, channel: channel, row: row, tick: tick,
                         frame: frame, state: state, globalVolume: visibleGlobal,
                         gxxReason: affected.contains(event) ? nil : hasG ? "global_volume_set" :
@@ -1020,11 +1057,13 @@ extension PlaybackSongSyntheticAdapter {
         // canonical state. Plain voices retain their held target until another writer.
         if let last = timingPlan.rowTimings.last {
             let row = last.syntheticRow + 1
-            for channel in active.keys.sorted() {
+            // Row projections already have ascending, unique channel identities.
+            for projection in lastControls {
+                let channel = projection.snapshot.channelIndex
                 guard let event = active[channel], affected.contains(event) || gxxAffected.contains(event),
-                      context.events[event].volumeEnvelope != nil || released.contains(event),
-                      var state = lastControls[channel] else { continue }
-                state.activeEventIndex = event; state.activeSampleVolume = sampleVolumes[event]
+                      context.events[event].volumeEnvelope != nil || released.contains(event) else { continue }
+                let state = projection.targetState(event: event, sampleVolume: sampleVolumes[event])
+                targetStates += 1
                 var target = globalVolumeChannelTarget(source: last.source, channel: channel, row: row, tick: 0,
                     frame: timingPlan.frameFor(row: row), state: state, globalVolume: visibleGlobal,
                     gxxReason: affected.contains(event) ? nil : "envelope_or_release_tick")

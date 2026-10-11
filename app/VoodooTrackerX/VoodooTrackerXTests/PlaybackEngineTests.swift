@@ -131,6 +131,7 @@ final class PlaybackEngineTests: XCTestCase {
             "traversal_effect_status_indexing",
             "event_generation",
             "pattern_row_iteration",
+            "global_volume_channel_projection",
             "fine_pitch_source_eligibility",
             "playback_song_synthetic_adapter_adapt_total",
             "adapter_diagnostic_indexing",

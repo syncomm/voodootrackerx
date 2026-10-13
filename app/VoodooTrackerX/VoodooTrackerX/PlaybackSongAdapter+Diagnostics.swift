@@ -399,9 +399,10 @@ extension PlaybackSongSyntheticAdapter {
         case 0x15:
             return .applied
         case 0x1B:
-            let interval = retriggerIntervalNibble(from: cell)
+            let raw = retriggerIntervalNibble(from: cell)
+            let interval = raw != 0 ? raw : Int(channelState.rRetriggerSpeedMemory)
             guard interval > 0 else {
-                return .ignoredNoOp
+                return .deferredUnsupported
             }
             return interval < timingConfig.speed ? .applied : .ignoredNoOp
         case 0x21:
@@ -592,6 +593,9 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func hasDeferredEffect(_ cell: PlaybackCell, channelState: ChannelState) -> Bool {
+        if isRxyMultiRetriggerEffect(cell) {
+            return retriggerIntervalNibble(from: cell) == 0 && channelState.rRetriggerSpeedMemory == 0
+        }
         if cell.effectType == 0x09, cell.effectParam == 0 {
             return channelState.sampleOffsetMemory == nil
         }

@@ -289,14 +289,17 @@ extension PlaybackSongSyntheticAdapter {
         events: inout [SyntheticTrackerEvent],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
-        eventCoverage: inout EventCoverageBuilder
+        eventCoverage: inout EventCoverageBuilder,
+        allowScheduling: Bool = true
     ) -> PlaybackSongSyntheticRetriggerDiagnostic? {
         guard isRetriggerEffect(cell) else {
             return nil
         }
 
-        let interval = retriggerIntervalNibble(from: cell)
-        let volumeModeNibble = retriggerVolumeModeNibble(from: cell)
+        let intervalNibble = retriggerIntervalNibble(from: cell)
+        let interval = isRxyMultiRetriggerEffect(cell) ? Int(channelState.rRetriggerSpeedMemory) : intervalNibble
+        let volumeModeNibble = isRxyMultiRetriggerEffect(cell)
+            ? Int(channelState.rVolumeModeMemory) : retriggerVolumeModeNibble(from: cell)
         let rowSpeed = timingConfig.speed
         let rowBPM = timingConfig.bpm
         let activeEventIndexBefore = channelState.activeEventIndex
@@ -316,10 +319,8 @@ extension PlaybackSongSyntheticAdapter {
             retriggerGains: [Float] = []
         ) -> PlaybackSongSyntheticRetriggerDiagnostic {
             let applied = status == .applied
-            let deferred = status == .ignoredRxyZeroIntervalNoEffectMemory
-            let ignoredAsNoOp = status == .ignoredRxyZeroIntervalNoEffectMemory ||
-                status == .noActiveVoice ||
-                status == .outOfRowNoOp
+            let deferred = status == .rxyZeroIntervalDeferredToG21
+            let ignoredAsNoOp = status == .noActiveVoice || status == .outOfRowNoOp || status == .rowEntryNotScheduled
             let outOfRow = status == .outOfRowNoOp
             let activeMapping = activeMappingIndexBefore.flatMap {
                 eventMappings.indices.contains($0) ? eventMappings[$0] : nil
@@ -349,7 +350,7 @@ extension PlaybackSongSyntheticAdapter {
                 retriggerEventIndices: eventIndices,
                 replacedEventIndices: replacedEventIndices,
                 volumeModeNibble: volumeModeNibble,
-                intervalNibble: interval,
+                intervalNibble: intervalNibble,
                 volumeChangePolicy: isRxyMultiRetriggerEffect(cell) ? Self.rxyVolumeChangePolicy : nil,
                 volumeChangeCount: zip(volumeValuesBefore, volumeValuesAfter).filter { $0.0 != $0.1 }.count,
                 volumeValuesBefore: volumeValuesBefore,
@@ -368,13 +369,18 @@ extension PlaybackSongSyntheticAdapter {
 
         guard interval > 0 else {
             let result = diagnostic(
-                status: .ignoredRxyZeroIntervalNoEffectMemory
+                status: .rxyZeroIntervalDeferredToG21
             )
             retriggerEffects.append(result)
             return result
         }
         guard interval < rowSpeed else {
             let result = diagnostic(status: .outOfRowNoOp)
+            retriggerEffects.append(result)
+            return result
+        }
+        guard allowScheduling else {
+            let result = diagnostic(status: .rowEntryNotScheduled)
             retriggerEffects.append(result)
             return result
         }

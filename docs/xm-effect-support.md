@@ -159,7 +159,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Kxx` | Key off | Implemented | Partial | None | Not applicable | Canonical-tick release, retained source and integer fadeout exist. No-envelope release zeros base/output except instrument-only K00 volume restoration. Note-97/K00/instrument/volume precedence remains G24. |
 | `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Existing volume positioning is preserved. Bounded G07 pan positioning is closed under the sounding instrument's raw volume-sustain flag, including disabled volume envelopes and silent-channel clocks. G31, G40 and pan-sustain/release differences remain open. |
 | `Pxy` | Panning slide | Deferred | Open | Own byte; pinned `P00` replays it | Not applicable | Real FT2/XM v1 target G33. Legacy handler support is not C-adapter support; remaining timing/writer/pan-envelope interactions need characterization. |
-| `Rxy` | Multi retrigger | Implemented | Partial | Own independent interval/mode nibbles; replay missing | Not applicable | First-pass active-voice scheduler and common-XM volume modes exist. R00/zero-nibble memory G20, persistent counter/tick-zero/carry G21 and exact FT2 arithmetic G22 remain open. |
+| `Rxy` | Multi retrigger | Implemented | Closed G20 memory only | Independent zero-initialized interval/mode bytes | Not applicable | Nonzero nibbles update their own memory; zero preserves/reuses its byte, including literal zero. Positive resolved intervals use the existing scheduler. Interval-zero execution, counter/tick-zero/gating/source carry G21 and exact FT2 arithmetic G22 remain open. |
 | `Txy` | Tremor | Deferred | Open | Own byte; pinned `T00` replays it | Not applicable | Real FT2/XM v1 target G34. Counter/phase, cold state, trigger carry and volume-writer interactions still need characterization. |
 | `X1x` / `X2x` | Extra fine portamento | Implemented | Closed G18 Linear replay and cold restoration | Own independent per-channel up/down amount/origin | Linear | Tick-zero `x` units; seeded X10/X20 replay their direction. Cold forms restore meaningful canonical pitch without provenance; converged/ineligible C writes are suppressed. Amiga remains G29. |
 | `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug commands | Extension | Outside v1 | Not applicable | Not applicable | No runtime/offline support. Extension/hack families require a separately accepted compatibility target. |
@@ -235,6 +235,29 @@ produces one row-entry start, with no tick-3 replay. Existing nonzero E9 offsets
 and resets, Rxy behavior and mixer ramps remain protected. The public
 `e90-row-entry-retrigger.xm` and both-rate routing/runtime/window tests pin this
 bounded contract; complete FT2 PCM parity remains outside it.
+
+G20 implements Rxy memory resolution (A intended behavior), independently of E9/E90.
+Each channel owns zero-initialized speed and mode bytes; a nonzero nibble updates
+only its byte, and zero preserves/reuses it. Nonzero-origin provenance is
+metadata, never an availability gate. Cold R90→R03→R00 resolves 9/0→9/3→9/3;
+cold R03→R90→R00 resolves 0/3→9/3→9/3, including without a source. Note,
+instrument, completion, release, order and loop transitions retain the bytes.
+Same-cell routing or counter-dispatch gates cannot suppress memory mutation.
+`RxyNibbleMemoryTests` and runtime controls close G20 memory at both rates:
+positive-interval replay matches explicit-equivalent event plans and PCM in
+whole/window offline and runtime paths. Baseline comparison proves the existing
+runtime/offline retrigger-retirement difference unchanged: runtime ramps the
+old source over 32 frames while offline cuts it immediately. That separate
+retirement debt does not close with G20; mixer and retirement code are unchanged.
+
+G20 feeds positive intervals into the existing row-local scheduler and adds no
+interval-zero dispatch. Cold R00 resolves 0/0 and cold R90 resolves 9/0, with
+execution explicitly deferred to G21. FT2 executes these every invocation;
+cold R90 can also change source-less channel volume. These remain compatibility
+obligations, without an artifact exclusion. G21 owns tick-zero invocation,
+persistent counter/reset lifetime, speed/Fxx/volume-column gates and source,
+envelope/release carry; G22 owns exact integer volume arithmetic.
+
 P00 and T00 use their own whole-byte memories in the
 [pinned handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2106-L2161).
 These are source-confirmed obligations, not claims of complete render-tested
@@ -463,9 +486,10 @@ support alone does not close these domains:
   Cold 600 held-target refresh, G15 cold Linear 500 and G16 fine-volume memory
   and G17/G18 Linear fine/extra-fine memory/restoration are closed.
   G29 Amiga fine/extra-fine and G28 Amiga combined semantics remain open.
-  Rxy counter lifetime, nibble memory, tick-zero dispatch,
-  semantic carry and exact volume arithmetic (G20–G22) cannot be closed by its
-  common-XM table. ED delayed note/instrument/default interactions and
+  Rxy nibble memory is closed under G20's replay/explicit equivalence gate;
+  counter lifetime, interval-zero and
+  tick-zero dispatch, semantic carry and exact volume arithmetic (G21–G22)
+  remain open. ED delayed note/instrument/default interactions and
   note-97/K00/instrument/volume precedence remain G23–G24.
 - **Traversal:** EEx is a dedicated timing contract (G35). Bxx/Dxx/E6x
   precedence and E6's implicit loop start remain G37–G38; safe finite export

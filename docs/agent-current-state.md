@@ -56,6 +56,16 @@ host.
   before same-cell overrides. NOTE_OFF suppresses the start. Cold/unavailable
   routes create no source; completed sources can restart from retained identity.
   Nonzero E9 and Rxy retain their separate contracts; mixer ramps are unchanged.
+- Rxy has independent zero-initialized channel-local speed and volume-mode
+  nibble memories. Nonzero nibbles update only their own byte; zero preserves
+  and resolves that byte, including literal zero without nonzero provenance.
+  Resolution survives source/instrument changes and runs without a source.
+  Positive intervals use the existing scheduler. Literal-zero execution,
+  tick-zero/counter/gating/source carry and source-less arithmetic remain G21;
+  exact volume arithmetic remains G22. E9/E90 do not share R memory. G20
+  memory is closed: positive-interval replay matches explicit commands in each
+  render path. The pre-existing 32-frame runtime/offline retrigger-retirement
+  difference is unchanged and remains separate debt.
 - Ordinary volume-column `6x/7x` slides update base/output on nonzero ticks of
   the effective Fxx row speed, including silent channel state. Speed 1 has no
   slide; zero amounts restore output without memory. Fine `8x/9x` stay at tick

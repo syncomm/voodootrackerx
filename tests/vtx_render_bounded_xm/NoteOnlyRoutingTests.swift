@@ -312,7 +312,7 @@ final class NoteOnlyRoutingTests: XCTestCase {
             XCTAssertEqual(plan.diagnostics.retriggerEffects[0].retriggerTicks, speed == 6 ? [3] : [])
             XCTAssertEqual(plan.diagnostics.retriggerEffects[1].retriggerTicks, [0])
             XCTAssertEqual(plan.diagnostics.retriggerEffects[1].retriggerFrames, [2 * speed * 960])
-            XCTAssertEqual(plan.diagnostics.retriggerEffects[2].status, .ignoredRxyZeroIntervalNoEffectMemory)
+            XCTAssertEqual(plan.diagnostics.retriggerEffects[2].status, .rxyZeroIntervalDeferredToG21)
         }
         let (context, states) = inspect(song([cell(note: 37, instrument: 1, effect: 9, param: 1),
             cell(effect: 14, param: 0x90), cell(note: 37, effect: 9), cell(effect: 14, param: 0x93)], sampleFrames: 512))
@@ -320,8 +320,8 @@ final class NoteOnlyRoutingTests: XCTestCase {
         XCTAssertEqual(states.map { $0.sampleOffsetMemory?.offsetFrames }, [256, 256, 256, 256])
         let rxy = Adapter.adapt(song([cell(note: 37, instrument: 1), cell(effect: 27, param: 0x93),
             cell(effect: 14, param: 0x90), cell(effect: 27)]), orderIndex: 0, sampleRate: 48_000)
-        XCTAssertEqual(rxy.diagnostics.retriggerEffects.map(\.retriggerTicks), [[3], [0], []])
-        XCTAssertEqual(rxy.diagnostics.retriggerEffects.last?.status, .ignoredRxyZeroIntervalNoEffectMemory)
+        XCTAssertEqual(rxy.diagnostics.retriggerEffects.map(\.retriggerTicks), [[3], [0], [3]])
+        XCTAssertEqual(rxy.diagnostics.retriggerEffects.last?.status, .applied)
     }
 
     func testE90CarriesReleasedClocksAndLatestAnnotationButExplicitInstrumentRekeys() throws {

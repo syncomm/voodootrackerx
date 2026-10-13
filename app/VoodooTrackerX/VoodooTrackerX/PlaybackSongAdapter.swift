@@ -65,6 +65,10 @@ enum PlaybackSongSyntheticAdapter {
         // Last triggered XM note survives source completion and exact empty routing.
         // Keep this byte beside the flag, using existing alignment padding.
         var carriedNote: UInt8 = 0
+        // Literal zero is semantic state; nonzero values also prove nonzero origin.
+        // These bytes use padding and survive instrument/source/counter resets.
+        var rRetriggerSpeedMemory: UInt8 = 0
+        var rVolumeModeMemory: UInt8 = 0
         var triggeredSampleDefaultVolume = 0
         var triggeredSampleDefaultPan: UInt8 = 128
         var keyOffWithoutVoice = false
@@ -120,6 +124,11 @@ enum PlaybackSongSyntheticAdapter {
         var tremoloVibratoPhase = 0
         var tremoloVibratoSpeed = 0
         var tremoloVibratoControl = 0
+
+        mutating func resolveRxyMemory(_ parameter: UInt8) {
+            if parameter & 15 != 0 { rRetriggerSpeedMemory = parameter & 15 }
+            if parameter >> 4 != 0 { rVolumeModeMemory = parameter >> 4 }
+        }
 
         mutating func initializePanning(fromSampleHeader value: UInt8) {
             panningValue = Double(value)
@@ -900,6 +909,9 @@ enum PlaybackSongSyntheticAdapter {
             context.fullCellDispatchCount += 1
             let nextCell = nextRow.flatMap { $0.cells.indices.contains(channelIndex) ? $0.cells[channelIndex] : nil }
             let restoreVibratoAtRowEnd = nextCell.map { $0.effectType != 4 && $0.effectType != 6 } ?? false
+            var channelState = context.channelStates[channelIndex]
+            // Memory resolves even if source routing or the current scheduler cannot run.
+            if isRxyMultiRetriggerEffect(cell) { channelState.resolveRxyMemory(cell.effectParam) }
             if let effectCommandDiagnostic = effectCommandDiagnostic(
                 from: cell,
                 source: source,
@@ -907,15 +919,15 @@ enum PlaybackSongSyntheticAdapter {
                 syntheticRow: syntheticRow,
                 traversalEffectStatuses: context.traversalEffectStatuses,
                 timingConfig: timingConfig,
-                channelState: context.channelStates[channelIndex]
+                channelState: channelState
             ) {
                 context.effectCommandDiagnostics.append(effectCommandDiagnostic)
             }
-            var channelState = context.channelStates[channelIndex]
             let isE90 = cell.effectType == 0x0E && cell.effectParam == 0x90
             let e90PreviousEvent = isE90 ? channelState.activeEventIndex : nil
             let e90PreviousMapping = isE90 ? channelState.activeEventMappingIndex : nil
             let firstRowEvent = context.events.count
+            let firstRetriggerDiagnostic = context.retriggerEffects.count
             if isE90, cell.note == 0 {
                 cell = PlaybackCell(note: channelState.carriedNote, instrument: cell.instrument,
                     volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
@@ -930,6 +942,16 @@ enum PlaybackSongSyntheticAdapter {
             let routedInstrumentIndex = isNoteOnly ? channelState.carriedInstrumentIndex ?? 0 : Int(cell.instrument)
             var instrumentOnlyReset: MixerPlaybackStateChange?
             defer {
+                if isRxyMultiRetriggerEffect(cell), context.retriggerEffects.count == firstRetriggerDiagnostic {
+                    // Rejected/gated row-entry routes still expose resolved memory, without
+                    // introducing a second scheduling path or changing source admission.
+                    _ = handleRetrigger(from: cell, source: source, channelIndex: channelIndex,
+                        syntheticRow: syntheticRow, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
+                        timingConfig: timingConfig, timingPlan: timingPlan, globalVolumeState: context.globalVolumeState,
+                        channelState: &channelState, events: &context.events, eventMappings: &context.eventMappings,
+                        retriggerEffects: &context.retriggerEffects, eventCoverage: &context.eventCoverage,
+                        allowScheduling: false)
+                }
                 if isE90 {
                     context.retriggerEffects.append(e90Diagnostic(cell: cell, source: source,
                         channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,

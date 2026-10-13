@@ -44,6 +44,7 @@ LIMITED_DEFERRED_PRIORITY = "deferred/limited-usefulness"
 CLASSIFICATION_ONLY_PRIORITY = "classification-only; no playback work inferred"
 NOT_TARGETED_FOR_V1_PRIORITY = "not targeted for v1"
 R00_PARKED_PRIORITY = "implemented/parity-watch; R00 memory refinement parked unless maintainer-promoted"
+RXY_ZERO_INTERVAL_EXECUTION_PRIORITY = "G20 memory resolved; interval-zero execution remains G21"
 
 COMMAND_RECOMMENDATION_STATUSES = {
     "0xy arpeggio": IMPLEMENTED_PARITY_WATCH_PRIORITY,
@@ -145,6 +146,7 @@ NON_IMPLEMENTATION_PRIORITIES = {
     CLASSIFICATION_ONLY_PRIORITY,
     NOT_TARGETED_FOR_V1_PRIORITY,
     R00_PARKED_PRIORITY,
+    RXY_ZERO_INTERVAL_EXECUTION_PRIORITY,
 }
 
 EFFECT_FAMILY_ORDER = (
@@ -938,6 +940,8 @@ def effect_memory_priority_for_command(command: str) -> str:
 
 
 def priority_for_command(command: str, counters: Counter, reason_counts: Counter | dict[str, Any] | None = None) -> str:
+    if dict(reason_counts or {}).get("rxy_zero_interval_execution_deferred_g21", 0):
+        return RXY_ZERO_INTERVAL_EXECUTION_PRIORITY
     effect_memory_no_ops = sum(
         count for reason, count in dict(reason_counts or {}).items()
         if any(marker in str(reason).lower() for marker in EFFECT_MEMORY_STATUS_MARKERS)

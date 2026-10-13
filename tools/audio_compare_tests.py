@@ -2382,6 +2382,22 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(row["reason_counts"]["ignored_rxy_zero_interval_no_effect_memory"], 1)
         self.assertEqual(summary["unresolved_breakdown"]["no_active_voice"][0]["command"], "Rxy multi retrigger")
 
+    def test_rxy_zero_interval_is_execution_deferred_without_missing_memory_or_no_op(self):
+        item = retrigger_effect(status="rxy_zero_interval_execution_deferred_g21",
+                                effect_type=0x1B, effect_param=0x90, interval=0)
+        item.update(deferred=True, ignored_as_no_op=False, stored_mode_memory=9,
+                    stored_speed_memory=0, resolved_mode_nibble=9, resolved_speed_nibble=0,
+                    mode_memory_has_nonzero_origin=True, speed_memory_has_nonzero_origin=False,
+                    scheduler_executed=False, zero_interval_execution_deferred_to_g21=True)
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic.json", {"retrigger_effects": [item]})
+        ])
+        row = next(row for row in summary["effect_coverage"] if row["command"] == "Rxy multi retrigger")
+        self.assertEqual(row["deferred_count"], 1)
+        self.assertEqual(row["effect_memory_missing_count"], 0)
+        self.assertEqual(row["no_op_effect_memory_deferred_count"], 0)
+        self.assertEqual(row["recommended_implementation_priority"], effect_coverage.RXY_ZERO_INTERVAL_EXECUTION_PRIORITY)
+
     def test_effect_coverage_summary_counts_generic_deferred_effect_fields(self):
         diagnostics = {
             "pattern_traversal_timing_effects": [

@@ -5485,7 +5485,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertPCMEqual(result.block.interleavedPCM, [1, 0.5, 1, 0.5, 1, 0.5])
     }
 
-    func testPlaybackSongAdapterRetriggerRxyZeroIntervalIsDeferredNoOp() throws {
+    func testPlaybackSongAdapterRetriggerRxyZeroIntervalExecutionIsDeferredToG21() throws {
         let sample = makePlaybackSample(pcm: [1, 0.5, 0.25], baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -5506,9 +5506,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
         XCTAssertEqual(result.plan.pattern.events.count, 1)
-        XCTAssertEqual(retrigger.status, .ignoredRxyZeroIntervalNoEffectMemory)
+        XCTAssertEqual(retrigger.status, .rxyZeroIntervalDeferredToG21)
         XCTAssertTrue(retrigger.deferred)
-        XCTAssertTrue(retrigger.ignoredAsNoOp)
+        XCTAssertFalse(retrigger.ignoredAsNoOp)
         XCTAssertEqual(retrigger.volumeModeNibble, 10)
         XCTAssertEqual(retrigger.intervalNibble, 0)
         XCTAssertEqual(retrigger.retriggerFrames, [])

@@ -209,8 +209,28 @@ runtime planning are not implemented. Neutral publication finalization remains
 unresolved; runtime ID finalization and loop boundary behavior remain unchanged.
 `Rxy` rows use the shared retrigger path for the active voice. Same-cell note
 rows trigger once at tick 0 and schedule generated retriggers on later interval
-ticks; `R00` remains an effect-memory-deferred no-op. First-pass volume modes
-use the common XM retrigger volume table and clamp channel volume to `0...64`.
+ticks. Independent zero-initialized speed/mode nibble memories resolve before
+source admission; nonzero updates only its own byte and zero preserves it.
+Positive resolved intervals use the current scheduler; effective interval zero
+reports `rxy_zero_interval_execution_deferred_g21` with no R dispatch. This is
+valid memory resolution, not missing memory or FT2-inert behavior. FT2 cold
+R00/R90 every-invocation dispatch and source-less R90 arithmetic remain G21.
+First-pass volume modes and G22's known arithmetic differences are unchanged.
+Offline/coverage retrigger rows expose `raw_mode_nibble`, `raw_speed_nibble`,
+`stored_mode_memory`, `stored_speed_memory`, `resolved_mode_nibble`,
+`resolved_speed_nibble`, each `*_memory_has_nonzero_origin`, each
+`*_memory_reused`, `scheduler_executed` and
+`zero_interval_execution_deferred_to_g21`. Reuse means a zero input selects the
+stored byte, including its initial zero; origin flags distinguish real seeds.
+The legacy `interval_nibble` stays raw; `volume_mode_nibble` and
+`retrigger_interval_ticks` report effective mode and interval. The legacy
+missing-memory summary count is zero; a new zero-interval execution-deferred
+count describes the G21 boundary. Rejected row-entry routes report
+`row_entry_not_scheduled` while still exposing memory. Runtime/window plans
+consume the same resolved retrigger events; the trace schema is unchanged.
+G20 closes memory through replay/explicit-equivalent event and PCM agreement in
+both paths. Existing runtime 32-frame retrigger retirement versus offline
+immediate source cuts remains unchanged, separate from memory closure.
 XM `E40...E4F` store channel-local FT2 vibrato control for later `4xy`/`6xy`
 rows and emit no direct audio events. The low two bits select sine, ramp,
 square, square; bit 2 suppresses instrument-trigger phase reset and bit 3 is

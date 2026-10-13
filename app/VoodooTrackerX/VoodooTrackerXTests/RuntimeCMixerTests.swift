@@ -4597,6 +4597,101 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testRxyNibbleMemoryReplayMatchesExplicitWholeWindowAndRuntimeAtBothRates() throws {
+        let mixedParameters: [[UInt8]] = [[0x90, 0x90], [0x03, 0], [0, 0x03], [0, 0x90], [0x13, 0], [0, 0]]
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+            pcm: (0..<257).map { Float($0) / 4096 - 1 / 32 }, volume: 0.5,
+            relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 257, loopType: 1)
+        let mixedExplicit: [[UInt8]] = [[0x90, 0x90], [0x93, 0x90], [0x93, 0x93], [0x93, 0x93], [0x13, 0x93], [0x13, 0x93]]
+        let pairs: [(UInt8, UInt8)] = [(0x93, 0), (0x93, 0x03), (0x93, 0x90), (0x13, 0)]
+        let seeded = pairs.map { seed, replay in
+            ([[seed, seed]] + Array(repeating: [replay, replay], count: 5), Array(repeating: [seed, seed], count: 6))
+        }
+        let cold: [[UInt8]] = [[0x90, 0], [0, 0x90], [0x90, 0x90], [0, 0], [0x90, 0], [0, 0]]
+        for (parameters, explicitParameters) in [(mixedParameters, mixedExplicit)] + seeded + [(cold, Array(repeating: [0, 0], count: 6))] {
+            let rows = parameters.enumerated().map { row, values in
+                PlaybackRow(index: row, cells: values.enumerated().map { channel, parameter in
+                    let note = (row == 0 && channel == 1) || (row == 2 && channel == 0)
+                    return PlaybackCell(note: note ? 49 : 0, instrument: note ? 1 : 0,
+                        volumeColumn: 0, effectType: 27, effectParam: parameter)
+                })
+            }
+            let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: rows],
+                instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+            // The explicit control isolates memory replay from existing source-retirement behavior.
+            let explicitRows = rows.enumerated().map { row, original in
+                PlaybackRow(index: row, cells: original.cells.enumerated().map { channel, cell in
+                    PlaybackCell(note: cell.note, instrument: cell.instrument, volumeColumn: cell.volumeColumn,
+                        effectType: cell.effectType, effectParam: explicitParameters[row][channel])
+                })
+            }
+            let explicitSong = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: explicitRows],
+                instrumentsByIndex: song.instrumentsByIndex, initialTiming: song.initialTiming)
+            for rate in [44_100.0, 48_000] {
+                let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                let explicit = RuntimeCMixerAdapterEventPlan.make(song: explicitSong, sampleRate: rate)
+                XCTAssertEqual(runtime.plan?.pattern.events, explicit.plan?.pattern.events)
+                // Raw command/memory provenance differs; source identity, ordering and actions do not.
+                for (left, right) in zip(runtime.events, explicit.events) {
+                    XCTAssertEqual([left.id, left.channelIndex, left.syntheticTick, left.scheduledFrame, left.activeEventIndex ?? -1],
+                        [right.id, right.channelIndex, right.syntheticTick, right.scheduledFrame, right.activeEventIndex ?? -1])
+                    XCTAssertEqual(left.source, right.source)
+                    XCTAssertEqual(left.categories, right.categories)
+                    if case let .noteTrigger(_, _, a) = left.action, case let .noteTrigger(_, _, b) = right.action {
+                        XCTAssertEqual([Int(a.note), a.instrumentIndex, a.sampleIndex], [Int(b.note), b.instrumentIndex, b.sampleIndex])
+                    } else { XCTAssertEqual(left.action, right.action) }
+                }
+                XCTAssertEqual(runtime.events.count, explicit.events.count)
+                let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+                let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: end)
+                let renderer = PlaybackSongOfflineRenderer(), offline = renderer.render(request)
+                XCTAssertEqual(runtime.plan, offline.plan)
+                let explicitOffline = renderer.render(.init(song: explicitSong, config: config, frames: end))
+                XCTAssertEqual(offline.block.interleavedPCM, explicitOffline.block.interleavedPCM)
+                XCTAssertEqual(offline.sameChannelVoiceLifetime, explicitOffline.sameChannelVoiceLifetime)
+                for rows in [1, 2, 3] {
+                    let windowed = renderer.renderWindowed(request, windowRows: rows)
+                    XCTAssertEqual(windowed.plan.diagnostics.retriggerEffects, offline.plan.diagnostics.retriggerEffects)
+                    assertFixturePCMEqual(windowed.block.interleavedPCM, offline.block.interleavedPCM[...])
+                    let explicitWindow = renderer.renderWindowed(.init(song: explicitSong, config: config, frames: end), windowRows: rows)
+                    XCTAssertEqual(windowed.block.interleavedPCM, explicitWindow.block.interleavedPCM)
+                }
+                XCTAssertTrue(offline.diagnostics.retriggerEffects.filter { $0.retriggerIntervalTicks == 0 }.allSatisfy {
+                    $0.status == .rxyZeroIntervalDeferredToG21 && $0.retriggerFrames.isEmpty && $0.volumeValuesAfter.isEmpty
+                })
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                let explicitCore = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                explicitCore.configureAdapterEventScheduleForTesting(explicit.events, runtimeFrameOffset: 0)
+                // Existing runtime retirement ramps differ from offline retrigger cuts. G20 must
+                // preserve replay/explicit PCM in each path, rather than claim universal path parity.
+                var frame = 0, applied = [RuntimeCMixerAppliedAdapterEventDiagnostic](), explicitApplied = applied
+                while frame < end {
+                    let count = min(4093, end - frame), pcm = renderRuntimePCM(core, frames: min(4093, end - frame))
+                    XCTAssertEqual(pcm, renderRuntimePCM(explicitCore, frames: count))
+                    applied += core.drainAppliedAdapterEventDiagnostics()
+                    explicitApplied += explicitCore.drainAppliedAdapterEventDiagnostics(); frame += count
+                }
+                XCTAssertEqual(applied.map(\.appliedFrame), explicitApplied.map(\.appliedFrame))
+                XCTAssertEqual(core.snapshot().rampDownStartCount, explicitCore.snapshot().rampDownStartCount)
+                XCTAssertEqual(core.snapshot().rampDownCompletionCount, explicitCore.snapshot().rampDownCompletionCount)
+                XCTAssertEqual(core.snapshot().abruptRampDownStopCount, 0)
+                XCTAssertEqual(explicitCore.snapshot().abruptRampDownStopCount, 0)
+                XCTAssertTrue(explicitApplied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
+                XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
+                XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
+                if parameters.joined().allSatisfy({ $0 & 15 == 0 }) {
+                    XCTAssertEqual(runtime.plan?.pattern.events.count, 2) // Only the two ordinary notes.
+                    XCTAssertEqual(core.snapshot().rampDownStartCount, 0)
+                }
+            }
+        }
+    }
+
+    @MainActor
     func testE90FixtureWholeOfflineWindowedAndRuntimeParityAtBothRates() throws {
         try assertFixtureRuntimeParity(fixtureName: "e90-row-entry-retrigger.xm")
         let fixture = try referenceXMFixtureURL("generated/e90-row-entry-retrigger.xm")

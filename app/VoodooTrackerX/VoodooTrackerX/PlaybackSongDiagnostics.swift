@@ -986,7 +986,8 @@ struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {
         case applied
         case e90NoRoute
         case e90NoteOff
-        case ignoredRxyZeroIntervalNoEffectMemory
+        case rxyZeroIntervalDeferredToG21
+        case rowEntryNotScheduled
         case noActiveVoice
         case outOfRowNoOp
     }

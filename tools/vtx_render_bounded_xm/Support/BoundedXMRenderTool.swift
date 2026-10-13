@@ -1351,7 +1351,27 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["retrigger_count"] = diagnostic.retriggerEventIndices.count
         object["scheduled_retrigger_frames"] = diagnostic.retriggerFrames
         object["volume_change_count"] = diagnostic.volumeChangeCount
+        object.merge(rxyMemoryJSON(diagnostic), uniquingKeysWith: { _, value in value })
         return object
+    }
+
+    private static func rxyMemoryJSON(_ diagnostic: PlaybackSongSyntheticRetriggerDiagnostic) -> [String: Any] {
+        guard diagnostic.effectType == 0x1B else { return [:] }
+        // Nonzero bytes cannot be cleared by zero nibbles, so origin needs no extra state.
+        return [
+            "raw_mode_nibble": Int(diagnostic.effectParam >> 4),
+            "raw_speed_nibble": diagnostic.intervalNibble,
+            "stored_mode_memory": diagnostic.volumeModeNibble,
+            "stored_speed_memory": diagnostic.retriggerIntervalTicks,
+            "resolved_mode_nibble": diagnostic.volumeModeNibble,
+            "resolved_speed_nibble": diagnostic.retriggerIntervalTicks,
+            "mode_memory_has_nonzero_origin": diagnostic.volumeModeNibble != 0,
+            "speed_memory_has_nonzero_origin": diagnostic.retriggerIntervalTicks != 0,
+            "mode_memory_reused": diagnostic.effectParam >> 4 == 0,
+            "speed_memory_reused": diagnostic.intervalNibble == 0,
+            "scheduler_executed": diagnostic.applied && !diagnostic.retriggerTicks.isEmpty,
+            "zero_interval_execution_deferred_to_g21": diagnostic.status == .rxyZeroIntervalDeferredToG21,
+        ]
     }
 
     private static func arpeggioCoverageJSON(_ diagnostic: PlaybackSongSyntheticArpeggioDiagnostic) -> [String: Any] {
@@ -1755,7 +1775,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let rxyRetriggerEffects = diagnostics.retriggerEffects.filter { $0.effectType == 0x1B }
         let rxyAppliedCount = rxyRetriggerEffects.filter(\.applied).count
         let rxyNoActiveVoiceCount = rxyRetriggerEffects.filter { $0.status == .noActiveVoice }.count
-        let rxyNoOpEffectMemoryDeferredCount = rxyRetriggerEffects.filter { $0.status == .ignoredRxyZeroIntervalNoEffectMemory }.count
+        let rxyZeroIntervalDeferredCount = rxyRetriggerEffects.filter { $0.status == .rxyZeroIntervalDeferredToG21 }.count
         let rxyOutOfRowNoOpCount = rxyRetriggerEffects.filter(\.outOfRow).count
         let rxyVolumeChangeCount = rxyRetriggerEffects.map(\.volumeChangeCount).reduce(0, +)
         let rxyScheduledRetriggerCount = rxyRetriggerEffects.map(\.retriggerEventIndices.count).reduce(0, +)
@@ -1880,7 +1900,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal 9xx sample offset is applied only in bounded offline adapter renders; 900 reuses prior nonzero 9xx per-channel memory when available and remains diagnosed as effect-memory-deferred/no-op when unavailable.",
             "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
             "E90 triggers at row entry without interval memory; instrumentless E90 carries channel state, while E91...E9F retain nonzero-tick resets.",
-            "Minimal Rxy multi retrigger is first-pass common-XM behavior in the shared runtime/offline C mixer adapter path; R00 effect memory remains deferred/no-op.",
+            "Rxy resolves independent zero-initialized mode/speed nibble memories; positive intervals use the existing scheduler. Interval-zero execution, counter/tick-zero/source carry remain G21; exact volume arithmetic remains G22.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
             "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy reuses the existing 3xx tone-portamento target/speed and Axy-style volume-slide paths; volume-column tone portamento reuses the 3xx target/sample-step path as a first pass.",
             "Minimal 0xy arpeggio applies deterministic tick-level sample-step updates through the shared runtime/offline C mixer adapter path; 000 remains a no-op and arpeggio effect memory is intentionally deferred.",
@@ -1995,7 +2015,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "rxy_multi_retrigger_detected_count": rxyRetriggerEffects.count,
                 "rxy_multi_retrigger_applied_count": rxyAppliedCount,
                 "rxy_multi_retrigger_no_active_voice_count": rxyNoActiveVoiceCount,
-                "rxy_multi_retrigger_no_op_effect_memory_deferred_count": rxyNoOpEffectMemoryDeferredCount,
+                "rxy_multi_retrigger_no_op_effect_memory_deferred_count": 0, // Legacy missing-memory category.
+                "rxy_multi_retrigger_zero_interval_execution_deferred_count": rxyZeroIntervalDeferredCount,
                 "rxy_multi_retrigger_out_of_row_no_op_count": rxyOutOfRowNoOpCount,
                 "rxy_multi_retrigger_scheduled_retrigger_count": rxyScheduledRetriggerCount,
                 "rxy_multi_retrigger_volume_change_count": rxyVolumeChangeCount,
@@ -4458,7 +4479,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "gain": diagnostic.gain.map { $0 as Any } ?? NSNull(),
             "pan": diagnostic.pan.map { $0 as Any } ?? NSNull(),
             "envelope_policy": diagnostic.envelopePolicy,
-        ]
+        ].merging(rxyMemoryJSON(diagnostic), uniquingKeysWith: { _, value in value })
     }
 
     private static func tonePortamentoEffectLabel(
@@ -5205,8 +5226,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "e90_no_route"
         case .e90NoteOff:
             return "e90_note_off"
-        case .ignoredRxyZeroIntervalNoEffectMemory:
-            return "ignored_rxy_zero_interval_no_effect_memory"
+        case .rxyZeroIntervalDeferredToG21:
+            return "rxy_zero_interval_execution_deferred_g21"
+        case .rowEntryNotScheduled:
+            return "row_entry_not_scheduled"
         case .noActiveVoice:
             return "no_active_voice"
         case .outOfRowNoOp:

@@ -43,8 +43,10 @@ DEFERRED_BY_DESIGN_PRIORITY = "deferred by design; not a backend-freeze PR"
 LIMITED_DEFERRED_PRIORITY = "deferred/limited-usefulness"
 CLASSIFICATION_ONLY_PRIORITY = "classification-only; no playback work inferred"
 NOT_TARGETED_FOR_V1_PRIORITY = "not targeted for v1"
-R00_PARKED_PRIORITY = "implemented/parity-watch; R00 memory refinement parked unless maintainer-promoted"
-RXY_ZERO_INTERVAL_EXECUTION_PRIORITY = "G20 memory resolved; interval-zero execution remains G21"
+RXY_CLOSED_PRIORITY = "G20–G22 closed; Rxy memory, counter/timing and exact integer volume modes implemented"
+# Compatibility names for callers importing the legacy wrapper; emitted text is current.
+R00_PARKED_PRIORITY = RXY_CLOSED_PRIORITY
+RXY_ZERO_INTERVAL_EXECUTION_PRIORITY = RXY_CLOSED_PRIORITY
 
 COMMAND_RECOMMENDATION_STATUSES = {
     "0xy arpeggio": IMPLEMENTED_PARITY_WATCH_PRIORITY,
@@ -84,7 +86,7 @@ COMMAND_RECOMMENDATION_STATUSES = {
     "Kxx key off": IMPLEMENTED_PRIORITY,
     "Lxx set envelope position": IMPLEMENTED_PARITY_WATCH_PRIORITY,
     "Pxy panning slide": DEFERRED_BY_DESIGN_PRIORITY,
-    "Rxy multi retrigger": R00_PARKED_PRIORITY,
+    "Rxy multi retrigger": RXY_CLOSED_PRIORITY,
     "Txy tremor": DEFERRED_BY_DESIGN_PRIORITY,
     "Xxy extra fine portamento": IMPLEMENTED_PARITY_WATCH_PRIORITY,
     "volume-column set volume": IMPLEMENTED_PRIORITY,
@@ -145,8 +147,7 @@ NON_IMPLEMENTATION_PRIORITIES = {
     DEFERRED_BY_DESIGN_PRIORITY,
     CLASSIFICATION_ONLY_PRIORITY,
     NOT_TARGETED_FOR_V1_PRIORITY,
-    R00_PARKED_PRIORITY,
-    RXY_ZERO_INTERVAL_EXECUTION_PRIORITY,
+    RXY_CLOSED_PRIORITY,
 }
 
 EFFECT_FAMILY_ORDER = (
@@ -940,8 +941,9 @@ def effect_memory_priority_for_command(command: str) -> str:
 
 
 def priority_for_command(command: str, counters: Counter, reason_counts: Counter | dict[str, Any] | None = None) -> str:
-    if dict(reason_counts or {}).get("rxy_zero_interval_execution_deferred_g21", 0):
-        return RXY_ZERO_INTERVAL_EXECUTION_PRIORITY
+    if command.startswith("Rxy"):
+        # Old artifacts retain their recorded outcomes, not their obsolete work recommendation.
+        return RXY_CLOSED_PRIORITY
     effect_memory_no_ops = sum(
         count for reason, count in dict(reason_counts or {}).items()
         if any(marker in str(reason).lower() for marker in EFFECT_MEMORY_STATUS_MARKERS)
@@ -962,8 +964,6 @@ def priority_for_command(command: str, counters: Counter, reason_counts: Counter
         return IMPLEMENTED_PRIORITY
     if command.startswith("Lxx"):
         return IMPLEMENTED_PARITY_WATCH_PRIORITY
-    if command.startswith("Rxy"):
-        return R00_PARKED_PRIORITY
     if command.startswith("Txy"):
         return DEFERRED_BY_DESIGN_PRIORITY
     if command.startswith(("Bxx", "Dxx", "EEx")):

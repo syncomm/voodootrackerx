@@ -67,8 +67,10 @@ class XMResidualEffectScanTests(unittest.TestCase):
         self.assertEqual(buckets["vol_a"].count(), 1)
         self.assertEqual(buckets["vol_b"].count(), 1)
         self.assertEqual(buckets["vol_f"].count(), 1)
-        self.assertEqual(buckets["rxy"].count("applied_count"), 1)
-        self.assertEqual(buckets["rxy"].count("no_op_effect_memory_deferred_count"), 1)
+        self.assertEqual(buckets["rxy"].count("applied_count"), 0)
+        self.assertEqual(buckets["rxy"].count("counter_execution_count"), 6)
+        self.assertEqual(buckets["rxy"].count("memory_replay_count"), 1)
+        self.assertEqual(buckets["rxy"].count("no_op_effect_memory_deferred_count"), 0)
         self.assertEqual(buckets["kxx"].count("applied_count"), 1)
         self.assertEqual(buckets["kxx"].count("out_of_row_no_op_count"), 1)
         self.assertEqual(buckets["5xy"].count("applied_count"), 1)
@@ -137,7 +139,7 @@ class XMResidualEffectScanTests(unittest.TestCase):
         self.assertIn("freeze-exit criterion", recommendation)
         self.assertNotIn("Minimal Lxx", recommendation)
         self.assertNotIn("Tone Portamento Foundation", recommendation)
-        self.assertIn("R00 memory refinement is parked", scan.status_note("rxy", {}))
+        self.assertIn("G20–G22 closed", scan.status_note("rxy", {}))
 
     def test_amiga_scan_keeps_pitch_residuals_in_parity_watch_bucket(self):
         scan = load_module()
@@ -281,6 +283,171 @@ class XMResidualEffectScanTests(unittest.TestCase):
         self.assertNotIn("7xy/E7x,", triage["answers"]["surgical_legacy_ports"])
         self.assertIn("Amiga", triage["answers"]["three_xx_memory_gap"])
         self.assertIn("implemented", triage["answers"]["seven_xy_before_amiga"])
+
+
+class RxyResidualContractTests(unittest.TestCase):
+    def trace(self, cells, speed=6):
+        module = module_with_rows(residual_scan, [[c] for c in cells])
+        state, group, decisions = residual_scan.ChannelState(), residual_scan.ScanGroup("all"), []
+        for row, c in enumerate(cells):
+            residual_scan.update_rxy_reset_state(module, c, state, speed)
+            if c.effect_type == 27:
+                decisions.append(residual_scan.scan_rxy(module, c,
+                    residual_scan.Coordinate(module.label, "linear", 0, 0, row, 0), state, speed, [group]))
+        return decisions, state, group.bucket("rxy")
+
+    def r(self, parameter=0, **fields):
+        return residual_scan.Cell(effect_type=27, effect_param=parameter, **fields)
+
+    def test_seeded_r00_resolves_both_nibbles_and_executes_ticks_two_five(self):
+        decisions, state, bucket = self.trace([self.r(0x93), self.r()])
+        self.assertEqual([(d.mode, d.interval, d.execution_ticks) for d in decisions], [(9, 3, (2, 5))] * 2)
+        self.assertTrue(decisions[1].mode_reused and decisions[1].speed_reused)
+        self.assertEqual(state.r_counter, 0)
+        self.assertEqual(bucket.count("counter_execution_count"), 4)
+        self.assertEqual(bucket.count("memory_replay_count"), 1)
+        # The static inputs cannot prove a represented route or audible application.
+        self.assertEqual(bucket.count("applied_count"), 0)
+        self.assertEqual(bucket.count("source_eligibility_unknown_count"), 2)
+        for key in ("applied_count", "detected_count", "no_op_effect_memory_deferred_count", "out_of_row_no_op_count"):
+            self.assertIsInstance(bucket.to_json()["counts"][key], int)
+        self.assertEqual(bucket.count("no_op_effect_memory_deferred_count"), 0)
+
+    def test_speed_one_carries_counter_and_fires_third_row(self):
+        decisions, _, bucket = self.trace([self.r(0x93)] * 4, speed=1)
+        self.assertEqual([d.execution_ticks for d in decisions], [(), (), (0,), ()])
+        self.assertEqual([d.counter_after for d in decisions], [1, 2, 0, 1])
+        self.assertEqual(bucket.count("counter_carry_execution_count"), 1)
+        self.assertEqual(bucket.count("out_of_row_no_op_count"), 0)
+        module = module_with_rows(residual_scan, [[self.r(0x93)]] * 4)
+        module = residual_scan.ModuleData(**{**vars(module), "default_speed": 1})
+        group = residual_scan.ScanGroup("all")
+        residual_scan.scan_module(module, [group])
+        self.assertEqual(group.bucket("rxy").count("counter_execution_count"), 1)
+
+    def test_mixed_zero_nibbles_reuse_only_their_own_memory(self):
+        for parameter, reused in [(0x03, (True, False)), (0x90, (False, True))]:
+            with self.subTest(parameter=parameter):
+                decisions, _, _ = self.trace([self.r(0x93), self.r(parameter)])
+                replay = decisions[1]
+                self.assertEqual((replay.mode, replay.interval, replay.execution_ticks), (9, 3, (2, 5)))
+                self.assertEqual((replay.mode_reused, replay.speed_reused), reused)
+
+    def test_cold_r00_and_r90_execute_literal_zero_interval(self):
+        for parameter, mode in [(0, 0), (0x90, 9)]:
+            with self.subTest(parameter=parameter):
+                decisions, _, bucket = self.trace([self.r(parameter)])
+                self.assertEqual((decisions[0].mode, decisions[0].interval), (mode, 0))
+                self.assertEqual(decisions[0].execution_ticks, tuple(range(6)))
+                self.assertEqual(bucket.count("interval_zero_execution_count"), 6)
+                self.assertEqual(bucket.count("no_op_effect_memory_deferred_count"), 0)
+
+    def test_two_channels_keep_distinct_memory_and_counter_histories(self):
+        states = [residual_scan.ChannelState(), residual_scan.ChannelState()]
+        module = module_with_rows(residual_scan, [])
+        histories = []
+        for row in range(3):
+            history = []
+            for channel, seed in enumerate([0x94, 0x13]):
+                decision = residual_scan.scan_rxy(module, self.r(seed if row == 0 else 0),
+                    residual_scan.Coordinate(module.label, "linear", 0, 0, row, channel), states[channel], 1, [])
+                history.append(decision.execution_ticks)
+            histories.append(history)
+        self.assertEqual(histories, [[(), ()], [(), ()], [(), (0,)]])
+        self.assertEqual([(s.r_mode_memory, s.r_speed_memory, s.r_counter) for s in states], [(9, 4, 3), (1, 3, 0)])
+        rows = [[self.r(0x94), self.r(0x13)]] + [[self.r(), self.r()]] * 2
+        module = residual_scan.ModuleData(**{**vars(module), "channels": 2, "default_speed": 1,
+            "patterns": [residual_scan.Pattern(rows)]})
+        group = residual_scan.ScanGroup("all")
+        residual_scan.scan_module(module, [group])
+        self.assertEqual(group.bucket("rxy").count("counter_execution_count"), 1)
+
+    def test_reset_boundaries_preserve_nibble_memory(self):
+        for transition in [residual_scan.Cell(instrument=1), residual_scan.Cell(note=53, instrument=1),
+                           residual_scan.Cell(instrument=1, effect_type=20, volume=0xF1),
+                           residual_scan.Cell(effect_type=14, effect_param=0x93)]:
+            with self.subTest(transition=transition):
+                decisions, state, _ = self.trace([self.r(0x94), transition, self.r()])
+                self.assertEqual(decisions[-1].execution_ticks, (3,))
+                self.assertEqual((state.r_mode_memory, state.r_speed_memory), (9, 4))
+                module = module_with_rows(residual_scan, [[self.r(0x94)], [transition], [self.r()]])
+                group = residual_scan.ScanGroup("all")
+                residual_scan.scan_module(module, [group])
+                self.assertEqual(group.bucket("rxy").count("counter_execution_count"), 2)
+
+    def test_note_release_e90_and_undispatched_e9_preserve_counter(self):
+        for transition in [residual_scan.Cell(note=53), residual_scan.Cell(note=97),
+                           residual_scan.Cell(instrument=1, effect_type=20),
+                           residual_scan.Cell(effect_type=20), residual_scan.Cell(effect_type=14, effect_param=0x90),
+                           residual_scan.Cell(effect_type=14, effect_param=0x97)]:
+            with self.subTest(transition=transition):
+                decisions, _, _ = self.trace([self.r(0x94), transition, self.r()])
+                self.assertEqual(decisions[-1].counter_before, 2)
+                self.assertEqual(decisions[-1].execution_ticks, (1, 5))
+                module = module_with_rows(residual_scan, [[self.r(0x94)], [transition], [self.r()]])
+                group = residual_scan.ScanGroup("all")
+                residual_scan.scan_module(module, [group])
+                self.assertEqual(group.bucket("rxy").count("counter_execution_count"), 3)
+
+    def test_tick_zero_admitted_and_gated_rows_always_resolve_memory(self):
+        for volume, gated in [(0, False), (0x10, False), (0xA0, False), (0xC0, False),
+                              (0x20, True), (0x61, True), (0x91, True), (0xB1, True), (0xF1, True)]:
+            with self.subTest(volume=volume):
+                decisions, state, bucket = self.trace([self.r(0x90, volume=volume)], speed=1)
+                self.assertEqual(decisions[0].tick_zero_gated, gated)
+                self.assertEqual(decisions[0].execution_ticks, () if gated else (0,))
+                self.assertEqual((state.r_mode_memory, state.r_speed_memory), (9, 0))
+                self.assertEqual(bucket.count("tick_zero_gated_count"), int(gated))
+                self.assertEqual(bucket.count("counter_pending_count"), 0)
+
+    def test_unknown_fine_volume_gate_and_delayed_route_do_not_invent_noop(self):
+        for volume in [0x80, 0x8F, 0x90]:
+            decisions, state, bucket = self.trace([self.r(0x93, volume=volume)])
+            self.assertIsNone(decisions[0].tick_zero_gated)
+            self.assertTrue(decisions[0].uncertain)
+            self.assertIsNone(state.r_counter)
+            self.assertEqual(bucket.count("no_op_effect_memory_deferred_count"), 0)
+        decisions, _, _ = self.trace([self.r(0x93, volume=0x80), residual_scan.Cell(instrument=1), self.r()])
+        self.assertFalse(decisions[-1].uncertain)
+        self.assertEqual((decisions[-1].mode, decisions[-1].interval, decisions[-1].execution_ticks), (9, 3, (2, 5)))
+        decisions, _, _ = self.trace([self.r(0x94),
+            residual_scan.Cell(note=49, instrument=1, effect_type=14, effect_param=0xD1), self.r()])
+        self.assertTrue(decisions[-1].uncertain)
+
+    def test_order_and_e60_carry_but_unexpanded_loop_is_uncertain(self):
+        for effect in [None, 0x60, 0x61]:
+            rows = [[self.r(0x94)]] + ([] if effect is None else [[residual_scan.Cell(effect_type=14, effect_param=effect)]])
+            module = module_with_rows(residual_scan, rows)
+            module = residual_scan.ModuleData(**{**vars(module), "song_length": 2, "order_table": [0, 1],
+                "patterns": [residual_scan.Pattern(rows), residual_scan.Pattern([[self.r()]])]})
+            group = residual_scan.ScanGroup("all")
+            residual_scan.scan_module(module, [group])
+            bucket = group.bucket("rxy")
+            self.assertEqual(bucket.count("counter_execution_count"), 1 if effect == 0x61 else 3)
+            self.assertEqual(bucket.count("scheduler_unknown_count"), int(effect == 0x61))
+            self.assertEqual(bucket.count("memory_replay_count"), 1)
+
+    def test_same_row_fxx_last_writer_changes_only_rxy_classification(self):
+        for cells in [[self.r(0x93), residual_scan.Cell(effect_type=15, effect_param=6)],
+                      [residual_scan.Cell(effect_type=15, effect_param=6), self.r(0x93)]]:
+            module = module_with_rows(residual_scan, [cells])
+            module = residual_scan.ModuleData(**{**vars(module), "channels": 2, "default_speed": 1})
+            group = residual_scan.ScanGroup("all")
+            residual_scan.scan_module(module, [group])
+            self.assertEqual(group.bucket("rxy").count("counter_execution_count"), 2)
+        for first, last, executions in [(1, 6, 2), (6, 1, 0)]:
+            module = module_with_rows(residual_scan, [[residual_scan.Cell(effect_type=15, effect_param=first),
+                self.r(0x93), residual_scan.Cell(effect_type=15, effect_param=last)]])
+            module = residual_scan.ModuleData(**{**vars(module), "channels": 3, "default_speed": 1})
+            group = residual_scan.ScanGroup("all")
+            residual_scan.scan_module(module, [group])
+            self.assertEqual(group.bucket("rxy").count("counter_execution_count"), executions)
+        module = module_with_rows(residual_scan, [[residual_scan.Cell(effect_type=20, effect_param=3),
+                                                  residual_scan.Cell(effect_type=15, effect_param=6)]])
+        module = residual_scan.ModuleData(**{**vars(module), "channels": 2, "default_speed": 1})
+        group = residual_scan.ScanGroup("all")
+        residual_scan.scan_module(module, [group])
+        self.assertEqual(group.bucket("kxx").count("out_of_row_no_op_count"), 1)
 
 
 def cell(module, note=0, instrument=0, volume=0, effect_type=0, effect_param=0):

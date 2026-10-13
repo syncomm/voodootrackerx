@@ -125,7 +125,7 @@ class ResidualScanMigrationTests(unittest.TestCase):
             (
                 "xm-corpus-002",
                 "private-memory-source.xm",
-                [(0, 0, 0, 0x0A, 0), (0, 0, 0xA2, 0, 0)],
+                [(0, 0, 0, 0x0A, 0), (0, 0, 0xA2, 0, 0), (0, 0, 0, 0x1B, 0x93), (0, 0, 0, 0x1B, 0)],
             ),
         )
         entries = []
@@ -225,6 +225,8 @@ class ResidualScanMigrationTests(unittest.TestCase):
             self.assertEqual(all_buckets["vol_b"]["counts"]["count"], 1)
             self.assertEqual(all_buckets["7xy"]["counts"]["700_count"], 1)
             self.assertEqual(all_buckets["axy"]["best_target_label"], "xm-corpus-002")
+            self.assertEqual(all_buckets["rxy"]["counts"]["counter_execution_count"], 4)
+            self.assertEqual(all_buckets["rxy"]["counts"]["no_op_effect_memory_deferred_count"], 0)
             self.assertEqual(residual_scan.load_label_map(label_map)[0]["label"], "xm-corpus-002")
 
             implemented_group = residual_scan.ScanGroup("implemented-only")

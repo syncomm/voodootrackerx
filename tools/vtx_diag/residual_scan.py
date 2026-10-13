@@ -106,6 +106,25 @@ class ChannelState:
     tone_portamento_target: bool = False
     tone_portamento_speed: bool = False
     axy_memory: int | None = None
+    r_mode_memory: int = 0
+    r_speed_memory: int = 0
+    r_counter: int | None = 0  # None means a gate/trigger/traversal could not be resolved.
+
+
+@dataclass(frozen=True)
+class RxyScanDecision:
+    """Scheduler evidence only; no source, volume arithmetic or audio application claim."""
+
+    mode: int
+    interval: int
+    mode_reused: bool
+    speed_reused: bool
+    counter_before: int | None
+    counter_after: int | None
+    execution_ticks: tuple[int, ...]
+    eligible_invocations: int
+    tick_zero_gated: bool | None
+    uncertain: bool
 
 
 @dataclass
@@ -117,6 +136,7 @@ class FocusBucket:
     first_by_metric: dict[str, Coordinate] = field(default_factory=dict)
     family_counts: Counter = field(default_factory=Counter)
     input_labels: set[str] = field(default_factory=set)
+    preserved_metrics: tuple[str, ...] = ()
 
     def add(
         self,
@@ -151,7 +171,7 @@ class FocusBucket:
     def to_json(self) -> dict[str, Any]:
         return {
             "name": self.name,
-            "counts": dict(sorted(self.counts.items())),
+            "counts": dict(sorted(({key: 0 for key in self.preserved_metrics} | self.counts).items())),
             "family_counts": dict(sorted(self.family_counts.items())),
             "input_count": len(self.input_labels),
             "best_target_label": self.best_label(),
@@ -182,7 +202,9 @@ class ScanGroup:
             "vol_a": FocusBucket("Volume-column vibrato speed A0...AF"),
             "vol_b": FocusBucket("Volume-column vibrato depth B0...BF"),
             "vol_f": FocusBucket("Volume-column tone portamento F0...FF"),
-            "rxy": FocusBucket("Rxy multi retrigger residuals"),
+            "rxy": FocusBucket("Rxy multi retrigger residuals", preserved_metrics=(
+                "applied_count", "detected_count", "no_op_effect_memory_deferred_count",
+                "out_of_row_no_op_count", "no_active_count")),
             "hxy": FocusBucket("Hxy global volume slide residuals"),
             "kxx": FocusBucket("Kxx key-off residuals"),
             "5xy": FocusBucket("5xy tone portamento + volume slide residuals"),
@@ -424,22 +446,39 @@ def scan_module(module: ModuleData, groups: list[ScanGroup]) -> None:
 
     states = [ChannelState() for _ in range(module.channels)]
     speed = max(1, module.default_speed)
+    rxy_traversal_known = True
     for order_index, pattern_index in enumerate(module.order_table[: module.song_length]):
         if pattern_index >= len(module.patterns):
             continue
         pattern = module.patterns[pattern_index]
         for row_index, row in enumerate(pattern.rows):
             next_speed = speed
+            # Resolve the existing last-speed-writer rule once. Only R consumes
+            # effective same-row speed; unrelated legacy classifications retain speed.
+            for cell in row[:module.channels]:
+                if cell.effect_type == 0x0F and 0 < cell.effect_param < 0x20:
+                    next_speed = max(1, cell.effect_param)
             for channel_index in range(module.channels):
                 cell = row[channel_index] if channel_index < len(row) else Cell()
                 coordinate = Coordinate(module.label, module.frequency_table, order_index, pattern_index, row_index, channel_index)
                 state = states[channel_index]
+                update_rxy_reset_state(module, cell, state, next_speed)
                 scan_volume_column(module, cell, coordinate, groups)
-                scan_effect_cell(module, cell, coordinate, state, speed, groups)
-                if cell.effect_type == 0x0F and 0 < cell.effect_param < 0x20:
-                    next_speed = max(1, cell.effect_param)
+                if cell.effect_type == 0x1B:
+                    scan_rxy(module, cell, coordinate, state, next_speed, groups,
+                             traversal_known=rxy_traversal_known)
+                else:
+                    scan_effect_cell(module, cell, coordinate, state, speed, groups)
                 apply_note_state(module, cell, state)
             speed = next_speed
+            if any(cell.effect_type in {0x0B, 0x0D} or
+                   (cell.effect_type == 0x0E and 0x61 <= cell.effect_param <= 0x6F)
+                   for cell in row[:module.channels]):
+                # Stored-order scans do not expand jumps, breaks or E6 repeats.
+                # Preserve memory bytes, but stop asserting an actual execution phase.
+                rxy_traversal_known = False
+                for state in states:
+                    state.r_counter = None
 
 
 def scan_volume_column(module: ModuleData, cell: Cell, coordinate: Coordinate, groups: list[ScanGroup]) -> None:
@@ -642,6 +681,30 @@ def scan_txy(module: ModuleData, cell: Cell, coordinate: Coordinate, groups: lis
         add_to_groups(groups, "txy", module.label, coordinate, metric="t00_memory_case_count")
 
 
+def update_rxy_reset_state(module: ModuleData, cell: Cell, state: ChannelState, speed: int) -> None:
+    """Mirror observable instrument/E9 resets without guessing delayed route admission."""
+    valid_instrument = 0 < cell.instrument < len(module.instruments)
+    if cell.note > 97 or (cell.instrument and not valid_instrument):
+        state.r_counter = None
+        return
+    if cell.effect_type == 0x0E and 0xD1 <= cell.effect_param <= 0xDF:
+        if is_normal_note(cell.note) and (cell.effect_param & 15) < speed:
+            state.r_counter = None  # An admitted delayed note resets; its route is unknown.
+        return
+    k00_bypass = cell.effect_type == 0x14 and cell.effect_param == 0 and cell.volume >> 4 != 15
+    if valid_instrument and cell.note < 97 and not k00_bypass:
+        state.r_counter = 0
+    if cell.effect_type == 0x0E and 0x91 <= cell.effect_param <= 0x9F and (cell.effect_param & 15) < speed:
+        state.r_counter = 0
+
+
+def rxy_tick_zero_gated(raw: int) -> bool | None:
+    """Return the G21 gate, or unknown for fine-volume results absent from scanner inputs."""
+    if raw >> 4 in {8, 9}:
+        return True if raw >> 4 == 9 and raw & 15 else None
+    return raw not in {0, 0x10, 0xA0, 0xC0}
+
+
 def scan_rxy(
     module: ModuleData,
     cell: Cell,
@@ -649,17 +712,55 @@ def scan_rxy(
     state: ChannelState,
     speed: int,
     groups: list[ScanGroup],
-) -> None:
+    *,
+    traversal_known: bool = True,
+) -> RxyScanDecision:
+    """Resolve G20 memory and bounded G21 invocations; source/audio application stays unknown."""
     add_to_groups(groups, "rxy", module.label, coordinate, metric="detected_count")
-    interval = cell.effect_param & 0x0F
-    if interval == 0:
-        add_to_groups(groups, "rxy", module.label, coordinate, metric="no_op_effect_memory_deferred_count")
-    elif interval >= speed:
-        add_to_groups(groups, "rxy", module.label, coordinate, metric="out_of_row_no_op_count")
-    elif not state.active_voice:
-        add_to_groups(groups, "rxy", module.label, coordinate, metric="no_active_count")
+    mode, interval = cell.effect_param >> 4, cell.effect_param & 15
+    if mode:
+        state.r_mode_memory = mode
+    if interval:
+        state.r_speed_memory = interval
+    before = state.r_counter
+    gate = rxy_tick_zero_gated(cell.volume)
+    uncertain = not traversal_known
+    ticks, eligible = [], 0
+    if not traversal_known:
+        state.r_counter = None
     else:
-        add_to_groups(groups, "rxy", module.label, coordinate, metric="applied_count")
+        for tick in range(max(1, speed)):
+            if tick == 0 and gate is True:
+                continue
+            if tick == 0 and gate is None:
+                state.r_counter = None
+                uncertain = True
+                continue
+            eligible += 1
+            if state.r_counter is None and state.r_speed_memory > 1:
+                uncertain = True
+                continue
+            # Intervals 0/1 converge even when the incoming phase is unknown.
+            state.r_counter = (state.r_counter or 0) + 1
+            if state.r_counter >= state.r_speed_memory:
+                state.r_counter = 0
+                ticks.append(tick)
+    decision = RxyScanDecision(state.r_mode_memory, state.r_speed_memory, mode == 0, interval == 0,
+                               before, state.r_counter, tuple(ticks), eligible, gate, uncertain)
+    metrics = {
+        "memory_replay_count": int(mode == 0 or interval == 0),
+        "mode_memory_reused_count": int(mode == 0), "speed_memory_reused_count": int(interval == 0),
+        "eligible_invocation_count": eligible, "counter_execution_count": len(ticks),
+        "interval_zero_execution_count": len(ticks) if decision.interval == 0 else 0,
+        "counter_carry_execution_count": int(bool(ticks) and before is not None and before > 0),
+        "tick_zero_gated_count": int(gate is True), "scheduler_unknown_count": int(uncertain),
+        "counter_pending_count": int(eligible > 0 and not ticks and not uncertain),
+        "source_eligibility_unknown_count": 1,
+    }
+    for metric, amount in metrics.items():
+        if amount:
+            add_to_groups(groups, "rxy", module.label, coordinate, metric=metric, amount=amount)
+    return decision
 
 
 def scan_kxx(
@@ -721,9 +822,11 @@ def add_to_groups(
     metric: str = "count",
     *,
     family: str | None = None,
+    amount: int = 1,
 ) -> None:
+    """Accumulate a diagnostic count without changing its source coordinate."""
     for group in groups:
-        group.bucket(key).add(label, coordinate, metric, family=family)
+        group.bucket(key).add(label, coordinate, metric, family=family, amount=amount)
 
 
 def load_label_map(path: Path) -> list[dict[str, Any]]:
@@ -937,8 +1040,9 @@ def volume_f_status(counts: dict[str, Any]) -> str:
 def rxy_status(counts: dict[str, Any]) -> str:
     return (
         f"detected={counts.get('detected_count', 0)}, applied={counts.get('applied_count', 0)}, "
-        f"R?0/no-op={counts.get('no_op_effect_memory_deferred_count', 0)}, "
-        f"no-active={counts.get('no_active_count', 0)}, out-of-row={counts.get('out_of_row_no_op_count', 0)}"
+        f"scheduler-executions={counts.get('counter_execution_count', 0)}, "
+        f"replay={counts.get('memory_replay_count', 0)}, gated={counts.get('tick_zero_gated_count', 0)}, "
+        f"uncertain={counts.get('scheduler_unknown_count', 0)}, source-unknown={counts.get('source_eligibility_unknown_count', 0)}"
     )
 
 
@@ -1013,7 +1117,7 @@ def status_note(key: str, counts: dict[str, Any]) -> str:
         return "Implemented, parity-watch; no-active/no-target/no-speed/500 no-op cases stay classified."
     if key in {"rxy", "hxy", "kxx"}:
         if key == "rxy":
-            return "Implemented, parity-watch; R00 memory refinement is parked unless maintainer-promoted."
+            return "G20–G22 closed: Rxy memory, counter/timing and exact integer volume modes; static scheduler evidence does not prove source/audio application."
         return "Implemented; residuals are applied/no-active/no-op/out-of-row classifications."
     if key == "unknown":
         return "Classification-only; no playback work recommended without a concrete target."
@@ -1038,7 +1142,7 @@ TRIAGE_ROWS = [
     ("3xx", "3xx tone-portamento memory / 300", ("3xx",), "3xx", ("nonzero_3xx_count", "zero_300_count"), ("3xx tone portamento",), "yes", "PlaybackEffectHandler.tonePortamento has zero-param memory support", "yes", "yes", "none", "low", "implemented/parity-watch", "no", "all", True),
     ("5xy", "5xy tone portamento + volume slide memory", ("5xy",), "5xy", ("detected_count",), ("5xy tone portamento + volume slide",), "yes", "combinedTonePortamentoVolumeSlide exists", "yes", "yes", "none", "low", "covered", "no material correction", "all", True),
     ("axy", "Axy volume-slide memory / A00", ("Axy",), "axy", ("a00_count", "nonzero_axy_count"), ("Axy volume slide",), "yes", "PlaybackEffectHandler.volumeSlide has zero-param memory support", "yes", "yes", "none", "low", "covered", "no material correction", "all", True),
-    ("rxy", "Rxy multi retrigger / R00", ("Rxy",), "rxy", ("detected_count",), ("Rxy multi retrigger",), "partial", "current adapter implements Rxy; R00 remains no-op/parity-watch", "yes", "yes", "small for R00 only", "medium", "R00 parked unless maintainer-promoted", "no", "all", True),
+    ("rxy", "Rxy multi retrigger / R00", ("Rxy",), "rxy", ("detected_count",), ("Rxy multi retrigger",), "partial", "G20–G22 memory, counter/timing and exact integer volume modes are closed", "yes", "yes", "none", "medium", "G20–G22 closed; source/audio application requires playback diagnostics", "no", "all", True),
     ("hxy", "Hxy global volume slide / H00", ("Hxy",), "hxy", ("detected_count",), ("Hxy global volume slide",), "yes", "PlaybackEffectHandler.globalVolumeSlide exists", "yes", "yes", "none", "low", "covered", "no", "all", True),
     ("vol_a", "Volume-column A0...AF vibrato speed", ("Vibrato speed (A0...AF)",), "vol_a", ("count",), ("volume-column vibrato speed",), "no-op decode only", "decoded in volumeColumnCommand but apply returns false", "yes", "no", "medium", "medium", "deferred by design; not targeted for v1", "no", "all", False),
     ("vol_b", "Volume-column B0...BF vibrato depth", ("Vibrato depth (B0...BF)",), "vol_b", ("count",), ("volume-column vibrato",), "no-op decode only", "decoded in volumeColumnCommand but apply returns false", "yes", "no", "medium", "medium", "deferred by design; not targeted for v1", "no", "all", False),
@@ -1359,7 +1463,7 @@ def build_gap_triage_markdown(triage: dict[str, Any]) -> str:
         f"4. 7xy/E7x promotion posture: {answers.get('seven_xy_before_amiga')}",
         f"5. Pxy present: {answers.get('pxy_present')} (count {answers.get('pxy_count')}).",
         f"6. Volume-column tone portamento count: {answers.get('volume_column_tone_portamento_count')}; behavior PR justified: {answers.get('volume_column_tone_portamento_justified')}.",
-        f"7. R00 raw memory/deferred count: {answers.get('rxy_r00_count')}. Backend-freeze recommendation notes:",
+        f"7. Legacy Rxy memory/deferred artifact count: {answers.get('rxy_r00_count')}; G20–G22 are closed. Backend-freeze recommendation notes:",
     ])
     for index, item in enumerate(answers.get("recommended_next_three_prs_before_amiga", []), start=1):
         lines.append(f"   {index}. {item}.")

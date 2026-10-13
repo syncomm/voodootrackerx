@@ -317,7 +317,8 @@ candidates. They are not exposed as speculative unified modes.
 
 The package-owned `effect_coverage summarize` mode preserves the existing
 runtime JSONL and bounded offline diagnostics inputs, report schemas,
-classification and recommendation wording, and basename-only input identity.
+recorded artifact outcomes and basename-only input identity. Rxy recommendations
+reflect closed G20–G22 even when reading historical pre-closure artifacts.
 `scripts/summarize-xm-effect-coverage.py` remains an executable compatibility
 wrapper with its existing arguments and behavior. It does not replace or absorb
 `vtx_render_bounded_xm --effect-coverage-json`: the SwiftPM tool produces raw
@@ -325,7 +326,7 @@ coverage artifacts, while the Python command analyzes and summarizes them.
 
 The package-owned `residual_scan summarize` mode preserves the existing dynamic
 `--label-map <path>` and `VTX_PRIVATE_XM_CORPUS_LABEL_MAP` inputs, report schemas,
-classification and recommendation wording, anonymized-label redaction, and
+anonymized-label redaction, and
 caller-selected output behavior. The map remains optional maintainer-local input
 and is neither hardcoded nor required by automated tests.
 `scripts/summarize-xm-residual-effect-scan.py` remains an executable
@@ -338,6 +339,30 @@ Linear and Amiga as implemented, parity-watch. Stored occurrences alone do not
 prove applied audio; no-active, no-target and missing-memory counts remain
 distinct. Amiga `5xy` and volume-column `Fx` retain their separate deferred
 boundaries from `docs/xm-effect-support.md`.
+
+Rxy residuals resolve independent zero-initialized mode/interval bytes and a
+persistent counter before counting eligible invocations at effective same-row
+Fxx speed. `memory_replay_count` includes reuse of initial zero;
+`mode_memory_reused_count` and `speed_memory_reused_count` distinguish nibbles.
+`eligible_invocation_count`, `counter_execution_count` and
+`interval_zero_execution_count` count confirmed invocations/execution ticks, while
+`counter_carry_execution_count`, `counter_pending_count`, `tick_zero_gated_count`
+and `scheduler_unknown_count` count command rows. Memory resolves even on gated
+rows. Valid ordinary instrument triggers and dispatched nonzero E9 reset only
+the counter; note-only, instrumentless E90, release and order changes preserve it.
+
+The scanner does not retain sample defaults, exact routes or PCM. Fine-volume
+8x/9x tick-zero gates are unknown unless positive 9x proves a nonzero result;
+delayed-note and invalid note/instrument resets are uncertain when admission
+cannot be proven. Stored
+orders are scanned once: after Bxx/Dxx/nonzero E6, execution phase is unknown,
+with memory bytes retained. No loop expansion or volume arithmetic is duplicated.
+`source_eligibility_unknown_count` counts R rows without claiming audible
+application. Existing Rxy `applied_count`, `no_active_count`,
+`no_op_effect_memory_deferred_count` and `out_of_row_no_op_count` keys remain
+integer zero; scheduler evidence uses the additive counters above. Neither cold
+R00/R90 nor seeded R00 is missing-memory debt. G20–G22 stay closed; actual source,
+volume and audio evidence comes from the shared playback diagnostics.
 
 The package-owned `runtime_trace summarize` and `runtime_trace correlate-window`
 modes preserve the existing JSONL/WAV inputs, CLI defaults, JSON and Markdown

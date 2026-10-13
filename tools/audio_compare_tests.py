@@ -2072,7 +2072,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(rows["5xy tone portamento + volume slide"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
         self.assertEqual(rows["Kxx key off"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PRIORITY)
         self.assertEqual(rows["Lxx set envelope position"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
-        self.assertEqual(rows["Rxy multi retrigger"]["recommended_implementation_priority"], effect_coverage.R00_PARKED_PRIORITY)
+        self.assertEqual(rows["Rxy multi retrigger"]["recommended_implementation_priority"], effect_coverage.RXY_CLOSED_PRIORITY)
         self.assertEqual(rows["Xxy extra fine portamento"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
         self.assertEqual(rows["Axy volume slide"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
         self.assertEqual(rows["volume-column tone portamento"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
@@ -2352,7 +2352,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(rows["Kxx key off"]["no_op_effect_memory_deferred_count"], 1)
         self.assertEqual(rows["Kxx key off"]["first_coordinates"][0]["tick"], 1)
 
-    def test_effect_coverage_summary_counts_rxy_retrigger_events_as_effect_column(self):
+    def test_effect_coverage_summary_preserves_legacy_rxy_artifact_counts_as_effect_column(self):
         diagnostics = {
             "retrigger_effects": [
                 retrigger_effect(effect_type=0x1B, effect_param=0xA2, channel=1, interval=2, frames=[112, 114]),
@@ -2396,7 +2396,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(row["deferred_count"], 1)
         self.assertEqual(row["effect_memory_missing_count"], 0)
         self.assertEqual(row["no_op_effect_memory_deferred_count"], 0)
-        self.assertEqual(row["recommended_implementation_priority"], effect_coverage.RXY_ZERO_INTERVAL_EXECUTION_PRIORITY)
+        self.assertEqual(row["recommended_implementation_priority"], effect_coverage.RXY_CLOSED_PRIORITY)
 
     def test_initialized_source_less_rxy_zero_interval_is_applied_without_a_source(self):
         item = retrigger_effect(effect_type=0x1B, effect_param=0x90, interval=0, frames=[])
@@ -2414,7 +2414,20 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(row["deferred_count"], 0)
         self.assertEqual(row["effect_memory_missing_count"], 0)
         self.assertEqual(row["no_op_effect_memory_deferred_count"], 0)
-        self.assertNotEqual(row["recommended_implementation_priority"], effect_coverage.RXY_ZERO_INTERVAL_EXECUTION_PRIORITY)
+        self.assertEqual(row["recommended_implementation_priority"], effect_coverage.RXY_CLOSED_PRIORITY)
+
+    def test_current_rxy_replay_recommendation_keeps_memory_timing_and_arithmetic_closed(self):
+        items = [retrigger_effect(effect_type=27, effect_param=parameter, interval=3, frames=[2, 5])
+                 for parameter in [0x93, 0]]
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic.json", {"retrigger_effects": items})])
+        row = summary["effect_coverage"][0]
+        self.assertEqual((row["applied_count"], row["effect_memory_missing_count"],
+                          row["no_op_effect_memory_deferred_count"]), (2, 0, 0))
+        self.assertEqual(row["recommended_implementation_priority"], effect_coverage.RXY_CLOSED_PRIORITY)
+        self.assertNotIn("G23", summary["summary"]["recommended_next_pr"])
+        for stale in ["parked", "deferred", "approximate", "remains G21"]:
+            self.assertNotIn(stale, row["recommended_implementation_priority"])
 
     def test_effect_coverage_summary_counts_generic_deferred_effect_fields(self):
         diagnostics = {

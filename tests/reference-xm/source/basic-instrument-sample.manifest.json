@@ -9574,7 +9574,8 @@
       "intended_tests": [
         "counter and G20 memory lifetime across timing/order/loop transitions",
         "source-less initialization, exact empty routing, release and completed-source carry",
-        "whole/window/runtime ordering and retirement-window qualification"
+        "whole/window/runtime ordering and retirement-window qualification",
+        "exact modes 1/6/7/9/E/F, mode-6 32 to 22 then 14, independent truncation and clamps"
       ],
       "module": {
         "bpm": 125,
@@ -10176,9 +10177,153 @@
                 "note": 0,
                 "row": 24,
                 "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "instrument": 1,
+                "note": 49,
+                "row": 25,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 25,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 17,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 26,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "instrument": 1,
+                "note": 49,
+                "row": 28,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 97,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 29,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 30,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 33,
+                "effect_type": 12,
+                "instrument": 1,
+                "note": 49,
+                "row": 32,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 113,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 33,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 34,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 32,
+                "effect_type": 12,
+                "instrument": 1,
+                "note": 49,
+                "row": 36,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 145,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 37,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 31,
+                "effect_type": 12,
+                "instrument": 1,
+                "note": 49,
+                "row": 39,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 225,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 40,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 41,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 33,
+                "effect_type": 12,
+                "instrument": 1,
+                "note": 49,
+                "row": 42,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 241,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 43,
+                "volume_column": 0
               }
             ],
-            "rows": 25
+            "rows": 45
           },
           {
             "events": [
@@ -10237,22 +10382,22 @@
         "tracker_name": "VTX SYNTH FIXTURE"
       },
       "name": "rxy-counter-timing-carry.xm",
-      "purpose": "G21 persistent R counter, invocation gates, interval-zero execution and semantic-state-preserving source restarts.",
+      "purpose": "G20-G22 R memory, persistent counter, invocation gates, semantic carry and exact integer volume arithmetic.",
       "significant_rows": [
         "0...7: selected-instrument versus fully uninitialized R90, later notes, replay and F01/F02/F03/F06.",
         "8...16: volume-column gates/slides, completed and released channels, note/instrument resets and E9/E90 independence.",
         "17...24: exact empty routes, interval-zero semantic-only updates, coalesced same-cell trigger and E6 loop.",
-        "Second order: persistent memory/counter and zero-amount pan, vibrato-speed and tone-portamento column gates."
+        "Second order: persistent memory/counter and zero-amount pan, vibrato-speed and tone-portamento column gates.",
+        "First-order rows 25...44: F01 isolates single executions of modes 1/6/7/9/E/F, scaling replay and clamps."
       ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
-        "G22 exact integer volume arithmetic remains unchanged.",
         "The fully uninitialized volume mutation is classified C; initialized source-less state remains eligible.",
         "Generic onset/ramp parity and the pre-existing 32-frame runtime/offline retirement seam remain separate."
       ],
       "xm_output": "generated/rxy-counter-timing-carry.xm",
-      "xm_sha256": "42a127427e0c470abe23197eb1c1813ab4e7214e42c0a58d1a756fe7ac1233e6",
-      "xm_size_bytes": 3322
+      "xm_sha256": "13a329ac2d3986911bffbe7e86cc292ed5d0ded8432fa537931105541c8430bb",
+      "xm_size_bytes": 3406
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

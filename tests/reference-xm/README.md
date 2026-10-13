@@ -13,8 +13,11 @@ source-less volume changes. Looped and short mathematical PCM with envelopes
 pin completed/released source restarts and fadeout carry. Only fully
 uninitialized volume bookkeeping is excluded as C. Parameterized tests add
 speeds 1/2/3/6 and the full counter-reset and column-gate matrices. Both-rate
-whole/window/runtime checks retain the existing 32-frame retirement seam;
-G22 arithmetic and reference WAVs remain outside this fixture's contract.
+whole/window/runtime checks retain the existing 32-frame retirement seam.
+First-order rows 25...44 use F01 to distinguish modes 1/6/7/9/E/F, scaling
+replay and clamps, including mode 6's 32→22→14. Exhaustive 0...64 integer
+vectors and repeated sequences live in `RxyVolumeArithmeticTests`; G20 memory
+and G21 counter/carry semantics are unchanged. Reference WAVs stay outside git.
 
 `e90-row-entry-retrigger.xm` covers G19's special tick-zero source trigger:
 carried and explicit note/instrument shapes, distinct mapped samples, cold and

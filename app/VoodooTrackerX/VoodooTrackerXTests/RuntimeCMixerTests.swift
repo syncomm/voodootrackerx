@@ -4603,7 +4603,15 @@ final class RuntimeCMixerTests: XCTestCase {
             pcm: (0..<257).map { Float($0) / 4096 - 1 / 32 }, volume: 0.5,
             relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 257, loopType: 1)
         let mixedExplicit: [[UInt8]] = [[0x90, 0x90], [0x93, 0x90], [0x93, 0x93], [0x93, 0x93], [0x13, 0x93], [0x13, 0x93]]
-        let pairs: [(UInt8, UInt8)] = [(0x93, 0), (0x93, 0x03), (0x93, 0x90), (0x13, 0)]
+        let scalingModes: [UInt8] = [0x60, 0x70, 0xE0, 0xF0]
+        var pairs: [(UInt8, UInt8)] = [(0x93, 0), (0x93, 0x03), (0x93, 0x90), (0x13, 0)]
+        for mode in scalingModes {
+            let positive = mode | 3
+            pairs.append((mode, UInt8(0)))
+            pairs.append((positive, UInt8(0)))
+            pairs.append((positive, UInt8(3)))
+            pairs.append((positive, mode))
+        }
         let seeded = pairs.map { seed, replay in
             ([[seed, seed]] + Array(repeating: [replay, replay], count: 5), Array(repeating: [seed, seed], count: 6))
         }
@@ -4698,6 +4706,11 @@ final class RuntimeCMixerTests: XCTestCase {
             let request = PlaybackSongOfflineRenderRequest(song: song, orderCount: song.orders.count, config: config, frames: end)
             let renderer = PlaybackSongOfflineRenderer(), offline = renderer.render(request)
             XCTAssertEqual(runtime.plan, offline.plan)
+            for (row, volume) in [(8, 22), (9, 14)] {
+                XCTAssertEqual(offline.diagnostics.retriggerEffects.first {
+                    $0.source.orderIndex == 0 && $0.source.rowIndex == row + 21
+                }?.volumeValuesAfter, [volume])
+            }
             for rows in [1, 2, 3, 5] {
                 let window = renderer.renderWindowed(request, windowRows: rows)
                 XCTAssertEqual(window.plan, offline.plan)

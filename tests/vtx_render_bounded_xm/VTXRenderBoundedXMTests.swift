@@ -2231,7 +2231,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(first["status"] as? String, "applied")
         XCTAssertEqual(first["volume_mode_nibble"] as? Int, 10)
         XCTAssertEqual(first["interval_nibble"] as? Int, 2)
-        XCTAssertEqual(first["volume_change_policy"] as? String, "xm_common_multi_retrigger_volume_table_first_pass")
+        XCTAssertEqual(first["volume_change_policy"] as? String, "ft2_exact_integer_multi_retrigger_volume")
         XCTAssertEqual(first["volume_values_before"] as? [Int], [32, 32])
         XCTAssertEqual(first["volume_values_after"] as? [Int], [32, 32])
         XCTAssertEqual(first["volume_change_count"] as? Int, 0)

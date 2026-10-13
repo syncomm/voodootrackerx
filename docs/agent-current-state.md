@@ -56,7 +56,7 @@ host.
   before same-cell overrides. NOTE_OFF suppresses the start. Cold/unavailable
   routes create no source; completed sources can restart from retained identity.
   Nonzero E9 and Rxy retain their separate contracts; mixer ramps are unchanged.
-- Rxy G20/G21 is closed: independent zero-initialized mode/speed bytes and a
+- Rxy G20–G22 is closed: independent zero-initialized mode/speed bytes and a
   persistent channel counter survive source absence and order/loop transitions.
   Each eligible invocation increments the counter; reaching the interval resets
   it and executes. Interval zero executes every invocation. Volume-column
@@ -67,8 +67,10 @@ host.
   Initialized source-less channels retain semantic volume changes. Only the
   fully uninitialized bookkeeping mutation is excluded as C: the first
   note+instrument resets it before observable output. The existing 32-frame
-  runtime/offline retirement difference remains separate debt. Exact volume
-  arithmetic remains G22, including mode 6's VTX 32→21 versus FT2 32→22.
+  runtime/offline retirement difference remains separate debt. Exact integer
+  volume modes cover all inputs 0...64; mode 6 sums separately truncated
+  `v/2 + v/8 + v/16`, correcting 32→22. G20 memory and G21 execution/carry
+  semantics are unchanged.
 - Ordinary volume-column `6x/7x` slides update base/output on nonzero ticks of
   the effective Fxx row speed, including silent channel state. Speed 1 has no
   slide; zero amounts restore output without memory. Fine `8x/9x` stay at tick

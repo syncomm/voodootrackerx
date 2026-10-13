@@ -225,7 +225,11 @@ unavailable routes create no source. Initialized source-less executions can
 change semantic channel volume without a generation. Only the fully
 uninitialized bookkeeping mutation is excluded as C, since the first
 note+instrument resets it before output; the counter and memories still run.
-G22's volume arithmetic table remains unchanged.
+G22 applies exact pinned FT2 integer volume modes over 0...64 at the unchanged
+G21 execution point. `volume_change_policy` is
+`ft2_exact_integer_multi_retrigger_volume`; mode 6 uses separately truncated
+`v/2 + v/8 + v/16` (32→22). Existing before/resolved-mode/after fields remain
+the arithmetic evidence; no second authority or runtime trace schema is added.
 
 Offline/coverage retrigger rows retain `raw_mode_nibble`, `raw_speed_nibble`,
 `stored_mode_memory`, `stored_speed_memory`, `resolved_mode_nibble`,

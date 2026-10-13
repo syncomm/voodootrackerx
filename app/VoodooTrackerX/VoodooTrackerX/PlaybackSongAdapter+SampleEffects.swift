@@ -8,7 +8,7 @@ extension PlaybackSongSyntheticAdapter {
         let changed: Bool
     }
 
-    static let rxyVolumeChangePolicy = "xm_common_multi_retrigger_volume_table_first_pass"
+    static let rxyVolumeChangePolicy = "ft2_exact_integer_multi_retrigger_volume"
 
     /// One bounded, immutable decision at the release frame; no earlier objects are mutated here.
     struct CausalReleaseResult: Equatable {
@@ -665,6 +665,7 @@ extension PlaybackSongSyntheticAdapter {
         return result
     }
 
+    /// Applies the observed FT2 integer volume rule, independently of R memory or dispatch.
     static func retriggerVolumeAdjustment(
         modeNibble: Int,
         currentVolume: Int
@@ -684,7 +685,8 @@ extension PlaybackSongSyntheticAdapter {
         case 5:
             unclampedAfter = before - 16
         case 6:
-            unclampedAfter = (before * 2) / 3
+            // The exhaustive 0...64 oracle grid requires three separately truncated terms.
+            unclampedAfter = before / 2 + before / 8 + before / 16
         case 7:
             unclampedAfter = before / 2
         case 9:

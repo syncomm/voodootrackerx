@@ -23,6 +23,9 @@ final class RxyNibbleMemoryTests: XCTestCase {
             XCTAssertTrue(rxy.contains { $0.invocations.first?.coalescedWithRowTrigger == true })
             XCTAssertTrue(full.plan.xmEmptyRoutes.contains { $0.sampleIndex == 1 })
             XCTAssertTrue(full.plan.xmEnvelopeTimeline?.updatesByEvent.values.joined().contains { !$0.state.keyOn } == true)
+            for (row, volume) in [(5, 31), (8, 22), (9, 14), (12, 16), (13, 8), (16, 33), (19, 46), (20, 64), (22, 64)] {
+                XCTAssertEqual(rxy.first { $0.source.orderIndex == 0 && $0.source.rowIndex == row + 21 }?.volumeValuesAfter, [volume])
+            }
             for rows in [1, 2, 3, 5] {
                 let window = renderer.renderWindowed(request, windowRows: rows)
                 XCTAssertEqual(window.plan, full.plan)
@@ -44,7 +47,7 @@ final class RxyNibbleMemoryTests: XCTestCase {
             XCTAssertEqual(down.retriggerEffects.map(\.volumeModeNibble), [1, 1])
             XCTAssertEqual(down.retriggerEffects.map(\.volumeValuesAfter), [[31, 30], [29, 28]])
         }
-        XCTAssertEqual(Adapter.retriggerVolumeAdjustment(modeNibble: 6, currentVolume: 32).volumeAfter, 21) // G22 stays open.
+        XCTAssertEqual(Adapter.retriggerVolumeAdjustment(modeNibble: 6, currentVolume: 32).volumeAfter, 22)
         XCTAssertEqual(MemoryLayout<Adapter.ChannelState>.size, 1152)
         XCTAssertEqual(MemoryLayout<Adapter.ChannelState>.stride, 1152)
         XCTAssertEqual(MemoryLayout<Adapter.ChannelState>.alignment, 8)
@@ -324,6 +327,37 @@ final class RxyNibbleMemoryTests: XCTestCase {
         XCTAssertEqual(states[2][0].baseChannelVolume, 38)
         XCTAssertTrue(empty.retriggerEffects[0].invocations.allSatisfy { $0.arithmeticApplied && !$0.restartApplied && !$0.uninitializedMutationExcluded })
         XCTAssertEqual(empty.events.last?.gain, 38 / 64)
+    }
+
+    func testExactScalingFlowsThroughCarriedStatesWithoutChangingRExecution() {
+        let sequences = [6: [32, 22, 14, 8, 5, 2, 1, 0], 7: [32, 16, 8, 4, 2, 1, 0],
+                         14: [32, 48, 64], 15: [32, 64]]
+        for rate in [44_100.0, 48_000] {
+            for (mode, sequence) in sequences {
+                for kind in ["active", "source-less", "released", "completed"] {
+                    for interval: UInt8 in [0, 3] {
+                        let prefix = [c(12, 32, note: kind == "source-less" ? 0 : 49, instrument: 1)]
+                            + (kind == "released" ? [c(20)] : [])
+                        let module = song((prefix + [c(27, UInt8(mode << 4) | interval), c(27), c(note: 49)]).map { [$0] },
+                                          completed: kind == "completed")
+                        let (context, states) = inspect(module, rate)
+                        let executions = interval == 0 ? 12 : 4
+                        let expected = (1...executions).map { sequence[min($0, sequence.count - 1)] }
+                        XCTAssertEqual(context.retriggerEffects.flatMap(\.volumeValuesAfter), expected)
+                        XCTAssertEqual(context.retriggerEffects.map(\.retriggerIntervalTicks), [Int(interval), Int(interval)])
+                        XCTAssertTrue(context.retriggerEffects.allSatisfy { $0.volumeModeNibble == mode })
+                        let invocations = context.retriggerEffects.flatMap(\.invocations)
+                        XCTAssertEqual(invocations.filter(\.fired).map(\.tick), interval == 0 ? Array(0..<6) + Array(0..<6) : [2, 5, 2, 5])
+                        XCTAssertEqual(invocations.map(\.counterAfter), interval == 0 ? Array(repeating: 0, count: 12) : Array(repeating: [1, 2, 0], count: 4).flatMap { $0 })
+                        XCTAssertTrue(invocations.allSatisfy { $0.volumeAfter == $0.outputVolumeAfter && !$0.uninitializedMutationExcluded })
+                        XCTAssertEqual(states.last?[0].baseChannelVolume, expected.last)
+                        XCTAssertEqual(context.events.count, kind == "source-less" ? 1 : executions + 2)
+                        XCTAssertEqual(context.events.last?.gain, Float(expected.last!) / 64)
+                        XCTAssertTrue(context.eventMappings.allSatisfy { $0.sampleIndex == 0 && !$0.firstPlayableSampleFallbackUsed })
+                    }
+                }
+            }
+        }
     }
 
     private func inspect(_ song: PlaybackSong, _ rate: Double = 48_000, initial: [Adapter.ChannelState]? = nil) -> (Adapter.AdapterRowContext, [[Adapter.ChannelState]]) {

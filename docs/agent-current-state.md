@@ -56,16 +56,19 @@ host.
   before same-cell overrides. NOTE_OFF suppresses the start. Cold/unavailable
   routes create no source; completed sources can restart from retained identity.
   Nonzero E9 and Rxy retain their separate contracts; mixer ramps are unchanged.
-- Rxy has independent zero-initialized channel-local speed and volume-mode
-  nibble memories. Nonzero nibbles update only their own byte; zero preserves
-  and resolves that byte, including literal zero without nonzero provenance.
-  Resolution survives source/instrument changes and runs without a source.
-  Positive intervals use the existing scheduler. Literal-zero execution,
-  tick-zero/counter/gating/source carry and source-less arithmetic remain G21;
-  exact volume arithmetic remains G22. E9/E90 do not share R memory. G20
-  memory is closed: positive-interval replay matches explicit commands in each
-  render path. The pre-existing 32-frame runtime/offline retrigger-retirement
-  difference is unchanged and remains separate debt.
+- Rxy G20/G21 is closed: independent zero-initialized mode/speed bytes and a
+  persistent channel counter survive source absence and order/loop transitions.
+  Each eligible invocation increments the counter; reaching the interval resets
+  it and executes. Interval zero executes every invocation. Volume-column
+  tick-zero gating follows the pinned FT2 dispatch; memory always resolves.
+  R restarts the exact retained route at cursor zero while carrying envelope,
+  release/fadeout and effect state. Instrument triggers reset the counter,
+  preserving nibble memory; note-only starts and E90 preserve it.
+  Initialized source-less channels retain semantic volume changes. Only the
+  fully uninitialized bookkeeping mutation is excluded as C: the first
+  note+instrument resets it before observable output. The existing 32-frame
+  runtime/offline retirement difference remains separate debt. Exact volume
+  arithmetic remains G22, including mode 6's VTX 32→21 versus FT2 32→22.
 - Ordinary volume-column `6x/7x` slides update base/output on nonzero ticks of
   the effective Fxx row speed, including silent channel state. Speed 1 has no
   slide; zero amounts restore output without memory. Fine `8x/9x` stay at tick

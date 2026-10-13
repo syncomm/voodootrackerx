@@ -1369,8 +1369,28 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "speed_memory_has_nonzero_origin": diagnostic.retriggerIntervalTicks != 0,
             "mode_memory_reused": diagnostic.effectParam >> 4 == 0,
             "speed_memory_reused": diagnostic.intervalNibble == 0,
-            "scheduler_executed": diagnostic.applied && !diagnostic.retriggerTicks.isEmpty,
+            "scheduler_executed": diagnostic.invocations.contains { !$0.gated },
             "zero_interval_execution_deferred_to_g21": diagnostic.status == .rxyZeroIntervalDeferredToG21,
+            "rxy_invocations": diagnostic.invocations.map { invocation in
+                [
+                    "synthetic_tick": invocation.tick, "scheduled_frame": invocation.frame,
+                    "counter_before": Int(invocation.counterBefore), "counter_after": Int(invocation.counterAfter),
+                    "invocation_gated": invocation.gated, "execution_fired": invocation.fired,
+                    "mode_arithmetic_applied": invocation.arithmeticApplied,
+                    "source_restart_attempted": invocation.restartAttempted,
+                    "source_restart_applied": invocation.restartApplied,
+                    "coalesced_with_row_trigger": invocation.coalescedWithRowTrigger,
+                    "semantic_only_no_source_volume_update": invocation.semanticOnlyVolumeChange,
+                    "uninitialized_mutation_excluded": invocation.uninitializedMutationExcluded,
+                    "source_event_index_before": invocation.eventIndexBefore.map { $0 as Any } ?? NSNull(),
+                    "source_event_index_after": invocation.eventIndexAfter.map { $0 as Any } ?? NSNull(),
+                    "instrument_index": invocation.instrumentIndex.map { $0 as Any } ?? NSNull(),
+                    "selected_sample_index": invocation.sampleIndex.map { $0 as Any } ?? NSNull(),
+                    "base_volume_before": invocation.volumeBefore, "base_volume_after": invocation.volumeAfter,
+                    "output_volume_before": invocation.outputVolumeBefore, "output_volume_after": invocation.outputVolumeAfter,
+                    "stored_pan_before": invocation.panningBefore, "stored_pan_after": invocation.panningAfter,
+                ] as [String: Any]
+            },
         ]
     }
 
@@ -5230,6 +5250,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "rxy_zero_interval_execution_deferred_g21"
         case .rowEntryNotScheduled:
             return "row_entry_not_scheduled"
+        case .counterPending:
+            return "rxy_counter_pending"
+        case .invocationGated:
+            return "rxy_invocation_gated"
+        case .uninitializedRxyExcluded:
+            return "rxy_fully_uninitialized_mutation_excluded"
         case .noActiveVoice:
             return "no_active_voice"
         case .outOfRowNoOp:

@@ -9568,6 +9568,691 @@
       "xm_output": "generated/e90-row-entry-retrigger.xm",
       "xm_sha256": "d3332355d507111d2dbed93848fd1fcd91ce96916c5aaa6d983b786180c7fc91",
       "xm_size_bytes": 9743
+    },
+    {
+      "id": "rxy-counter-timing-carry",
+      "intended_tests": [
+        "counter and G20 memory lifetime across timing/order/loop transitions",
+        "source-less initialization, exact empty routing, release and completed-source carry",
+        "whole/window/runtime ordering and retirement-window qualification"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 256,
+            "name": "RXY LOOP",
+            "note_sample_map": [
+              {
+                "end_note": 49,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 50,
+                "sample": 1,
+                "start_note": 50
+              },
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 51
+              }
+            ],
+            "panning_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  16
+                ],
+                [
+                  24,
+                  64
+                ],
+                [
+                  48,
+                  32
+                ]
+              ],
+              "type_flags": 1
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 1024,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "RXY TRIANGLE",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 1024,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "ddaf4a454eba159ff8762aa5194420fc667ade1576eaf43450244c6e9a7c5163",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "RXY EMPTY",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 32,
+                  "frame_count": 0,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 0
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  24,
+                  16
+                ],
+                [
+                  48,
+                  0
+                ]
+              ],
+              "type_flags": 1
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 256,
+            "name": "RXY SHORT",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  16
+                ],
+                [
+                  24,
+                  64
+                ],
+                [
+                  48,
+                  32
+                ]
+              ],
+              "type_flags": 1
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "RXY ONE SHOT",
+                "panning": 64,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 64,
+                  "period_frames": 16,
+                  "waveform": "saw"
+                },
+                "pcm_sha256": "5a6cd682205c1ad22b52e680b95f1f85c29f95e82c25f38b690d418107b9e531",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 40
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  24,
+                  16
+                ],
+                [
+                  48,
+                  0
+                ]
+              ],
+              "type_flags": 1
+            }
+          }
+        ],
+        "orders": [
+          0,
+          1
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 27,
+                "instrument": 1,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 144,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 37,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 3,
+                "effect_type": 27,
+                "instrument": 1,
+                "note": 37,
+                "row": 1,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 147,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 3,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 16
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 1,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 4,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 2,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 5,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 3,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 6,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 6,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 7,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 6,
+                "effect_type": 15,
+                "instrument": 0,
+                "note": 0,
+                "row": 7,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 148,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 2,
+                "note": 49,
+                "row": 8,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 32
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 9,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 10,
+                "volume_column": 195
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 97,
+                "row": 10,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 11,
+                "volume_column": 97
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 11,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 12,
+                "volume_column": 209
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 3,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 12,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 41,
+                "row": 13,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 13,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 1,
+                "note": 0,
+                "row": 14,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 147,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 14,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 20,
+                "instrument": 0,
+                "note": 0,
+                "row": 15,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 16,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 16,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 50,
+                "row": 17,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 2,
+                "note": 37,
+                "row": 17,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 18,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 147,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 18,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 0,
+                "instrument": 0,
+                "note": 37,
+                "row": 19,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 1,
+                "effect_type": 27,
+                "instrument": 1,
+                "note": 37,
+                "row": 20,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 20,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 96,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 21,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 22,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 22,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 97,
+                "effect_type": 14,
+                "instrument": 0,
+                "note": 0,
+                "row": 23,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 24,
+                "volume_column": 0
+              }
+            ],
+            "rows": 25
+          },
+          {
+            "events": [
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 0,
+                "volume_column": 0
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 1,
+                "volume_column": 192
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 2,
+                "volume_column": 160
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 27,
+                "instrument": 0,
+                "note": 0,
+                "row": 3,
+                "volume_column": 240
+              }
+            ],
+            "rows": 4
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "RXY COUNTER CARRY",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "rxy-counter-timing-carry.xm",
+      "purpose": "G21 persistent R counter, invocation gates, interval-zero execution and semantic-state-preserving source restarts.",
+      "significant_rows": [
+        "0...7: selected-instrument versus fully uninitialized R90, later notes, replay and F01/F02/F03/F06.",
+        "8...16: volume-column gates/slides, completed and released channels, note/instrument resets and E9/E90 independence.",
+        "17...24: exact empty routes, interval-zero semantic-only updates, coalesced same-cell trigger and E6 loop.",
+        "Second order: persistent memory/counter and zero-amount pan, vibrato-speed and tone-portamento column gates."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "G22 exact integer volume arithmetic remains unchanged.",
+        "The fully uninitialized volume mutation is classified C; initialized source-less state remains eligible.",
+        "Generic onset/ramp parity and the pre-existing 32-frame runtime/offline retirement seam remain separate."
+      ],
+      "xm_output": "generated/rxy-counter-timing-carry.xm",
+      "xm_sha256": "42a127427e0c470abe23197eb1c1813ab4e7214e42c0a58d1a756fe7ac1233e6",
+      "xm_size_bytes": 3322
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

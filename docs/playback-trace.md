@@ -207,30 +207,47 @@ still inherits the parent mapping annotation at mapping creation time, even
 when its new trigger has no key-off frame. Resumable planning and incremental
 runtime planning are not implemented. Neutral publication finalization remains
 unresolved; runtime ID finalization and loop boundary behavior remain unchanged.
-`Rxy` rows use the shared retrigger path for the active voice. Same-cell note
-rows trigger once at tick 0 and schedule generated retriggers on later interval
-ticks. Independent zero-initialized speed/mode nibble memories resolve before
-source admission; nonzero updates only its own byte and zero preserves it.
-Positive resolved intervals use the current scheduler; effective interval zero
-reports `rxy_zero_interval_execution_deferred_g21` with no R dispatch. This is
-valid memory resolution, not missing memory or FT2-inert behavior. FT2 cold
-R00/R90 every-invocation dispatch and source-less R90 arithmetic remain G21.
-First-pass volume modes and G22's known arithmetic differences are unchanged.
-Offline/coverage retrigger rows expose `raw_mode_nibble`, `raw_speed_nibble`,
+`Rxy` resolves independent zero-initialized speed/mode memories before source
+admission and invocation gating. Each eligible tick increments its persistent
+channel counter; reaching the effective interval resets it and executes R.
+Interval zero executes every eligible invocation, including tick zero. Column
+00, 10, zero-result fine-volume 8x/9x, A0 and C0 allow tick zero; other column
+values gate it. Nonzero ticks invoke R after the column writer. Same-row Fxx
+sets the row's invocation count. Instrument-trigger boundaries reset the
+counter, preserving nibble memories; note-only starts, E90, release, completion,
+order and loop transitions preserve it.
+
+Ordinary row semantics precede R. A simultaneous ordinary note and R restart
+coalesce into one source generation. R resolves the retained note through the
+selected instrument's exact map, restarts at cursor zero and carries envelope,
+key/release, fadeout and modulation state. Completed sources remain eligible;
+unavailable routes create no source. Initialized source-less executions can
+change semantic channel volume without a generation. Only the fully
+uninitialized bookkeeping mutation is excluded as C, since the first
+note+instrument resets it before output; the counter and memories still run.
+G22's volume arithmetic table remains unchanged.
+
+Offline/coverage retrigger rows retain `raw_mode_nibble`, `raw_speed_nibble`,
 `stored_mode_memory`, `stored_speed_memory`, `resolved_mode_nibble`,
 `resolved_speed_nibble`, each `*_memory_has_nonzero_origin`, each
-`*_memory_reused`, `scheduler_executed` and
-`zero_interval_execution_deferred_to_g21`. Reuse means a zero input selects the
-stored byte, including its initial zero; origin flags distinguish real seeds.
-The legacy `interval_nibble` stays raw; `volume_mode_nibble` and
-`retrigger_interval_ticks` report effective mode and interval. The legacy
-missing-memory summary count is zero; a new zero-interval execution-deferred
-count describes the G21 boundary. Rejected row-entry routes report
-`row_entry_not_scheduled` while still exposing memory. Runtime/window plans
-consume the same resolved retrigger events; the trace schema is unchanged.
-G20 closes memory through replay/explicit-equivalent event and PCM agreement in
-both paths. Existing runtime 32-frame retrigger retirement versus offline
-immediate source cuts remains unchanged, separate from memory closure.
+`*_memory_reused` and `scheduler_executed`. Reuse includes initial zero;
+origin flags distinguish real seeds. `interval_nibble` stays raw, while
+`volume_mode_nibble` and `retrigger_interval_ticks` report effective values.
+The legacy missing-memory and zero-interval-deferred counts are zero.
+
+Each `rxy_invocations` entry exposes tick/frame, counter before/after, gating,
+execution, arithmetic and restart attempted/applied flags, same-cell coalescing,
+source event/generation identity, semantic-only no-source volume change,
+fully-uninitialized exclusion, base/output volume and raw stored pan before/
+after. Source-less entries have no new event ID. Pending counters and gated
+rows use `rxy_counter_pending` and `rxy_invocation_gated`; the narrow excluded
+case uses `rxy_fully_uninitialized_mutation_excluded`. Runtime/window plans
+consume the same generated events and semantic timeline. Runtime trace schema
+is unchanged; planned/applied frames must match exactly at both rates.
+Replay/explicit-equivalent event and PCM agreement holds within each path.
+The existing runtime 32-frame retrigger retirement versus offline immediate
+cut remains separate debt; differences outside those windows fail G21 checks.
+
 XM `E40...E4F` store channel-local FT2 vibrato control for later `4xy`/`6xy`
 rows and emit no direct audio events. The low two bits select sine, ramp,
 square, square; bit 2 suppresses instrument-trigger phase reset and bit 3 is

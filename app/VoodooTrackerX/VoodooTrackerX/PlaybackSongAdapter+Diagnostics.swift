@@ -399,12 +399,7 @@ extension PlaybackSongSyntheticAdapter {
         case 0x15:
             return .applied
         case 0x1B:
-            let raw = retriggerIntervalNibble(from: cell)
-            let interval = raw != 0 ? raw : Int(channelState.rRetriggerSpeedMemory)
-            guard interval > 0 else {
-                return .deferredUnsupported
-            }
-            return interval < timingConfig.speed ? .applied : .ignoredNoOp
+            return .applied
         case 0x21:
             guard isSupportedXxyExtraFinePortamentoEffect(cell) else {
                 return .deferredUnsupported
@@ -594,7 +589,7 @@ extension PlaybackSongSyntheticAdapter {
 
     static func hasDeferredEffect(_ cell: PlaybackCell, channelState: ChannelState) -> Bool {
         if isRxyMultiRetriggerEffect(cell) {
-            return retriggerIntervalNibble(from: cell) == 0 && channelState.rRetriggerSpeedMemory == 0
+            return false
         }
         if cell.effectType == 0x09, cell.effectParam == 0 {
             return channelState.sampleOffsetMemory == nil
@@ -645,7 +640,7 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func isSupportedRetriggerEffect(_ cell: PlaybackCell) -> Bool {
-        isRetriggerEffect(cell) && ((cell.effectType == 0x0E && cell.effectParam == 0x90) || retriggerIntervalNibble(from: cell) > 0)
+        isRxyMultiRetriggerEffect(cell) || (isE9xRetriggerEffect(cell) && (cell.effectParam == 0x90 || retriggerIntervalNibble(from: cell) > 0))
     }
 
     static func isGlobalVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {

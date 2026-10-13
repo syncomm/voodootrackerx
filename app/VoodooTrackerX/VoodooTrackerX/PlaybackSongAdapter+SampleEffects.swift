@@ -275,6 +275,191 @@ extension PlaybackSongSyntheticAdapter {
             envelopePolicy: cell.instrument == 0 ? "row_entry_carries_channel_state" : "row_entry_resets_instrument")
     }
 
+    /// FT2 gates tick zero with the byte left by its volume-column routine.
+    static func rxyTickZeroGated(_ raw: UInt8, state: ChannelState) -> Bool {
+        switch raw >> 4 {
+        case 1...5: return raw != 0x10
+        case 8, 9: return state.baseChannelVolume != 0
+        case 10: return raw & 15 != 0
+        case 12: return raw & 15 != 0
+        default: return raw != 0
+        }
+    }
+
+    /// Runs one invocation after the ordinary row/column semantics, without an instrument reset.
+    static func handleRxyTick(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        syntheticRow: Int, tick: Int, song: PlaybackSong, timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan, state: inout ChannelState,
+        context: inout AdapterRowContext, diagnosticIndex: Int? = nil) {
+        let index: Int
+        if let diagnosticIndex { index = diagnosticIndex } else {
+            index = context.retriggerEffects.count
+            let parent = state.activeEventMappingIndex.map { context.eventMappings[$0] }
+            context.retriggerEffects.append(.init(source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, syntheticTick: 0, effectType: cell.effectType, effectParam: cell.effectParam,
+                status: .counterPending, detected: true, applied: false, deferred: false,
+                ignoredAsNoOp: false, outOfRow: false, activeVoiceFound: state.activeEventIndex != nil,
+                retriggerIntervalTicks: Int(state.rRetriggerSpeedMemory), rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm,
+                retriggerTicks: [], retriggerFrames: [], retriggerEventIndices: [], replacedEventIndices: [],
+                volumeModeNibble: Int(state.rVolumeModeMemory), intervalNibble: Int(cell.effectParam & 15),
+                volumeChangePolicy: rxyVolumeChangePolicy, volumeChangeCount: 0, volumeValuesBefore: [],
+                volumeValuesAfter: [], retriggerGains: [], activeEventIndexBefore: state.activeEventIndex,
+                selectedSampleIndex: parent?.sampleIndex, selectedSampleLength: parent?.selectedSampleLength,
+                initialSourceFrame: 0, playbackStep: state.activePlaybackStep, gain: nil, pan: state.pan,
+                envelopePolicy: "sample_restart_carries_channel_state", replacementFrames: []))
+        }
+        let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+        let counterBefore = state.rRetriggerCounter
+        let volumeBefore = state.baseChannelVolume
+        let outputBefore = state.outputChannelVolume
+        let panningBefore = state.panningValue
+        let previous = state.activeEventIndex
+        let gated = tick == 0 && rxyTickZeroGated(cell.volumeColumn, state: state)
+        let initialized = state.carriedInstrumentIndex != nil || state.semanticInstrumentIndex != nil || state.carriedNote != 0
+        var fired = false, restarted = false, coalesced = false
+        if !gated {
+            state.rRetriggerCounter += 1
+            fired = state.rRetriggerCounter >= state.rRetriggerSpeedMemory
+            if fired {
+                state.rRetriggerCounter = 0
+                // Only the manager-approved fully uninitialized mutation is excluded.
+                // Instrument-only, empty, completed and released state remain eligible.
+                if initialized {
+                    state.baseChannelVolume = retriggerVolumeAdjustment(modeNibble: Int(state.rVolumeModeMemory),
+                        currentVolume: state.baseChannelVolume).volumeAfter
+                    if (0x10...0x50).contains(cell.volumeColumn) { state.baseChannelVolume = Int(cell.volumeColumn - 16) }
+                    if (0xC0...0xCF).contains(cell.volumeColumn) { state.applyChannelPanningValue(Double(cell.volumeColumn & 15) * 16) }
+                    (restarted, coalesced) = restartRxySource(cell: cell, source: source, channelIndex: channelIndex,
+                        syntheticRow: syntheticRow, tick: tick, frame: frame, song: song,
+                        timingConfig: timingConfig, state: &state, context: &context)
+                }
+            }
+        }
+        let arithmetic = fired && initialized
+        let excluded = fired && !initialized && state.rVolumeModeMemory != 0 && state.rVolumeModeMemory != 8
+        var diagnostic = context.retriggerEffects[index]
+        diagnostic.invocations.append(.init(tick: tick, frame: frame, counterBefore: counterBefore,
+            counterAfter: state.rRetriggerCounter, gated: gated, fired: fired, arithmeticApplied: arithmetic,
+            restartAttempted: arithmetic, restartApplied: restarted, coalescedWithRowTrigger: coalesced,
+            semanticOnlyVolumeChange: arithmetic && !restarted && volumeBefore != state.baseChannelVolume,
+            uninitializedMutationExcluded: excluded, eventIndexBefore: previous,
+            eventIndexAfter: restarted ? state.activeEventIndex : nil,
+            instrumentIndex: state.carriedInstrumentIndex, sampleIndex: state.activeSampleIndex,
+            volumeBefore: volumeBefore, volumeAfter: state.baseChannelVolume,
+            outputVolumeBefore: outputBefore, outputVolumeAfter: state.outputChannelVolume,
+            panningBefore: panningBefore, panningAfter: state.panningValue))
+        if arithmetic {
+            diagnostic.volumeValuesBefore.append(volumeBefore)
+            diagnostic.volumeValuesAfter.append(state.baseChannelVolume)
+            if volumeBefore != state.baseChannelVolume { diagnostic.volumeChangeCount += 1 }
+        }
+        if restarted, let event = state.activeEventIndex {
+            diagnostic.retriggerTicks.append(tick); diagnostic.retriggerFrames.append(frame)
+            diagnostic.retriggerEventIndices.append(event); diagnostic.retriggerGains.append(context.events[event].gain)
+            if let previous, !coalesced {
+                diagnostic.replacedEventIndices.append(previous); diagnostic.replacementFrames?.append(frame)
+            }
+        }
+        diagnostic.applied = diagnostic.applied || arithmetic || restarted
+        diagnostic.status = diagnostic.applied ? .applied : excluded ? .uninitializedRxyExcluded : gated ? .invocationGated : .counterPending
+        diagnostic.ignoredAsNoOp = diagnostic.status == .uninitializedRxyExcluded
+        context.retriggerEffects[index] = diagnostic
+    }
+
+    /// Resolves the retained note through the selected instrument's exact route; cursor restarts at zero.
+    static func restartRxySource(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        syntheticRow: Int, tick: Int, frame: Int, song: PlaybackSong, timingConfig: SyntheticTrackerTimingConfig,
+        state: inout ChannelState, context: inout AdapterRowContext) -> (Bool, Bool) {
+        guard (1...96).contains(state.carriedNote), let instrumentIndex = state.carriedInstrumentIndex,
+              let instrument = song.instrumentsByIndex[instrumentIndex] else { return (false, false) }
+        let selection = selectSample(forNote: state.carriedNote, from: instrument, missingKeymapPolicy: .fail)
+        guard let sample = selection.sample else {
+            context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
+                scheduledFrame: frame, instrumentIndex: instrumentIndex, sampleIndex: selection.mappedSampleIndex,
+                stoppedEventIndex: state.activeEventIndex, preservesChannelState: true))
+            if let header = song.xmSampleSlotProvenanceByInstrument[instrumentIndex]?.first(where: {
+                $0.sampleIndex == selection.mappedSampleIndex && $0.declaredPayloadLength == 0 && $0.decodedPayloadLength == 0
+            }) {
+                _ = selectEmptyHeader(header, cell: .init(note: state.carriedNote, instrument: 0,
+                    volumeColumn: 0, effectType: 27, effectParam: cell.effectParam), instrumentIndex: instrumentIndex,
+                    initializesDefaults: false, song: song, timingConfig: timingConfig, state: &state)
+            } else { clearSourceAssociation(&state) }
+            state.semanticInstrumentIndex = instrumentIndex
+            state.semanticSampleIndex = selection.mappedSampleIndex
+            return (false, false)
+        }
+        let pitch = playbackStepMapping(note: state.carriedNote, sample: sample,
+            usesLinearFrequencyTable: song.usesLinearFrequencyTable, timingConfig: timingConfig)
+        let envelope = mixerVolumeEnvelope(from: instrument.volumeEnvelope, timingConfig: timingConfig)
+        let gain = songGain(outputChannelVolume: state.outputChannelVolume, globalVolume: context.globalVolumeState.volumeValue)
+        let existing = state.activeEventIndex.flatMap { context.events[$0].scheduledStartFrame == frame ? $0 : nil }
+        let eventIndex = existing ?? context.events.count
+        let event = SyntheticTrackerEvent(row: syntheticRow, tick: tick, scheduledStartFrame: frame,
+            sample: mixerSampleBuffer(for: sample, cache: &context.mixerSampleBuffers), gain: gain, pan: state.pan,
+            playbackStep: pitch.playbackStep, loop: mixerLoop(from: sample), initialSourceFrame: 0,
+            volumeEnvelope: envelope.envelope,
+            panEnvelope: inertPanningEnvelopeClock(from: instrument.panningEnvelope, timingConfig: timingConfig))
+        let mapping = PlaybackSongSyntheticEventMapping(source: source, channelIndex: channelIndex,
+            note: state.carriedNote, instrumentIndex: instrumentIndex, sampleIndex: sample.sampleIndex,
+            sampleVolume: sample.volume, sampleVolumeRawEstimate: sampleVolumeRawEstimate(for: sample.volume),
+            selectedSampleLength: sample.pcm.count, sampleMapKeymapPresent: selection.sampleMapKeymapPresent,
+            mappedSampleIndex: selection.mappedSampleIndex, mappedSampleValid: selection.mappedSampleValid,
+            sampleSelectionMethod: selection.method, sampleSelectionStrategy: selection.method.rawValue,
+            firstPlayableSampleFallbackUsed: selection.firstPlayableSampleFallbackUsed,
+            sampleMapKeymapBehaviorDeferred: selection.sampleMapKeymapBehaviorDeferred,
+            sampleMapKeymapMissingOrDeferred: selection.sampleMapKeymapMissingOrDeferred,
+            effectType: cell.effectType, effectParam: cell.effectParam, syntheticRow: syntheticRow,
+            syntheticTick: tick, eventIndex: eventIndex, loopMode: sample.loopType == 1 ? .forward : sample.loopType == 2 ? .pingPong : .none,
+            volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
+            sampleOffset: sampleOffsetDiagnostic(from: cell, source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, selectedSampleLength: sample.pcm.count, channelState: &state),
+            hasIgnoredVolumeColumn: false, hasIgnoredEffect: false,
+            effectiveVolumeValue: state.outputChannelVolume, effectiveGlobalVolumeValue: context.globalVolumeState.volumeValue,
+            effectiveGlobalVolumeMultiplier: context.globalVolumeState.multiplier, effectivePan: state.pan,
+            volumeEnvelopeStatus: envelope.status, sourceVolumeEnvelopePointCount: envelope.sourcePointCount,
+            mappedVolumeEnvelopePointCount: envelope.mappedPointCount,
+            hasDeferredVolumeEnvelopeSustain: false, hasDeferredVolumeEnvelopeLoop: false, hasDeferredVolumeEnvelopeFadeout: false,
+            volumeEnvelopeSemantics: volumeEnvelopeSemantics(from: instrument.volumeEnvelope, mapping: envelope),
+            sampleBaseSampleRate: sample.baseSampleRate, sampleRelativeNote: sample.relativeNote, sampleFinetune: sample.finetune,
+            outputSampleRate: pitch.outputSampleRate, effectiveNoteValue: pitch.effectiveNoteValue,
+            effectiveNoteIndex: pitch.effectiveNoteIndex, effectiveFinetune: pitch.effectiveFinetune,
+            linearPeriod: pitch.linearPeriod, linearFrequency: pitch.linearFrequency,
+            amigaPeriod: pitch.amigaPeriod, amigaFrequency: pitch.amigaFrequency, finetuneStatus: pitch.finetuneStatus,
+            usesLinearFrequencyTable: song.usesLinearFrequencyTable, frequencyTableStatus: pitch.frequencyTableStatus,
+            linearFrequencyApplied: pitch.linearFrequencyApplied, amigaFrequencyApplied: pitch.amigaFrequencyApplied,
+            amigaFrequencyDeferred: pitch.amigaFrequencyDeferred, playbackStep: pitch.playbackStep,
+            pitchMappingApplied: pitch.applied, pitchMappingUsedNeutralStep: pitch.usedNeutralStep)
+        if let existing {
+            // FT2 coalesces ordinary-note and R trigger requests before updateVoices.
+            context.events[existing] = event
+            context.eventMappings[state.activeEventMappingIndex!] = mapping
+        } else {
+            context.noteOnlyEventIndices.insert(eventIndex)
+            if state.activeEventIndex == nil && state.keyOffWithoutVoice { context.coldReleasedEventIndices.insert(eventIndex) }
+            context.events.append(event)
+            state.activeEventMappingIndex = context.eventMappings.count
+            context.eventMappings.append(mapping)
+            context.eventCoverage.recordScheduledNote(method: selection.method,
+                firstPlayableSampleFallbackUsed: selection.firstPlayableSampleFallbackUsed,
+                sampleMapKeymapBehaviorDeferred: selection.sampleMapKeymapBehaviorDeferred)
+        }
+        state.activeEventIndex = eventIndex
+        state.activeInstrumentIndex = instrumentIndex; state.activeSampleIndex = sample.sampleIndex
+        state.semanticInstrumentIndex = instrumentIndex; state.semanticSampleIndex = sample.sampleIndex
+        state.semanticVolumeEnvelopeEnabled = instrument.volumeEnvelope.enabled
+        state.activeSampleVolume = sample.volume
+        state.triggeredSampleDefaultVolume = sampleVolumeRawEstimate(for: sample.volume)
+        state.triggeredSampleDefaultPan = sample.panning
+        state.activePlaybackStep = pitch.playbackStep
+        state.activeLinearPeriod = pitch.linearPeriod; state.activeAmigaPeriod = pitch.amigaPeriod
+        state.vibratoOutputLinearPeriod = nil; state.vibratoOutputAmigaPeriod = nil
+        state.activeSampleBaseSampleRate = sample.baseSampleRate
+        state.activeSampleRelativeNote = sample.relativeNote; state.activeSampleFinetune = sample.finetune
+        state.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
+        applyActiveVolumeEnvelopeMapping(envelope, to: &state)
+        return (true, existing != nil)
+    }
+
     @discardableResult
     static func handleRetrigger(
         from cell: PlaybackCell,
@@ -289,17 +474,15 @@ extension PlaybackSongSyntheticAdapter {
         events: inout [SyntheticTrackerEvent],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
-        eventCoverage: inout EventCoverageBuilder,
-        allowScheduling: Bool = true
+        eventCoverage: inout EventCoverageBuilder
     ) -> PlaybackSongSyntheticRetriggerDiagnostic? {
-        guard isRetriggerEffect(cell) else {
+        guard isE9xRetriggerEffect(cell) else {
             return nil
         }
 
         let intervalNibble = retriggerIntervalNibble(from: cell)
-        let interval = isRxyMultiRetriggerEffect(cell) ? Int(channelState.rRetriggerSpeedMemory) : intervalNibble
-        let volumeModeNibble = isRxyMultiRetriggerEffect(cell)
-            ? Int(channelState.rVolumeModeMemory) : retriggerVolumeModeNibble(from: cell)
+        let interval = intervalNibble
+        let volumeModeNibble = 0
         let rowSpeed = timingConfig.speed
         let rowBPM = timingConfig.bpm
         let activeEventIndexBefore = channelState.activeEventIndex
@@ -319,7 +502,7 @@ extension PlaybackSongSyntheticAdapter {
             retriggerGains: [Float] = []
         ) -> PlaybackSongSyntheticRetriggerDiagnostic {
             let applied = status == .applied
-            let deferred = status == .rxyZeroIntervalDeferredToG21
+            let deferred = false
             let ignoredAsNoOp = status == .noActiveVoice || status == .outOfRowNoOp || status == .rowEntryNotScheduled
             let outOfRow = status == .outOfRowNoOp
             let activeMapping = activeMappingIndexBefore.flatMap {
@@ -351,7 +534,7 @@ extension PlaybackSongSyntheticAdapter {
                 replacedEventIndices: replacedEventIndices,
                 volumeModeNibble: volumeModeNibble,
                 intervalNibble: intervalNibble,
-                volumeChangePolicy: isRxyMultiRetriggerEffect(cell) ? Self.rxyVolumeChangePolicy : nil,
+                volumeChangePolicy: nil,
                 volumeChangeCount: zip(volumeValuesBefore, volumeValuesAfter).filter { $0.0 != $0.1 }.count,
                 volumeValuesBefore: volumeValuesBefore,
                 volumeValuesAfter: volumeValuesAfter,
@@ -369,7 +552,7 @@ extension PlaybackSongSyntheticAdapter {
 
         guard interval > 0 else {
             let result = diagnostic(
-                status: .rxyZeroIntervalDeferredToG21
+                status: .outOfRowNoOp
             )
             retriggerEffects.append(result)
             return result
@@ -379,11 +562,8 @@ extension PlaybackSongSyntheticAdapter {
             retriggerEffects.append(result)
             return result
         }
-        guard allowScheduling else {
-            let result = diagnostic(status: .rowEntryNotScheduled)
-            retriggerEffects.append(result)
-            return result
-        }
+        // A dispatched E9 calls triggerInstrument even when triggerNote has no source.
+        channelState.rRetriggerCounter = 0
         guard let activeEventIndex = activeEventIndexBefore,
               let activeMappingIndex = activeMappingIndexBefore,
               events.indices.contains(activeEventIndex),
@@ -397,7 +577,7 @@ extension PlaybackSongSyntheticAdapter {
         let sourceEvent = events[activeEventIndex]
         let sourceMapping = eventMappings[activeMappingIndex]
         let pan = channelState.pan
-        var retriggerState = channelState
+        let retriggerState = channelState
         var ticks = [Int]()
         var frames = [Int]()
         var eventIndices = [Int]()
@@ -411,12 +591,6 @@ extension PlaybackSongSyntheticAdapter {
         while tick < rowSpeed {
             let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
             let volumeBefore = retriggerState.baseChannelVolume
-            if isRxyMultiRetriggerEffect(cell) {
-                retriggerState.baseChannelVolume = retriggerVolumeAdjustment(
-                    modeNibble: volumeModeNibble,
-                    currentVolume: retriggerState.baseChannelVolume
-                ).volumeAfter
-            }
             let gain = songGain(
                 outputChannelVolume: retriggerState.outputChannelVolume,
                 globalVolume: globalVolumeState.volumeValue
@@ -471,9 +645,8 @@ extension PlaybackSongSyntheticAdapter {
         channelState.activeSampleVolume = activeSampleVolume
         channelState.baseChannelVolume = retriggerState.baseChannelVolume
         // E9 retriggers the sample/envelopes without replacing FT2's held outVol.
-        // Rxy has already written its adjusted base/output above.
         channelState.outputChannelVolume = retriggerState.outputChannelVolume
-        if !isRxyMultiRetriggerEffect(cell), !ticks.isEmpty {
+        if !ticks.isEmpty {
             resetTremoloTriggerPhases(state: &channelState)
         }
         channelState.volumeValueZeroedByAxy = retriggerState.baseChannelVolume == 0

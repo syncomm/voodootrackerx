@@ -2382,7 +2382,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(row["reason_counts"]["ignored_rxy_zero_interval_no_effect_memory"], 1)
         self.assertEqual(summary["unresolved_breakdown"]["no_active_voice"][0]["command"], "Rxy multi retrigger")
 
-    def test_rxy_zero_interval_is_execution_deferred_without_missing_memory_or_no_op(self):
+    def test_legacy_rxy_zero_interval_deferred_payload_has_no_missing_memory_or_no_op(self):
         item = retrigger_effect(status="rxy_zero_interval_execution_deferred_g21",
                                 effect_type=0x1B, effect_param=0x90, interval=0)
         item.update(deferred=True, ignored_as_no_op=False, stored_mode_memory=9,
@@ -2397,6 +2397,24 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(row["effect_memory_missing_count"], 0)
         self.assertEqual(row["no_op_effect_memory_deferred_count"], 0)
         self.assertEqual(row["recommended_implementation_priority"], effect_coverage.RXY_ZERO_INTERVAL_EXECUTION_PRIORITY)
+
+    def test_initialized_source_less_rxy_zero_interval_is_applied_without_a_source(self):
+        item = retrigger_effect(effect_type=0x1B, effect_param=0x90, interval=0, frames=[])
+        item.update(active_voice_found=False, active_sample_found=False,
+                    retrigger_event_indices=[], replaced_event_indices=[],
+                    volume_change_count=6, scheduler_executed=True,
+                    zero_interval_execution_deferred_to_g21=False,
+                    rxy_invocations=[dict(counter_before=0, counter_after=0, execution_fired=True,
+                                          source_restart_applied=False, semantic_only_no_source_volume_update=True)])
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic.json", {"retrigger_effects": [item]})
+        ])
+        row = next(row for row in summary["effect_coverage"] if row["command"] == "Rxy multi retrigger")
+        self.assertEqual(row["applied_count"], 1)
+        self.assertEqual(row["deferred_count"], 0)
+        self.assertEqual(row["effect_memory_missing_count"], 0)
+        self.assertEqual(row["no_op_effect_memory_deferred_count"], 0)
+        self.assertNotEqual(row["recommended_implementation_priority"], effect_coverage.RXY_ZERO_INTERVAL_EXECUTION_PRIORITY)
 
     def test_effect_coverage_summary_counts_generic_deferred_effect_fields(self):
         diagnostics = {

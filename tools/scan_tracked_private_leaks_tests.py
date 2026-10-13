@@ -40,6 +40,7 @@ class ScanTrackedPrivateLeaksTests(unittest.TestCase):
                 "tests/reference-xm/generated/cold-600-local-publication.xm",
                 "tests/reference-xm/generated/cold-500-local-publication.xm",
                 "tests/reference-xm/generated/e90-row-entry-retrigger.xm",
+                "tests/reference-xm/generated/rxy-counter-timing-carry.xm",
                 "tests/fixtures/minimal.mod",
             ]:
                 self.write_file(repo, path, b"synthetic public fixture")

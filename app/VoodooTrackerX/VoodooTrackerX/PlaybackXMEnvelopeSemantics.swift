@@ -90,11 +90,16 @@ struct PlaybackXMChannelHistoryIndex {
 
     /// Returns the same last collection-order match as `last(where:)`, inclusive of the frame.
     func controls(atOrBefore frame: Int, work: inout PlaybackXMHistoryLookupDiagnostics) -> PlaybackSongSyntheticAdapter.ChannelState? {
+        row(atOrBefore: frame, work: &work)?.controls
+    }
+
+    /// Includes the row-owned reset decision without building another history index.
+    func row(atOrBefore frame: Int, work: inout PlaybackXMHistoryLookupDiagnostics) -> PlaybackXMChannelRow? {
         work.lookupCount += 1
         let end = bound(frame, in: ordered, inclusive: true, work: &work)
         guard end > 0 else { return nil }
         work.entriesVisited += 1
-        return rows[chronological ? ordered[end - 1] : lastSourceOrdinal[end - 1]].controls
+        return rows[chronological ? ordered[end - 1] : lastSourceOrdinal[end - 1]]
     }
 
     /// Restricts silent resets to the half-open route lifetime, retaining original writer order.
@@ -368,12 +373,13 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             let sampleIndex: Int?
             let frame: Int
             let preservesChannelState: Bool
+            var isRxy = false
         }
         var routes = mappings.map { mapping in
             Route(eventIndex: mapping.eventIndex, channelIndex: mapping.channelIndex,
                 instrumentIndex: mapping.instrumentIndex, sampleIndex: mapping.sampleIndex,
                 frame: scheduler.frame(for: plan.pattern.events[mapping.eventIndex]),
-                preservesChannelState: plan.noteOnlyEventIndices.contains(mapping.eventIndex))
+                preservesChannelState: plan.noteOnlyEventIndices.contains(mapping.eventIndex), isRxy: mapping.effectType == 27)
         }
         routes += plan.xmEmptyRoutes.map { Route(eventIndex: nil, channelIndex: $0.channelIndex,
             instrumentIndex: $0.instrumentIndex, sampleIndex: $0.sampleIndex, frame: $0.scheduledFrame,
@@ -416,8 +422,11 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 let cuts = (cutsByChannel[channel] ?? []).filter {
                     $0.activeEventIndex == index }.compactMap(\.scheduledFrame).filter { $0 >= start }
                 let sourceEnd = cuts.min() ?? Int.max
+                let rxyParent = route.isRxy && route.preservesChannelState && routeIndex > 0
+                    ? channelRoutes[routeIndex - 1].eventIndex : nil
                 let releases = Set((releasesByChannel[channel] ?? []).filter {
-                    ($0.activeEventIndex == index || $0.activeEventIndex == nil) &&
+                    ($0.activeEventIndex == index || $0.activeEventIndex == nil ||
+                        (rxyParent != nil && $0.activeEventIndex == rxyParent && $0.scheduledFrame == start)) &&
                         $0.scheduledFrame.map { $0 >= start && $0 < stop } == true
                 }.compactMap(\.scheduledFrame))
                 let positions = (positionsByChannel[channel] ?? []).filter {
@@ -426,6 +435,14 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 }
                 var resets = (index.flatMap { changesByEvent[$0] } ?? []).map {
                     Change(scheduledFrame: $0.scheduledFrame, change: $0.change)
+                }
+                let routeRow = rowHistories[channel]?.row(atOrBefore: start, work: &planningHistoryDiagnostics)
+                // A row-entry reset/release precedes R's sample restart at the same
+                // frame. It belongs to the carried channel, although its source retires.
+                let hasRxyBoundaryReset = route.isRxy && route.preservesChannelState && index != nil &&
+                    routeRow?.scheduledFrame == start && routeRow?.instrumentOnlyReset != nil
+                if hasRxyBoundaryReset {
+                    resets.append(Change(scheduledFrame: start, change: routeRow!.instrumentOnlyReset!))
                 }
                 // The existing instrument-only dispatch owns default restoration. Its silent
                 // reset belongs to this channel clock, never to a fabricated source event.
@@ -440,7 +457,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 let publishesToVoice = volumeEnabled || panEnabled || releases.contains { $0 < sourceEnd } ||
                     resets.contains { $0.scheduledFrame < sourceEnd } || !plan.noteOnlyEventIndices.isEmpty
                 guard publishesToVoice || plan.xmEmptyRoutes.contains(where: { $0.channelIndex == channel }) else { continue }
-                let routeControls = rowHistories[channel]?.controls(atOrBefore: start, work: &planningHistoryDiagnostics)
+                let routeControls = routeRow?.controls
                 var channelPanning = routeControls?.panningValue ?? 128
                 let carries = route.preservesChannelState
                 var carried = carries ? previous : CarriedState()
@@ -498,7 +515,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                             if dimensions.keyOn { state.keyOn = true }
                             if dimensions.fadeout {
                                 state.fadeoutAccumulator = 32_768
-                                carried.fadeoutDecrement = instrument.volume.fadeout
+                                carried.fadeoutDecrement = first && hasRxyBoundaryReset
+                                    ? previous.instrument?.volume.fadeout ?? instrument.volume.fadeout : instrument.volume.fadeout
                             }
                         case .keyOff:
                             // XM uses the instrument's tick fadeout; per-frame rates belong to generic synthetic voices.

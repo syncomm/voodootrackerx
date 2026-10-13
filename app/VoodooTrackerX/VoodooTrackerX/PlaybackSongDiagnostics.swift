@@ -990,6 +990,9 @@ struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {
         case rowEntryNotScheduled
         case noActiveVoice
         case outOfRowNoOp
+        case counterPending
+        case invocationGated
+        case uninitializedRxyExcluded
     }
 
     let source: PlaybackPosition
@@ -998,27 +1001,27 @@ struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {
     let syntheticTick: Int
     let effectType: UInt8
     let effectParam: UInt8
-    let status: Status
+    var status: Status
     let detected: Bool
-    let applied: Bool
+    var applied: Bool
     let deferred: Bool
-    let ignoredAsNoOp: Bool
+    var ignoredAsNoOp: Bool
     let outOfRow: Bool
     let activeVoiceFound: Bool
     let retriggerIntervalTicks: Int
     let rowSpeed: Int
     let rowBPM: Int
-    let retriggerTicks: [Int]
-    let retriggerFrames: [Int]
-    let retriggerEventIndices: [Int]
-    let replacedEventIndices: [Int]
+    var retriggerTicks: [Int]
+    var retriggerFrames: [Int]
+    var retriggerEventIndices: [Int]
+    var replacedEventIndices: [Int]
     let volumeModeNibble: Int
     let intervalNibble: Int
     let volumeChangePolicy: String?
-    let volumeChangeCount: Int
-    let volumeValuesBefore: [Int]
-    let volumeValuesAfter: [Int]
-    let retriggerGains: [Float]
+    var volumeChangeCount: Int
+    var volumeValuesBefore: [Int]
+    var volumeValuesAfter: [Int]
+    var retriggerGains: [Float]
     let activeEventIndexBefore: Int?
     let selectedSampleIndex: Int?
     let selectedSampleLength: Int?
@@ -1027,6 +1030,35 @@ struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {
     let gain: Float?
     let pan: Float?
     let envelopePolicy: String
+    var invocations: [PlaybackSongSyntheticRxyInvocation] = []
+    // A first source or a coalesced ordinary trigger has no parent to cut.
+    var replacementFrames: [Int]? = nil
+}
+
+/// One channel-local R invocation, including a gated or source-less execution.
+struct PlaybackSongSyntheticRxyInvocation: Equatable {
+    let tick: Int
+    let frame: Int
+    let counterBefore: UInt8
+    let counterAfter: UInt8
+    let gated: Bool
+    let fired: Bool
+    let arithmeticApplied: Bool
+    let restartAttempted: Bool
+    let restartApplied: Bool
+    let coalescedWithRowTrigger: Bool
+    let semanticOnlyVolumeChange: Bool
+    let uninitializedMutationExcluded: Bool
+    let eventIndexBefore: Int?
+    let eventIndexAfter: Int?
+    let instrumentIndex: Int?
+    let sampleIndex: Int?
+    let volumeBefore: Int
+    let volumeAfter: Int
+    let outputVolumeBefore: Int
+    let outputVolumeAfter: Int
+    let panningBefore: Double
+    let panningAfter: Double
 }
 
 /// Exact modulation in FT2 reference-period units; phases use the unsigned-byte domain.

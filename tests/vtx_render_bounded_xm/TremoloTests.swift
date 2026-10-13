@@ -152,8 +152,8 @@ final class TremoloTests: XCTestCase {
                 XCTAssertEqual(states[2].baseChannelVolume, 32)
                 XCTAssertEqual(states[2].outputChannelVolume, isE9 ? 63 : 32)
                 XCTAssertEqual(states[2].tremolo.phase, isE9 && control == 0 ? 0 : 80)
-                XCTAssertEqual(context.events.map(\.gain), [0.5, isE9 ? 63 / 64 : 0.5])
-                XCTAssertEqual(context.retriggerEffects.flatMap(\.retriggerTicks), [3])
+                XCTAssertEqual(context.events.map(\.gain), isE9 ? [0.5, 63 / 64] : [0.5, 0.5, 0.5])
+                XCTAssertEqual(context.retriggerEffects.flatMap(\.retriggerTicks), isE9 ? [3] : [2, 5])
             }
         }
     }

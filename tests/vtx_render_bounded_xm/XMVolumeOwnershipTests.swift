@@ -88,7 +88,7 @@ final class XMVolumeOwnershipTests: XCTestCase {
     func testEveryRetriggerVolumeModeConsumesChannelOutputOnce() {
         let expected = [32, 31, 30, 28, 24, 16, 21, 16, 32, 33, 34, 36, 40, 48, 48, 64]
         for mode in 0...15 {
-            let module = song([cell(note: 49, volume: 0x30), cell(0x1B, UInt8(mode << 4 | 3)), cell()], sample: 0.25)
+            let module = song([cell(note: 49, volume: 0x30), cell(0x1B, UInt8(mode << 4 | 4)), cell()], sample: 0.25)
             let (context, states) = inspect(module)
             XCTAssertEqual(states.map(\.baseChannelVolume), [32, expected[mode], expected[mode]])
             XCTAssertTrue(states.allSatisfy { $0.activeSampleVolume == 0.25 })
@@ -162,10 +162,11 @@ final class XMVolumeOwnershipTests: XCTestCase {
             return [0, 8, 16, 24].map { UInt8(truncatingIfNeeded: bits >> $0) }
         }
         let hash = SHA256.hash(data: Data(bytes)).map { String(format: "%02x", $0) }.joined()
-        // The final explicit note now reloads its quiet sample's default 16.
+        // R63 now executes at tick 2; its arithmetic stays unchanged for G22.
+        // The final explicit note reloads its quiet sample's default 16.
         XCTAssertEqual(bounded.diagnostics.eventMappings.last?.effectiveVolumeValue, 16)
         XCTAssertEqual(bounded.plan.pattern.events.last?.gain, 0.078125)
-        XCTAssertEqual(hash, "1d8d727e608fbf06743c8f5b31768fab150980f0af877cc3bdd6260dfaffe462")
+        XCTAssertEqual(hash, "c49e588dc8f51835d89a27238987f7e911678230868510f683ceb197a0347aa8")
         XCTAssertEqual(bounded.block.frameCount, 56)
     }
 

@@ -6,6 +6,16 @@ remain intentionally deferred.
 
 ## Purpose
 
+`rxy-counter-timing-carry.xm` covers G21's persistent R counter, interval-zero
+execution, F01/F02/F03/F06, volume-column gates/slides, G20 nibble replay,
+order/E6 carry, same-cell coalescing, exact empty routes and initialized
+source-less volume changes. Looped and short mathematical PCM with envelopes
+pin completed/released source restarts and fadeout carry. Only fully
+uninitialized volume bookkeeping is excluded as C. Parameterized tests add
+speeds 1/2/3/6 and the full counter-reset and column-gate matrices. Both-rate
+whole/window/runtime checks retain the existing 32-frame retirement seam;
+G22 arithmetic and reference WAVs remain outside this fixture's contract.
+
 `e90-row-entry-retrigger.xm` covers G19's special tick-zero source trigger:
 carried and explicit note/instrument shapes, distinct mapped samples, cold and
 completed one-shot channels, NOTE_OFF suppression, released envelope/fadeout

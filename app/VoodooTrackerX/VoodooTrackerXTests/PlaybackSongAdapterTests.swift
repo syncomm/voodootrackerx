@@ -5457,7 +5457,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x1B, effectParam: 0x02)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5473,26 +5473,26 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(effect.decodedLabel, "Rxy multi retrigger")
         XCTAssertEqual(effect.status, .applied)
         XCTAssertEqual(result.diagnostics.retriggerEffectCount, 1)
-        XCTAssertEqual(result.plan.pattern.events.map(\.scheduledStartFrame), [0, 2, 4])
+        XCTAssertEqual(result.plan.pattern.events.map(\.scheduledStartFrame), [0, 1, 3, 5])
         XCTAssertEqual(retrigger.status, .applied)
         XCTAssertEqual(retrigger.effectType, 0x1B)
         XCTAssertEqual(retrigger.volumeModeNibble, 0)
         XCTAssertEqual(retrigger.intervalNibble, 2)
-        XCTAssertEqual(retrigger.retriggerTicks, [2, 4])
-        XCTAssertEqual(retrigger.retriggerFrames, [2, 4])
-        XCTAssertEqual(retrigger.retriggerEventIndices, [1, 2])
+        XCTAssertEqual(retrigger.retriggerTicks, [1, 3, 5])
+        XCTAssertEqual(retrigger.retriggerFrames, [1, 3, 5])
+        XCTAssertEqual(retrigger.retriggerEventIndices, [1, 2, 3])
         XCTAssertEqual(retrigger.volumeChangeCount, 0)
-        XCTAssertPCMEqual(result.block.interleavedPCM, [1, 0.5, 1, 0.5, 1, 0.5])
+        XCTAssertPCMEqual(result.block.interleavedPCM, [1, 1, 0.5, 1, 0.5, 1])
     }
 
-    func testPlaybackSongAdapterRetriggerRxyZeroIntervalExecutionIsDeferredToG21() throws {
+    func testPlaybackSongAdapterRetriggerRxyZeroIntervalExecutesEveryTick() throws {
         let sample = makePlaybackSample(pcm: [1, 0.5, 0.25], baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x1B, effectParam: 0xA0)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5505,15 +5505,16 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let retrigger = try XCTUnwrap(result.diagnostics.retriggerEffects.first)
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.plan.pattern.events.count, 1)
-        XCTAssertEqual(retrigger.status, .rxyZeroIntervalDeferredToG21)
-        XCTAssertTrue(retrigger.deferred)
+        XCTAssertEqual(result.plan.pattern.events.count, 6)
+        XCTAssertEqual(retrigger.status, .applied)
+        XCTAssertFalse(retrigger.deferred)
         XCTAssertFalse(retrigger.ignoredAsNoOp)
         XCTAssertEqual(retrigger.volumeModeNibble, 10)
         XCTAssertEqual(retrigger.intervalNibble, 0)
-        XCTAssertEqual(retrigger.retriggerFrames, [])
-        XCTAssertTrue(mapping.hasIgnoredEffect)
-        XCTAssertEqual(result.diagnostics.deferredCellFields.map(\.field), [.effect])
+        XCTAssertEqual(retrigger.retriggerFrames, [0, 1, 2, 3, 4, 5])
+        XCTAssertTrue(retrigger.invocations.first!.coalescedWithRowTrigger)
+        XCTAssertFalse(mapping.hasIgnoredEffect)
+        XCTAssertEqual(result.diagnostics.deferredCellFields, [])
     }
 
     func testPlaybackSongAdapterRetriggerRxyNoActiveVoiceIsDiagnosed() throws {
@@ -5534,7 +5535,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let retrigger = try XCTUnwrap(result.diagnostics.retriggerEffects.first)
 
         XCTAssertEqual(result.plan.pattern.events, [])
-        XCTAssertEqual(retrigger.status, .noActiveVoice)
+        XCTAssertEqual(retrigger.status, .uninitializedRxyExcluded)
         XCTAssertFalse(retrigger.activeVoiceFound)
         XCTAssertTrue(retrigger.ignoredAsNoOp)
         XCTAssertEqual(retrigger.volumeModeNibble, 10)
@@ -5549,7 +5550,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x1B, effectParam: 0x02)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5561,9 +5562,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let retrigger = try XCTUnwrap(result.diagnostics.retriggerEffects.first)
 
-        XCTAssertEqual(result.plan.pattern.events.map(\.tick), [0, 2, 4])
+        XCTAssertEqual(result.plan.pattern.events.map(\.tick), [0, 1, 3, 5])
         XCTAssertEqual(result.plan.pattern.events.filter { $0.tick == 0 }.count, 1)
-        XCTAssertEqual(retrigger.replacedEventIndices, [0, 1])
+        XCTAssertEqual(retrigger.replacedEventIndices, [0, 1, 2])
         XCTAssertPCMEqual(result.block.interleavedPCM, [1, 1, 1, 1, 1, 1])
     }
 
@@ -5572,19 +5573,19 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let upward = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
-                makePlaybackRow(index: 0, effectType: 0x0C, effectParam: 60),
-                makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x1B, effectParam: 0xF1)
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0C, effectParam: 60),
+                makePlaybackRow(index: 1, note: 49, effectType: 0x1B, effectParam: 0xF1)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let downward = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
-                makePlaybackRow(index: 0, effectType: 0x0C, effectParam: 8),
-                makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x1B, effectParam: 0x51)
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0C, effectParam: 8),
+                makePlaybackRow(index: 1, note: 49, effectType: 0x1B, effectParam: 0x51)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -5603,30 +5604,30 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let upRetrigger = try XCTUnwrap(upResult.diagnostics.retriggerEffects.first)
         let downRetrigger = try XCTUnwrap(downResult.diagnostics.retriggerEffects.first)
 
-        let expectedUpGains: [Float] = [60.0 / 64.0, 1, 1, 1]
+        let expectedUpGains: [Float] = [60.0 / 64.0, 1, 1, 1, 1]
         XCTAssertEqual(upResult.plan.pattern.events.map(\.gain), expectedUpGains)
         XCTAssertEqual(upRetrigger.volumeModeNibble, 15)
-        XCTAssertEqual(upRetrigger.volumeValuesBefore, [60, 64, 64])
-        XCTAssertEqual(upRetrigger.volumeValuesAfter, [64, 64, 64])
+        XCTAssertEqual(upRetrigger.volumeValuesBefore, [60, 64, 64, 64])
+        XCTAssertEqual(upRetrigger.volumeValuesAfter, [64, 64, 64, 64])
         XCTAssertEqual(upRetrigger.volumeChangeCount, 1)
-        XCTAssertEqual(upRetrigger.retriggerGains, [1, 1, 1])
-        let expectedDownGains: [Float] = [8.0 / 64.0, 0, 0]
+        XCTAssertEqual(upRetrigger.retriggerGains, [1, 1, 1, 1])
+        let expectedDownGains: [Float] = [8.0 / 64.0, 0, 0, 0]
         XCTAssertEqual(downResult.plan.pattern.events.map(\.gain), expectedDownGains)
         XCTAssertEqual(downRetrigger.volumeModeNibble, 5)
-        XCTAssertEqual(downRetrigger.volumeValuesBefore, [8, 0])
-        XCTAssertEqual(downRetrigger.volumeValuesAfter, [0, 0])
+        XCTAssertEqual(downRetrigger.volumeValuesBefore, [8, 0, 0])
+        XCTAssertEqual(downRetrigger.volumeValuesAfter, [0, 0, 0])
         XCTAssertEqual(downRetrigger.volumeChangeCount, 1)
-        XCTAssertEqual(downRetrigger.retriggerGains, [0, 0])
+        XCTAssertEqual(downRetrigger.retriggerGains, [0, 0, 0])
     }
 
-    func testPlaybackSongAdapterRetriggerRxyUsesCommonXMVolumeModeTable() throws {
+    func testPlaybackSongAdapterRetriggerRxyReassertsVolumeColumnAfterArithmetic() throws {
         let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 8), baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x1B, effectParam: 0xA2)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5638,13 +5639,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let retrigger = try XCTUnwrap(result.diagnostics.retriggerEffects.first)
 
-        let expectedGains: [Float] = [0.5, 34.0 / 64.0, 36.0 / 64.0]
+        let expectedGains: [Float] = [0.5, 0.5, 0.5]
         XCTAssertEqual(result.plan.pattern.events.map(\.gain), expectedGains)
-        XCTAssertEqual(result.diagnostics.eventMappings.map(\.effectiveVolumeValue), [32, 34, 36])
+        XCTAssertEqual(result.diagnostics.eventMappings.map(\.effectiveVolumeValue), [32, 32, 32])
         XCTAssertEqual(retrigger.volumeModeNibble, 10)
-        XCTAssertEqual(retrigger.volumeValuesBefore, [32, 34])
-        XCTAssertEqual(retrigger.volumeValuesAfter, [34, 36])
-        XCTAssertEqual(retrigger.volumeChangeCount, 2)
+        XCTAssertEqual(retrigger.volumeValuesBefore, [32, 32])
+        XCTAssertEqual(retrigger.volumeValuesAfter, [32, 32])
+        XCTAssertEqual(retrigger.volumeChangeCount, 0)
         XCTAssertEqual(retrigger.volumeChangePolicy, "xm_common_multi_retrigger_volume_table_first_pass")
     }
 
@@ -5665,7 +5666,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x1B, effectParam: 0xA1),
                 makePlaybackRow(index: 2),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -5685,7 +5686,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertFloatArrayEqual(split.block.interleavedPCM, single.block.interleavedPCM)
         XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, single.block.interleavedPCM)
         XCTAssertEqual(single.diagnostics.retriggerEffects.first?.status, .applied)
-        XCTAssertEqual(single.diagnostics.retriggerEffects.first?.retriggerFrames, [4, 5])
+        XCTAssertEqual(single.diagnostics.retriggerEffects.first?.retriggerFrames, [3, 4, 5])
     }
 
     func testPlaybackSongAdapterOtherExtendedECommandsRemainDeferredWithECxEDxSupport() throws {

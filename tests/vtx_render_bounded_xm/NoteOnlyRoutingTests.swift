@@ -121,7 +121,7 @@ final class NoteOnlyRoutingTests: XCTestCase {
             XCTAssertEqual(states.last?.tonePortamentoTargetNote, 49)
         }
         for (effect, param, ticks): (UInt8, UInt8, [Int]) in [(14, 0xD0, [0]), (14, 0xD2, [2]),
-                (14, 0xD7, []), (14, 0x92, [0, 2, 4]), (27, 0x92, [0, 2, 4]), (20, 0, [])] {
+                (14, 0xD7, []), (14, 0x92, [0, 2, 4]), (27, 0x92, [0, 1, 3, 5]), (20, 0, [])] {
             let module = song([cell(note: 37, instrument: 1), cell(note: 97), cell(note: 49, effect: effect, param: param), cell()])
             let plan = Adapter.adapt(module, orderIndex: 0, sampleRate: 48_000)
             XCTAssertEqual(plan.pattern.events.dropFirst().map(\.tick), ticks)
@@ -305,14 +305,14 @@ final class NoteOnlyRoutingTests: XCTestCase {
 
     func testE90HasNoIntervalMemoryAndKeepsOffsetAndRxyIndependent() throws {
         XCTAssertFalse(Adapter.hasDeferredEffect(cell(effect: 14, param: 0x90)))
-        XCTAssertTrue(Adapter.hasDeferredEffect(cell(effect: 27, param: 0x90)))
+        XCTAssertFalse(Adapter.hasDeferredEffect(cell(effect: 27, param: 0x90)))
         for speed in [1, 2, 3, 6] {
             let plan = Adapter.adapt(song([cell(note: 37, instrument: 1), cell(effect: 14, param: 0x93),
                 cell(effect: 14, param: 0x90), cell(effect: 27)], speed: speed), orderIndex: 0, sampleRate: 48_000)
             XCTAssertEqual(plan.diagnostics.retriggerEffects[0].retriggerTicks, speed == 6 ? [3] : [])
             XCTAssertEqual(plan.diagnostics.retriggerEffects[1].retriggerTicks, [0])
             XCTAssertEqual(plan.diagnostics.retriggerEffects[1].retriggerFrames, [2 * speed * 960])
-            XCTAssertEqual(plan.diagnostics.retriggerEffects[2].status, .rxyZeroIntervalDeferredToG21)
+            XCTAssertEqual(plan.diagnostics.retriggerEffects[2].retriggerTicks, Array(0..<speed))
         }
         let (context, states) = inspect(song([cell(note: 37, instrument: 1, effect: 9, param: 1),
             cell(effect: 14, param: 0x90), cell(note: 37, effect: 9), cell(effect: 14, param: 0x93)], sampleFrames: 512))
@@ -320,7 +320,7 @@ final class NoteOnlyRoutingTests: XCTestCase {
         XCTAssertEqual(states.map { $0.sampleOffsetMemory?.offsetFrames }, [256, 256, 256, 256])
         let rxy = Adapter.adapt(song([cell(note: 37, instrument: 1), cell(effect: 27, param: 0x93),
             cell(effect: 14, param: 0x90), cell(effect: 27)]), orderIndex: 0, sampleRate: 48_000)
-        XCTAssertEqual(rxy.diagnostics.retriggerEffects.map(\.retriggerTicks), [[3], [0], [3]])
+        XCTAssertEqual(rxy.diagnostics.retriggerEffects.map(\.retriggerTicks), [[2, 5], [0], [2, 5]])
         XCTAssertEqual(rxy.diagnostics.retriggerEffects.last?.status, .applied)
     }
 

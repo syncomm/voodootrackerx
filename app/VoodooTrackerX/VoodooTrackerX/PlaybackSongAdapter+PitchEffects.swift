@@ -1881,7 +1881,8 @@ extension PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
         restoreAtRowEnd: Bool = false,
-        channelState: inout ChannelState
+        channelState: inout ChannelState,
+        executionTicks: Range<Int>? = nil
     ) -> PlaybackSongSyntheticVibratoDiagnostic {
         let combined = isVibratoVolumeSlideEffect(cell)
         let effectVibrato = isVibratoEffect(cell) || combined
@@ -1925,7 +1926,7 @@ extension PlaybackSongSyntheticAdapter {
         var currentPeriod = outputPeriodBefore ?? basePeriod
         var currentStep = stepBefore
         let executionCount = (columnVibrato ? 1 : 0) + (effectVibrato ? 1 : 0)
-        for tick in 1..<max(1, timingConfig.speed) {
+        for tick in executionTicks ?? (1..<max(1, timingConfig.speed)) {
             // Each tick runs Bx first. Effect nibbles then overwrite shared memory
             // before a second execution, including the first tick's old Bx speed.
             for writer in 0..<executionCount {
@@ -2213,7 +2214,8 @@ extension PlaybackSongSyntheticAdapter {
         instrumentDefaultVolumeApplied: Bool = false,
         sampleSelectedBefore: Int? = nil,
         sampleSelectedAfter: Int? = nil,
-        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil,
+        executionTicks: Range<Int>? = nil
     ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
         let volumeColumnTonePortamentoAmount: Int?
         if case let .tonePortamento(amount) = volumeColumn?.command {
@@ -2598,7 +2600,7 @@ extension PlaybackSongSyntheticAdapter {
             var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
             let rowSpeed = max(1, timingConfig.speed)
             let slideUnits = Double(speed) * xmAmigaPortamentoUnitsPerParam
-            for tick in 1..<rowSpeed {
+            for tick in executionTicks ?? (1..<rowSpeed) {
                 if abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001 {
                     currentAmigaPeriod = targetAmigaPeriod
                     currentPlaybackStep = targetPlaybackStep
@@ -2728,7 +2730,7 @@ extension PlaybackSongSyntheticAdapter {
 
         var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
         let rowSpeed = max(1, timingConfig.speed)
-        for tick in 1..<rowSpeed {
+        for tick in executionTicks ?? (1..<rowSpeed) {
             if abs(currentLinearPeriod - targetLinearPeriod) <= 0.000000001 {
                 currentLinearPeriod = targetLinearPeriod
                 currentPlaybackStep = targetPlaybackStep

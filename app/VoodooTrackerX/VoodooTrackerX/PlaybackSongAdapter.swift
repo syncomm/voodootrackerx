@@ -69,6 +69,7 @@ enum PlaybackSongSyntheticAdapter {
         // These bytes use padding and survive instrument/source/counter resets.
         var rRetriggerSpeedMemory: UInt8 = 0
         var rVolumeModeMemory: UInt8 = 0
+        var rRetriggerCounter: UInt8 = 0
         var triggeredSampleDefaultVolume = 0
         var triggeredSampleDefaultPan: UInt8 = 128
         var keyOffWithoutVoice = false
@@ -927,7 +928,6 @@ enum PlaybackSongSyntheticAdapter {
             let e90PreviousEvent = isE90 ? channelState.activeEventIndex : nil
             let e90PreviousMapping = isE90 ? channelState.activeEventMappingIndex : nil
             let firstRowEvent = context.events.count
-            let firstRetriggerDiagnostic = context.retriggerEffects.count
             if isE90, cell.note == 0 {
                 cell = PlaybackCell(note: channelState.carriedNote, instrument: cell.instrument,
                     volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
@@ -942,15 +942,10 @@ enum PlaybackSongSyntheticAdapter {
             let routedInstrumentIndex = isNoteOnly ? channelState.carriedInstrumentIndex ?? 0 : Int(cell.instrument)
             var instrumentOnlyReset: MixerPlaybackStateChange?
             defer {
-                if isRxyMultiRetriggerEffect(cell), context.retriggerEffects.count == firstRetriggerDiagnostic {
-                    // Rejected/gated row-entry routes still expose resolved memory, without
-                    // introducing a second scheduling path or changing source admission.
-                    _ = handleRetrigger(from: cell, source: source, channelIndex: channelIndex,
-                        syntheticRow: syntheticRow, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
-                        timingConfig: timingConfig, timingPlan: timingPlan, globalVolumeState: context.globalVolumeState,
-                        channelState: &channelState, events: &context.events, eventMappings: &context.eventMappings,
-                        retriggerEffects: &context.retriggerEffects, eventCoverage: &context.eventCoverage,
-                        allowScheduling: false)
+                if isRxyMultiRetriggerEffect(cell) {
+                    handleRxyTick(cell: cell, source: source, channelIndex: channelIndex,
+                        syntheticRow: syntheticRow, tick: 0, song: song, timingConfig: timingConfig,
+                        timingPlan: timingPlan, state: &channelState, context: &context)
                 }
                 if isE90 {
                     context.retriggerEffects.append(e90Diagnostic(cell: cell, source: source,
@@ -979,7 +974,7 @@ enum PlaybackSongSyntheticAdapter {
             let extendedSubcommand = cell.effectType == 0x0E ? ((cell.effectParam >> 4) & 0x0F) : nil
             let hasNoteCutEffect = extendedSubcommand == 0x0C
             let hasNoteDelayEffect = extendedSubcommand == 0x0D
-            let hasRetriggerEffect = isRetriggerEffect(cell) && !isE90
+            let hasRetriggerEffect = isE9xRetriggerEffect(cell) && !isE90
             let hasSetFinetuneEffect = extendedSubcommand == 0x05
             let hasFinePortamentoUpEffect = extendedSubcommand == 0x01
             let hasFinePortamentoDownEffect = extendedSubcommand == 0x02
@@ -988,7 +983,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasArpeggio = isArpeggioEffect(cell)
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
             let hasTonePortamento = isTonePortamentoEffect(cell)
-            let hasVibrato = isVibratoEffect(cell) || (0xB0...0xBF).contains(cell.volumeColumn)
+            let hasVibrato = isVibratoEffect(cell) || ((0xB0...0xBF).contains(cell.volumeColumn) && !isRxyMultiRetriggerEffect(cell))
             let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
             let hasKxxKeyOff = isKxxKeyOffEffect(cell)
             let hasLxxSetEnvelopePosition = isLxxSetEnvelopePositionEffect(cell)
@@ -1286,7 +1281,8 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &channelState,
-                    volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil
+                    volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil,
+                    executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil
                 )
                 context.tonePortamentoEffects.append(diagnostic)
                 if let noteDelay {
@@ -2064,7 +2060,8 @@ enum PlaybackSongSyntheticAdapter {
                     instrumentDefaultVolumeApplied: tonePortamentoInstrumentDefaultVolumeApplied,
                     sampleSelectedBefore: tonePortamentoInstrumentStateBefore?.activeSampleIndex,
                     sampleSelectedAfter: sample.sampleIndex,
-                    volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil
+                    volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil,
+                    executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil
                 )
                 context.tonePortamentoEffects.append(diagnostic)
                 if let noteDelay {
@@ -2448,6 +2445,39 @@ enum PlaybackSongSyntheticAdapter {
             let cell = row.cells[channelIndex]
             let columnSlide = isOrdinaryVolumeColumnSlide(cell.volumeColumn)
                 ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
+            if isRxyMultiRetriggerEffect(cell) {
+                // Only this R row needs interleaved column/retrigger invocations.
+                // Tick zero already ran on the channel's ordinary row-entry path.
+                let index = context.retriggerEffects.lastIndex {
+                    $0.syntheticRow == syntheticRow && $0.channelIndex == channelIndex
+                }!
+                var state = context.channelStates[channelIndex]
+                for tick in 1..<max(1, timingConfig.speed) {
+                    context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell,
+                        source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick,
+                        rowSpeed: timingConfig.speed, timingPlan: timingPlan, state: &state,
+                        globalVolume: context.globalVolumeState.volumeValue))
+                    if (0xB0...0xBF).contains(cell.volumeColumn) {
+                        context.vibratoEffects.append(handleVibrato(from: cell, source: source, channelIndex: channelIndex,
+                            syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
+                            channelState: &state, executionTicks: tick..<(tick + 1)))
+                    }
+                    if cell.volumeColumn >> 4 == 0x0F {
+                        let continuation = PlaybackCell(note: 0, instrument: 0, volumeColumn: cell.volumeColumn,
+                            effectType: cell.effectType, effectParam: cell.effectParam)
+                        context.tonePortamentoEffects.append(handleTonePortamento(from: continuation, source: source,
+                            channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,
+                            timingPlan: timingPlan, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                            channelState: &state, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
+                            executionTicks: tick..<(tick + 1)))
+                    }
+                    handleRxyTick(cell: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                        tick: tick, song: song, timingConfig: timingConfig, timingPlan: timingPlan,
+                        state: &state, context: &context, diagnosticIndex: index)
+                }
+                context.channelStates[channelIndex] = state
+                continue
+            }
             if columnSlide != nil {
                 if cell.effectType == 0x0A || cell.effectType == 0x05 {
                     context.voiceStateUpdates.append(contentsOf: applyEffectColumnVolumeSlide(

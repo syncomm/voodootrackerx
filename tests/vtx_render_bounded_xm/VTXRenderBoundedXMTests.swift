@@ -2197,7 +2197,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
@@ -2222,7 +2222,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["rxy_multi_retrigger_no_op_effect_memory_deferred_count"] as? Int, 0)
         XCTAssertEqual(render["rxy_multi_retrigger_out_of_row_no_op_count"] as? Int, 0)
         XCTAssertEqual(render["rxy_multi_retrigger_scheduled_retrigger_count"] as? Int, 2)
-        XCTAssertEqual(render["rxy_multi_retrigger_volume_change_count"] as? Int, 2)
+        XCTAssertEqual(render["rxy_multi_retrigger_volume_change_count"] as? Int, 0)
         XCTAssertEqual(firstCoordinates.first?["effect_param"] as? Int, 0xA2)
         XCTAssertEqual(firstCoordinates.first?["volume_mode_nibble"] as? Int, 10)
         XCTAssertEqual(firstCoordinates.first?["interval_nibble"] as? Int, 2)
@@ -2232,14 +2232,14 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(first["volume_mode_nibble"] as? Int, 10)
         XCTAssertEqual(first["interval_nibble"] as? Int, 2)
         XCTAssertEqual(first["volume_change_policy"] as? String, "xm_common_multi_retrigger_volume_table_first_pass")
-        XCTAssertEqual(first["volume_values_before"] as? [Int], [32, 34])
-        XCTAssertEqual(first["volume_values_after"] as? [Int], [34, 36])
-        XCTAssertEqual(first["volume_change_count"] as? Int, 2)
+        XCTAssertEqual(first["volume_values_before"] as? [Int], [32, 32])
+        XCTAssertEqual(first["volume_values_after"] as? [Int], [32, 32])
+        XCTAssertEqual(first["volume_change_count"] as? Int, 0)
         XCTAssertEqual(first["retrigger_count"] as? Int, 2)
         XCTAssertEqual(first["scheduled_retrigger_frames"] as? [Int], [2, 4])
     }
 
-    func testDiagnosticsJSONReportsRxyOutOfRowNoOpSeparately() throws {
+    func testDiagnosticsJSONReportsRxyCounterPendingSeparately() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,
             sampleIndex: 0,
@@ -2256,7 +2256,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
@@ -2278,10 +2278,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["rxy_multi_retrigger_applied_count"] as? Int, 0)
         XCTAssertEqual(render["rxy_multi_retrigger_no_active_voice_count"] as? Int, 0)
         XCTAssertEqual(render["rxy_multi_retrigger_no_op_effect_memory_deferred_count"] as? Int, 0)
-        XCTAssertEqual(render["rxy_multi_retrigger_out_of_row_no_op_count"] as? Int, 1)
+        XCTAssertEqual(render["rxy_multi_retrigger_out_of_row_no_op_count"] as? Int, 0)
         XCTAssertEqual(render["rxy_multi_retrigger_scheduled_retrigger_count"] as? Int, 0)
         XCTAssertEqual(render["rxy_multi_retrigger_volume_change_count"] as? Int, 0)
-        XCTAssertEqual(first["status"] as? String, "out_of_row_no_op")
+        XCTAssertEqual(first["status"] as? String, "rxy_counter_pending")
         XCTAssertEqual(first["volume_mode_nibble"] as? Int, 4)
         XCTAssertEqual(first["interval_nibble"] as? Int, 2)
     }

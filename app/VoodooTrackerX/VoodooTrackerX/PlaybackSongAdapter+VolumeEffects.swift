@@ -112,6 +112,8 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func resetTremoloTriggerPhases(state: inout ChannelState) {
+        // triggerInstrument resets the R counter, independently of its nibble memories.
+        state.rRetriggerCounter = 0
         if state.tremolo.control & 4 == 0 { state.tremolo.phase = 0 }
         if state.tremoloVibratoControl & 4 == 0 { state.tremoloVibratoPhase = 0 }
         // The same existing instrument-trigger gate owns pitch-phase resets.

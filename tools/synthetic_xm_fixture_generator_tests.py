@@ -41,6 +41,7 @@ ALL_FIXTURES = [
     "fine-pitch-directional-memory.xm",
     "extra-fine-pitch-directional-memory.xm",
     "e90-row-entry-retrigger.xm",
+    "rxy-counter-timing-carry.xm",
 ]
 
 
@@ -584,6 +585,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "fine-pitch-directional-memory.xm").resolve(),
                     (output_dir / "generated" / "extra-fine-pitch-directional-memory.xm").resolve(),
                     (output_dir / "generated" / "e90-row-entry-retrigger.xm").resolve(),
+                    (output_dir / "generated" / "rxy-counter-timing-carry.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -613,6 +615,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/note-only-routing.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
+                    "generated/rxy-counter-timing-carry.xm",
                     "generated/tremolo-effects.xm",
                     "generated/vibrato-empty-route-state.xm",
                     "generated/vibrato-semantics.xm",
@@ -701,6 +704,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/note-only-routing.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
+                    "generated/rxy-counter-timing-carry.xm",
                     "generated/tremolo-effects.xm",
                     "generated/vibrato-empty-route-state.xm",
                     "generated/vibrato-semantics.xm",
@@ -786,6 +790,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:fine-pitch-directional-memory.xm": "generated/fine-pitch-directional-memory.xm",
                     "xm:extra-fine-pitch-directional-memory.xm": "generated/extra-fine-pitch-directional-memory.xm",
                     "xm:e90-row-entry-retrigger.xm": "generated/e90-row-entry-retrigger.xm",
+                    "xm:rxy-counter-timing-carry.xm": "generated/rxy-counter-timing-carry.xm",
                 },
             )
 

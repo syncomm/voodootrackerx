@@ -1769,7 +1769,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x1B, effectParam: 0xA2),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -1781,7 +1781,7 @@ final class RuntimeCMixerTests: XCTestCase {
 
         XCTAssertTrue(plan.generated)
         XCTAssertTrue(plan.categories.contains("rxy_multi_retrigger"))
-        XCTAssertEqual(rxyTriggers.map(\.syntheticTick), [0, 2, 4])
+        XCTAssertEqual(rxyTriggers.map(\.syntheticTick), [0, 1, 3, 5])
         XCTAssertTrue(rxyTriggers.allSatisfy { $0.categories.contains("retrigger") })
         XCTAssertTrue(rxyTriggers.allSatisfy { $0.effectType == 0x1B })
         XCTAssertTrue(rxyTriggers.allSatisfy { $0.effectParam == 0xA2 })
@@ -4608,7 +4608,7 @@ final class RuntimeCMixerTests: XCTestCase {
             ([[seed, seed]] + Array(repeating: [replay, replay], count: 5), Array(repeating: [seed, seed], count: 6))
         }
         let cold: [[UInt8]] = [[0x90, 0], [0, 0x90], [0x90, 0x90], [0, 0], [0x90, 0], [0, 0]]
-        for (parameters, explicitParameters) in [(mixedParameters, mixedExplicit)] + seeded + [(cold, Array(repeating: [0, 0], count: 6))] {
+        for (parameters, explicitParameters) in [(mixedParameters, mixedExplicit)] + seeded + [(cold, [[0x90, 0], [0x90, 0x90], [0x90, 0x90], [0x90, 0x90], [0x90, 0x90], [0x90, 0x90]])] {
             let rows = parameters.enumerated().map { row, values in
                 PlaybackRow(index: row, cells: values.enumerated().map { channel, parameter in
                     let note = (row == 0 && channel == 1) || (row == 2 && channel == 0)
@@ -4617,7 +4617,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 })
             }
             let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: rows],
-                instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+                instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 6, bpm: 125))
             // The explicit control isolates memory replay from existing source-retirement behavior.
             let explicitRows = rows.enumerated().map { row, original in
                 PlaybackRow(index: row, cells: original.cells.enumerated().map { channel, cell in
@@ -4658,7 +4658,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     XCTAssertEqual(windowed.block.interleavedPCM, explicitWindow.block.interleavedPCM)
                 }
                 XCTAssertTrue(offline.diagnostics.retriggerEffects.filter { $0.retriggerIntervalTicks == 0 }.allSatisfy {
-                    $0.status == .rxyZeroIntervalDeferredToG21 && $0.retriggerFrames.isEmpty && $0.volumeValuesAfter.isEmpty
+                    !$0.deferred && $0.invocations.allSatisfy { !$0.gated && $0.fired }
                 })
                 let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
                     outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
@@ -4666,7 +4666,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 let explicitCore = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
                     outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
                 explicitCore.configureAdapterEventScheduleForTesting(explicit.events, runtimeFrameOffset: 0)
-                // Existing runtime retirement ramps differ from offline retrigger cuts. G20 must
+                // Existing runtime retirement ramps differ from offline retrigger cuts. G21 must
                 // preserve replay/explicit PCM in each path, rather than claim universal path parity.
                 var frame = 0, applied = [RuntimeCMixerAppliedAdapterEventDiagnostic](), explicitApplied = applied
                 while frame < end {
@@ -4683,11 +4683,104 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertTrue(explicitApplied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
                 XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
-                if parameters.joined().allSatisfy({ $0 & 15 == 0 }) {
-                    XCTAssertEqual(runtime.plan?.pattern.events.count, 2) // Only the two ordinary notes.
-                    XCTAssertEqual(core.snapshot().rampDownStartCount, 0)
+            }
+        }
+    }
+
+    @MainActor
+    func testRxySemanticCarryMatchesRuntimeDeliveryOutsideExistingRetirementWindows() throws {
+        let fixture = try referenceXMFixtureURL("generated/rxy-counter-timing-carry.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        for rate in [44_100.0, 48_000] {
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+            let request = PlaybackSongOfflineRenderRequest(song: song, orderCount: song.orders.count, config: config, frames: end)
+            let renderer = PlaybackSongOfflineRenderer(), offline = renderer.render(request)
+            XCTAssertEqual(runtime.plan, offline.plan)
+            for rows in [1, 2, 3, 5] {
+                let window = renderer.renderWindowed(request, windowRows: rows)
+                XCTAssertEqual(window.plan, offline.plan)
+                assertFixturePCMEqual(window.block.interleavedPCM, offline.block.interleavedPCM[...])
+            }
+            // Only explicit retrigger cuts retain the established runtime 32-frame retirement tail.
+            let retirementFrames = Set(offline.diagnostics.retriggerEffects.flatMap {
+                $0.replacementFrames ?? Array($0.retriggerFrames.prefix($0.replacedEventIndices.count))
+            })
+            XCTAssertFalse(retirementFrames.isEmpty)
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: rate)
+            harness.engine.load(song: song); harness.engine.play(from: nil)
+            defer { harness.engine.stop() }
+            var rendered = 0, outsideMaximum: Float = 0, insideMaximum: Float = 0
+            var applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            while rendered < end {
+                let count = min(4093, end - rendered), pcm = renderRuntimePCM(core, frames: min(4093, end - rendered))
+                assertFixturePCMEqual(harness.audioEngine.renderForTesting(frameCount: count), pcm[...])
+                applied += core.drainAppliedAdapterEventDiagnostics()
+                for offset in 0..<count {
+                    let frame = rendered + offset
+                    let difference = abs(pcm[offset] - offline.block.interleavedPCM[frame])
+                    if (0..<32).contains(where: { retirementFrames.contains(frame - $0) }) {
+                        insideMaximum = max(insideMaximum, difference)
+                    } else { outsideMaximum = max(outsideMaximum, difference) }
+                }
+                rendered += count
+            }
+            XCTAssertGreaterThan(insideMaximum, 1e-7)
+            XCTAssertLessThanOrEqual(outsideMaximum, 1e-7, "New PCM difference outside retirement windows at \(rate)")
+            XCTAssertEqual(core.snapshot().abruptRampDownStopCount, 0)
+            XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 && $0.appliedFrame == UInt64($0.event.scheduledFrame) })
+            for event in runtime.events where event.scheduledFrame < end {
+                switch event.action {
+                case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut:
+                    let delivered = try XCTUnwrap(harness.traceWriter.events.first { $0.plannedEventID == event.id && $0.eventAppliedFrame != nil })
+                    XCTAssertEqual(delivered.plannedVsAppliedDelta, 0)
+                    XCTAssertEqual(delivered.eventAppliedFrame, UInt64(event.scheduledFrame))
+                default: break
                 }
             }
+        }
+    }
+
+    func testRxyRetirementMismatchSignatureMatchesUnchangedE9AtBothRates() throws {
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+            pcm: (0..<257).map { Float($0) / 4096 - 1 / 32 }, volume: 0.5,
+            relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 257, loopType: 1)
+        for rate in [44_100.0, 48_000] {
+            var offlineControls = [[Float]](), runtimeControls = [[Float]]()
+            for (command, parameter): (UInt8, UInt8) in [(27, 3), (14, 0x92)] {
+                let rows = (0..<5).map { row in makePlaybackRow(index: row, note: row == 0 ? 49 : 0,
+                    instrument: row == 0 ? 1 : 0, effectType: row == 0 ? 0 : command, effectParam: row == 0 ? 0 : parameter) }
+                let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: rows],
+                    instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+                    initialTiming: .init(speed: 3, bpm: 125))
+                let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                let end = try XCTUnwrap(runtime.plannedSongEndFrame)
+                let offline = PlaybackSongOfflineRenderer().render(.init(song: song, config: config, frames: end))
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float]()
+                while pcm.count < end { pcm += renderRuntimePCM(core, frames: min(4093, end - pcm.count)) }
+                offlineControls.append(offline.block.interleavedPCM); runtimeControls.append(pcm)
+                let starts = offline.diagnostics.retriggerEffects.flatMap(\.retriggerFrames)
+                let differences = zip(pcm, offline.block.interleavedPCM).map { abs($0 - $1) }
+                XCTAssertGreaterThan(differences.max() ?? 0, 1e-7)
+                XCTAssertTrue(differences.enumerated().allSatisfy { frame, difference in
+                    difference <= 1e-7 || starts.contains { (0..<32).contains(frame - $0) }
+                })
+                XCTAssertEqual(core.snapshot().rampDownStartCount, 4)
+                XCTAssertEqual(core.snapshot().rampDownCompletionCount, 4)
+                XCTAssertEqual(core.snapshot().abruptRampDownStopCount, 0)
+            }
+            // Identical per-path PCM pins the complete existing retirement shape, not just its bound.
+            XCTAssertEqual(offlineControls[0], offlineControls[1])
+            XCTAssertEqual(runtimeControls[0], runtimeControls[1])
         }
     }
 

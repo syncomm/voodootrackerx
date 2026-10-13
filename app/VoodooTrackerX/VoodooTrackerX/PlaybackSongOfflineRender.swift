@@ -2234,7 +2234,7 @@ final class PlaybackSongOfflineRenderer {
         includedEventIndices: Set<Int>? = nil
     ) {
         for retrigger in retriggers where retrigger.applied {
-            for (eventIndex, scheduledFrame) in zip(retrigger.replacedEventIndices, retrigger.retriggerFrames) {
+            for (eventIndex, scheduledFrame) in zip(retrigger.replacedEventIndices, retrigger.replacementFrames ?? retrigger.retriggerFrames) {
                 guard includesEvent(eventIndex, includedEventIndices: includedEventIndices),
                       let voiceIndex = voiceIndexByEventIndex[eventIndex] else {
                     continue
@@ -2759,7 +2759,7 @@ final class PlaybackSongOfflineRenderer {
             guard retrigger.applied else {
                 return false
             }
-            return zip(retrigger.replacedEventIndices, retrigger.retriggerFrames).contains { replacedEventIndex, frame in
+            return zip(retrigger.replacedEventIndices, retrigger.replacementFrames ?? retrigger.retriggerFrames).contains { replacedEventIndex, frame in
                 replacedEventIndex == eventIndex && frame < boundaryFrame
             }
         }
@@ -2774,7 +2774,7 @@ final class PlaybackSongOfflineRenderer {
             guard retrigger.applied else {
                 return false
             }
-            return zip(retrigger.replacedEventIndices, retrigger.retriggerFrames).contains { replacedEventIndex, frame in
+            return zip(retrigger.replacedEventIndices, retrigger.replacementFrames ?? retrigger.retriggerFrames).contains { replacedEventIndex, frame in
                 replacedEventIndex == eventIndex && frame <= boundaryFrame
             }
         }
@@ -2982,7 +2982,7 @@ final class PlaybackSongOfflineRenderer {
             for route in plan.xmEmptyRoutes { cut(route.stoppedEventIndex, at: route.scheduledFrame) }
             for x in d.noteCutEffects where x.applied { cut(x.activeEventIndex, at: x.scheduledFrame ?? Int.max) }
             for x in d.retriggerEffects where x.applied {
-                for (source, frame) in zip(x.replacedEventIndices, x.retriggerFrames) { cut(source, at: frame) }
+                for (source, frame) in zip(x.replacedEventIndices, x.replacementFrames ?? x.retriggerFrames) { cut(source, at: frame) }
             }
             let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
             var entries = [Entry](), segments = [Segment]()
@@ -3743,7 +3743,7 @@ final class PlaybackSongOfflineRenderer {
             append(.noteCut, diagnosticIndex: diagnosticIndex, eventIndex: activeEventIndex, frame: scheduledFrame)
         }
         for (diagnosticIndex, diagnostic) in plan.diagnostics.retriggerEffects.enumerated() where diagnostic.applied {
-            for (childIndex, pair) in zip(diagnostic.replacedEventIndices, diagnostic.retriggerFrames).enumerated() {
+            for (childIndex, pair) in zip(diagnostic.replacedEventIndices, diagnostic.replacementFrames ?? diagnostic.retriggerFrames).enumerated() {
                 let (activeEventIndex, scheduledFrame) = pair
                 append(.retriggerCut, diagnosticIndex: diagnosticIndex, childIndex: childIndex, eventIndex: activeEventIndex, frame: scheduledFrame)
             }

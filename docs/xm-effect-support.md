@@ -159,17 +159,22 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Kxx` | Key off | Implemented | Partial | None | Not applicable | Canonical-tick release, retained source and integer fadeout exist. No-envelope release zeros base/output except instrument-only K00 volume restoration. Note-97/K00/instrument/volume precedence remains G24. |
 | `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Existing volume positioning is preserved. Bounded G07 pan positioning is closed under the sounding instrument's raw volume-sustain flag, including disabled volume envelopes and silent-channel clocks. G31, G40 and pan-sustain/release differences remain open. |
 | `Pxy` | Panning slide | Deferred | Open | Own byte; pinned `P00` replays it | Not applicable | Real FT2/XM v1 target G33. Legacy handler support is not C-adapter support; remaining timing/writer/pan-envelope interactions need characterization. |
-| `Rxy` | Multi retrigger | Implemented | Closed G20 memory / G21 counter and carry | Independent zero-initialized interval/mode bytes and persistent counter | Not applicable | Memory resolves before invocation gating. Eligible ticks increment the counter; reaching the interval resets it and restarts the exact retained route at cursor zero, carrying semantic state. Interval zero executes every eligible tick. Only fully uninitialized volume bookkeeping is excluded as C. Exact integer arithmetic remains G22. |
+| `Rxy` | Multi retrigger | Implemented | Closed G20 memory / G21 counter and carry / G22 integer volume modes | Independent zero-initialized interval/mode bytes and persistent counter | Not applicable | Memory resolves before invocation gating. Eligible ticks increment the counter; reaching the interval resets it and restarts the exact retained route at cursor zero, carrying semantic state. Interval zero executes every eligible tick. Volume modes use exact pinned FT2 integer arithmetic over 0...64. Only fully uninitialized volume bookkeeping is excluded as C; retirement reconstruction debt remains separate. |
 | `Txy` | Tremor | Deferred | Open | Own byte; pinned `T00` replays it | Not applicable | Real FT2/XM v1 target G34. Counter/phase, cold state, trigger carry and volume-writer interactions still need characterization. |
 | `X1x` / `X2x` | Extra fine portamento | Implemented | Closed G18 Linear replay and cold restoration | Own independent per-channel up/down amount/origin | Linear | Tick-zero `x` units; seeded X10/X20 replay their direction. Cold forms restore meaningful canonical pitch without provenance; converged/ineligible C writes are suppressed. Amiga remains G29. |
 | `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug commands | Extension | Outside v1 | Not applicable | Not applicable | No runtime/offline support. Extension/hack families require a separately accepted compatibility target. |
 | `Vxx`, `Wxx` | High-byte diagnostic unknowns | Classification-only | Outside v1 | None in pinned FT2 | Not applicable | Unused/dummy in pinned FT2 dispatch. Diagnostic occurrence does not establish an FT2 effect or identify an extension. |
 
-`Rxy` volume mode handling currently follows common XM behavior: modes `1...5`
-subtract `1, 2, 4, 8, 16`, modes `6...7` scale by `2/3` and `1/2`, mode `8`
-is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
-`3/2` and `2`. The result is clamped to `0...64`. This is current VTX policy,
-not exact FT2 arithmetic: G22's mode-6 control gives FT2 22 versus VTX 21 from 32.
+`Rxy` volume modes use exact pinned FT2 integer arithmetic over `0...64`.
+Modes `0` and `8` preserve volume; `1...5` subtract `1, 2, 4, 8, 16` and
+`9...D` add the same constants. Mode `6` sums `v/2 + v/8 + v/16`, truncating
+each division independently; mode `7` is `v/2`, mode `E` is `(3*v)/2`, and
+mode `F` is `2*v`. Clamp the result to `0...64`. Mode 6 therefore gives
+32→22→14→8→5→2→1→0, rather than a common-XM two-thirds approximation.
+All 1,040 mode/input pairs and repeated scaling sequences are independently
+pinned in `RxyVolumeArithmeticTests`. The pure helper changes numeric results
+only; G20 memory, G21 execution/source carry and the narrow C exclusion remain
+unchanged.
 
 ## Zero forms and reference boundaries
 
@@ -278,7 +283,8 @@ source-less, empty, completed or released channels. Public
 `rxy-counter-timing-carry.xm`, focused tests and both-rate runtime/window controls
 cover G21. Replay matches explicit-equivalent commands within each render path;
 PCM differences between runtime and offline stay inside the unchanged 32-frame
-retirement windows. G22's arithmetic table and its known differences remain open.
+retirement windows. G22 closes integer volume arithmetic independently of that
+unchanged retirement policy.
 
 P00 and T00 use their own whole-byte memories in the
 [pinned handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2106-L2161).
@@ -509,7 +515,7 @@ support alone does not close these domains:
   and G17/G18 Linear fine/extra-fine memory/restoration are closed.
   G29 Amiga fine/extra-fine and G28 Amiga combined semantics remain open.
   Rxy nibble memory, persistent counter, interval-zero/tick-zero dispatch and
-  semantic carry are closed under G20/G21; exact volume arithmetic remains G22.
+  semantic carry and exact integer volume arithmetic are closed under G20–G22.
   ED delayed note/instrument/default interactions and
   note-97/K00/instrument/volume precedence remain G23–G24.
 - **Traversal:** EEx is a dedicated timing contract (G35). Bxx/Dxx/E6x

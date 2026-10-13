@@ -5646,15 +5646,15 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(retrigger.volumeValuesBefore, [32, 32])
         XCTAssertEqual(retrigger.volumeValuesAfter, [32, 32])
         XCTAssertEqual(retrigger.volumeChangeCount, 0)
-        XCTAssertEqual(retrigger.volumeChangePolicy, "xm_common_multi_retrigger_volume_table_first_pass")
+        XCTAssertEqual(retrigger.volumeChangePolicy, "ft2_exact_integer_multi_retrigger_volume")
     }
 
-    func testPlaybackSongAdapterRetriggerRxyCommonVolumeModeTableIsDeterministic() {
+    func testPlaybackSongAdapterRetriggerRxyExactIntegerVolumeModesAreDeterministic() {
         let adjusted = (0...15).map {
             PlaybackSongSyntheticAdapter.retriggerVolumeAdjustment(modeNibble: $0, currentVolume: 32).volumeAfter
         }
 
-        XCTAssertEqual(adjusted, [32, 31, 30, 28, 24, 16, 21, 16, 32, 33, 34, 36, 40, 48, 48, 64])
+        XCTAssertEqual(adjusted, [32, 31, 30, 28, 24, 16, 22, 16, 32, 33, 34, 36, 40, 48, 48, 64])
     }
 
     func testPlaybackSongAdapterRetriggerRxyWindowedAndSplitRendersRemainDeterministic() throws {

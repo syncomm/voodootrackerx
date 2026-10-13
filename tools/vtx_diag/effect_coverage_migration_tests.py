@@ -70,6 +70,9 @@ def synthetic_offline_diagnostics() -> dict[str, object]:
     """Extend the established synthetic diagnostics with traversal and volume-portamento rows."""
 
     diagnostics = synthetic_effect_coverage_diagnostics()
+    diagnostics["retrigger_effects"] = [dict(effect_type=27, effect_param=parameter, status="applied",
+        applied=True, channel_index=0, source=dict(order=0, pattern=0, row=row))
+        for row, parameter in enumerate([0x93, 0])]
     diagnostics["pattern_traversal_timing_effects"].append(
         {
             "source": {"order": 1, "pattern": 3, "row": 21},

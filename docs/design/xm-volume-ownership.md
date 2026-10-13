@@ -426,7 +426,9 @@ all tremolo update states. This is not a waveform-identical rendering claim:
   output; instrument-only K00 follows the cached-default/release ordering above.
 - Cold `A00` restoration is closed under G14 below. G16 closes directional
   `EA0`/`EB0` replay and cold tick-zero base-to-output publication without memory
-  provenance; equal held targets deduplicate. `R00` remains deferred.
+  provenance; equal held targets deduplicate. G20–G22 close `R00` nibble replay,
+  persistent counter execution and exact integer volume arithmetic under the
+  [bounded Rxy contract](../xm-effect-support.md#zero-forms-and-reference-boundaries).
   G09 closes column panning-slide timing;
   G12 closes nonzero Hxy timing and channel-turn publication; G13 closes H00
   memory with the cold artifact excluded below.

@@ -132,7 +132,35 @@ releases without resetting envelopes, modulation phases or fadeout. Its volume
 restoration wins the no-envelope release's usual zero-volume write; the shared
 quick-volume publication uses 5 ms. Volume-column portamento retains its K00
 precedence and ordinary reset. K01 resets at tick zero, then releases at tick
-one. Delayed instrument-only ED1...EDF remains deferred.
+one. Instrument-only ED0 uses this same immediate reset without a source start.
+
+### Delayed instrument-only ED1...EDF (G23)
+
+Nonzero instrument-only delay selects the valid carried instrument at row entry
+while retaining the prior note, source, headers, volume/pan and instrument clocks.
+At tick x, the retained note resolves through the selected instrument's exact
+96-note map. Represented PCM starts one new cursor-zero generation under the
+existing replacement policy. Prior 9xx/900 memory survives but supplies no offset.
+That selection refreshes cached headers, restores base/output volume and static
+pan, and resets envelopes, key/fadeout and the phases permitted by prior E4/E7.
+Effect memories survive; the same instrument-trigger authority resets R's counter.
+
+Explicit column set-volume/set-pan commands execute after the delayed reset;
+they do not execute early. Ordinary column slides run before dispatch on each
+nonzero tick and continue from the restored state afterward. Fine column 8x/9x
+and Ax tick-zero writes are skipped, without replay at the delay. Bx and existing
+portamento continuation keep their nonzero dispatch; Fx cannot seed speed at
+skipped tick zero. ED0 remains a separate ordinary immediate instrument-only reset.
+
+A declared empty route consumes its real header defaults and resets channel
+semantics while retiring the prior source at tick x, without creating PCM/voice.
+An unavailable route clears channel defaults without inventing a header or fallback.
+A cold channel with no retained note restores its existing cold cache at tick x
+and invents no note; later note-only routing observes the selected owner and
+silent volume. Completed and released sources can restart from retained identity.
+An out-of-row delay keeps owner selection but performs no delayed reset/start.
+Invalid instrument fields retain the existing rejection policy. G24, onset,
+replacement/retirement debt and full FT2 output parity remain separate.
 
 `instrument-only-volume-semantics.xm` and direct/runtime tests cover this
 contract. G06 pan-envelope targets reuse that reset; ECx quick-volume parity and

@@ -42,6 +42,7 @@ ALL_FIXTURES = [
     "extra-fine-pitch-directional-memory.xm",
     "e90-row-entry-retrigger.xm",
     "rxy-counter-timing-carry.xm",
+    "delayed-instrument-only-edx.xm",
 ]
 
 
@@ -586,6 +587,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "extra-fine-pitch-directional-memory.xm").resolve(),
                     (output_dir / "generated" / "e90-row-entry-retrigger.xm").resolve(),
                     (output_dir / "generated" / "rxy-counter-timing-carry.xm").resolve(),
+                    (output_dir / "generated" / "delayed-instrument-only-edx.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -596,6 +598,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/cold-500-local-publication.xm",
                     "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
+                    "generated/delayed-instrument-only-edx.xm",
                     "generated/e90-row-entry-retrigger.xm",
                     "generated/effect-memory.xm",
                     "generated/empty-slot-playback-state.xm",
@@ -685,6 +688,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/cold-500-local-publication.xm",
                     "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
+                    "generated/delayed-instrument-only-edx.xm",
                     "generated/e90-row-entry-retrigger.xm",
                     "generated/effect-memory.xm",
                     "generated/empty-slot-playback-state.xm",
@@ -791,6 +795,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:extra-fine-pitch-directional-memory.xm": "generated/extra-fine-pitch-directional-memory.xm",
                     "xm:e90-row-entry-retrigger.xm": "generated/e90-row-entry-retrigger.xm",
                     "xm:rxy-counter-timing-carry.xm": "generated/rxy-counter-timing-carry.xm",
+                    "xm:delayed-instrument-only-edx.xm": "generated/delayed-instrument-only-edx.xm",
                 },
             )
 

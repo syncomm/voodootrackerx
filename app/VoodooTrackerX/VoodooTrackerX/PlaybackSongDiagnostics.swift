@@ -959,6 +959,12 @@ struct PlaybackSongSyntheticNoteDelayDiagnostic: Equatable {
         case applied
         case noNoteDeferred
         case outOfRowNoOp
+        case instrumentOnlyStarted
+        case instrumentOnlyUnavailable
+        case instrumentOnlyNoRetainedNote
+        case instrumentOnlyInvalidInstrument
+        case instrumentOnlyOutOfRow
+        case instrumentOnlyImmediate
     }
 
     let source: PlaybackPosition
@@ -979,6 +985,11 @@ struct PlaybackSongSyntheticNoteDelayDiagnostic: Equatable {
     let originalFrame: Int
     let delayedFrame: Int?
     let eventIndex: Int?
+    var rowEntryInstrumentSelected = false
+    var retainedNote: UInt8?
+    var cachedDefaultVolume: Int?
+    var cachedDefaultPan: UInt8?
+    var delayedPanningValue: Double?
 }
 
 struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {

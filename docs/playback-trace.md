@@ -17,6 +17,20 @@ delta, and clamping. Join its source row/tick and scheduled frame with runtime
 have semantic evidence without a changed-gain event. See
 [volume ownership](design/xm-volume-ownership.md#tremolo-output-memory-and-controls).
 
+Nonzero instrument-only G23 diagnostics use the existing `note_delay_effects`
+list. Status distinguishes `instrument_only_delayed_source_started`,
+`instrument_only_delayed_route_unavailable`, `instrument_only_no_retained_note`,
+`instrument_only_invalid_instrument` and `instrument_only_out_of_row`.
+For this nonzero dispatch, `row_entry_instrument_selected` records valid owner
+selection even when the delayed action is out of row; `retained_note`,
+`cached_default_volume`, `cached_default_pan`, `delayed_panning_value`,
+`delayed_frame` and `event_index` describe its delayed outcome. Source-less
+outcomes have no event index. Instrument-only ED0 reports
+`instrument_only_ed0_immediate` without a source start. Ordinary delayed notes
+retain `applied`; the runtime trace schema and event-order keys are unchanged.
+The residual scanner mirrors the delayed instrument's R-counter reset only
+inside the effective row, including cold channels.
+
 ## Enable Trace Export
 
 Trace export is disabled by default. In Debug builds, set

@@ -825,6 +825,20 @@ final class PlaybackSongOfflineRenderer {
     let maximumFrameCount: Int
     // Internal semantic-plan input must match the request range and sample rate.
     private let preparedPlan: PlaybackSongSyntheticPlan?
+#if DEBUG
+    private var verificationFrameBoundaries: [Int]?
+
+    /// Exercises the existing scan-reference continuation path at exact frame splits.
+    func renderWindowedAtFrameBoundariesForTesting(_ request: PlaybackSongOfflineRenderRequest,
+        boundaries: [Int]) -> PlaybackSongOfflineRenderResult {
+        precondition(boundaries.allSatisfy { $0 > 0 && $0 < request.boundedFrameCount })
+        precondition(zip(boundaries, boundaries.dropFirst()).allSatisfy { $0 < $1 })
+        verificationFrameBoundaries = boundaries
+        defer { verificationFrameBoundaries = nil }
+        return renderWindowed(request, windowRows: 1, schedulingSource: .scanPerWindowReference,
+            samplePayloadUploadMode: .preSanitizedBulkCopy, collectPerformanceDiagnostics: false, progress: nil)
+    }
+#endif
 
     init(maximumFrameCount: Int = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount, preparedPlan: PlaybackSongSyntheticPlan? = nil) {
         self.preparedPlan = preparedPlan
@@ -1211,11 +1225,20 @@ final class PlaybackSongOfflineRenderer {
         ).extendingEnvelopeTail(throughFrame: effectiveRequest.boundedFrameCount)
         let totalFrames = effectiveRequest.boundedFrameCount
         let indexBuildStartTime = VTXPerformanceClock.now()
-        let windows = Self.windowSpecs(
+        var windows = Self.windowSpecs(
             for: adaptedPlan,
             totalFrames: totalFrames,
             windowRows: safeWindowRows
         )
+#if DEBUG
+        if let boundaries = verificationFrameBoundaries {
+            let cuts = [0] + boundaries + [totalFrames]
+            windows = zip(cuts, cuts.dropFirst()).enumerated().map { index, pair in
+                RenderWindowSpec(index: index, startRow: 0, endRowExclusive: adaptedPlan.pattern.rowCount,
+                    startFrame: pair.0, endFrame: pair.1)
+            }
+        }
+#endif
         let scheduler = SyntheticTrackerScheduler(config: adaptedPlan.timingConfig)
         var renderedFrames = 0
         var outputConfig = prepareOutput?(totalFrames, effectiveRequest.config) ?? effectiveRequest.config

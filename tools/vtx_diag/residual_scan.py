@@ -688,6 +688,8 @@ def update_rxy_reset_state(module: ModuleData, cell: Cell, state: ChannelState, 
         state.r_counter = None
         return
     if cell.effect_type == 0x0E and 0xD1 <= cell.effect_param <= 0xDF:
+        if valid_instrument and cell.note == 0 and (cell.effect_param & 15) < speed:
+            state.r_counter = 0  # G23 resets the instrument even without a retained source.
         if is_normal_note(cell.note) and (cell.effect_param & 15) < speed:
             state.r_counter = None  # An admitted delayed note resets; its route is unknown.
         return

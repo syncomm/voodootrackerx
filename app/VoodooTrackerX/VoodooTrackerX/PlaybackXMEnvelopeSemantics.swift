@@ -388,6 +388,9 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         let changes = PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan)
         let routesByChannel = Dictionary(grouping: routes, by: \.channelIndex)
         let rowsByChannel = Dictionary(grouping: plan.xmChannelRows, by: \.channelIndex)
+        let instrumentDelays = Dictionary(grouping: plan.diagnostics.noteDelayEffects.filter {
+            $0.rowEntryInstrumentSelected && $0.requestedTick > 0 && $0.applied
+        }, by: \.channelIndex)
         // Build the complete channel index set once, before any route queries.
         let rowHistories = rowsByChannel.mapValues { PlaybackXMChannelHistoryIndex(rows: $0) }
         planningHistoryDiagnostics.indexBuildCount = 1
@@ -406,6 +409,9 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             let change: MixerPlaybackStateChange
         }
         for (channel, channelRoutes) in routesByChannel {
+            let delayedSelections = Dictionary(uniqueKeysWithValues: (instrumentDelays[channel] ?? []).compactMap {
+                delay in delay.delayedFrame.map { ($0, delay) }
+            })
             var previous = CarriedState()
             var hasPrevious = false
             let channelRows = rowsByChannel[channel] ?? []
@@ -458,7 +464,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     resets.contains { $0.scheduledFrame < sourceEnd } || !plan.noteOnlyEventIndices.isEmpty
                 guard publishesToVoice || plan.xmEmptyRoutes.contains(where: { $0.channelIndex == channel }) else { continue }
                 let routeControls = routeRow?.controls
-                var channelPanning = routeControls?.panningValue ?? 128
+                let delayedSelection = delayedSelections[start]
+                var channelPanning = delayedSelection?.delayedPanningValue ?? routeControls?.panningValue ?? 128
                 let carries = route.preservesChannelState
                 var carried = carries ? previous : CarriedState()
                 if carries && !hasPrevious && (index.map { plan.coldReleasedEventIndices.contains($0) }
@@ -503,7 +510,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     // Tick-zero writers keep their row authority; slides supply the exact
                     // stored pan for later publications, carrying the final value into tails.
                     if tick.tick == 0, let value = channelPans[tick.row] { channelPanning = value }
-                    if let value = panSlides[frame] { channelPanning = value }
+                    // A delayed source reset follows this tick's column slide.
+                    if let value = panSlides[frame], !(first && delayedSelection != nil) { channelPanning = value }
                     var resetVolume = first && !carries
                     var resetPan = first && !carries
                     let wasKeyOn = state.keyOn
@@ -570,8 +578,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                         sampleIndex: route.sampleIndex.flatMap(UInt8.init(exactly:)), sourceEventIndex: sourceIndex, source: tick.source,
                         tick: tick.tick, scheduledFrame: frame, bpm: tick.bpm, speed: tick.speed, state: state,
                         carriedInstrumentIndex: carriedInstruments.byRow[tick.row] ?? carriedInstruments.lastCarriedInstrument,
-                        cachedDefaultVolume: routeControls?.triggeredSampleDefaultVolume,
-                        cachedDefaultPan: routeControls?.triggeredSampleDefaultPan, selectionFrame: start))
+                        cachedDefaultVolume: delayedSelection?.cachedDefaultVolume ?? routeControls?.triggeredSampleDefaultVolume,
+                        cachedDefaultPan: delayedSelection?.cachedDefaultPan ?? routeControls?.triggeredSampleDefaultPan, selectionFrame: start))
                     if let index = sourceIndex, publishesToVoice {
                         history.append(PlaybackXMEnvelopeUpdate(eventIndex: index, channelIndex: channel,
                             source: tick.source, tick: tick.tick, scheduledFrame: frame, bpm: tick.bpm,

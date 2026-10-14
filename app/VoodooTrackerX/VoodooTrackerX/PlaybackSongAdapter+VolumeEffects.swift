@@ -35,9 +35,7 @@ extension PlaybackSongSyntheticAdapter {
         resets: inout [PlaybackVoiceStateEvent]
     ) -> MixerPlaybackStateChange? {
         let before = channelState
-        channelState.baseChannelVolume = channelState.triggeredSampleDefaultVolume
-        channelState.volumeValueZeroedByAxy = false
-        channelState.initializePanning(fromSampleHeader: channelState.triggeredSampleDefaultPan)
+        restoreCachedInstrumentDefaults(state: &channelState)
         updates.append(voiceStateUpdateDiagnostic(
             source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
             scheduledFrame: scheduledFrame, cell: cell, commandSource: .instrumentState,
@@ -58,6 +56,25 @@ extension PlaybackSongSyntheticAdapter {
         }
         // The channel timeline consumes this same decision when no source exists.
         return reset
+    }
+
+    /// Restores channel defaults without selecting a source or advancing instrument clocks.
+    static func restoreCachedInstrumentDefaults(state: inout ChannelState) {
+        state.baseChannelVolume = state.triggeredSampleDefaultVolume
+        state.volumeValueZeroedByAxy = false
+        state.initializePanning(fromSampleHeader: state.triggeredSampleDefaultPan)
+    }
+
+    /// Delayed dispatch replays explicit setters after its reset, never tick-zero fine commands.
+    static func resetDelayedInstrument(cell: PlaybackCell, state: inout ChannelState) {
+        restoreCachedInstrumentDefaults(state: &state)
+        resetTremoloTriggerPhases(state: &state)
+        state.keyOffWithoutVoice = false
+        let column = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
+        switch column.command {
+        case .setVolume, .setPanning: _ = applyVolumeColumn(column, to: &state)
+        default: break
+        }
     }
 
     static func prepareTremoloRow(

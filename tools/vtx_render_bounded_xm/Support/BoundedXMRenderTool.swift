@@ -1321,7 +1321,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
     }
 
     private static func noteDelayCoverageJSON(_ diagnostic: PlaybackSongSyntheticNoteDelayDiagnostic) -> [String: Any] {
-        baseEffectCoverageJSON(
+        var object = baseEffectCoverageJSON(
             source: diagnostic.source,
             channelIndex: diagnostic.channelIndex,
             syntheticTick: diagnostic.syntheticTick,
@@ -1332,6 +1332,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
             deferred: diagnostic.deferred,
             ignoredAsNoOp: diagnostic.ignoredAsNoOp
         )
+        object["row_entry_instrument_selected"] = diagnostic.rowEntryInstrumentSelected
+        object["retained_note"] = diagnostic.retainedNote.map { Int($0) as Any } ?? NSNull()
+        return object
     }
 
     private static func retriggerCoverageJSON(_ diagnostic: PlaybackSongSyntheticRetriggerDiagnostic) -> [String: Any] {
@@ -4450,6 +4453,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "scheduled_frame": diagnostic.delayedFrame.map { $0 as Any } ?? NSNull(),
             "absolute_frame": diagnostic.delayedFrame.map { $0 as Any } ?? NSNull(),
             "event_index": diagnostic.eventIndex.map { $0 as Any } ?? NSNull(),
+            "row_entry_instrument_selected": diagnostic.rowEntryInstrumentSelected,
+            "retained_note": diagnostic.retainedNote.map { Int($0) as Any } ?? NSNull(),
+            "cached_default_volume": diagnostic.cachedDefaultVolume.map { $0 as Any } ?? NSNull(),
+            "cached_default_pan": diagnostic.cachedDefaultPan.map { Int($0) as Any } ?? NSNull(),
+            "delayed_panning_value": diagnostic.delayedPanningValue.map { $0 as Any } ?? NSNull(),
         ]
     }
 
@@ -5235,6 +5243,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "no_note_deferred"
         case .outOfRowNoOp:
             return "out_of_row_no_op"
+        case .instrumentOnlyStarted: return "instrument_only_delayed_source_started"
+        case .instrumentOnlyUnavailable: return "instrument_only_delayed_route_unavailable"
+        case .instrumentOnlyNoRetainedNote: return "instrument_only_no_retained_note"
+        case .instrumentOnlyInvalidInstrument: return "instrument_only_invalid_instrument"
+        case .instrumentOnlyOutOfRow: return "instrument_only_out_of_row"
+        case .instrumentOnlyImmediate: return "instrument_only_ed0_immediate"
         }
     }
 

@@ -58,6 +58,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/extra-fine-pitch-directional-memory.xm | \
     tests/reference-xm/generated/e90-row-entry-retrigger.xm | \
     tests/reference-xm/generated/rxy-counter-timing-carry.xm | \
+    tests/reference-xm/generated/delayed-instrument-only-edx.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

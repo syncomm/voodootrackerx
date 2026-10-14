@@ -345,6 +345,7 @@ struct PlaybackSongSyntheticKeyOffDiagnostic: Equatable {
         case releasedSilentChannel
         case noActiveVoice
         case outOfRowNoOp
+        case maskedZeroNoOp
     }
 
     let source: PlaybackPosition

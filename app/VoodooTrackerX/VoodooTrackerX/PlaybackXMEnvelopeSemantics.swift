@@ -468,10 +468,22 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 var channelPanning = delayedSelection?.delayedPanningValue ?? routeControls?.panningValue ?? 128
                 let carries = route.preservesChannelState
                 var carried = carries ? previous : CarriedState()
-                if carries && !hasPrevious && (index.map { plan.coldReleasedEventIndices.contains($0) }
-                    ?? (routeControls?.keyOffWithoutVoice == true)) {
-                    carried.semantic.keyOn = false
-                    carried.semantic.panTick = -1
+                if carries && !hasPrevious {
+                    let coldRelease = (releasesByChannel[channel] ?? []).last { ($0.scheduledFrame ?? Int.max) < start }
+                    if coldRelease != nil || (index.map { plan.coldReleasedEventIndices.contains($0) }
+                        ?? (routeControls?.keyOffWithoutVoice == true)) {
+                        // Before any route there is no initialized curve/decrement. Fold the
+                        // existing reset/release history; K00 must not fabricate unity fadeout.
+                        let immediateReset = rowHistories[channel]?.silentResets(start: 0, stop: start,
+                            work: &planningHistoryDiagnostics).last?.scheduledFrame ?? -1
+                        let delayedReset = (instrumentDelays[channel] ?? []).last {
+                            $0.status == .instrumentOnlyNoRetainedNote && ($0.delayedFrame ?? Int.max) < start
+                        }?.delayedFrame ?? -1
+                        let resetFrame = max(immediateReset, delayedReset)
+                        carried.semantic.fadeoutAccumulator = resetFrame < 0 ? 0 : 32_768
+                        carried.semantic.keyOn = resetFrame > (coldRelease?.scheduledFrame ?? -1)
+                        carried.semantic.panTick = carried.semantic.keyOn ? 0 : -1
+                    }
                 }
                 if carries {
                     if carried.instrument?.volume != instrument.volume { carried.volume.followsCurve = false }

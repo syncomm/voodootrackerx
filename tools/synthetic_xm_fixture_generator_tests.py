@@ -43,6 +43,7 @@ ALL_FIXTURES = [
     "e90-row-entry-retrigger.xm",
     "rxy-counter-timing-carry.xm",
     "delayed-instrument-only-edx.xm",
+    "noteoff-kxx-precedence.xm",
 ]
 
 
@@ -588,6 +589,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "e90-row-entry-retrigger.xm").resolve(),
                     (output_dir / "generated" / "rxy-counter-timing-carry.xm").resolve(),
                     (output_dir / "generated" / "delayed-instrument-only-edx.xm").resolve(),
+                    (output_dir / "generated" / "noteoff-kxx-precedence.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -616,6 +618,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/note-only-routing.xm",
+                    "generated/noteoff-kxx-precedence.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/rxy-counter-timing-carry.xm",
@@ -706,6 +709,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-sustained-defaults.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/note-only-routing.xm",
+                    "generated/noteoff-kxx-precedence.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/rxy-counter-timing-carry.xm",
@@ -796,6 +800,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:e90-row-entry-retrigger.xm": "generated/e90-row-entry-retrigger.xm",
                     "xm:rxy-counter-timing-carry.xm": "generated/rxy-counter-timing-carry.xm",
                     "xm:delayed-instrument-only-edx.xm": "generated/delayed-instrument-only-edx.xm",
+                    "xm:noteoff-kxx-precedence.xm": "generated/noteoff-kxx-precedence.xm",
                 },
             )
 

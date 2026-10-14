@@ -81,6 +81,17 @@ host.
   delays keep the owner without a delayed reset/start; instrument-only ED0
   resets immediately without restarting. Ordinary delayed notes, Rxy and mixer
   ramps are unchanged.
+- G24 note97/raw `K00` selects the carried owner, releases once, restores
+  admitted cached defaults, then applies volume/pan writers. Raw K00 suppresses
+  ordinary starts and skips instrument reset; note97+K00 is one release.
+  Source/cache/envelope ownership and cursor stay unchanged. Nonzero Kxx uses
+  the low five bits after that tick's column writer: K21 releases at tick 1,
+  K20 has no nonzero invocation, and out-of-row releases are omitted while
+  ordinary row-entry resets remain. Cold releases carry key/fadeout into later
+  note-only consumers without a source; channel finalization runs once per tick.
+  The bounded G24 contract, both-rate canonical-host delivery and startup
+  attribution gates are closed. The overall product ≤1 s startup target remains
+  outstanding; G24 does not change startup architecture.
 - Ordinary volume-column `6x/7x` slides update base/output on nonzero ticks of
   the effective Fxx row speed, including silent channel state. Speed 1 has no
   slide; zero amounts restore output without memory. Fine `8x/9x` stay at tick

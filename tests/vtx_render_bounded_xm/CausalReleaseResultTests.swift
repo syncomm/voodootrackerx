@@ -93,35 +93,35 @@ final class CausalReleaseResultTests: XCTestCase {
         }
     }
 
-    func testNote97AndKxxInOneCellPreserveBothDecisionsAndNote97DiagnosticPrecedence() throws {
+    func testRawK00OwnsNote97WhileLaterKxxKeepsItsSeparateRelease() throws {
         for rate in rates {
             for tick: UInt8 in [0, 2] {
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: Self.song([
                     1: Self.cell(note: 97, effect: 0x14, parameter: tick)
                 ]), sampleRate: rate)
                 let plan = try XCTUnwrap(runtime.plan), releases = plan.diagnostics.keyOffEvents
-                XCTAssertEqual(releases.count, 2)
-                XCTAssertEqual(releases.map(\.syntheticTick), [0, Int(tick)])
-                XCTAssertEqual(releases.map(\.effectType), [nil, 0x14])
+                XCTAssertEqual(releases.count, tick == 0 ? 1 : 2)
+                XCTAssertEqual(releases.map(\.syntheticTick), tick == 0 ? [0] : [0, Int(tick)])
+                XCTAssertEqual(releases.map(\.effectType), tick == 0 ? [0x14] : [nil, 0x14])
                 XCTAssertEqual(plan.pattern.events[0].keyOffFrame, releases[0].releaseFrame)
-                XCTAssertEqual(plan.diagnostics.eventMappings[0].volumeEnvelopeSemantics.releaseFrame, releases[1].releaseFrame)
-                XCTAssertEqual(plan.diagnostics.voiceStateUpdates.map(\.effectiveVolumeAfter), [0, 0])
+                XCTAssertEqual(plan.diagnostics.eventMappings[0].volumeEnvelopeSemantics.releaseFrame, releases.last?.releaseFrame)
+                XCTAssertEqual(plan.diagnostics.voiceStateUpdates.map(\.effectiveVolumeAfter), tick == 0 ? [0] : [0, 0])
                 let onset = try XCTUnwrap(runtime.events.first { $0.primaryCategory == "note_trigger" })
                 XCTAssertTrue(onset.categories.contains("key_off"))
-                XCTAssertFalse(onset.categories.contains("kxx_key_off"))
-                XCTAssertNil(onset.effectType)
-                XCTAssertNil(onset.effectParam)
+                XCTAssertEqual(onset.categories.contains("kxx_key_off"), tick == 0)
+                XCTAssertEqual(onset.effectType, tick == 0 ? 0x14 : nil)
+                XCTAssertEqual(onset.effectParam, tick == 0 ? 0 : nil)
             }
         }
     }
 
-    func testSameCellK00ZerosOnsetAndInstrumentOnlyK00RetainsRestoredOrExplicitVolume() throws {
+    func testRawK00SuppressesOnsetAndInstrumentOnlyRetainsRestoredOrExplicitVolume() throws {
         for rate in rates {
             let onset = PlaybackSongSyntheticAdapter.adapt(Self.song([
                 0: Self.cell(note: 49, instrument: 1, volume: 0x30, effect: 0x14)
             ]), orderIndex: 0, sampleRate: rate)
-            XCTAssertEqual(onset.pattern.events[0].gain, 0)
-            XCTAssertEqual(onset.pattern.events[0].keyOffFrame, 0)
+            XCTAssertTrue(onset.pattern.events.isEmpty)
+            XCTAssertEqual(onset.diagnostics.keyOffEvents.first?.reason, .releasedSilentChannel)
             XCTAssertFalse(onset.diagnostics.voiceStateUpdates[0].activeVoiceUpdated)
             for (volume, expected): (UInt8, Int) in [(0, 48), (0x30, 32)] {
                 let plan = PlaybackSongSyntheticAdapter.adapt(Self.song([

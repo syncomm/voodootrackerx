@@ -471,8 +471,14 @@ volume or channel traversal.
 An instrument-only cell with `K00` does not exercise an envelope reset in the
 reference: the envelope retains its position and release/fadeout runs. Do not
 use that cell to infer ordering for an explicitly injected reset plus release,
-or infer note-only behavior from this characterization. The instrument-only
-K00 contract is now documented in the volume-ownership note.
+or infer note-only behavior from this characterization.
+
+G24 extends this release contract to note97+instrument and raw K00 ordinary-note
+suppression. Owner selection → one release → admitted cached restore → writers
+uses the existing output transition; channel finalization runs once. Source-less
+release state is folded into the first route alongside existing immediate/G23
+reset facts. No additional ramp, source, or envelope/fadeout clock is created.
+See the volume-ownership note for exact masked-tick and cold-state rules.
 
 ### Interruption is not an assumed continuity rule
 

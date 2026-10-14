@@ -1076,12 +1076,25 @@ enum PlaybackSongSyntheticAdapter {
             if cell.instrument > 0, song.instrumentsByIndex[Int(cell.instrument)] != nil {
                 channelState.carriedInstrumentIndex = Int(cell.instrument)
             }
-            let restoresInstrumentOnlyDefaults = (cell.note == 0 || (isE90 && cell.note == 97)) && cell.instrument > 0 &&
+            let rawK00 = hasKxxKeyOff && cell.effectParam == 0 && !hasVolumeColumnTonePortamento
+            let restoresInstrumentOnlyDefaults = (cell.note == 0 || cell.note == 97 || rawK00) && cell.instrument > 0 &&
                 song.instrumentsByIndex[Int(cell.instrument)] != nil &&
                 !(hasNoteDelayEffect && cell.effectParam & 15 != 0)
+            // Release before cached defaults and writers; raw K00 owns a simultaneous note97.
+            if cell.note == 97 || rawK00 {
+                handleKeyOff(source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                    syntheticTick: 0, scheduledFrame: scheduledStartFrame, rowSpeed: timingConfig.speed,
+                    rowBPM: timingConfig.bpm, volumeColumn: volumeColumn, cell: cell, channelState: &channelState,
+                    events: &context.events, keyOffEvents: &context.keyOffEvents,
+                    voiceStateUpdates: &context.voiceStateUpdates, globalVolume: context.globalVolumeState.volumeValue,
+                    eventMappings: &context.eventMappings, ignoredCells: &context.ignoredCells,
+                    deferredCellFields: &context.deferredCellFields, eventCoverage: &context.eventCoverage,
+                    effectType: rawK00 ? cell.effectType : nil, effectParam: rawK00 ? cell.effectParam : nil,
+                    instrumentOnlyVolumeRestored: restoresInstrumentOnlyDefaults)
+            }
             if restoresInstrumentOnlyDefaults {
                 if channelState.activeEventIndex == nil {
-                    channelState.keyOffWithoutVoice = hasKxxKeyOff && cell.effectParam == 0 && !hasVolumeColumnTonePortamento
+                    channelState.keyOffWithoutVoice = cell.note == 97 || rawK00
                 }
                 instrumentOnlyReset = restoreInstrumentOnlyDefaults(cell: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
@@ -1316,49 +1329,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = channelState
                 continue
             }
-            if cell.note == 97 || ((1...96).contains(cell.note) && isNoteOnly && hasKxxKeyOff && cell.effectParam == 0) {
-                if cell.note == 97 {
-                    handleKeyOff(
-                        source: source,
-                        channelIndex: channelIndex,
-                        syntheticRow: syntheticRow,
-                        syntheticTick: 0,
-                        scheduledFrame: scheduledStartFrame,
-                        rowSpeed: timingConfig.speed,
-                        rowBPM: timingConfig.bpm,
-                        volumeColumn: volumeColumn,
-                        cell: cell,
-                        channelState: &channelState,
-                        events: &context.events,
-                        keyOffEvents: &context.keyOffEvents,
-                        voiceStateUpdates: &context.voiceStateUpdates,
-                        globalVolume: context.globalVolumeState.volumeValue,
-                        eventMappings: &context.eventMappings,
-                        ignoredCells: &context.ignoredCells,
-                        deferredCellFields: &context.deferredCellFields,
-                        eventCoverage: &context.eventCoverage
-                    )
-                }
-                if hasKxxKeyOff {
-                    handleKxxKeyOff(
-                        from: cell,
-                        source: source,
-                        channelIndex: channelIndex,
-                        syntheticRow: syntheticRow,
-                        timingConfig: timingConfig,
-                        timingPlan: timingPlan,
-                        volumeColumn: volumeColumn,
-                        channelState: &channelState,
-                        events: &context.events,
-                        keyOffEvents: &context.keyOffEvents,
-                        voiceStateUpdates: &context.voiceStateUpdates,
-                        globalVolume: context.globalVolumeState.volumeValue,
-                        eventMappings: &context.eventMappings,
-                        ignoredCells: &context.ignoredCells,
-                        deferredCellFields: &context.deferredCellFields,
-                        eventCoverage: &context.eventCoverage
-                    )
-                }
+            if cell.note == 97 || (hasKxxKeyOff && cell.effectParam == 0 && !hasVolumeColumnTonePortamento) {
                 if hasRetriggerEffect {
                     _ = handleRetrigger(
                         from: cell,
@@ -1469,25 +1440,6 @@ enum PlaybackSongSyntheticAdapter {
                     ))
                 }
                 if hasKxxKeyOff {
-                    handleKxxKeyOff(
-                        from: cell,
-                        source: source,
-                        channelIndex: channelIndex,
-                        syntheticRow: syntheticRow,
-                        timingConfig: timingConfig,
-                        timingPlan: timingPlan,
-                        volumeColumn: volumeColumn,
-                        channelState: &channelState,
-                        events: &context.events,
-                        keyOffEvents: &context.keyOffEvents,
-                        voiceStateUpdates: &context.voiceStateUpdates,
-                        globalVolume: context.globalVolumeState.volumeValue,
-                        eventMappings: &context.eventMappings,
-                        ignoredCells: &context.ignoredCells,
-                        deferredCellFields: &context.deferredCellFields,
-                        eventCoverage: &context.eventCoverage,
-                        instrumentOnlyVolumeRestored: restoresInstrumentOnlyDefaults
-                    )
                     context.channelStates[channelIndex] = channelState
                     continue
                 }
@@ -2430,26 +2382,6 @@ enum PlaybackSongSyntheticAdapter {
                     noteCutEffects: &context.noteCutEffects
                 )
             }
-            if hasKxxKeyOff {
-                handleKxxKeyOff(
-                    from: cell,
-                    source: source,
-                    channelIndex: channelIndex,
-                    syntheticRow: syntheticRow,
-                    timingConfig: timingConfig,
-                    timingPlan: timingPlan,
-                    volumeColumn: volumeColumn,
-                    channelState: &channelState,
-                    events: &context.events,
-                    keyOffEvents: &context.keyOffEvents,
-                    voiceStateUpdates: &context.voiceStateUpdates,
-                    globalVolume: context.globalVolumeState.volumeValue,
-                    eventMappings: &context.eventMappings,
-                    ignoredCells: &context.ignoredCells,
-                    deferredCellFields: &context.deferredCellFields,
-                    eventCoverage: &context.eventCoverage
-                )
-            }
             context.channelStates[channelIndex] = channelState
         }
         // Plan ordinary column slides and 6xy/tremolo after all tick-zero writers.
@@ -2464,6 +2396,31 @@ enum PlaybackSongSyntheticAdapter {
             }
             let columnSlide = isOrdinaryVolumeColumnSlide(cell.volumeColumn)
                 ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
+            if isKxxKeyOffEffect(cell) {
+                var state = context.channelStates[channelIndex]
+                let releaseTick = Int(cell.effectParam & 31)
+                if cell.effectParam != 0 && (releaseTick == 0 || releaseTick >= timingConfig.speed) {
+                    handleKxxKeyOff(from: cell, source: source, channelIndex: channelIndex,
+                        syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
+                        volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
+                        channelState: &state, context: &context)
+                }
+                for tick in 1..<max(1, timingConfig.speed) {
+                    context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell,
+                        source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick,
+                        rowSpeed: timingConfig.speed, timingPlan: timingPlan, state: &state,
+                        globalVolume: context.globalVolumeState.volumeValue))
+                    // Release consumes this tick's column write, not a future row mutation.
+                    if cell.effectParam != 0 && tick == releaseTick {
+                        handleKxxKeyOff(from: cell, source: source, channelIndex: channelIndex,
+                            syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
+                            volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
+                            channelState: &state, context: &context)
+                    }
+                }
+                context.channelStates[channelIndex] = state
+                continue
+            }
             if isRxyMultiRetriggerEffect(cell) {
                 // Only this R row needs interleaved column/retrigger invocations.
                 // Tick zero already ran on the channel's ordinary row-entry path.

@@ -2183,6 +2183,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "kxx_key_off_applied_count": kxxKeyOffEvents.filter(\.applied).count,
                 "kxx_key_off_no_active_voice_count": kxxKeyOffEvents.filter { $0.reason == .noActiveVoice }.count,
                 "kxx_key_off_out_of_row_no_op_count": kxxKeyOffEvents.filter { $0.reason == .outOfRowNoOp }.count,
+                "kxx_key_off_masked_zero_no_op_count": kxxKeyOffEvents.filter { $0.reason == .maskedZeroNoOp }.count,
                 "kxx_key_off_event_count": kxxKeyOffEvents.count,
                 "first_kxx_key_off_coordinates": firstKxxKeyOffCoordinates,
                 "axy_volume_slide_effect_count": axyEffectDiagnostics.count,
@@ -5543,6 +5544,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "released_silent_channel"
         case .noActiveVoice:
             return "no_active_voice"
+        case .maskedZeroNoOp:
+            return "masked_zero_no_op"
         case .outOfRowNoOp:
             return "out_of_row_no_op"
         }

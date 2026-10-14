@@ -19,6 +19,17 @@ replay and clamps, including mode 6's 32→22→14. Exhaustive 0...64 integer
 vectors and repeated sequences live in `RxyVolumeArithmeticTests`; G20 memory
 and G21 counter/carry semantics are unchanged. Reference WAVs stay outside git.
 
+`noteoff-kxx-precedence.xm` covers G24 in 34 rows and two channels with distinct
+24/40 volume, 192/64 pan, enabled/disabled envelopes and a declared empty route.
+Rows 0–2 expose cold K00 versus scheduled K01 through C40/note-only consumers;
+6 and 11 cover note97/default/writer ordering and raw K00 trigger suppression;
+16 covers column71 before K01 and changed-owner K21; 21 distinguishes K20
+from out-of-row K06; 26 covers empty/default carry and C20; 30–31 cover Fxx
+before/after K21 in channel order. Tests compare whole/window/runtime plans and
+PCM at 44.1/48 kHz, with frame splits around releases. Mathematical PCM and
+recipes are original project assets; reference audio stays external. G31/G40,
+onset/replacement/retirement policy and note97 continuation effects remain separate.
+
 `e90-row-entry-retrigger.xm` covers G19's special tick-zero source trigger:
 carried and explicit note/instrument shapes, distinct mapped samples, cold and
 completed one-shot channels, NOTE_OFF suppression, released envelope/fadeout

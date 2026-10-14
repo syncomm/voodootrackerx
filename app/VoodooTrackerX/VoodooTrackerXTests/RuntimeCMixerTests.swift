@@ -4798,6 +4798,34 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testDelayedInstrumentOnlyWholeWindowRuntimeAndExactSourceBoundary() throws {
+        try assertFixtureRuntimeParity(fixtureName: "delayed-instrument-only-edx.xm")
+        let url = try referenceXMFixtureURL("generated/delayed-instrument-only-edx.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: url.path), modulePath: url.path)
+        for rate in [44_100.0, 48_000] {
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            for delay in runtime.plan!.diagnostics.noteDelayEffects where delay.status == .instrumentOnlyStarted {
+                let index = try XCTUnwrap(delay.eventIndex), frame = try XCTUnwrap(delay.delayedFrame)
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096)
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var rendered = 0
+                while rendered < frame {
+                    let count = min(4093, frame - rendered)
+                    _ = renderRuntimePCM(core, frames: count); rendered += count
+                    _ = core.drainAppliedAdapterEventDiagnostics()
+                }
+                XCTAssertNil(core.adapterVoiceDiagnosticForTesting(eventIndex: index))
+                _ = renderRuntimePCM(core, frames: 1)
+                let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: index))
+                XCTAssertTrue(voice.active)
+                XCTAssertEqual(voice.samplePosition, runtime.plan!.pattern.events[index].playbackStep, accuracy: 1e-10)
+                XCTAssertEqual(core.drainAppliedAdapterEventDiagnostics().last(where: { $0.event.activeEventIndex == index })?.eventFrameDelta, 0)
+            }
+        }
+    }
+
+    @MainActor
     func testE90FixtureWholeOfflineWindowedAndRuntimeParityAtBothRates() throws {
         try assertFixtureRuntimeParity(fixtureName: "e90-row-entry-retrigger.xm")
         let fixture = try referenceXMFixtureURL("generated/e90-row-entry-retrigger.xm")
@@ -4982,7 +5010,7 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             let planned = runtime.events.filter { event in
-                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm"].contains(fixtureName) {
+                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm"].contains(fixtureName) {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
                     case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
@@ -5014,7 +5042,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
-            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm"].contains(fixtureName) {
+            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm"].contains(fixtureName) {
                 XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
             }

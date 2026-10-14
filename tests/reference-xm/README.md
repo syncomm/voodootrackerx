@@ -637,3 +637,24 @@ held targets, including real publication intent when calculated gain was already
 equal. Whole/window/runtime-core and host delivery use the same causal stream.
 Generic ramps, source onset, G31 arithmetic and full FT2 mix parity stay separate;
 reference WAVs and diagnostic artifacts remain external.
+
+## Delayed instrument-only EDx fixture
+
+`generated/delayed-instrument-only-edx.xm` has six channels and 18 rows at
+speed 6/BPM 125. I02 routes retained C-4 to S02 (volume 40/pan 224), and C-5
+to S01 (24/64); I01's header is 64/192. Project-generated waveforms distinguish
+sources. I03 is a completed one-shot, I04 has a declared empty S02 retaining
+40/224, and I05 has no sample header or playable route.
+
+- Rows 2–3: same-instrument ED1, changed-instrument ED2, completed ED3,
+  preexisting release and later note-only through I02.
+- Rows 4–7: ordinary instrument-only ED0, out-of-row EDF, unavailable/empty
+  routes and later note-only recovery through the exact map.
+- Rows 7–9: delayed column set-volume/set-pan and ordinary slide ordering.
+- Rows 10–12: 9xx/900 memory followed by cursor-zero delayed restart.
+- Rows 14–15: cold/no-retained-note delay and later silent note-only source.
+
+Focused model controls add speeds 1/2/3/6, both Fxx channel orders, delays
+1/2/3/5/F, fine-command skips, phase suppression and exact frame window splits.
+Whole/window/runtime-core and canonical-host checks use 44.1/48 kHz. Reference
+WAVs and local evidence stay outside git; listening is a maintainer handoff.

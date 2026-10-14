@@ -329,7 +329,7 @@ extension PlaybackSongSyntheticAdapter {
                         currentVolume: state.baseChannelVolume).volumeAfter
                     if (0x10...0x50).contains(cell.volumeColumn) { state.baseChannelVolume = Int(cell.volumeColumn - 16) }
                     if (0xC0...0xCF).contains(cell.volumeColumn) { state.applyChannelPanningValue(Double(cell.volumeColumn & 15) * 16) }
-                    (restarted, coalesced) = restartRxySource(cell: cell, source: source, channelIndex: channelIndex,
+                    (restarted, coalesced) = restartRetainedSource(cell: cell, source: source, channelIndex: channelIndex,
                         syntheticRow: syntheticRow, tick: tick, frame: frame, song: song,
                         timingConfig: timingConfig, state: &state, context: &context)
                 }
@@ -367,26 +367,46 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     /// Resolves the retained note through the selected instrument's exact route; cursor restarts at zero.
-    static func restartRxySource(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+    static func restartRetainedSource(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
         syntheticRow: Int, tick: Int, frame: Int, song: PlaybackSong, timingConfig: SyntheticTrackerTimingConfig,
-        state: inout ChannelState, context: inout AdapterRowContext) -> (Bool, Bool) {
+        resetsInstrument: Bool = false, state: inout ChannelState, context: inout AdapterRowContext) -> (Bool, Bool) {
         guard (1...96).contains(state.carriedNote), let instrumentIndex = state.carriedInstrumentIndex,
               let instrument = song.instrumentsByIndex[instrumentIndex] else { return (false, false) }
         let selection = selectSample(forNote: state.carriedNote, from: instrument, missingKeymapPolicy: .fail)
         guard let sample = selection.sample else {
             context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
                 scheduledFrame: frame, instrumentIndex: instrumentIndex, sampleIndex: selection.mappedSampleIndex,
-                stoppedEventIndex: state.activeEventIndex, preservesChannelState: true))
+                stoppedEventIndex: state.activeEventIndex, preservesChannelState: !resetsInstrument,
+                tick: resetsInstrument ? tick : 0))
             if let header = song.xmSampleSlotProvenanceByInstrument[instrumentIndex]?.first(where: {
                 $0.sampleIndex == selection.mappedSampleIndex && $0.declaredPayloadLength == 0 && $0.decodedPayloadLength == 0
             }) {
                 _ = selectEmptyHeader(header, cell: .init(note: state.carriedNote, instrument: 0,
-                    volumeColumn: 0, effectType: 27, effectParam: cell.effectParam), instrumentIndex: instrumentIndex,
+                    volumeColumn: 0, effectType: cell.effectType, effectParam: cell.effectParam), instrumentIndex: instrumentIndex,
                     initializesDefaults: false, song: song, timingConfig: timingConfig, state: &state)
-            } else { clearSourceAssociation(&state) }
+            } else {
+                clearSourceAssociation(&state)
+                if resetsInstrument {
+                    // An unavailable route has no header to synthesize. FT2 clears
+                    // channel defaults through its empty-instrument dispatch.
+                    state.triggeredSampleDefaultVolume = 0
+                    state.triggeredSampleDefaultPan = 0
+                }
+            }
             state.semanticInstrumentIndex = instrumentIndex
             state.semanticSampleIndex = selection.mappedSampleIndex
+            if resetsInstrument {
+                state.semanticVolumeEnvelopeEnabled = instrument.volumeEnvelope.enabled
+                applyActiveVolumeEnvelopeMapping(mixerVolumeEnvelope(from: instrument.volumeEnvelope,
+                    timingConfig: timingConfig), to: &state)
+                resetDelayedInstrument(cell: cell, state: &state)
+            }
             return (false, false)
+        }
+        if resetsInstrument {
+            state.triggeredSampleDefaultVolume = sampleVolumeRawEstimate(for: sample.volume)
+            state.triggeredSampleDefaultPan = sample.panning
+            resetDelayedInstrument(cell: cell, state: &state)
         }
         let pitch = playbackStepMapping(note: state.carriedNote, sample: sample,
             usesLinearFrequencyTable: song.usesLinearFrequencyTable, timingConfig: timingConfig)
@@ -434,7 +454,7 @@ extension PlaybackSongSyntheticAdapter {
             context.events[existing] = event
             context.eventMappings[state.activeEventMappingIndex!] = mapping
         } else {
-            context.noteOnlyEventIndices.insert(eventIndex)
+            if !resetsInstrument { context.noteOnlyEventIndices.insert(eventIndex) }
             if state.activeEventIndex == nil && state.keyOffWithoutVoice { context.coldReleasedEventIndices.insert(eventIndex) }
             context.events.append(event)
             state.activeEventMappingIndex = context.eventMappings.count
@@ -822,6 +842,78 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
+    /// Nonzero instrument-only delay is a retained-note dispatch; ED0 stays ordinary.
+    static func isDelayedInstrumentOnly(_ cell: PlaybackCell) -> Bool {
+        cell.note == 0 && cell.instrument > 0 && cell.effectType == 0x0E && (0xD1...0xDF).contains(cell.effectParam)
+    }
+
+    /// Plans only this row's nonzero ticks, sharing source routing and instrument reset authority.
+    static func handleDelayedInstrumentOnly(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        syntheticRow: Int, song: PlaybackSong, timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan, context: inout AdapterRowContext) {
+        var state = context.channelStates[channelIndex]
+        let selected = song.instrumentsByIndex[Int(cell.instrument)] != nil
+        let requested = extendedEffectTick(cell), outOfRow = requested >= timingConfig.speed
+        let column = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
+        let slide = isOrdinaryVolumeColumnSlide(cell.volumeColumn) ? column : nil
+        var status: PlaybackSongSyntheticNoteDelayDiagnostic.Status = !selected ? .instrumentOnlyInvalidInstrument :
+            outOfRow ? .instrumentOnlyOutOfRow : .instrumentOnlyNoRetainedNote
+        var eventIndex: Int?, defaultVolume: Int?, defaultPan: UInt8?, pan: Double?
+        for tick in 1..<max(1, timingConfig.speed) {
+            context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(slide, cell: cell, source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
+                timingPlan: timingPlan, state: &state, globalVolume: context.globalVolumeState.volumeValue))
+            if (0xB0...0xBF).contains(cell.volumeColumn) {
+                context.vibratoEffects.append(handleVibrato(from: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
+                    channelState: &state, executionTicks: tick..<(tick + 1)))
+            }
+            if cell.volumeColumn >> 4 == 0x0F {
+                // Tick zero was skipped, so Fx cannot seed a new portamento speed.
+                let continuation = PlaybackCell(note: 0, instrument: 0, volumeColumn: 0xF0,
+                    effectType: cell.effectType, effectParam: cell.effectParam)
+                context.tonePortamentoEffects.append(handleTonePortamento(from: continuation, source: source,
+                    channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,
+                    timingPlan: timingPlan, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                    channelState: &state, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(0xF0),
+                    executionTicks: tick..<(tick + 1)))
+            }
+            guard selected, tick == requested else { continue }
+            let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+            if (1...96).contains(state.carriedNote) {
+                let (started, _) = restartRetainedSource(cell: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, tick: tick, frame: frame, song: song, timingConfig: timingConfig,
+                    resetsInstrument: true, state: &state, context: &context)
+                status = started ? .instrumentOnlyStarted : .instrumentOnlyUnavailable
+                eventIndex = started ? state.activeEventIndex : nil
+            } else {
+                // No retained note means no resolver invocation or fabricated route.
+                resetDelayedInstrument(cell: cell, state: &state)
+            }
+            defaultVolume = state.triggeredSampleDefaultVolume
+            defaultPan = state.triggeredSampleDefaultPan
+            pan = state.panningValue
+            if cell.volumeColumn != 0 {
+                context.volumeColumnMappings.append(.init(source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, syntheticTick: tick, volumeColumn: column))
+            }
+        }
+        var diagnostic = PlaybackSongSyntheticNoteDelayDiagnostic(source: source, channelIndex: channelIndex,
+            syntheticRow: syntheticRow, syntheticTick: requested, effectType: cell.effectType, effectParam: cell.effectParam,
+            status: status, detected: true, applied: selected && !outOfRow, deferred: false,
+            ignoredAsNoOp: !selected || outOfRow, outOfRow: outOfRow, requestedTick: requested,
+            rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm, originalFrame: timingPlan.frameFor(row: syntheticRow),
+            delayedFrame: selected && !outOfRow ? timingPlan.frameFor(row: syntheticRow, tick: requested) : nil,
+            eventIndex: eventIndex)
+        diagnostic.rowEntryInstrumentSelected = selected
+        diagnostic.retainedNote = (1...96).contains(state.carriedNote) ? state.carriedNote : nil
+        diagnostic.cachedDefaultVolume = defaultVolume
+        diagnostic.cachedDefaultPan = defaultPan
+        diagnostic.delayedPanningValue = pan
+        context.noteDelayEffects.append(diagnostic)
+        context.channelStates[channelIndex] = state
+    }
+
     static func noteDelayDiagnostic(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -830,7 +922,8 @@ extension PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
         originalFrame: Int,
-        eventIndex: Int?
+        eventIndex: Int?,
+        instrumentOnlyImmediate: Bool = false
     ) -> PlaybackSongSyntheticNoteDelayDiagnostic? {
         guard isNoteDelayEffect(cell) else {
             return nil
@@ -869,10 +962,10 @@ extension PlaybackSongSyntheticAdapter {
                 syntheticTick: tick,
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
-                status: .noNoteDeferred,
+                status: instrumentOnlyImmediate ? .instrumentOnlyImmediate : .noNoteDeferred,
                 detected: true,
-                applied: false,
-                deferred: true,
+                applied: instrumentOnlyImmediate,
+                deferred: !instrumentOnlyImmediate,
                 ignoredAsNoOp: false,
                 outOfRow: false,
                 requestedTick: tick,

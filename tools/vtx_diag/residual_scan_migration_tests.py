@@ -87,6 +87,16 @@ def _load_legacy_module():
 
 
 class ResidualScanMigrationTests(unittest.TestCase):
+    def test_delayed_instrument_only_resets_r_counter_only_inside_effective_row(self):
+        module = residual_scan.ModuleData("public-g23", "linear", 1, 1, 6, 125, [0], [],
+            [residual_scan.InstrumentEnvelope(), residual_scan.InstrumentEnvelope()])
+        for speed in (1, 2, 3, 6):
+            for delay in (1, 2, 3, 5, 15):
+                state = residual_scan.ChannelState(r_counter=4)
+                residual_scan.update_rxy_reset_state(module,
+                    residual_scan.Cell(instrument=1, effect_type=14, effect_param=0xD0 | delay), state, speed)
+                self.assertEqual(state.r_counter, 0 if delay < speed else 4)
+
     def run_command(
         self,
         arguments: list[str],

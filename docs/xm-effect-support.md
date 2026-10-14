@@ -96,6 +96,14 @@ Song gain consumes restored channel output once (G01); preview remains a
 separate header/headroom policy. G06 pan-envelope targets reuse the existing
 reset; ECx quick-volume parity remains deferred.
 
+G23 nonzero instrument-only `ED1...EDF` is a different dispatch: valid carried
+instrument selection occurs at row entry; tick x resolves the retained note
+through that instrument's exact map and starts one new cursor-zero source.
+Header/default and instrument resets wait until that tick. Empty routes retire
+without a new voice; no retained note creates none. Out-of-row delays keep the
+row-entry owner but perform no delayed reset/start. Instrument-only ED0 retains
+ordinary immediate cached-default/reset behavior without a source restart.
+
 ## Note-only routing
 
 Ordinary notes with no instrument field use the carried instrument and resolve
@@ -149,7 +157,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `EAx` | Fine volume slide up | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-up amount | Not applicable | Tick-zero +x, clamped to 64; seeded EA0 replays up memory. Cold EA0 restores base to output and publishes against the held target without seeding memory. Independent of EB/A/5/6 and volume-column 8x/9x. |
 | `EBx` | Fine volume slide down | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-down amount | Not applicable | Tick-zero -x, clamped to 0; seeded EB0 replays down memory. Cold EB0 restores base to output and publishes against the held target without seeding memory. Independent of EA/A/5/6 and volume-column 8x/9x. |
 | `ECx` | Note cut | Implemented | Known difference | None | Not applicable | VTX hard-retires the source. FT2 zeros base/output with a quick ramp and retains the cursor/source for recovery (G04). Internal hard stop is separate. |
-| `EDx` | Note delay | Implemented | Partial | None | Not applicable | Valid same-cell ED0/nonzero delayed notes exist. Delayed instrument-only/default/reset interactions remain G23; out-of-row no-op is not full precedence closure. |
+| `EDx` | Note delay | Implemented | Partial | None | Not applicable | Ordinary delayed notes remain supported. G23 retained-note instrument-only ED1...EDF dispatch is closed: row-entry owner, delayed exact route/default/reset and one cursor-zero generation. Instrument-only ED0 resets immediately without a restart; out-of-row retains owner only. Broader note-off precedence remains separate. |
 | `EEx` | Pattern delay | Deferred | Open | None | Not applicable | Standard FT2/XM v1 traversal/timing target G35. Row-duration/tick replay needs its own contract, separate from unrelated E effects. |
 | `EFx` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; no destructive MOD invert-loop/funk behavior. OpenMPT XM macro hacks are outside FT2 v1. |
 | `F01...F1F` / `F20...FFF` | Speed / BPM | Implemented | Closed | None | Not applicable | Nonzero command-row tick-zero timing is closed. `F20` is valid XM BPM 32. Last speed and last BPM each win in left-to-right channel order. |
@@ -516,8 +524,8 @@ support alone does not close these domains:
   G29 Amiga fine/extra-fine and G28 Amiga combined semantics remain open.
   Rxy nibble memory, persistent counter, interval-zero/tick-zero dispatch and
   semantic carry and exact integer volume arithmetic are closed under G20–G22.
-  ED delayed note/instrument/default interactions and
-  note-97/K00/instrument/volume precedence remain G23–G24.
+  G23 delayed instrument-only retained-note dispatch is closed separately;
+  note-97/K00/instrument/volume precedence remains G24.
 - **Traversal:** EEx is a dedicated timing contract (G35). Bxx/Dxx/E6x
   precedence and E6's implicit loop start remain G37–G38; safe finite export
   guards do not establish reference in-song traversal parity.

@@ -71,6 +71,16 @@ host.
   volume modes cover all inputs 0...64; mode 6 sums separately truncated
   `v/2 + v/8 + v/16`, correcting 32→22. G20 memory and G21 execution/carry
   semantics are unchanged.
+- G23 instrument-only `ED1...EDF` selects the valid carried instrument at row
+  entry, then dispatches the retained note through its exact map at tick x.
+  Represented routes start one new cursor-zero generation and reset defaults,
+  envelopes, key/fadeout and permitted modulation phases then. Empty routes
+  retire the old source without PCM; cold channels invent no retained note.
+  Explicit column volume/pan setters follow the delayed reset; ordinary slides
+  keep their nonzero ticks and fine/Ax tick-zero writers are skipped. Out-of-row
+  delays keep the owner without a delayed reset/start; instrument-only ED0
+  resets immediately without restarting. Ordinary delayed notes, Rxy and mixer
+  ramps are unchanged.
 - Ordinary volume-column `6x/7x` slides update base/output on nonzero ticks of
   the effective Fxx row speed, including silent channel state. Speed 1 has no
   slide; zero amounts restore output without memory. Fine `8x/9x` stay at tick

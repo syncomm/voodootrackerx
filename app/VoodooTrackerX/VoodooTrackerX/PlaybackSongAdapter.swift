@@ -940,6 +940,18 @@ enum PlaybackSongSyntheticAdapter {
             }
             let isNoteOnly = cell.instrument == 0
             let routedInstrumentIndex = isNoteOnly ? channelState.carriedInstrumentIndex ?? 0 : Int(cell.instrument)
+            if isDelayedInstrumentOnly(cell) {
+                // ED1...EDF selects the carried owner now; source/default/reset work
+                // waits for the nonzero-tick pass after all row-entry writers.
+                if song.instrumentsByIndex[Int(cell.instrument)] != nil {
+                    channelState.carriedInstrumentIndex = Int(cell.instrument)
+                }
+                context.xmChannelRows.append(.init(source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
+                    controls: channelState, instrumentOnlyReset: nil))
+                context.channelStates[channelIndex] = channelState
+                continue
+            }
             var instrumentOnlyReset: MixerPlaybackStateChange?
             defer {
                 if isRxyMultiRetriggerEffect(cell) {
@@ -1185,7 +1197,8 @@ enum PlaybackSongSyntheticAdapter {
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
                     originalFrame: scheduledStartFrame,
-                    eventIndex: nil
+                    eventIndex: nil,
+                    instrumentOnlyImmediate: restoresInstrumentOnlyDefaults
                 )
                 : nil
             if hasArpeggio, !(1...96).contains(cell.note), cell.note != 97 {
@@ -2443,6 +2456,12 @@ enum PlaybackSongSyntheticAdapter {
         // A later channel's Gxx must not see a future slide or tremolo value.
         for channelIndex in row.cells.indices {
             let cell = row.cells[channelIndex]
+            if isDelayedInstrumentOnly(cell) {
+                handleDelayedInstrumentOnly(cell: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, song: song, timingConfig: timingConfig,
+                    timingPlan: timingPlan, context: &context)
+                continue
+            }
             let columnSlide = isOrdinaryVolumeColumnSlide(cell.volumeColumn)
                 ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
             if isRxyMultiRetriggerEffect(cell) {

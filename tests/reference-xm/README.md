@@ -669,3 +669,27 @@ Focused model controls add speeds 1/2/3/6, both Fxx channel orders, delays
 1/2/3/5/F, fine-command skips, phase suppression and exact frame window splits.
 Whole/window/runtime-core and canonical-host checks use 44.1/48 kHz. Reference
 WAVs and local evidence stay outside git; listening is a maintainer handoff.
+
+## Linear arpeggio ordering fixture
+
+`generated/linear-arpeggio-ordering.xm` is 1,237 bytes, SHA-256
+`6be4929f28dd05f518eb4e2536de9adb35e0556aa2ea5e972b2c147406cf0e99`.
+Its two channels use one project-generated forward-looped sine source at
+speed 6/BPM 125 initially; same-row Fxx changes give 81 ticks / 1.62 seconds.
+
+- Rows 0–2: F02 after same-cell `037`, active continuation, then inert `000`.
+- Rows 3–5: note-only `073` at F03, `010`, then `000`.
+- Rows 6–9: low in-range `037`/`073` at F06, release, then retained-source `001`.
+- Rows 10–13: F07 before same-cell/active `037`, then F02 before `073` and `000`.
+- Rows 14–15: B-7 `037` pins phase ordering separately from unchanged G30 range
+  targets: VTX +7/+3 periods 1152/1408 versus FT2 1540/1540.
+- Rows 16–18: in-range `01F`/`0F1` at F04 with sustained continuation, then `000`.
+
+G25 closes in-range ordering: tick zero is base; later ticks select
+`[base,x,y][(effectiveSpeed - tick) % 3]`. `LinearArpeggioOrderingTests` adds
+speeds 1–8, all seven nonzero parameter controls, Fxx channel order, tuning,
+source ownership and windows before/at/after updates. Runtime tests pin retained
+cursor/generation and exact application frames at 44.1/48 kHz. G30 conversion,
+G26 Amiga and existing onset/retirement policies remain separate. Listen to
+rows 0–13 and 16–18 for ordering; rows 14–15 are a G30 boundary example.
+Automated checks do not establish listening evidence; FT2 WAVs remain external.

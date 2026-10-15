@@ -1664,6 +1664,16 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
+    /// Selects Linear 0xy's remaining-tick phase without owning pitch conversion or source state.
+    static func arpeggioSemitoneOffset(effectiveSpeed: Int, tick: Int, x: Int, y: Int) -> Int {
+        guard tick > 0, tick < effectiveSpeed else { return 0 }
+        switch (effectiveSpeed - tick) % 3 {
+        case 1: return x
+        case 2: return y
+        default: return 0
+        }
+    }
+
     static func handleArpeggio(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -1735,15 +1745,9 @@ extension PlaybackSongSyntheticAdapter {
         for tick in firstTick..<rowSpeed {
             let beforePeriod = currentLinearPeriod
             let beforeStep = currentPlaybackStep
-            let semitoneOffset: Int
-            switch tick % 3 {
-            case 1:
-                semitoneOffset = xSemitoneOffset
-            case 2:
-                semitoneOffset = ySemitoneOffset
-            default:
-                semitoneOffset = 0
-            }
+            let semitoneOffset = arpeggioSemitoneOffset(
+                effectiveSpeed: rowSpeed, tick: tick, x: xSemitoneOffset, y: ySemitoneOffset
+            )
             let modulatedPeriod = clampedLinearPeriod(
                 baseLinearPeriod - (Double(semitoneOffset) * xmLinearPeriodUnitsPerSemitone)
             )
@@ -1820,7 +1824,7 @@ extension PlaybackSongSyntheticAdapter {
             currentPlaybackStepBefore: currentPlaybackStepBefore,
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             stepUpdates: stepUpdates,
-            policy: "deterministic_0xy_tick_cycle_no_effect_memory"
+            policy: "linear_0xy_remaining_tick_order_no_effect_memory"
         )
     }
 

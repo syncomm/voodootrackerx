@@ -156,8 +156,14 @@ playback.
 Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger
 once at the base note pitch; subsequent arpeggio ticks are emitted as planned
 sample-step updates. Empty-note nonzero `0xy` rows with an active voice emit the
-deterministic base/x/y tick-cycle sample-step updates at row tick frames. `000`
-remains a no-op, and arpeggio effect memory is intentionally not replayed.
+remaining-tick sample-step updates at row tick frames. Tick zero is base pitch;
+later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using same-row Fxx
+speed. `000` is inert with no parameter memory. Bounded `arpeggio_effects`
+step entries expose `selected_semitone_offset` beside period/step/frame; join
+`active_event_index` to the existing event mapping for base note and tuning.
+This observes selection separately from conversion: B-7 `037` selects +7/+3,
+while existing VTX periods 1152/1408 versus FT2 1540/1540 remain G30 debt.
+Source generation/cursor, runtime event categories and trace schema are unchanged.
 `100` and `200` portamento rows replay prior same-channel nonzero `1xx` or
 `2xx` slide memory through the shared sample-step update path when available;
 missing portamento memory remains diagnosed as effect-memory-deferred/no-op.

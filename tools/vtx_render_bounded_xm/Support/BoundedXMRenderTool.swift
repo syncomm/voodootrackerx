@@ -1926,7 +1926,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Rxy uses independent mode/speed memories, the persistent G21 counter and semantic-state-preserving source restarts. Volume modes use exact pinned FT2 integer arithmetic over 0...64; the existing runtime/offline retirement difference remains separate.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
             "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy reuses the existing 3xx tone-portamento target/speed and Axy-style volume-slide paths; volume-column tone portamento reuses the 3xx target/sample-step path as a first pass.",
-            "Minimal 0xy arpeggio applies deterministic tick-level sample-step updates through the shared runtime/offline C mixer adapter path; 000 remains a no-op and arpeggio effect memory is intentionally deferred.",
+            "Linear 0xy uses remaining-tick phase ordering through the shared runtime/offline C mixer adapter path; 000 is inert with no parameter memory. Range/extreme conversion remains G30; Amiga 0xy remains G26.",
             "Minimal E1x fine portamento up applies one deterministic row-level linear-period decrease through the shared runtime/offline sample-step path; E10 effect memory remains deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
             "Minimal Xxy extra fine portamento applies X1x/X2x as one deterministic row-level linear-period adjustment through the shared runtime/offline sample-step path; X10/X20 effect memory and other X subcommands remain deferred.",
@@ -2925,7 +2925,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "active_voice_update_count": diagnostic.applied ? diagnostic.stepUpdates.count : 0,
             "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
             "step_update_count": diagnostic.stepUpdates.count,
-            "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
+            "step_updates": diagnostic.stepUpdates.map { update in
+                var fields = tonePortamentoStepUpdateJSON(update)
+                fields["selected_semitone_offset"] = PlaybackSongSyntheticAdapter.arpeggioSemitoneOffset(
+                    effectiveSpeed: diagnostic.rowSpeed, tick: update.syntheticTick,
+                    x: diagnostic.xSemitoneOffset, y: diagnostic.ySemitoneOffset
+                )
+                return fields
+            },
             "policy": diagnostic.policy,
         ]
     }

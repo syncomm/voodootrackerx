@@ -43,6 +43,7 @@ class ScanTrackedPrivateLeaksTests(unittest.TestCase):
                 "tests/reference-xm/generated/rxy-counter-timing-carry.xm",
                 "tests/reference-xm/generated/delayed-instrument-only-edx.xm",
                 "tests/reference-xm/generated/noteoff-kxx-precedence.xm",
+                "tests/reference-xm/generated/linear-arpeggio-ordering.xm",
                 "tests/fixtures/minimal.mod",
             ]:
                 self.write_file(repo, path, b"synthetic public fixture")

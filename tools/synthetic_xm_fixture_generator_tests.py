@@ -44,6 +44,7 @@ ALL_FIXTURES = [
     "rxy-counter-timing-carry.xm",
     "delayed-instrument-only-edx.xm",
     "noteoff-kxx-precedence.xm",
+    "linear-arpeggio-ordering.xm",
 ]
 
 
@@ -590,6 +591,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "rxy-counter-timing-carry.xm").resolve(),
                     (output_dir / "generated" / "delayed-instrument-only-edx.xm").resolve(),
                     (output_dir / "generated" / "noteoff-kxx-precedence.xm").resolve(),
+                    (output_dir / "generated" / "linear-arpeggio-ordering.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -616,6 +618,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-only-volume-semantics.xm",
                     "generated/instrument-sustained-defaults.xm",
+                    "generated/linear-arpeggio-ordering.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/note-only-routing.xm",
                     "generated/noteoff-kxx-precedence.xm",
@@ -707,6 +710,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-only-volume-semantics.xm",
                     "generated/instrument-sustained-defaults.xm",
+                    "generated/linear-arpeggio-ordering.xm",
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/note-only-routing.xm",
                     "generated/noteoff-kxx-precedence.xm",
@@ -801,6 +805,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:rxy-counter-timing-carry.xm": "generated/rxy-counter-timing-carry.xm",
                     "xm:delayed-instrument-only-edx.xm": "generated/delayed-instrument-only-edx.xm",
                     "xm:noteoff-kxx-precedence.xm": "generated/noteoff-kxx-precedence.xm",
+                    "xm:linear-arpeggio-ordering.xm": "generated/linear-arpeggio-ordering.xm",
                 },
             )
 

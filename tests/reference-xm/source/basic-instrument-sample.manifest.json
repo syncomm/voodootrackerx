@@ -11320,6 +11320,97 @@
       "xm_output": "generated/noteoff-kxx-precedence.xm",
       "xm_sha256": "4a6ef3f23e689289e050595e424cb58af96e8cf3443b25d20154037c25c43804",
       "xm_size_bytes": 10251
+    },
+    {
+      "id": "linear-arpeggio-ordering",
+      "intended_tests": [
+        "Remaining-tick phases, Fxx before/after, 000 inertness and retained-source carry",
+        "Both-rate whole/window/runtime delivery; G30 range policy remains unchanged"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC G25 I01",
+            "note_sample_map": [
+              {"end_note": 96, "sample": 0, "start_note": 1}
+            ],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G25 S01",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 55, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 2, "effect_type": 15, "instrument": 0, "note": 0, "row": 0, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 55, "effect_type": 0, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 115, "effect_type": 0, "instrument": 0, "note": 49, "row": 3, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 3, "effect_type": 15, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 16, "effect_type": 0, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 55, "effect_type": 0, "instrument": 1, "note": 13, "row": 6, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 6, "effect_type": 15, "instrument": 0, "note": 0, "row": 6, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 115, "effect_type": 0, "instrument": 0, "note": 0, "row": 7, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 8, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 1, "effect_type": 0, "instrument": 0, "note": 0, "row": 9, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 7, "effect_type": 15, "instrument": 0, "note": 0, "row": 10, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 55, "effect_type": 0, "instrument": 1, "note": 49, "row": 10, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 55, "effect_type": 0, "instrument": 0, "note": 0, "row": 11, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 2, "effect_type": 15, "instrument": 0, "note": 0, "row": 12, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 115, "effect_type": 0, "instrument": 0, "note": 0, "row": 12, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 55, "effect_type": 0, "instrument": 1, "note": 96, "row": 14, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 6, "effect_type": 15, "instrument": 0, "note": 0, "row": 14, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 31, "effect_type": 0, "instrument": 1, "note": 49, "row": 16, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 4, "effect_type": 15, "instrument": 0, "note": 0, "row": 16, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 241, "effect_type": 0, "instrument": 0, "note": 0, "row": 17, "volume_column": 0}
+            ],
+            "rows": 19
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "Linear 0xy ordering",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "linear-arpeggio-ordering.xm",
+      "purpose": "G25 in-range Linear arpeggio countdown ordering; separate unchanged G30 upper boundary.",
+      "significant_rows": [
+        {"description": "F02 after same-cell 037; active continuation then 000.", "row": 0},
+        {"description": "F03 note-only 073, single-nibble 010 then 000.", "row": 3},
+        {"description": "F06 low note 037/073, release then retained-source 001.", "row": 6},
+        {"description": "F07 before same-cell/active 037; F02 before 073.", "row": 10},
+        {"description": "B-7 037: G25 phases only; range targets remain G30 debt.", "row": 14},
+        {"description": "In-range 01F/0F1 at F04, then 000.", "row": 16}
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "G30 transposed-note range/extreme and nongrid conversion",
+        "G26 Amiga arpeggio; onset/replacement/retirement policy"
+      ],
+      "xm_output": "generated/linear-arpeggio-ordering.xm",
+      "xm_sha256": "6be4929f28dd05f518eb4e2536de9adb35e0556aa2ea5e972b2c147406cf0e99",
+      "xm_size_bytes": 1237
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

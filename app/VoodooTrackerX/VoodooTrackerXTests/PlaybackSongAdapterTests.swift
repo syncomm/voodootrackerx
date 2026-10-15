@@ -1524,7 +1524,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [6, 7, 8, 9, 10, 11, 12])
         XCTAssertEqual(diagnostic.stepUpdates[0].playbackStepAfter, baseStep, accuracy: 0.000000001)
         XCTAssertGreaterThan(diagnostic.stepUpdates[1].playbackStepAfter, diagnostic.stepUpdates[0].playbackStepAfter)
-        XCTAssertGreaterThan(diagnostic.stepUpdates[2].playbackStepAfter, diagnostic.stepUpdates[1].playbackStepAfter)
+        XCTAssertLessThan(diagnostic.stepUpdates[2].playbackStepAfter, diagnostic.stepUpdates[1].playbackStepAfter)
         XCTAssertEqual(diagnostic.stepUpdates[3].playbackStepAfter, baseStep, accuracy: 0.000000001)
         XCTAssertEqual(diagnostic.stepUpdates[4].playbackStepAfter, diagnostic.stepUpdates[1].playbackStepAfter, accuracy: 0.000000001)
         XCTAssertEqual(diagnostic.stepUpdates[5].playbackStepAfter, diagnostic.stepUpdates[2].playbackStepAfter, accuracy: 0.000000001)

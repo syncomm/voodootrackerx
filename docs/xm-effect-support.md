@@ -130,7 +130,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 
 | Command | Name | Support | FT2 closure | FT2 memory | VTX pitch mode | Current behavior / remaining boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| `0xy` | Arpeggio | Implemented | Known difference | None; `000` inert | Linear | VTX's base/x/y cycle differs from FT2's speed-dependent remaining-tick order (G25). Amiga path missing (G26). |
+| `0xy` | Arpeggio | Implemented | Partial; G25 in-range ordering closed | None; `000` inert | Linear | Tick zero is base; later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using effective same-row Fxx speed. Source/cursor and existing pitch conversion are preserved. B-7 `037` retains periods 1152/1408 versus FT2 1540/1540; range/extreme conversion remains G30. Amiga remains G26. |
 | `1xx` | Portamento up | Implemented | Partial | Own; `100` supported | Linear | Correct nonzero-tick `4 * xx` units; Amiga upward path missing (G27). |
 | `2xx` | Portamento down | Implemented | Partial | Own; `200` supported | Both | Linear `4 * xx`, Amiga `16 * xx` in VTX's 4x representation. Units are closed; shared conversion/extreme boundaries remain G30. |
 | `3xx` | Tone portamento | Implemented | Partial | Shared with volume-column `Fx`; `300` target/speed supported | Both | No retrigger, target-clamped nonzero ticks and Amiga quantized targets are established. Missing-target/speed states and glissando remain distinct; Amiga `5xy`/`Fx` are not promoted. |
@@ -529,9 +529,10 @@ support alone does not close these domains:
 - **Traversal:** EEx is a dedicated timing contract (G35). Bxx/Dxx/E6x
   precedence and E6's implicit loop start remain G37–G38; safe finite export
   guards do not establish reference in-song traversal parity.
-- **Pitch and mode:** arpeggio tick order, Amiga 0xy/1xx/5xy/volume-column Fx,
+- **Pitch and mode:** Linear in-range arpeggio ordering is closed under G25.
+  Amiga 0xy/1xx/5xy/volume-column Fx,
   Amiga E1/E2/X1/X2 and same-cell E5, plus conversion/range boundaries remain
-  G25–G30. Supported Amiga vibrato's unsigned wrap/zero hold is closed; other
+  G26–G30. Supported Amiga vibrato's unsigned wrap/zero hold is closed; other
   period wrap/clamp behavior is not. Full 4xy/6xy/7xy audible interactions
   remain G39 without reopening their closed integer engines or 6xy timing.
 - **Sources and loops:** 9xx/900 offset/end/loop boundaries and ping-pong

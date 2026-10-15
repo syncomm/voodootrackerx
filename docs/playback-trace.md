@@ -210,8 +210,17 @@ valid zero state without a missing-memory diagnostic. Nonzero `4xy` nibbles
 update their independent memory on nonzero ticks; `400`, `40y`, and `4x0`
 retain each zero nibble's previous value. Slide parameters never write vibrato
 speed/depth, and absence of slide memory does not prevent vibrato execution.
-`Kxx` rows use the existing key-off/release path; same-cell note triggers keep
-the `Kxx` effect metadata and then release at the requested row tick.
+Raw exact `K00` owns row-entry release, suppressing ordinary note starts;
+note97+K00 yields one semantic release diagnostic with K00 metadata. Carried
+owner selection precedes release, admitted cached restoration and column/Cxx/8xx
+writers. Nonzero Kxx resolves `parameter & 31` after that tick's column writer;
+K20 has no nonzero invocation (`masked_zero_no_op`), while an outside-speed tick
+uses `out_of_row_no_op`. The additive coverage counter
+`kxx_key_off_masked_zero_no_op_count` keeps those outcomes distinct. Volume-column
+Fx retains its established priority over raw K00; note97 still releases once.
+Cold applied releases can report `released_silent_channel` without a source;
+channel key/fadeout state remains available to later note-only consumers.
+Envelope/key/fadeout finalization occurs once after each tick's operations.
 Release semantics are decided once at their execution frame in `decideKeyOff`.
 `applyLegacyReleaseProjection` immediately copies that immutable result into
 the current whole-song trigger, mapping and ordered diagnostics: the trigger

@@ -152,17 +152,16 @@ final class XMEnvelopeSemanticTests: XCTestCase {
     func testKxxZeroAndLaterTickUseTheSameNoEnvelopeReleaseContract() throws {
         for tick: UInt8 in [0, 2] {
             let module = song(envelope: envelope([], fadeout: 1024),
-                commands: [0: cell(note: 49, effect: 0x14, parameter: tick)])
+                commands: [1: cell(effect: 0x14, parameter: tick)])
             let request = PlaybackSongOfflineRenderRequest(song: module, config: .init(sampleRate: 48_000, channelCount: 1), rows: 16)
             let renderer = PlaybackSongOfflineRenderer()
             let result = renderer.render(request)
-            let releaseFrame = Int(tick) * 960
+            let releaseFrame = (6 + Int(tick)) * 960
             XCTAssertEqual(result.diagnostics.keyOffEvents.first?.scheduledFrame, releaseFrame)
             let target = try XCTUnwrap(result.plan.xmEnvelopeTimeline?.updates.first { $0.scheduledFrame == releaseFrame })
             XCTAssertEqual(target.state.fadeoutAccumulator, 31_744)
             XCTAssertFalse(target.state.keyOn)
             XCTAssertTrue(result.block.interleavedPCM[(releaseFrame + 240)...].allSatisfy { $0 == 0 })
-            if tick == 0 { XCTAssertTrue(result.block.interleavedPCM.allSatisfy { $0 == 0 }) }
             XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, result.block.interleavedPCM)
         }
     }

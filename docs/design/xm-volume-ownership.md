@@ -134,6 +134,36 @@ quick-volume publication uses 5 ms. Volume-column portamento retains its K00
 precedence and ordinary reset. K01 resets at tick zero, then releases at tick
 one. Instrument-only ED0 uses this same immediate reset without a source start.
 
+### Note97 and Kxx release/default/writer precedence (G24)
+
+Select the valid carried instrument first, then release once at tick zero,
+restore admitted cached volume/pan, apply volume-column writers, and apply
+Cxx/8xx where represented. Note97+raw K00 is one raw-K00 release. Raw exact K00
+suppresses ordinary note-only and note+instrument starts and skips ordinary
+instrument reset. Note97+instrument likewise restores the prior cache without
+resetting envelope/key/fadeout/modulation. Volume-column Fx retains its earlier
+portamento priority over raw K00; note97 remains a release.
+
+Carried owner changes do not select a new sample or replace sounding source,
+cache, envelope curve or fadeout decrement. Later note-only routing uses the
+new owner through its exact map. No-envelope release zeros base/output before
+restoration/writers; enabled-envelope release carries the segment. Both finalize
+key/envelope/fadeout once per tick, including already-released channels.
+
+Nonzero Kxx keeps ordinary row-entry operations. At nonzero tick, apply the
+column writer before the matching low-five-bit release: K21 releases at tick 1;
+K20 has no nonzero invocation and is not raw K00. Outside-speed ticks are omitted,
+without clamping or undoing row-entry reset. Note97 may release at tick zero and
+again at a later K tick; these are distinct operations.
+
+Cold release/default operations create no source. Before the first note-only
+route, the semantic timeline folds existing release and immediate/G23 delayed
+reset facts: untouched cold fadeout stays zero; an ordinary reset establishes
+32768; a later source-less K01 release preserves the reset accumulator and
+released key state. Disabled and enabled-envelope consumers retain their actual
+cold segments rather than fabricating unity. Completed sources stay completed,
+and declared empty routes preserve exact headers without first-playable fallback.
+
 ### Delayed instrument-only ED1...EDF (G23)
 
 Nonzero instrument-only delay selects the valid carried instrument at row entry
@@ -159,7 +189,7 @@ A cold channel with no retained note restores its existing cold cache at tick x
 and invents no note; later note-only routing observes the selected owner and
 silent volume. Completed and released sources can restart from retained identity.
 An out-of-row delay keeps owner selection but performs no delayed reset/start.
-Invalid instrument fields retain the existing rejection policy. G24, onset,
+Invalid instrument fields retain the existing rejection policy. Onset,
 replacement/retirement debt and full FT2 output parity remain separate.
 
 `instrument-only-volume-semantics.xm` and direct/runtime tests cover this
@@ -449,9 +479,9 @@ all tremolo update states. This is not a waveform-identical rendering claim:
 - Generic C-mixer gain-update ramps remain 32 frames. Managed XM envelope/release
   voices use the shared final-output cadence; FT2 ordinarily ramps across a tick. [FT2 ramp selection](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_audio.c#L270-L283)
   explains another rendering difference without changing the modulation target.
-- Instrument-associated note 97 and note-plus-instrument `K00` retain their
-  separate default-volume dispatch boundary. Ordinary no-envelope release zeros
-  output; instrument-only K00 follows the cached-default/release ordering above.
+- Instrument-associated note97 and raw K00 use the shared release/default/writer
+  precedence above; raw K00 suppresses ordinary note starts. Source/cache
+  ownership and modulation phases carry without an instrument reset.
 - Cold `A00` restoration is closed under G14 below. G16 closes directional
   `EA0`/`EB0` replay and cold tick-zero base-to-output publication without memory
   provenance; equal held targets deduplicate. G20–G22 close `R00` nibble replay,

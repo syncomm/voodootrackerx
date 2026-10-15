@@ -45,7 +45,7 @@ extension PlaybackSongSyntheticAdapter {
                 rowSpeed: rowSpeed, rowBPM: rowBPM, activeVoiceFound: activeEventIndexBefore != nil,
                 activeVoiceReleased: eventIndex != nil, activeEventIndex: eventIndex)
         }
-        if activeEventIndexBefore == nil, channelState.semanticInstrumentIndex != nil {
+        if activeEventIndexBefore == nil, (channelState.semanticInstrumentIndex != nil || channelState.carriedInstrumentIndex != nil) {
             let zeroVolume = !channelState.semanticVolumeEnvelopeEnabled && !instrumentOnlyVolumeRestored
             return .init(diagnostic: diagnostic(.releasedSilentChannel, applied: true, eventIndex: nil),
                 channelVolumeAfter: zeroVolume ? 0 : nil, sourceAnnotation: nil)
@@ -63,7 +63,7 @@ extension PlaybackSongSyntheticAdapter {
         let mapping = eventMappings[activeEventMappingIndex]
         let decrement = fadeoutFrameDecrement(
             fadeoutValue: mapping.volumeEnvelopeSemantics.fadeoutValue, sampleRate: mapping.outputSampleRate)
-        // Instrument-only K00 has already restored defaults/explicit volume after release's zero operation.
+        // An admitted release-row restoration overwrites the transient zero before publication.
         let zeroVolume = event.volumeEnvelope == nil && !instrumentOnlyVolumeRestored
         var volumeUpdate: PlaybackSongSyntheticVoiceStateUpdateDiagnostic?
         if zeroVolume {
@@ -140,6 +140,7 @@ extension PlaybackSongSyntheticAdapter {
             scheduledFrame: scheduledFrame, rowSpeed: rowSpeed, rowBPM: rowBPM, cell: cell,
             channelState: channelState, events: events, eventMappings: eventMappings, globalVolume: globalVolume,
             effectType: effectType, effectParam: effectParam, instrumentOnlyVolumeRestored: instrumentOnlyVolumeRestored)
+        if channelState.activeEventIndex == nil && result.diagnostic.applied { channelState.keyOffWithoutVoice = true }
         if let volume = result.channelVolumeAfter {
             channelState.baseChannelVolume = volume
         }
@@ -184,22 +185,14 @@ extension PlaybackSongSyntheticAdapter {
         timingPlan: PlaybackSongFxxTimingPlan,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         channelState: inout ChannelState,
-        events: inout [SyntheticTrackerEvent],
-        keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
-        voiceStateUpdates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
-        globalVolume: Int,
-        eventMappings: inout [PlaybackSongSyntheticEventMapping],
-        ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
-        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
-        eventCoverage: inout EventCoverageBuilder,
-        instrumentOnlyVolumeRestored: Bool = false
+        context: inout AdapterRowContext
     ) {
         guard isKxxKeyOffEffect(cell) else {
             return
         }
-        let requestedTick = Int(cell.effectParam)
-        guard requestedTick < timingConfig.speed else {
-            keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
+        let requestedTick = Int(cell.effectParam & 31)
+        guard (cell.effectParam == 0 || requestedTick > 0), requestedTick < timingConfig.speed else {
+            context.keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
@@ -211,7 +204,7 @@ extension PlaybackSongSyntheticAdapter {
                 scheduledFrame: nil,
                 applied: false,
                 deferred: false,
-                reason: .outOfRowNoOp,
+                reason: cell.effectParam != 0 && requestedTick == 0 ? .maskedZeroNoOp : .outOfRowNoOp,
                 requestedTick: requestedTick,
                 rowSpeed: timingConfig.speed,
                 rowBPM: timingConfig.bpm,
@@ -233,17 +226,17 @@ extension PlaybackSongSyntheticAdapter {
             volumeColumn: volumeColumn,
             cell: cell,
             channelState: &channelState,
-            events: &events,
-            keyOffEvents: &keyOffEvents,
-            voiceStateUpdates: &voiceStateUpdates,
-            globalVolume: globalVolume,
-            eventMappings: &eventMappings,
-            ignoredCells: &ignoredCells,
-            deferredCellFields: &deferredCellFields,
-            eventCoverage: &eventCoverage,
+            events: &context.events,
+            keyOffEvents: &context.keyOffEvents,
+            voiceStateUpdates: &context.voiceStateUpdates,
+            globalVolume: context.globalVolumeState.volumeValue,
+            eventMappings: &context.eventMappings,
+            ignoredCells: &context.ignoredCells,
+            deferredCellFields: &context.deferredCellFields,
+            eventCoverage: &context.eventCoverage,
             effectType: cell.effectType,
             effectParam: cell.effectParam,
-            instrumentOnlyVolumeRestored: instrumentOnlyVolumeRestored && requestedTick == 0
+            instrumentOnlyVolumeRestored: false
         )
     }
 

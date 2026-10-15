@@ -359,18 +359,18 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
 
         XCTAssertEqual(plan.pattern.events, [])
-        XCTAssertEqual(plan.diagnostics.ignoredCellCount, 6)
+        XCTAssertEqual(plan.diagnostics.ignoredCellCount, 5)
         XCTAssertEqual(plan.diagnostics.emptyOrSkippedRowCount, 1)
         XCTAssertEqual(plan.diagnostics.ignoredCells.map(\.reason), [
             .instrumentOnly,
-            .keyOff,
             .invalidNote,
             .unknownInstrument,
             .samplePCMEmpty,
             .instrumentHasNoPlayableSample
         ])
-        XCTAssertEqual(plan.diagnostics.ignoredCells.map(\.channelIndex), [0, 1, 2, 3, 4, 5])
-        XCTAssertEqual(plan.diagnostics.deferredCellFields.map(\.field), [.keyOff])
+        XCTAssertEqual(plan.diagnostics.ignoredCells.map(\.channelIndex), [0, 2, 3, 4, 5])
+        XCTAssertEqual(plan.diagnostics.deferredCellFields.map(\.field), [])
+        XCTAssertEqual(plan.diagnostics.keyOffEvents.first?.reason, .releasedSilentChannel)
     }
 
     func testPlaybackSongSyntheticAdapterReportsEventCoverageAndSkipReasons() throws {

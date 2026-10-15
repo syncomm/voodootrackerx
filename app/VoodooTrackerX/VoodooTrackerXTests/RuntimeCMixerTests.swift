@@ -4798,6 +4798,44 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testNoteOffPrecedenceWholeWindowRuntimeParity() throws {
+        try assertFixtureRuntimeParity(fixtureName: "noteoff-kxx-precedence.xm")
+        let url = try referenceXMFixtureURL("generated/noteoff-kxx-precedence.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: url.path), modulePath: url.path)
+        for rate in [44_100.0, 48_000] {
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan)
+            let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1), maximumRenderFrames: 4096)
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            let boundary = 36 * Int(rate / 50)
+            var rendered = 0
+            while rendered < boundary {
+                let count = min(4093, boundary - rendered)
+                _ = renderRuntimePCM(core, frames: count); rendered += count
+                _ = core.drainAppliedAdapterEventDiagnostics()
+            }
+            let sources = plan.diagnostics.eventMappings.filter { $0.source.rowIndex == 4 }
+            XCTAssertEqual(sources.count, 2)
+            let before = try sources.map { try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: $0.eventIndex)) }
+            _ = renderRuntimePCM(core, frames: 1)
+            let applied = core.drainAppliedAdapterEventDiagnostics()
+            XCTAssertFalse(applied.contains { if case .noteTrigger = $0.event.action { return true }; return false })
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            for (mapping, prior) in zip(sources, before) {
+                let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: mapping.eventIndex))
+                XCTAssertTrue(after.active)
+                XCTAssertEqual(after.channelTag, prior.channelTag)
+                let semantic = plan.xmEnvelopeTimeline?.channelUpdates.first {
+                    $0.scheduledFrame == boundary && $0.channelIndex == mapping.channelIndex
+                }?.state
+                XCTAssertEqual(after.envelopeSemanticState, semantic)
+                let expected = (prior.samplePosition + plan.pattern.events[mapping.eventIndex].playbackStep).truncatingRemainder(dividingBy: 1024)
+                XCTAssertEqual(after.samplePosition, expected, accuracy: 1e-8)
+            }
+        }
+    }
+
+    @MainActor
     func testDelayedInstrumentOnlyWholeWindowRuntimeAndExactSourceBoundary() throws {
         try assertFixtureRuntimeParity(fixtureName: "delayed-instrument-only-edx.xm")
         let url = try referenceXMFixtureURL("generated/delayed-instrument-only-edx.xm")
@@ -5010,7 +5048,7 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             let planned = runtime.events.filter { event in
-                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm"].contains(fixtureName) {
+                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm"].contains(fixtureName) {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
                     case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
@@ -5042,7 +5080,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
-            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm"].contains(fixtureName) {
+            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm"].contains(fixtureName) {
                 XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
             }

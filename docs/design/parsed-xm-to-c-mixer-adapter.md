@@ -24,7 +24,9 @@ module-rendering CLI.
 G25 supersedes historical base/x/y-cycle and deferred-arpeggio-memory wording
 below. Linear `0xy` uses base pitch at tick zero, then
 `[base,x,y][(effectiveSpeed - tick) % 3]`; `000` is inert without memory.
-In-range ordering is closed; transposed range/extreme conversion remains G30.
+In-range ordering is closed. G26 reuses that selector for Amiga `0xy`, resolving
+selected notes through the existing quantized note/finetune lookup and sample
+relative-note metadata. Transposed range/extreme conversion remains G30.
 
 G12 supersedes this note's historical row-level Hxy descriptions. Nonzero Hxy
 now executes on ticks `1..<effectiveSpeed`, mutating one canonical global value

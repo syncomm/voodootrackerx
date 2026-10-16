@@ -45,6 +45,7 @@ ALL_FIXTURES = [
     "delayed-instrument-only-edx.xm",
     "noteoff-kxx-precedence.xm",
     "linear-arpeggio-ordering.xm",
+    "amiga-arpeggio-ordering.xm",
 ]
 
 
@@ -592,11 +593,13 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "delayed-instrument-only-edx.xm").resolve(),
                     (output_dir / "generated" / "noteoff-kxx-precedence.xm").resolve(),
                     (output_dir / "generated" / "linear-arpeggio-ordering.xm").resolve(),
+                    (output_dir / "generated" / "amiga-arpeggio-ordering.xm").resolve(),
                 ],
             )
             self.assertEqual(
                 files,
                 [
+                    "generated/amiga-arpeggio-ordering.xm",
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/cold-500-local-publication.xm",
@@ -689,6 +692,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertEqual(
                 files,
                 [
+                    "generated/amiga-arpeggio-ordering.xm",
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/cold-500-local-publication.xm",
@@ -806,6 +810,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:delayed-instrument-only-edx.xm": "generated/delayed-instrument-only-edx.xm",
                     "xm:noteoff-kxx-precedence.xm": "generated/noteoff-kxx-precedence.xm",
                     "xm:linear-arpeggio-ordering.xm": "generated/linear-arpeggio-ordering.xm",
+                    "xm:amiga-arpeggio-ordering.xm": "generated/amiga-arpeggio-ordering.xm",
                 },
             )
 

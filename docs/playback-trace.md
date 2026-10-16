@@ -158,11 +158,16 @@ once at the base note pitch; subsequent arpeggio ticks are emitted as planned
 sample-step updates. Empty-note nonzero `0xy` rows with an active voice emit the
 remaining-tick sample-step updates at row tick frames. Tick zero is base pitch;
 later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using same-row Fxx
-speed. `000` is inert with no parameter memory. Bounded `arpeggio_effects`
-step entries expose `selected_semitone_offset` beside period/step/frame; join
+speed. Amiga phases resolve through the existing quantized note/finetune lookup
+with sample relative-note metadata. `000` is inert with no parameter memory.
+Bounded `arpeggio_effects` entries expose frequency mode and canonical Amiga
+periods; step entries retain
+`selected_semitone_offset` beside the existing Amiga period/step/frame fields. Join
 `active_event_index` to the existing event mapping for base note and tuning.
 This observes selection separately from conversion: B-7 `037` selects +7/+3,
-while existing VTX periods 1152/1408 versus FT2 1540/1540 remain G30 debt.
+while existing Linear VTX periods 1152/1408 versus FT2 1540/1540 remain G30 debt.
+Amiga raised native periods 75/95 versus FT2 107/107 and low/base-range
+conversion also remain G30. No-owner diagnostics report unavailable pitch mode.
 Source generation/cursor, runtime event categories and trace schema are unchanged.
 `100` and `200` portamento rows replay prior same-channel nonzero `1xx` or
 `2xx` slide memory through the shared sample-step update path when available;

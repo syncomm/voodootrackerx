@@ -55,7 +55,15 @@ host.
   Fxx timing. `000` is inert with no parameter memory; pitch updates retain the
   source generation/cursor. G30 still owns conversion precision and transposed
   range/extreme clamps: B-7 `037` selects +7/+3 correctly while retaining VTX
-  periods 1152/1408 versus FT2's 1540/1540. Amiga `0xy` remains G26.
+  periods 1152/1408 versus FT2's 1540/1540.
+- G26 Amiga `0xy` is closed for in-range quantized pitches. It reuses G25's
+  phase selector and the existing Amiga note/finetune lookup and sample-step
+  conversion. Tuning, relative-note/octave crossings, effective Fxx speed,
+  retained/released sources and both-rate delivery are pinned. Paired Release
+  planning/cache checks and startup attribution pass; the overall product
+  ≤1 s startup target remains outstanding. `000` remains inert. Range/extreme
+  conversion remains G30; broader modulation interactions remain G39, without
+  a universal Amiga pitch-parity claim.
 - G19 E90 is a special row-entry source trigger at cursor zero, with no interval
   memory. Instrumentless rows carry volume, pan, envelopes, release/fadeout and
   effect memory; explicit instruments resolve the exact note map and reset once

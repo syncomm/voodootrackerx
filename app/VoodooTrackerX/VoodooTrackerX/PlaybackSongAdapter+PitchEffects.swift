@@ -1664,7 +1664,7 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
-    /// Selects Linear 0xy's remaining-tick phase without owning pitch conversion or source state.
+    /// Selects 0xy's remaining-tick phase without owning pitch conversion or source state.
     static func arpeggioSemitoneOffset(effectiveSpeed: Int, tick: Int, x: Int, y: Int) -> Int {
         guard tick > 0, tick < effectiveSpeed else { return 0 }
         switch (effectiveSpeed - tick) % 3 {
@@ -1688,6 +1688,8 @@ extension PlaybackSongSyntheticAdapter {
         let ySemitoneOffset = Int(cell.effectParam & 0x0F)
         let hasActiveVoice = channelState.activeEventIndex != nil
         let currentLinearPeriodBefore = channelState.activeLinearPeriod
+        let currentAmigaPeriodBefore = channelState.activeAmigaPeriod
+        let isLinear = channelState.activeUsesLinearFrequencyTable == true
         let currentPlaybackStepBefore = channelState.activePlaybackStep
 
         guard hasActiveVoice || channelState.semanticInstrumentIndex != nil else {
@@ -1703,6 +1705,8 @@ extension PlaybackSongSyntheticAdapter {
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 xSemitoneOffset: xSemitoneOffset,
                 ySemitoneOffset: ySemitoneOffset,
+                currentAmigaPeriodBefore: currentAmigaPeriodBefore,
+                currentAmigaPeriodAfter: channelState.activeAmigaPeriod,
                 currentLinearPeriodBefore: currentLinearPeriodBefore,
                 currentLinearPeriodAfter: channelState.activeLinearPeriod,
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
@@ -1712,8 +1716,10 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        guard channelState.activeUsesLinearFrequencyTable == true,
-              let baseLinearPeriod = channelState.activeLinearPeriod,
+        guard let basePeriod = isLinear ? channelState.activeLinearPeriod : channelState.activeAmigaPeriod,
+              isLinear || (channelState.activeUsesLinearFrequencyTable == false &&
+                  channelState.carriedNote > 0 && channelState.activeSampleRelativeNote != nil &&
+                  channelState.activeSampleFinetune != nil),
               let basePlaybackStep = channelState.activePlaybackStep,
               let baseSampleRate = channelState.activeSampleBaseSampleRate else {
             return arpeggioDiagnostic(
@@ -1728,34 +1734,52 @@ extension PlaybackSongSyntheticAdapter {
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 xSemitoneOffset: xSemitoneOffset,
                 ySemitoneOffset: ySemitoneOffset,
+                currentAmigaPeriodBefore: currentAmigaPeriodBefore,
+                currentAmigaPeriodAfter: channelState.activeAmigaPeriod,
                 currentLinearPeriodBefore: currentLinearPeriodBefore,
                 currentLinearPeriodAfter: channelState.activeLinearPeriod,
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 stepUpdates: [],
-                policy: "linear_frequency_only_first_pass"
+                policy: "pitch_owner_or_sample_tuning_unavailable"
             )
         }
 
-        var currentLinearPeriod = baseLinearPeriod
+        var currentPeriod = basePeriod
         var currentPlaybackStep = basePlaybackStep
         var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
         let rowSpeed = max(1, timingConfig.speed)
         let firstTick = includeTickZeroUpdate ? 0 : 1
         for tick in firstTick..<rowSpeed {
-            let beforePeriod = currentLinearPeriod
+            let beforePeriod = currentPeriod
             let beforeStep = currentPlaybackStep
             let semitoneOffset = arpeggioSemitoneOffset(
                 effectiveSpeed: rowSpeed, tick: tick, x: xSemitoneOffset, y: ySemitoneOffset
             )
-            let modulatedPeriod = clampedLinearPeriod(
-                baseLinearPeriod - (Double(semitoneOffset) * xmLinearPeriodUnitsPerSemitone)
-            )
-            guard let nextStep = playbackStep(
-                linearPeriod: modulatedPeriod,
-                baseSampleRate: baseSampleRate,
-                outputSampleRate: timingConfig.sampleRate
-            ) else {
+            // Selection shares G25 timing. Amiga phases reuse ordinary note/tuning
+            // lookup and its existing range policy; base pitch remains canonical.
+            let modulatedPeriod: Double?
+            if isLinear {
+                modulatedPeriod = clampedLinearPeriod(
+                    basePeriod - Double(semitoneOffset) * xmLinearPeriodUnitsPerSemitone
+                )
+            } else if semitoneOffset == 0 {
+                modulatedPeriod = basePeriod
+            } else {
+                modulatedPeriod = amigaPitchTarget(
+                    note: channelState.carriedNote,
+                    relativeNote: channelState.activeSampleRelativeNote! + semitoneOffset,
+                    finetune: channelState.activeSampleFinetune!,
+                    baseSampleRate: baseSampleRate,
+                    outputSampleRate: timingConfig.sampleRate
+                )?.amigaPeriod
+            }
+            guard let modulatedPeriod,
+                  let nextStep = isLinear
+                    ? playbackStep(linearPeriod: modulatedPeriod, baseSampleRate: baseSampleRate,
+                        outputSampleRate: timingConfig.sampleRate)
+                    : playbackStep(amigaPeriod: modulatedPeriod, baseSampleRate: baseSampleRate,
+                        outputSampleRate: timingConfig.sampleRate) else {
                 return arpeggioDiagnostic(
                     source: source,
                     channelIndex: channelIndex,
@@ -1768,6 +1792,8 @@ extension PlaybackSongSyntheticAdapter {
                     activeEventMappingIndex: channelState.activeEventMappingIndex,
                     xSemitoneOffset: xSemitoneOffset,
                     ySemitoneOffset: ySemitoneOffset,
+                    currentAmigaPeriodBefore: currentAmigaPeriodBefore,
+                    currentAmigaPeriodAfter: channelState.activeAmigaPeriod,
                     currentLinearPeriodBefore: currentLinearPeriodBefore,
                     currentLinearPeriodAfter: channelState.activeLinearPeriod,
                     currentPlaybackStepBefore: currentPlaybackStepBefore,
@@ -1776,13 +1802,15 @@ extension PlaybackSongSyntheticAdapter {
                     policy: "arpeggio_pitch_out_of_range"
                 )
             }
-            currentLinearPeriod = modulatedPeriod
+            currentPeriod = modulatedPeriod
             currentPlaybackStep = nextStep
             stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
                 syntheticTick: tick,
                 scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
-                linearPeriodBefore: beforePeriod,
-                linearPeriodAfter: currentLinearPeriod,
+                linearPeriodBefore: isLinear ? beforePeriod : 0,
+                linearPeriodAfter: isLinear ? currentPeriod : 0,
+                amigaPeriodBefore: isLinear ? nil : beforePeriod,
+                amigaPeriodAfter: isLinear ? nil : currentPeriod,
                 playbackStepBefore: beforeStep,
                 playbackStepAfter: currentPlaybackStep,
                 reachedTarget: semitoneOffset == 0
@@ -1794,17 +1822,20 @@ extension PlaybackSongSyntheticAdapter {
             stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
                 syntheticTick: rowSpeed,
                 scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
-                linearPeriodBefore: currentLinearPeriod,
-                linearPeriodAfter: baseLinearPeriod,
+                linearPeriodBefore: isLinear ? currentPeriod : 0,
+                linearPeriodAfter: isLinear ? basePeriod : 0,
+                amigaPeriodBefore: isLinear ? nil : currentPeriod,
+                amigaPeriodAfter: isLinear ? nil : basePeriod,
                 playbackStepBefore: currentPlaybackStep,
                 playbackStepAfter: basePlaybackStep,
                 reachedTarget: true
             ))
-            currentLinearPeriod = baseLinearPeriod
+            currentPeriod = basePeriod
             currentPlaybackStep = basePlaybackStep
         }
 
-        channelState.activeLinearPeriod = currentLinearPeriod
+        if isLinear { channelState.activeLinearPeriod = currentPeriod }
+        else { channelState.activeAmigaPeriod = currentPeriod }
         channelState.activePlaybackStep = currentPlaybackStep
 
         return arpeggioDiagnostic(
@@ -1819,12 +1850,15 @@ extension PlaybackSongSyntheticAdapter {
             activeEventMappingIndex: channelState.activeEventMappingIndex,
             xSemitoneOffset: xSemitoneOffset,
             ySemitoneOffset: ySemitoneOffset,
+            currentAmigaPeriodBefore: currentAmigaPeriodBefore,
+            currentAmigaPeriodAfter: channelState.activeAmigaPeriod,
             currentLinearPeriodBefore: currentLinearPeriodBefore,
             currentLinearPeriodAfter: channelState.activeLinearPeriod,
             currentPlaybackStepBefore: currentPlaybackStepBefore,
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             stepUpdates: stepUpdates,
-            policy: "linear_0xy_remaining_tick_order_no_effect_memory"
+            policy: isLinear ? "linear_0xy_remaining_tick_order_no_effect_memory"
+                : "amiga_0xy_quantized_note_remaining_tick_order_no_effect_memory"
         )
     }
 
@@ -1840,6 +1874,8 @@ extension PlaybackSongSyntheticAdapter {
         activeEventMappingIndex: Int?,
         xSemitoneOffset: Int,
         ySemitoneOffset: Int,
+        currentAmigaPeriodBefore: Double? = nil,
+        currentAmigaPeriodAfter: Double? = nil,
         currentLinearPeriodBefore: Double?,
         currentLinearPeriodAfter: Double?,
         currentPlaybackStepBefore: Double?,
@@ -1866,6 +1902,8 @@ extension PlaybackSongSyntheticAdapter {
             activeEventMappingIndex: activeEventMappingIndex,
             xSemitoneOffset: xSemitoneOffset,
             ySemitoneOffset: ySemitoneOffset,
+            currentAmigaPeriodBefore: currentAmigaPeriodBefore,
+            currentAmigaPeriodAfter: currentAmigaPeriodAfter,
             currentLinearPeriodBefore: currentLinearPeriodBefore,
             currentLinearPeriodAfter: currentLinearPeriodAfter,
             currentPlaybackStepBefore: currentPlaybackStepBefore,

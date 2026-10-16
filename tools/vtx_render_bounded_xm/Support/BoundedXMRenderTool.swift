@@ -2914,6 +2914,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
             "x_semitone_offset": diagnostic.xSemitoneOffset,
             "y_semitone_offset": diagnostic.ySemitoneOffset,
+            "frequency_table": diagnostic.currentAmigaPeriodBefore != nil ? "amiga"
+                : diagnostic.currentLinearPeriodBefore != nil ? "linear" : "unavailable",
+            "current_amiga_period_before": diagnostic.currentAmigaPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "current_amiga_period_after": diagnostic.currentAmigaPeriodAfter.map { $0 as Any } ?? NSNull(),
             "current_linear_period_before": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
             "current_linear_period_after": diagnostic.currentLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
             "current_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),

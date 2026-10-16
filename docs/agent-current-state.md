@@ -52,8 +52,12 @@ host.
   shared frame plan, including runtime event application and sample-time follow.
 - Regular `1xx`/`2xx` directional memory is admitted by executed nonzero ticks.
   Effective speed-1 rows neither seed nor replace it; `100`/`200` replay only
-  admitted history. The rule is table-independent; supported execution remains
-  Linear `1xx`/`2xx` and Amiga `2xx`. Amiga `1xx` remains G27.
+  admitted history. Linear and Amiga `1xx`/`2xx` share this admission rule.
+- G27 in-range Amiga `1xx` subtracts `16 * resolved parameter` per nonzero tick,
+  reusing the existing Amiga period, clamp and sample-step conversion. `100`
+  replays independent upward memory without restarting a source. The retained
+  minimum period 107 and break-on-clamp differ from FT2 native period 1 at the
+  high-pitch edge; broader range/extreme policy remains G30.
 - G25 Linear `0xy` in-range tick ordering is closed. Tick zero uses base pitch;
   later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using command-row
   Fxx timing. `000` is inert with no parameter memory; pitch updates retain the

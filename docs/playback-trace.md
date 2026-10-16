@@ -175,7 +175,11 @@ Supported nonzero speed-1 commands retain `applied` status with empty
 `step_updates` and policy `regular_portamento_no_nonzero_ticks_no_memory_admission`.
 Missing history retains effect-memory-deferred/no-op diagnostics; no implicit
 zero provenance is invented. This table-independent admission rule changes no
-schema, source/cursor ownership or pitch arithmetic, and adds no Amiga `1xx` path.
+schema or source/cursor ownership. Amiga `1xx` now reports `applied` with
+`amiga_applied` mode, subtracting `16 * resolved amount` per nonzero tick. Its
+seeded `100` policy is `amiga_zero_param_reuses_prior_1xx_portamento_up_memory`;
+existing direction, memory, no-owner and `clamped` fields distinguish the paths.
+The minimum-period/break-on-clamp edge remains G30; no schema field is added.
 `5xy` rows reuse the current `3xx` tone-portamento target/speed for
 sample-step updates and the `Axy` tick-level volume-slide policy for gain
 updates. Same-cell note `5xy` rows set the tone-portamento target without

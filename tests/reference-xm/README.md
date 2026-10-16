@@ -105,6 +105,15 @@ explicitly approves committing that exact artifact.
 
 ## Generated Fixtures
 
+`generated/regular-portamento-memory-admission.xm` is a four-channel, 12-row
+Linear control with looped mathematical PCM: rows 0–1 distinguish speed-1
+104/204 attempts from cold replay; 2–4 distinguish valid 101/201 seeds from
+speed-1 replacement; 5–6 cover F02 admission and F03 replay. Channel 2 pins
+directional independence; 7–11 cover release, note and instrument carry.
+Tests also project the same public value into Amiga mode for existing 2xx,
+leaving 1xx unsupported. Both-rate tests cover memory/periods, Fxx before/after,
+whole/window/runtime delivery and cursor continuity. Reference audio stays external.
+
 `generated/extra-fine-pitch-directional-memory.xm` is the G18 two-channel,
 two-order Linear control with a looped mathematical sample. Rows 0–4 pin cold
 same-cell folding, B8 restoration and B0 continuation; later rows pin independent

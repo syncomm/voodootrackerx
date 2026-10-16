@@ -30,11 +30,15 @@ extension PlaybackSongSyntheticAdapter {
 
         if requestedSlideAmount > 0 {
             slideAmount = requestedSlideAmount
-            let memory = PortamentoSlideMemory(amount: requestedSlideAmount, source: targetMemorySource)
-            if direction == .up {
-                channelState.portamentoUpMemory = memory
-            } else {
-                channelState.portamentoDownMemory = memory
+            // A complete row is planned here. Project the first nonzero tick's
+            // store only when that invocation exists; later stores are identical.
+            if timingConfig.speed > 1 {
+                let memory = PortamentoSlideMemory(amount: requestedSlideAmount, source: targetMemorySource)
+                if direction == .up {
+                    channelState.portamentoUpMemory = memory
+                } else {
+                    channelState.portamentoDownMemory = memory
+                }
             }
             memorySource = nil
             effectMemoryReused = false
@@ -202,7 +206,7 @@ extension PlaybackSongSyntheticAdapter {
                 effectMemoryMissing: effectMemoryMissing,
                 memorySource: memorySource,
                 memoryUnavailableReason: nil,
-                policy: effectMemoryReused
+                policy: rowSpeed == 1 ? "regular_portamento_no_nonzero_ticks_no_memory_admission" : effectMemoryReused
                     ? "amiga_zero_param_reuses_prior_2xx_portamento_down_memory"
                     : "amiga_period_units_per_tick_first_pass"
             )
@@ -331,7 +335,7 @@ extension PlaybackSongSyntheticAdapter {
             effectMemoryMissing: effectMemoryMissing,
             memorySource: memorySource,
             memoryUnavailableReason: nil,
-            policy: effectMemoryReused
+            policy: rowSpeed == 1 ? "regular_portamento_no_nonzero_ticks_no_memory_admission" : effectMemoryReused
                 ? "zero_param_reuses_prior_portamento_slide_memory"
                 : "linear_period_units_per_tick_first_pass"
         )

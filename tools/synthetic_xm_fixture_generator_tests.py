@@ -46,6 +46,7 @@ ALL_FIXTURES = [
     "noteoff-kxx-precedence.xm",
     "linear-arpeggio-ordering.xm",
     "amiga-arpeggio-ordering.xm",
+    "regular-portamento-memory-admission.xm",
 ]
 
 
@@ -594,6 +595,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "noteoff-kxx-precedence.xm").resolve(),
                     (output_dir / "generated" / "linear-arpeggio-ordering.xm").resolve(),
                     (output_dir / "generated" / "amiga-arpeggio-ordering.xm").resolve(),
+                    (output_dir / "generated" / "regular-portamento-memory-admission.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -627,6 +629,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/noteoff-kxx-precedence.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
+                    "generated/regular-portamento-memory-admission.xm",
                     "generated/rxy-counter-timing-carry.xm",
                     "generated/tremolo-effects.xm",
                     "generated/vibrato-empty-route-state.xm",
@@ -720,6 +723,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/noteoff-kxx-precedence.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
+                    "generated/regular-portamento-memory-admission.xm",
                     "generated/rxy-counter-timing-carry.xm",
                     "generated/tremolo-effects.xm",
                     "generated/vibrato-empty-route-state.xm",
@@ -811,6 +815,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:noteoff-kxx-precedence.xm": "generated/noteoff-kxx-precedence.xm",
                     "xm:linear-arpeggio-ordering.xm": "generated/linear-arpeggio-ordering.xm",
                     "xm:amiga-arpeggio-ordering.xm": "generated/amiga-arpeggio-ordering.xm",
+                    "xm:regular-portamento-memory-admission.xm": "generated/regular-portamento-memory-admission.xm",
                 },
             )
 

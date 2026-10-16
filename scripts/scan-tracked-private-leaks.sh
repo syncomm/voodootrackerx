@@ -61,6 +61,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/delayed-instrument-only-edx.xm | \
     tests/reference-xm/generated/noteoff-kxx-precedence.xm | \
     tests/reference-xm/generated/linear-arpeggio-ordering.xm | \
+    tests/reference-xm/generated/amiga-arpeggio-ordering.xm | \
     tests/fixtures/minimal.mod)
       return 0
       ;;

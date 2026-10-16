@@ -693,3 +693,29 @@ cursor/generation and exact application frames at 44.1/48 kHz. G30 conversion,
 G26 Amiga and existing onset/retirement policies remain separate. Listen to
 rows 0–13 and 16–18 for ordering; rows 14–15 are a G30 boundary example.
 Automated checks do not establish listening evidence; FT2 WAVs remain external.
+
+## Amiga arpeggio ordering fixture
+
+`generated/amiga-arpeggio-ordering.xm` is 1,237 bytes, SHA-256
+`671d98f9d6e608fe144c8282b1fa15132882c9b4404c3f1a3ae8200345e4b800`.
+It uses project-authored looped sine PCM, Amiga frequency mode, sample finetune
++64 and relative note +12. Every closure assertion uses in-range notes.
+
+| Rows | Control |
+| --- | --- |
+| 0–2 | F02 after fresh 037; active continuation then 000 |
+| 3–5 | F03 after note-only 073; single-nibble 010 then 000 |
+| 6–9 | F06, 037/073, release then retained-source 001 |
+| 10–13 | F07 before fresh/active 037, F02 before 073, then 000 |
+| 14–15 | B-3 plus relative +12: 037 crosses the octave at F06 |
+| 16–18 | F04, 01F/0F1, then 000 |
+
+`AmigaArpeggioTests` pins G25's shared remaining-tick selection, observed FT2
+quantized periods, finetunes -128/-64/-1/0/+1/+64/+127, relative -12/0/+12,
+source generations, no-owner behavior and both-rate whole/window/runtime plans.
+App runtime tests additionally pin applied frames and retained-source cursor
+continuity. Separate high/low edge controls preserve current G30 range policy;
+no lookup, clamp, fixed-point conversion or portamento policy changes here.
+Use Amiga Frequency Slides with the reference profile in
+[audio-comparison.md](../../docs/audio-comparison.md). Automated comparison does
+not establish listening evidence; generated reference WAVs stay outside git.

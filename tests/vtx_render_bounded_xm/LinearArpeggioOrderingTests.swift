@@ -122,9 +122,6 @@ final class LinearArpeggioOrderingTests: XCTestCase {
                 XCTAssertEqual(arp.diagnostics.vibratoEffects.filter { $0.syntheticRow == 3 }, blank.diagnostics.vibratoEffects.filter { $0.syntheticRow == 3 })
             }
         }
-        let amiga = adapt([[c(0x37, note: 49, instrument: 1)]], 48000, linear: false)
-        XCTAssertEqual(amiga.diagnostics.arpeggioEffects.first?.status, .unsupportedFrequencyTable)
-        XCTAssertTrue(amiga.diagnostics.arpeggioEffects.flatMap(\.stepUpdates).isEmpty)
     }
 
     func testPublicFixtureWholeWindowRuntimePlanAndSelectedOffsetDiagnostics() throws {

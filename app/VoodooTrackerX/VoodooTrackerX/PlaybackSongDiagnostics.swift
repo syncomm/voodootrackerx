@@ -1408,6 +1408,8 @@ struct PlaybackSongSyntheticArpeggioDiagnostic: Equatable {
     let activeEventMappingIndex: Int?
     let xSemitoneOffset: Int
     let ySemitoneOffset: Int
+    let currentAmigaPeriodBefore: Double?
+    let currentAmigaPeriodAfter: Double?
     let currentLinearPeriodBefore: Double?
     let currentLinearPeriodAfter: Double?
     let currentPlaybackStepBefore: Double?

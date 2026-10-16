@@ -5042,15 +5042,28 @@ final class RuntimeCMixerTests: XCTestCase {
         try assertFixtureRuntimeParity(fixtureName: "linear-arpeggio-ordering.xm")
     }
 
+    @MainActor
+    func testAmigaArpeggioFixtureRuntimeParity() throws {
+        try assertFixtureRuntimeParity(fixtureName: "amiga-arpeggio-ordering.xm")
+    }
+
+    func testAmigaArpeggioUpdatesKeepTheSameSourceCursorIncludingAfterRelease() throws {
+        try assertArpeggioCursorContinuity(linear: false)
+    }
+
     func testLinearArpeggioUpdatesKeepTheSameSourceCursorIncludingAfterRelease() throws {
+        try assertArpeggioCursorContinuity(linear: true)
+    }
+
+    private func assertArpeggioCursorContinuity(linear: Bool) throws {
         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
             pcm: Array(repeating: 1 / 32, count: 256), volume: 0.5,
-            relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 256, loopType: 1)
+            relativeNote: linear ? 0 : 12, finetune: linear ? 0 : 64, baseSampleRate: 8363, loopStart: 0, loopLength: 256, loopType: 1)
         let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
             makePlaybackRow(index: 0, note: 49, instrument: 1, effectParam: 0x37),
             makePlaybackRow(index: 1, effectParam: 0x73), makePlaybackRow(index: 2, note: 97),
             makePlaybackRow(index: 3, effectParam: 0x01), makePlaybackRow(index: 4)]],
-            instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
         for rate in [44_100.0, 48_000] {
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
             let updates = runtime.events.filter { $0.categories.contains("arpeggio_0xy") && $0.categories.contains("step_update") }
@@ -5090,10 +5103,10 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             // Arpeggio row-exit and row-entry writes can share a frame; use the runtime's ordering.
-            let ordered = fixtureName == "linear-arpeggio-ordering.xm"
+            let ordered = ["linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm"].contains(fixtureName)
                 ? runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] } : runtime.events
             let planned = ordered.filter { event in
-                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm"].contains(fixtureName) {
+                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm"].contains(fixtureName) {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
                     case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
@@ -5125,7 +5138,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
-            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm"].contains(fixtureName) {
+            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm"].contains(fixtureName) {
                 XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
             }

@@ -3374,7 +3374,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedTonePortamentoVoices ?? 0, 0)
     }
 
-    func testPlaybackSongAdapterPortamentoSlideWithNonLinearTableIsDeferred() throws {
+    func testPlaybackSongAdapterAmigaPortamentoUpUsesExistingPeriodScale() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -3388,11 +3388,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.portamentoSlideEffects.first)
 
-        XCTAssertEqual(diagnostic.status, .unsupportedFrequencyTable)
-        XCTAssertFalse(diagnostic.applied)
-        XCTAssertTrue(diagnostic.deferred)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.applied)
+        XCTAssertFalse(diagnostic.deferred)
         XCTAssertTrue(diagnostic.activeVoiceFound)
-        XCTAssertEqual(diagnostic.stepUpdates, [])
+        XCTAssertEqual(diagnostic.currentAmigaPeriodBefore, 6848)
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.amigaPeriodAfter), [6592,6336,6080])
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5,6,7])
     }
 
     func testPlaybackSongAdapterE1xFinePortamentoUpAppliesRowLevelStepUpdate() throws {

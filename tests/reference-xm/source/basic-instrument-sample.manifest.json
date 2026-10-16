@@ -1210,7 +1210,7 @@
       ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
-        "Amiga 1xx, fine/extra-fine, 5xy and volume-column tone portamento remain deferred."
+        "Amiga 1xx is covered separately by amiga-portamento-up.xm; fine/extra-fine, 5xy and volume-column tone portamento remain deferred."
       ],
       "xm_output": "generated/portamento-scaling-linear.xm",
       "xm_sha256": "f456a0cd00118d61850344fc6f52818a858f0c098c29a302aa10c358687b0380",
@@ -1338,7 +1338,7 @@
       ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
-        "Amiga 1xx, fine/extra-fine, 5xy and volume-column tone portamento remain deferred."
+        "Amiga 1xx is covered separately by amiga-portamento-up.xm; fine/extra-fine, 5xy and volume-column tone portamento remain deferred."
       ],
       "xm_output": "generated/portamento-scaling-amiga.xm",
       "xm_sha256": "3d9d2e51fdf03e59d3ee0fc64d716bee39977a47fbfe7e9773a951eaa7185088",
@@ -11651,12 +11651,162 @@
       ],
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
-        "Amiga 1xx remains G27; tests project the same fixture into Amiga for supported 2xx only.",
+        "Tests project this fixture into Amiga for 1xx/2xx; amiga-portamento-up.xm covers tuning and the G30 clamp boundary.",
         "G30 conversion/extremes and unrelated retirement policy"
       ],
       "xm_output": "generated/regular-portamento-memory-admission.xm",
       "xm_sha256": "e2b7a9c1b75bc99491258cc58b1407f1c402f1f43d68db0ad931e137b91cef4e",
       "xm_size_bytes": 1276
+    },
+    {
+      "id": "amiga-portamento-up",
+      "intended_tests": [
+        "Amiga 1xx arithmetic, memory and timing",
+        "whole/window/runtime/host delivery",
+        "retained minimum-period clamp"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 4,
+        "flags": 0,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC PORTA ZERO",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [64, 64]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC PORTA TUNED",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 12,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [64, 64]], "type_flags": 1}
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 4, "effect_type": 1, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 1, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 15, "instrument": 0, "note": 0, "row": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 1},
+              {"channel": 1, "effect_parameter": 4, "effect_type": 2, "instrument": 0, "note": 0, "row": 1},
+              {"channel": 3, "effect_parameter": 3, "effect_type": 15, "instrument": 0, "note": 0, "row": 1},
+              {"channel": 0, "effect_parameter": 1, "effect_type": 1, "instrument": 0, "note": 0, "row": 2},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 2},
+              {"channel": 0, "effect_parameter": 4, "effect_type": 1, "instrument": 0, "note": 0, "row": 3},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 3},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 15, "instrument": 0, "note": 0, "row": 3},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 4},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 4},
+              {"channel": 3, "effect_parameter": 3, "effect_type": 15, "instrument": 0, "note": 0, "row": 4},
+              {"channel": 0, "effect_parameter": 4, "effect_type": 1, "instrument": 2, "note": 37, "row": 5},
+              {"channel": 1, "effect_parameter": 4, "effect_type": 2, "instrument": 2, "note": 37, "row": 5},
+              {"channel": 3, "effect_parameter": 6, "effect_type": 15, "instrument": 0, "note": 0, "row": 5},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 6},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 6},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 7},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 7},
+              {"channel": 0, "effect_parameter": 4, "effect_type": 1, "instrument": 0, "note": 0, "row": 8},
+              {"channel": 1, "effect_parameter": 4, "effect_type": 2, "instrument": 0, "note": 0, "row": 8},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 9},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 9},
+              {"channel": 0, "effect_parameter": 4, "effect_type": 1, "instrument": 0, "note": 49, "row": 10},
+              {"channel": 1, "effect_parameter": 4, "effect_type": 2, "instrument": 0, "note": 49, "row": 10},
+              {"channel": 3, "effect_parameter": 2, "effect_type": 15, "instrument": 0, "note": 0, "row": 10},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 11},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 11},
+              {"channel": 3, "effect_parameter": 3, "effect_type": 15, "instrument": 0, "note": 0, "row": 11},
+              {"channel": 0, "effect_parameter": 1, "effect_type": 15, "instrument": 0, "note": 0, "row": 12},
+              {"channel": 2, "effect_parameter": 4, "effect_type": 1, "instrument": 1, "note": 37, "row": 12},
+              {"channel": 0, "effect_parameter": 3, "effect_type": 15, "instrument": 0, "note": 0, "row": 13},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 13},
+              {"channel": 0, "effect_parameter": 2, "effect_type": 15, "instrument": 0, "note": 0, "row": 14},
+              {"channel": 2, "effect_parameter": 4, "effect_type": 1, "instrument": 0, "note": 0, "row": 14},
+              {"channel": 0, "effect_parameter": 3, "effect_type": 15, "instrument": 0, "note": 0, "row": 15},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 15},
+              {"channel": 0, "effect_parameter": 6, "effect_type": 15, "instrument": 0, "note": 0, "row": 16},
+              {"channel": 2, "effect_parameter": 255, "effect_type": 1, "instrument": 1, "note": 96, "row": 16},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 17}
+            ],
+            "rows": 18
+          }
+        ],
+        "restart_position": 0,
+        "speed": 1,
+        "title": "VTX AMIGA PORTA UP",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "amiga-portamento-up.xm",
+      "purpose": "Amiga upward regular slide, executed-tick memory, paired direction, source carry and retained G30 clamp.",
+      "significant_rows": [
+        {
+          "description": "F01 104 no seed; F03 cold 100 at row 1.",
+          "row": 0
+        },
+        {
+          "description": "101 seed; F01 104 no replacement; F03 100 replays 01.",
+          "row": 2
+        },
+        {
+          "description": "F06 paired 104/204 with finetune +127 and relative +12; row 6 replay.",
+          "row": 5
+        },
+        {
+          "description": "Release and retained slides; note-only new sources at row 10.",
+          "row": 7
+        },
+        {
+          "description": "Earlier-channel F01/F03 cold replay, then F02 admission and F03 replay.",
+          "row": 12
+        },
+        {
+          "description": "B-7 1FF reaches existing minimum 107; 100 at row 17 retains it. FT2 extreme residual is G30.",
+          "row": 16
+        }
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Broader G30 range/extreme and native fixed-point conversion remain separate; the edge retains VTX minimum 107 versus FT2 native 1."
+      ],
+      "xm_output": "generated/amiga-portamento-up.xm",
+      "xm_sha256": "2f5764e5d925beb8a0a8c460370ac6d1575437303b25f1a154a748961f2cf5b1",
+      "xm_size_bytes": 2128
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

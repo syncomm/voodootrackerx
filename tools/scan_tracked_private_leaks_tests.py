@@ -46,6 +46,7 @@ class ScanTrackedPrivateLeaksTests(unittest.TestCase):
                 "tests/reference-xm/generated/linear-arpeggio-ordering.xm",
                 "tests/reference-xm/generated/amiga-arpeggio-ordering.xm",
                 "tests/reference-xm/generated/regular-portamento-memory-admission.xm",
+                "tests/reference-xm/generated/amiga-portamento-up.xm",
                 "tests/fixtures/minimal.mod",
             ]:
                 self.write_file(repo, path, b"synthetic public fixture")

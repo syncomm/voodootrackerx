@@ -47,6 +47,7 @@ ALL_FIXTURES = [
     "linear-arpeggio-ordering.xm",
     "amiga-arpeggio-ordering.xm",
     "regular-portamento-memory-admission.xm",
+    "amiga-portamento-up.xm",
 ]
 
 
@@ -596,12 +597,14 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "linear-arpeggio-ordering.xm").resolve(),
                     (output_dir / "generated" / "amiga-arpeggio-ordering.xm").resolve(),
                     (output_dir / "generated" / "regular-portamento-memory-admission.xm").resolve(),
+                    (output_dir / "generated" / "amiga-portamento-up.xm").resolve(),
                 ],
             )
             self.assertEqual(
                 files,
                 [
                     "generated/amiga-arpeggio-ordering.xm",
+                    "generated/amiga-portamento-up.xm",
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/cold-500-local-publication.xm",
@@ -696,6 +699,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 files,
                 [
                     "generated/amiga-arpeggio-ordering.xm",
+                    "generated/amiga-portamento-up.xm",
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/cold-500-local-publication.xm",
@@ -816,6 +820,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:linear-arpeggio-ordering.xm": "generated/linear-arpeggio-ordering.xm",
                     "xm:amiga-arpeggio-ordering.xm": "generated/amiga-arpeggio-ordering.xm",
                     "xm:regular-portamento-memory-admission.xm": "generated/regular-portamento-memory-admission.xm",
+                    "xm:amiga-portamento-up.xm": "generated/amiga-portamento-up.xm",
                 },
             )
 

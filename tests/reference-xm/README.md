@@ -105,13 +105,25 @@ explicitly approves committing that exact artifact.
 
 ## Generated Fixtures
 
+`generated/amiga-portamento-up.xm` is an 18-row Amiga control with original
+looped sine PCM. Rows 0–4 pin cold 100, speed-1 seed/replacement refusal and
+101 replay; 5–6 pair 104/204 at speed 6 with finetune +127 and relative +12.
+Rows 7–11 cover release, retained slides and note-only sources; 12–15 put
+F01/F02/F03 before the effect channel. Both-rate tests cover all nine requested
+parameters, speeds 1/2/3/6, finetunes -128/0/+1/+127 and relative ±12/0.
+Rows 16–17 isolate B-7 1FF/100: the existing VTX minimum 107 and one update per
+clamped row differ from FT2 native period 1 and later refreshes (G30). Compare
+ordinary listening through row 15 separately from this deliberate edge control.
+Whole/window/runtime/host checks preserve source generations and cursors;
+reference WAVs stay external and automated checks do not establish listening.
+
 `generated/regular-portamento-memory-admission.xm` is a four-channel, 12-row
 Linear control with looped mathematical PCM: rows 0–1 distinguish speed-1
 104/204 attempts from cold replay; 2–4 distinguish valid 101/201 seeds from
 speed-1 replacement; 5–6 cover F02 admission and F03 replay. Channel 2 pins
 directional independence; 7–11 cover release, note and instrument carry.
-Tests also project the same public value into Amiga mode for existing 2xx,
-leaving 1xx unsupported. Both-rate tests cover memory/periods, Fxx before/after,
+Tests also project the same public value into Amiga mode for regular 1xx/2xx.
+Both-rate tests cover memory/periods, Fxx before/after,
 whole/window/runtime delivery and cursor continuity. Reference audio stays external.
 
 `generated/extra-fine-pitch-directional-memory.xm` is the G18 two-channel,

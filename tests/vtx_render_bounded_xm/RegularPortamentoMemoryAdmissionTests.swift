@@ -5,7 +5,7 @@ import XCTest
 final class RegularPortamentoMemoryAdmissionTests: XCTestCase {
     typealias Adapter = PlaybackSongSyntheticAdapter
     private let rates = [44_100.0, 48_000]
-    private let paths: [(Bool, UInt8)] = [(true, 1), (true, 2), (false, 2)]
+    private let paths: [(Bool, UInt8)] = [(true, 1), (true, 2), (false, 1), (false, 2)]
 
     func testSpeedOneNeitherSeedsNorReplacesDirectionalMemory() throws {
         for rate in rates {
@@ -89,8 +89,8 @@ final class RegularPortamentoMemoryAdmissionTests: XCTestCase {
                 }
                 if !linear {
                     let (context, _) = inspect(song([[c(1, 4, note: 49, instrument: 1)]], linear: false), rate)
-                    XCTAssertEqual(context.portamentoSlideEffects.first?.status, .unsupportedFrequencyTable)
-                    XCTAssertTrue(context.portamentoSlideEffects.first?.stepUpdates.isEmpty == true)
+                    XCTAssertEqual(context.portamentoSlideEffects.first?.status, .applied)
+                    XCTAssertEqual(context.portamentoSlideEffects.first?.stepUpdates.map(\.amigaPeriodAfter), [6784,6720])
                 }
             }
         }

@@ -111,14 +111,13 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         if channelState.activeUsesLinearFrequencyTable == false,
-           direction == .down,
            var currentAmigaPeriod = channelState.activeAmigaPeriod,
            var currentPlaybackStep = channelState.activePlaybackStep,
            let baseSampleRate = channelState.activeSampleBaseSampleRate {
             var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
             var clamped = false
             let rowSpeed = max(1, timingConfig.speed)
-            let slideUnits = Double(slideAmount) * xmAmigaPortamentoUnitsPerParam
+            let slideUnits = Double(slideAmount) * xmAmigaPortamentoUnitsPerParam * (direction == .up ? -1.0 : 1)
             for tick in 1..<rowSpeed {
                 let beforePeriod = currentAmigaPeriod
                 let beforeStep = currentPlaybackStep
@@ -156,7 +155,7 @@ extension PlaybackSongSyntheticAdapter {
                         effectMemoryMissing: effectMemoryMissing,
                         memorySource: memorySource,
                         memoryUnavailableReason: nil,
-                        policy: "amiga_portamento_down_pitch_out_of_range"
+                        policy: direction == .up ? "amiga_portamento_up_pitch_out_of_range" : "amiga_portamento_down_pitch_out_of_range"
                     )
                 }
                 currentAmigaPeriod = afterPeriod
@@ -207,7 +206,7 @@ extension PlaybackSongSyntheticAdapter {
                 memorySource: memorySource,
                 memoryUnavailableReason: nil,
                 policy: rowSpeed == 1 ? "regular_portamento_no_nonzero_ticks_no_memory_admission" : effectMemoryReused
-                    ? "amiga_zero_param_reuses_prior_2xx_portamento_down_memory"
+                    ? (direction == .up ? "amiga_zero_param_reuses_prior_1xx_portamento_up_memory" : "amiga_zero_param_reuses_prior_2xx_portamento_down_memory")
                     : "amiga_period_units_per_tick_first_pass"
             )
         }

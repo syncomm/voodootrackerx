@@ -169,9 +169,13 @@ while existing Linear VTX periods 1152/1408 versus FT2 1540/1540 remain G30 debt
 Amiga raised native periods 75/95 versus FT2 107/107 and low/base-range
 conversion also remain G30. No-owner diagnostics report unavailable pitch mode.
 Source generation/cursor, runtime event categories and trace schema are unchanged.
-`100` and `200` portamento rows replay prior same-channel nonzero `1xx` or
-`2xx` slide memory through the shared sample-step update path when available;
-missing portamento memory remains diagnosed as effect-memory-deferred/no-op.
+`100` and `200` replay directional memory admitted by prior executed nonzero
+`1xx`/`2xx` ticks. Effective speed-1 rows neither seed nor replace that history.
+Supported nonzero speed-1 commands retain `applied` status with empty
+`step_updates` and policy `regular_portamento_no_nonzero_ticks_no_memory_admission`.
+Missing history retains effect-memory-deferred/no-op diagnostics; no implicit
+zero provenance is invented. This table-independent admission rule changes no
+schema, source/cursor ownership or pitch arithmetic, and adds no Amiga `1xx` path.
 `5xy` rows reuse the current `3xx` tone-portamento target/speed for
 sample-step updates and the `Axy` tick-level volume-slide policy for gain
 updates. Same-cell note `5xy` rows set the tone-portamento target without

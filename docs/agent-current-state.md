@@ -50,6 +50,10 @@ host.
   delivery are unchanged; no index survives into a replacement plan or callback.
 - Nonzero Fxx speed/BPM commands govern their own row from tick 0 through the
   shared frame plan, including runtime event application and sample-time follow.
+- Regular `1xx`/`2xx` directional memory is admitted by executed nonzero ticks.
+  Effective speed-1 rows neither seed nor replace it; `100`/`200` replay only
+  admitted history. The rule is table-independent; supported execution remains
+  Linear `1xx`/`2xx` and Amiga `2xx`. Amiga `1xx` remains G27.
 - G25 Linear `0xy` in-range tick ordering is closed. Tick zero uses base pitch;
   later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using command-row
   Fxx timing. `000` is inert with no parameter memory; pitch updates retain the

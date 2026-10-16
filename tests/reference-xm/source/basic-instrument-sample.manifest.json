@@ -11502,6 +11502,161 @@
       "xm_output": "generated/amiga-arpeggio-ordering.xm",
       "xm_sha256": "671d98f9d6e608fe144c8282b1fa15132882c9b4404c3f1a3ae8200345e4b800",
       "xm_size_bytes": 1237
+    },
+    {
+      "id": "regular-portamento-memory-admission",
+      "intended_tests": [
+        "regular portamento admission and replay",
+        "same-row Fxx timing",
+        "whole/window/runtime delivery"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 4,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "PUBLIC PORTA MEMORY",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PUBLIC G25 S01",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 2048,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  64,
+                  64
+                ]
+              ],
+              "type_flags": 1
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 4, "effect_type": 1, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 1, "effect_parameter": 4, "effect_type": 2, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 15, "instrument": 0, "note": 0, "row": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 1},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 1},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 1},
+              {"channel": 3, "effect_parameter": 3, "effect_type": 15, "instrument": 0, "note": 0, "row": 1},
+              {"channel": 0, "effect_parameter": 1, "effect_type": 1, "instrument": 0, "note": 0, "row": 2},
+              {"channel": 1, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 2},
+              {"channel": 2, "effect_parameter": 4, "effect_type": 1, "instrument": 0, "note": 0, "row": 2},
+              {"channel": 0, "effect_parameter": 4, "effect_type": 1, "instrument": 0, "note": 0, "row": 3},
+              {"channel": 1, "effect_parameter": 4, "effect_type": 2, "instrument": 0, "note": 0, "row": 3},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 3},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 15, "instrument": 0, "note": 0, "row": 3},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 4},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 4},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 4},
+              {"channel": 3, "effect_parameter": 3, "effect_type": 15, "instrument": 0, "note": 0, "row": 4},
+              {"channel": 0, "effect_parameter": 4, "effect_type": 1, "instrument": 0, "note": 0, "row": 5},
+              {"channel": 1, "effect_parameter": 4, "effect_type": 2, "instrument": 0, "note": 0, "row": 5},
+              {"channel": 2, "effect_parameter": 16, "effect_type": 2, "instrument": 0, "note": 0, "row": 5},
+              {"channel": 3, "effect_parameter": 2, "effect_type": 15, "instrument": 0, "note": 0, "row": 5},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 6},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 6},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 6},
+              {"channel": 3, "effect_parameter": 3, "effect_type": 15, "instrument": 0, "note": 0, "row": 6},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 7},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 7},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 7},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 8},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 8},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 8},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 1, "note": 53, "row": 9},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 1, "note": 53, "row": 9},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 1, "note": 0, "row": 10},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 1, "note": 0, "row": 10},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 49, "row": 11},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 49, "row": 11}
+            ],
+            "rows": 12
+          }
+        ],
+        "restart_position": 0,
+        "speed": 1,
+        "title": "VTX PORTA MEMORY",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "regular-portamento-memory-admission.xm",
+      "purpose": "Regular slide memory admission, speed-one seeding/replacement refusal, directional replay and source carry.",
+      "significant_rows": [
+        {
+          "description": "F01 104/204 seed attempts; F03 cold 100/200 at row 1.",
+          "row": 0
+        },
+        {
+          "description": "101/201 seed; F01 attempted 104/204 replacement; F03 replay of 1.",
+          "row": 2
+        },
+        {
+          "description": "F02 seed at tick 1; F03 replay; independent 104/210/100/200 in channel 2.",
+          "row": 5
+        },
+        {
+          "description": "Release, retained replay, ordinary note/instrument and note-only lifetime.",
+          "row": 7
+        }
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Amiga 1xx remains G27; tests project the same fixture into Amiga for supported 2xx only.",
+        "G30 conversion/extremes and unrelated retirement policy"
+      ],
+      "xm_output": "generated/regular-portamento-memory-admission.xm",
+      "xm_sha256": "e2b7a9c1b75bc99491258cc58b1407f1c402f1f43d68db0ad931e137b91cef4e",
+      "xm_size_bytes": 1276
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

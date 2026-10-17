@@ -116,6 +116,13 @@ cached volume 40; the next playable note-only retains 40 and the progressed
 envelope. No owner or absent keymap yields no fallback trigger.
 
 `3xx`, `5xy` and volume-column `Fx` retain their no-retrigger target paths.
+Supported same-cell note+instrument forms additionally reset instrument semantics
+on the retained source: cached volume/pan, enabled envelope segments/clocks,
+key-on and full fadeout precede explicit writers. The retained sounding header owns defaults
+and active sample metadata; the row instrument may independently become carried
+and supply target pitch. Song volume consumes the header once, without another
+sample multiplier. This covers Linear/Amiga 3xx and Linear 5xy/volume Fx; Amiga
+5xy/volume Fx remain G28. Note-only/empty continuation does not acquire this reset.
 K00 suppresses a normal note-only trigger; ED0 carries ordinary state, valid
 nonzero EDx resets at its delayed tick, and out-of-row EDx does not trigger.
 E9x retains repeat resets; Rxy uses its persistent counter and sample restarts

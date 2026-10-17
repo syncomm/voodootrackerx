@@ -134,6 +134,39 @@ quick-volume publication uses 5 ms. Volume-column portamento retains its K00
 precedence and ordinary reset. K01 resets at tick zero, then releases at tick
 one. Instrument-only ED0 uses this same immediate reset without a source start.
 
+### Same-cell tone-portamento retained-source reset
+
+A valid note+instrument on supported tone portamento restores defaults from the
+retained sounding header, independently of the row's carried instrument and
+keymap-resolved target pitch. Header volume 32/pan 96 is restored even when the
+target header declares volume 20/pan 192. Active source metadata stays with the
+sounding generation. There is no additional sample-header song-gain multiplier;
+explicit C40 overrides the cached volume without double scaling.
+
+The dedicated planner operation reuses cached-default restoration and the
+existing non-retriggering reset authority. Enabled volume/pan segments restart
+at their initial point/value with fresh sustain/loop bookkeeping; key-on and
+full 32768 fadeout return under the sounding instrument's fadeout decrement. Historical
+release annotations remain historical; subsequent semantic ticks follow the
+reset. Disabled envelopes retain their inactive clock bookkeeping and neutral
+audible factors. Existing modulation phase/control/memory rules are unchanged.
+
+Reset precedes explicit column volume/fine/pan writers and Cxx/8xx. At speed 3,
+Linear 504 starts at 32 and slides 28,24; column 25 sets 21, fine column 93 gives
+35, and volume Fx+C15 gives 21. Column CF/8E0 override cached pan with 240/224.
+Speed 1 still resets at row entry but has no tone/ordinary-slide execution.
+
+The operation creates no source, replacement, retirement or cursor restart.
+Later ordinary note-only routing may use the independently carried instrument.
+Note-only/empty tone continuation and ordinary instrument-only dispatch keep
+their own contracts. Unavailable targets retain existing refusal and routing;
+cold channels cannot invent a retained header, and completed voices stay stopped.
+
+This covers Linear/Amiga 3xx and Linear 5xy/volume Fx. Amiga 5xy/Fx remain G28;
+pitch conversion, envelope arithmetic and final stereo pan law remain separate.
+`tone-portamento-retained-source-reset.xm` and its focused tests pin the reset,
+ownership, explicit writers and source/runtime/window boundaries at both rates.
+
 ### Note97 and Kxx release/default/writer precedence (G24)
 
 Select the valid carried instrument first, then release once at tick zero,

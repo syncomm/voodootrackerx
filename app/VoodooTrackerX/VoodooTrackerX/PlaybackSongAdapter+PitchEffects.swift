@@ -2259,6 +2259,7 @@ extension PlaybackSongSyntheticAdapter {
         instrumentDefaultVolumeApplied: Bool = false,
         sampleSelectedBefore: Int? = nil,
         sampleSelectedAfter: Int? = nil,
+        targetPitchSample: PlaybackSample? = nil,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil,
         executionTicks: Range<Int>? = nil
     ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
@@ -2344,9 +2345,9 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         if let targetNote = targetNoteFromCell {
-            guard let baseSampleRate = channelState.activeSampleBaseSampleRate,
-                  let relativeNote = channelState.activeSampleRelativeNote,
-                  let finetune = channelState.activeSampleFinetune else {
+            guard let baseSampleRate = targetPitchSample?.baseSampleRate ?? channelState.activeSampleBaseSampleRate,
+                  let relativeNote = targetPitchSample?.relativeNote ?? channelState.activeSampleRelativeNote,
+                  let finetune = targetPitchSample?.finetune ?? channelState.activeSampleFinetune else {
                 return tonePortamentoDiagnostic(
                     source: source,
                     channelIndex: channelIndex,
@@ -2553,6 +2554,15 @@ extension PlaybackSongSyntheticAdapter {
                 activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
+                sameCellNote: sameCellNote,
+                instrumentStateUpdated: instrumentStateUpdated,
+                instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
+                envelopeReset: targetPitchSample != nil,
+                envelopeResetModeled: targetPitchSample != nil,
+                channelVolumeBefore: channelVolumeBefore,
+                channelVolumeAfter: channelVolumeAfter,
+                gainBefore: gainBefore,
+                gainAfter: gainAfter,
                 targetExistsBefore: targetExistsBefore,
                 targetExistsAfter: targetExistsAfter,
                 frequencyTableStatus: activeFrequencyTableStatus,
@@ -2568,7 +2578,7 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
                 stepUpdates: [],
-                policy: commandSource == .volumeColumn
+                policy: targetPitchSample != nil ? "same_cell_tone_portamento_retained_source_reset_no_speed" : commandSource == .volumeColumn
                     ? "volume_column_tone_portamento_no_speed"
                     : cell.effectType == 0x05
                         ? "5xy_no_existing_3xx_speed_memory"
@@ -2709,8 +2719,8 @@ extension PlaybackSongSyntheticAdapter {
                 sampleSelectedBefore: sampleSelectedBefore,
                 sampleSelectedAfter: sampleSelectedAfter,
                 instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
-                envelopeReset: false,
-                envelopeResetModeled: false,
+                envelopeReset: targetPitchSample != nil,
+                envelopeResetModeled: targetPitchSample != nil,
                 channelVolumeBefore: channelVolumeBefore,
                 channelVolumeAfter: channelVolumeAfter,
                 gainBefore: gainBefore,
@@ -2736,7 +2746,8 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: speed,
                 stepUpdates: stepUpdates,
-                policy: "amiga_period_units_per_tick_row_level_first_pass"
+                policy: targetPitchSample != nil ? "same_cell_tone_portamento_retained_source_reset" :
+                    "amiga_period_units_per_tick_row_level_first_pass"
             )
         }
 
@@ -2837,8 +2848,8 @@ extension PlaybackSongSyntheticAdapter {
             sampleSelectedBefore: sampleSelectedBefore,
             sampleSelectedAfter: sampleSelectedAfter,
             instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
-            envelopeReset: false,
-            envelopeResetModeled: false,
+            envelopeReset: targetPitchSample != nil,
+            envelopeResetModeled: targetPitchSample != nil,
             channelVolumeBefore: channelVolumeBefore,
             channelVolumeAfter: channelVolumeAfter,
             gainBefore: gainBefore,
@@ -2864,7 +2875,7 @@ extension PlaybackSongSyntheticAdapter {
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             portamentoSpeed: speed,
             stepUpdates: stepUpdates,
-            policy: commandSource == .volumeColumn
+            policy: targetPitchSample != nil ? "same_cell_tone_portamento_retained_source_reset" : commandSource == .volumeColumn
                 ? "volume_column_tone_portamento_reuses_3xx_target_and_sample_step_path_first_pass"
                 : cell.effectType == 0x05
                     ? "5xy_reuses_existing_3xx_tone_portamento_target_and_speed_plus_axy_volume_slide"

@@ -1010,6 +1010,17 @@ enum PlaybackSongSyntheticAdapter {
             let hasValidImmediateNoteInstrument = (1...96).contains(cell.note) &&
                 cell.instrument > 0 &&
                 !hasNoteDelayEffect
+            // Target routing and retained sounding-header defaults are independent.
+            // Amiga 5xy/volume Fx keep their deferred boundary until G28.
+            let supportsRetainedToneReset = song.usesLinearFrequencyTable ||
+                (cell.effectType == 0x03 && !hasVolumeColumnTonePortamento)
+            let toneTargetSelection: SampleSelection? = hasValidImmediateNoteInstrument && handlesTonePortamento &&
+                supportsRetainedToneReset ? song.instrumentsByIndex[Int(cell.instrument)].map {
+                    selectSample(forNote: cell.note, from: $0)
+                } : nil
+            var tonePortamentoInstrumentStateBefore: ChannelState?
+            var tonePortamentoInstrumentStateAfter: ChannelState?
+            var tonePortamentoInstrumentDefaultVolumeApplied = false
             // Resolve once through the existing keymap authority. Ordinary triggers
             // load the new sample's default before same-cell volume writers; delayed,
             // retrigger, key-off, and portamento paths retain their own contracts.
@@ -1109,14 +1120,27 @@ enum PlaybackSongSyntheticAdapter {
                 cell: cell, song: song, source: source, channelIndex: channelIndex,
                 syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
                 globalVolume: context.globalVolumeState.volumeValue,
-                initializesInstrumentVolume: explicitTriggerSelection?.sample != nil || selectedEmptyPitch != nil || restoresInstrumentOnlyDefaults,
+                initializesInstrumentVolume: explicitTriggerSelection?.sample != nil || selectedEmptyPitch != nil || restoresInstrumentOnlyDefaults ||
+                    (toneTargetSelection?.sample != nil && channelState.activeEventIndex != nil),
                 channelState: &channelState, updates: &context.voiceStateUpdates
             )
             if let sample = explicitTriggerSelection?.sample {
                 channelState.baseChannelVolume = sampleVolumeRawEstimate(for: sample.volume)
                 channelState.volumeValueZeroedByAxy = false
             }
-            let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && handlesTonePortamento
+            var retainedToneResetApplied = false
+            if toneTargetSelection?.sample != nil {
+                let before = channelState
+                retainedToneResetApplied = applySameCellTonePortamentoRetainedSourceReset(
+                    cell: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledStartFrame, globalVolume: context.globalVolumeState.volumeValue,
+                    song: song, state: &channelState, context: &context)
+                if retainedToneResetApplied {
+                    tonePortamentoInstrumentStateBefore = before
+                    tonePortamentoInstrumentDefaultVolumeApplied = before.baseChannelVolume != channelState.baseChannelVolume
+                }
+            }
+            let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && handlesTonePortamento && !retainedToneResetApplied
             let channelStateBeforeVolumeColumn = channelState
             if !delaysInstrumentVolumeState {
                 volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState,
@@ -1298,6 +1322,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = channelState
             }
             if handlesTonePortamento, cell.note != 97, !delaysInstrumentVolumeState {
+                if retainedToneResetApplied { tonePortamentoInstrumentStateAfter = channelState }
                 let diagnostic = handleTonePortamento(
                     from: cell,
                     source: source,
@@ -1307,6 +1332,12 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &channelState,
+                    instrumentStateBefore: tonePortamentoInstrumentStateBefore,
+                    instrumentStateAfter: tonePortamentoInstrumentStateAfter,
+                    instrumentDefaultVolumeApplied: tonePortamentoInstrumentDefaultVolumeApplied,
+                    sampleSelectedBefore: tonePortamentoInstrumentStateBefore?.activeSampleIndex,
+                    sampleSelectedAfter: tonePortamentoInstrumentStateAfter?.activeSampleIndex,
+                    targetPitchSample: retainedToneResetApplied ? toneTargetSelection?.sample : nil,
                     volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil,
                     executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil
                 )
@@ -1678,7 +1709,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = channelState
                 continue
             }
-            let sampleSelection = explicitTriggerSelection ?? selectSample(forNote: cell.note, from: instrument,
+            let sampleSelection = explicitTriggerSelection ?? toneTargetSelection ?? selectSample(forNote: cell.note, from: instrument,
                 missingKeymapPolicy: isNoteOnly || isE90 ? .fail : .firstPlayableSample)
             guard let sample = sampleSelection.sample else {
                 if hasVibrato || hasVibratoVolumeSlide {
@@ -1827,14 +1858,11 @@ enum PlaybackSongSyntheticAdapter {
             }
 
             let sampleLength = selectedSampleLength(sample)
-            var tonePortamentoInstrumentStateBefore: ChannelState?
-            var tonePortamentoInstrumentStateAfter: ChannelState?
-            var tonePortamentoInstrumentDefaultVolumeApplied = false
             if delaysInstrumentVolumeState {
                 let instrumentStateBefore = channelState
-                channelState.baseChannelVolume = 64
-                channelState.volumeValueZeroedByAxy = false
-                if handlesTonePortamento {
+                if !supportsRetainedToneReset {
+                    channelState.baseChannelVolume = 64
+                    channelState.volumeValueZeroedByAxy = false
                     channelState.activeInstrumentIndex = instrumentIndex
                     channelState.activeSampleIndex = sample.sampleIndex
                     channelState.activeSampleVolume = sample.volume

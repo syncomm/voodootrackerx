@@ -114,7 +114,7 @@ final class Cold500Tests: XCTestCase {
             XCTAssertEqual(context.events.count, 1)
             XCTAssertEqual(states[3][0].activeEventIndex, states[2][0].activeEventIndex)
             XCTAssertEqual(states[3][0].tonePortamentoTargetNote, target.note == 0 ? 53 : 55)
-            XCTAssertEqual(states[3][0].outputChannelVolume, target.instrument == 0 ? 32 : 64)
+            XCTAssertEqual(states[3][0].outputChannelVolume, 32)
             XCTAssertTrue(context.tonePortamentoEffects.allSatisfy { !$0.noteTriggerEventCreated && !$0.samplePositionReset })
         }
         for (target, speed, expected): (UInt8, UInt8, [Double?]) in [(53, 8, [4416, 4384, 4352]), (51, 0x40, [])] {

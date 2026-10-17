@@ -161,6 +161,11 @@ host.
   zero initializes/restores silent channel state without invalidating the route.
   Empty/unrepresented routes remain source-less. Direct editor preview retains
   its existing availability and header/headroom policy.
+- Supported same-cell note+instrument tone portamento restores the retained
+  sounding-header volume/pan, restarts its enabled envelopes, restores key-on
+  and full fadeout, then applies explicit writers. Sounding metadata, generation and
+  cursor stay retained; carried instrument and target pitch are independent.
+  This covers Linear/Amiga 3xx and Linear 5xy/volume Fx. Amiga consumers remain G28.
 - Gxx fresh notes capture the global volume visible at their channel turn;
   later same-tick writers do not backfill earlier birth/held targets. Real later
   volume publications compare against the source generation's held target,

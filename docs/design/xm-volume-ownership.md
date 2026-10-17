@@ -134,7 +134,7 @@ quick-volume publication uses 5 ms. Volume-column portamento retains its K00
 precedence and ordinary reset. K01 resets at tick zero, then releases at tick
 one. Instrument-only ED0 uses this same immediate reset without a source start.
 
-### Same-cell tone-portamento retained-source reset
+### Same-cell tone-portamento ownership and reset
 
 A valid note+instrument on supported tone portamento restores defaults from the
 retained sounding header, independently of the row's carried instrument and
@@ -142,6 +142,19 @@ keymap-resolved target pitch. Header volume 32/pan 96 is restored even when the
 target header declares volume 20/pan 192. Active source metadata stays with the
 sounding generation. There is no additional sample-header song-gain multiplier;
 explicit C40 overrides the cached volume without double scaling.
+
+A truly cold channel has no sounding/semantic header owner. Supported
+note+instrument tone portamento restores cold volume 0/pan 128 and key-on/full
+fadeout without selecting a header or starting PCM. Target admission uses neutral
+cold tuning; instrument and tone-speed memory still carry. Explicit writers follow
+the reset. Linear 504 executes its slide on zero; seeded upward 500 can raise it.
+A declared empty header retains its own cached defaults, pitch metadata and instrument clocks;
+completed/released sources keep their existing retained reset contract.
+Later ordinary note-only resolves the exact carried keymap and starts a real
+source, refreshing header metadata while carrying tracker volume/pan and clocks.
+Thus cold zero remains silent; explicit volume writers can make it audible.
+Inactive cold envelope bookkeeping is retained, including a prior release's pan
+clock; the new target instrument never fabricates an envelope reset or decrement.
 
 The dedicated planner operation reuses cached-default restoration and the
 existing non-retriggering reset authority. Enabled volume/pan segments restart
@@ -159,8 +172,8 @@ Speed 1 still resets at row entry but has no tone/ordinary-slide execution.
 The operation creates no source, replacement, retirement or cursor restart.
 Later ordinary note-only routing may use the independently carried instrument.
 Note-only/empty tone continuation and ordinary instrument-only dispatch keep
-their own contracts. Unavailable targets retain existing refusal and routing;
-cold channels cannot invent a retained header, and completed voices stay stopped.
+their own contracts. Unavailable routes never create a source; cold target
+admission does not select their headers. Completed voices stay stopped.
 
 This covers Linear/Amiga 3xx and Linear 5xy/volume Fx. Amiga 5xy/Fx remain G28;
 pitch conversion, envelope arithmetic and final stereo pan law remain separate.

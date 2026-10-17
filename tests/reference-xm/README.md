@@ -741,6 +741,25 @@ Use Amiga Frequency Slides with the reference profile in
 [audio-comparison.md](../../docs/audio-comparison.md). Automated comparison does
 not establish listening evidence; generated reference WAVs stay outside git.
 
+## Cold tone-portamento initialization fixture
+
+`generated/cold-tone-portamento-initialization.xm` is project-authored Linear XM,
+15 channels, 16 rows, BPM 125: 44 ticks / 0.88 seconds. Amiga tests project the same
+fixture while omitting stored 5xy/Fx cells; those consumers remain G28.
+
+| Rows | Control |
+| --- | --- |
+| 0–3 | Cold 304/504/F4 and unseeded 300/500/F0, then exact note-only routes; separate 3xx/A40/F4 seeds feed 300/500/F0. Seeded upward 500 is audible. |
+| 4–6 | F01 cold 304 and later note-only, then F03; no speed-1 slide execution. |
+| 7–8 | Cold instrument-only, 304+column30 audible continuation, declared empty header, completed one-frame source and released source. |
+| 9–12 | Empty/completed/released tone resets retain ownership/defaults. Mute before later note-only replacement to isolate retirement debt. |
+| 13–15 | Ordinary note+instrument restores header volume 32, then explicit mute. |
+
+Primary cold continuations start real mapped PCM at tracker gain zero. Header
+volume 20 is refreshed metadata, not an extra multiplier or a channel-volume
+setter. Tests separately pin source generations/cursors, state and PCM, including
+both-rate whole/window/runtime delivery. Reference WAVs remain outside git.
+
 ## Tone-portamento retained-source reset fixture
 
 `generated/tone-portamento-retained-source-reset.xm` uses project-authored PCM

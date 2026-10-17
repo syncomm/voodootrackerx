@@ -163,6 +163,11 @@ before/after remain retained, while the raw row instrument and target note
 describe independent target routing.
 No source trigger, replacement or cursor reset occurs. These fields cover
 Linear/Amiga 3xx and Linear 5xy/volume Fx; G28's Amiga consumers stay deferred.
+Cold same-cell admission uses the existing tone diagnostic with
+`policy: same_cell_tone_portamento_cold_initialization_no_source`, instrument
+state/volume before-after and target/speed fields. Source/sample metadata stays
+absent; no trigger or envelope source event is fabricated. Existing channel reset
+history carries key/fadeout into later ordinary note-only routing. No schema changes.
 Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger
 once at the base note pitch; subsequent arpeggio ticks are emitted as planned
 sample-step updates. Empty-note nonzero `0xy` rows with an active voice emit the

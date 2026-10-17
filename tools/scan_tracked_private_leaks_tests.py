@@ -47,6 +47,7 @@ class ScanTrackedPrivateLeaksTests(unittest.TestCase):
                 "tests/reference-xm/generated/amiga-arpeggio-ordering.xm",
                 "tests/reference-xm/generated/regular-portamento-memory-admission.xm",
                 "tests/reference-xm/generated/amiga-portamento-up.xm",
+                "tests/reference-xm/generated/amiga-tone-portamento-consumers.xm",
                 "tests/reference-xm/generated/cold-tone-portamento-initialization.xm",
                 "tests/reference-xm/generated/tone-portamento-retained-source-reset.xm",
                 "tests/fixtures/minimal.mod",

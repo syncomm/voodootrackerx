@@ -157,11 +157,9 @@ final class PortamentoScalingTests: XCTestCase {
         XCTAssertEqual(volumes.map(\.effectMemoryReused), [false, false, false, true, true, true])
     }
 
-    func testLinearSpeedConversionLeavesDeferredAmigaVolumeMemoryUnchanged() {
-        // Existing no-note Amiga Fx can touch a prior 3xx target despite being deferred.
-        // Preserve that state here; this is not an Amiga Fx compatibility/support claim.
+    func testAmigaVolumeColumnSharesRaw3xxSpeedMemory() {
         let plan = adapt([cell(note: 49), cell(3, 1, note: 61), cell(volume: 0xF4), cell(3, 0)], linear: false)
-        XCTAssertEqual(plan.diagnostics.tonePortamentoEffects.map(\.portamentoSpeed), [1, 4, 4])
+        XCTAssertEqual(plan.diagnostics.tonePortamentoEffects.map(\.portamentoSpeed), [1, 64, 64])
     }
 
     private func assertStep(_ update: PlaybackSongSyntheticTonePortamentoStepUpdate,

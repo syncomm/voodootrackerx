@@ -165,7 +165,9 @@ host.
   sounding-header volume/pan, restarts its enabled envelopes, restores key-on
   and full fadeout, then applies explicit writers. Sounding metadata, generation and
   cursor stay retained; carried instrument and target pitch are independent.
-  This covers Linear/Amiga 3xx and Linear 5xy/volume Fx. Amiga consumers remain G28.
+  This covers 3xx/5xy/volume Fx in both modes. G28 Amiga 5xy composes existing
+  3xx progression with the shared A/5/6 writer; Fx stores its nibble << 4 in
+  shared tone-speed memory. Cold 500 and F0 reuse their established zero/replay rules.
 - Cold supported note+instrument tone portamento restores volume 0/pan 128
   without a source/header cache. Instrument, neutral target and speed still carry;
   explicit writers follow. Later ordinary note-only starts its exact mapped source
@@ -200,7 +202,8 @@ host.
 - G15 cold Linear 500 executes the zero-slide volume half on nonzero ticks
   independently of tone target/speed availability. It restores current base to
   output and refreshes a differing held source target without creating memory,
-  retriggering or changing tone admission. Partial Amiga 5xy remains open G28.
+  retriggering or changing tone admission. G28 reuses this same volume half
+  for Amiga; conversion/range policy and broader pitch interactions stay separate.
 - G16 EAx/EBx execute once at tick zero with independent per-channel up/down
   memories. Seeded EA0/EB0 replay their own amount; cold forms restore output
   from base and publish a differing held target without creating memory

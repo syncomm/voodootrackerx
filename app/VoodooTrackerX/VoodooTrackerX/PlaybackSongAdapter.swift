@@ -1011,11 +1011,9 @@ enum PlaybackSongSyntheticAdapter {
                 cell.instrument > 0 &&
                 !hasNoteDelayEffect
             // Target routing and retained sounding-header defaults are independent.
-            // Amiga 5xy/volume Fx keep their deferred boundary until G28.
-            let supportsRetainedToneReset = song.usesLinearFrequencyTable ||
-                (cell.effectType == 0x03 && !hasVolumeColumnTonePortamento)
-            let toneTargetSelection: SampleSelection? = hasValidImmediateNoteInstrument && handlesTonePortamento &&
-                supportsRetainedToneReset ? song.instrumentsByIndex[Int(cell.instrument)].map {
+            // Both modes reuse the owned-header or cold instrument reset below.
+            let toneTargetSelection: SampleSelection? = hasValidImmediateNoteInstrument && handlesTonePortamento
+                ? song.instrumentsByIndex[Int(cell.instrument)].map {
                     selectSample(forNote: cell.note, from: $0)
                 } : nil
             var tonePortamentoInstrumentStateBefore: ChannelState?
@@ -1862,17 +1860,6 @@ enum PlaybackSongSyntheticAdapter {
             let sampleLength = selectedSampleLength(sample)
             if delaysInstrumentVolumeState {
                 let instrumentStateBefore = channelState
-                if !supportsRetainedToneReset {
-                    channelState.baseChannelVolume = 64
-                    channelState.volumeValueZeroedByAxy = false
-                    channelState.activeInstrumentIndex = instrumentIndex
-                    channelState.activeSampleIndex = sample.sampleIndex
-                    channelState.activeSampleVolume = sample.volume
-                    channelState.activeSampleBaseSampleRate = sample.baseSampleRate
-                    channelState.activeSampleRelativeNote = sample.relativeNote
-                    channelState.activeSampleFinetune = sample.finetune
-                    channelState.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
-                }
                 tonePortamentoInstrumentStateBefore = instrumentStateBefore
                 tonePortamentoInstrumentStateAfter = channelState
                 let instrumentGainBefore = instrumentStateBefore.activeSampleVolume.map { _ in

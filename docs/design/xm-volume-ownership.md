@@ -175,8 +175,9 @@ Note-only/empty tone continuation and ordinary instrument-only dispatch keep
 their own contracts. Unavailable routes never create a source; cold target
 admission does not select their headers. Completed voices stay stopped.
 
-This covers Linear/Amiga 3xx and Linear 5xy/volume Fx. Amiga 5xy/Fx remain G28;
-pitch conversion, envelope arithmetic and final stereo pan law remain separate.
+This covers 3xx/5xy/volume Fx in both modes. G28 Amiga consumers reuse the
+same ownership reset, existing 3xx progression and shared A/5/6 writer. Pitch
+conversion, envelope arithmetic and final stereo pan law remain separate.
 `tone-portamento-retained-source-reset.xm` and its focused tests pin the reset,
 ownership, explicit writers and source/runtime/window boundaries at both rates.
 
@@ -674,8 +675,8 @@ envelope/fadeout clocks, tremolo/E7 and later 700 remain intact.
 This is A independent composition plus B cold restoration/publication. Redundant
 reference pitch-refresh flags are C and need not produce repeated C updates.
 `Cold500Tests` and the public fixture pin both-rate whole/window/runtime delivery.
-The explicit Linear guard leaves existing partial Amiga 5xy behavior unchanged;
-G28 remains open.
+G28 applies this same volume half to Amiga 500, with no additional memory or
+publication authority. Linear G15 behavior remains unchanged.
 
 ## Maintainer smoke
 

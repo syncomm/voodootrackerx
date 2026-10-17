@@ -2305,19 +2305,16 @@ extension PlaybackSongSyntheticAdapter {
         if cell.effectType != 0x03,
            let volumeColumnTonePortamentoAmount,
            volumeColumnTonePortamentoAmount > 0 {
-            // Store Linear Fx in the same raw-3xx parameter units as effect-column memory.
-            // Fx is equivalent to 3x0 (x << 4), then the period update applies << 2.
-            // Broader Amiga volume-column behavior remains outside this scaling correction.
-            channelState.tonePortamentoSpeed = volumeColumnTonePortamentoAmount *
-                (activeUsesAmigaFrequencyTable ? 1 : 16)
+            // Fx stores x << 4 in shared raw-3xx memory in either mode;
+            // the existing mode-specific scheduler converts it to period units.
+            channelState.tonePortamentoSpeed = volumeColumnTonePortamentoAmount * 16
         }
 
         guard hasActiveVoice || channelState.semanticInstrumentIndex != nil else {
             // No sounding header has supplied tuning yet. FT2 admits the target
             // against neutral cold tuning, independently of the newly carried map.
             // Keep current/source pitch absent; only a later real note starts PCM.
-            let supported = usesLinearFrequencyTable || (cell.effectType == 3 && volumeColumnTonePortamentoAmount == nil)
-            if supported, let note = targetNoteFromCell {
+            if let note = targetNoteFromCell {
                 if usesLinearFrequencyTable, let target = linearPitchTarget(note: note, relativeNote: 0, finetune: 0,
                     baseSampleRate: PlaybackSample.xmNeutralSampleRate, outputSampleRate: timingConfig.sampleRate) {
                     channelState.tonePortamentoTargetNote = note
@@ -2366,7 +2363,7 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
                 stepUpdates: [],
-                policy: supported && instrumentStateUpdated
+                policy: instrumentStateUpdated
                     ? "same_cell_tone_portamento_cold_initialization_no_source"
                     : "no_active_voice_no_retrigger"
             )
@@ -2449,9 +2446,7 @@ extension PlaybackSongSyntheticAdapter {
                 channelState.tonePortamentoTargetLinearPeriod = target.linearPeriod
                 channelState.tonePortamentoTargetAmigaPeriod = nil
                 channelState.tonePortamentoTargetPlaybackStep = target.playbackStep
-            } else if channelState.activeUsesLinearFrequencyTable == false,
-                      commandSource == .effectColumn,
-                      cell.effectType == 0x03 {
+            } else if channelState.activeUsesLinearFrequencyTable == false {
                 guard let target = amigaPitchTarget(
                     note: targetNote,
                     relativeNote: relativeNote,
@@ -2521,7 +2516,7 @@ extension PlaybackSongSyntheticAdapter {
                     currentPlaybackStepAfter: channelState.activePlaybackStep,
                     portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
                     stepUpdates: [],
-                    policy: "amiga_tone_portamento_limited_to_3xx_first_pass"
+                    policy: "missing_active_pitch_mode"
                 )
             }
         }

@@ -1121,26 +1121,28 @@ enum PlaybackSongSyntheticAdapter {
                 syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
                 globalVolume: context.globalVolumeState.volumeValue,
                 initializesInstrumentVolume: explicitTriggerSelection?.sample != nil || selectedEmptyPitch != nil || restoresInstrumentOnlyDefaults ||
-                    (toneTargetSelection?.sample != nil && channelState.activeEventIndex != nil),
+                    (toneTargetSelection?.sample != nil && channelState.activeEventIndex != nil) ||
+                    (toneTargetSelection != nil && channelState.activeEventIndex == nil && channelState.semanticInstrumentIndex == nil),
                 channelState: &channelState, updates: &context.voiceStateUpdates
             )
             if let sample = explicitTriggerSelection?.sample {
                 channelState.baseChannelVolume = sampleVolumeRawEstimate(for: sample.volume)
                 channelState.volumeValueZeroedByAxy = false
             }
-            var retainedToneResetApplied = false
-            if toneTargetSelection?.sample != nil {
+            var toneInstrumentResetApplied = false
+            if toneTargetSelection?.sample != nil ||
+                (toneTargetSelection != nil && channelState.activeEventIndex == nil && channelState.semanticInstrumentIndex == nil) {
                 let before = channelState
-                retainedToneResetApplied = applySameCellTonePortamentoRetainedSourceReset(
+                toneInstrumentResetApplied = applySameCellTonePortamentoInstrumentReset(
                     cell: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
                     scheduledFrame: scheduledStartFrame, globalVolume: context.globalVolumeState.volumeValue,
-                    song: song, state: &channelState, context: &context)
-                if retainedToneResetApplied {
+                    song: song, state: &channelState, context: &context, silentReset: &instrumentOnlyReset)
+                if toneInstrumentResetApplied {
                     tonePortamentoInstrumentStateBefore = before
                     tonePortamentoInstrumentDefaultVolumeApplied = before.baseChannelVolume != channelState.baseChannelVolume
                 }
             }
-            let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && handlesTonePortamento && !retainedToneResetApplied
+            let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && handlesTonePortamento && !toneInstrumentResetApplied
             let channelStateBeforeVolumeColumn = channelState
             if !delaysInstrumentVolumeState {
                 volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState,
@@ -1322,7 +1324,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = channelState
             }
             if handlesTonePortamento, cell.note != 97, !delaysInstrumentVolumeState {
-                if retainedToneResetApplied { tonePortamentoInstrumentStateAfter = channelState }
+                if toneInstrumentResetApplied { tonePortamentoInstrumentStateAfter = channelState }
                 let diagnostic = handleTonePortamento(
                     from: cell,
                     source: source,
@@ -1337,7 +1339,7 @@ enum PlaybackSongSyntheticAdapter {
                     instrumentDefaultVolumeApplied: tonePortamentoInstrumentDefaultVolumeApplied,
                     sampleSelectedBefore: tonePortamentoInstrumentStateBefore?.activeSampleIndex,
                     sampleSelectedAfter: tonePortamentoInstrumentStateAfter?.activeSampleIndex,
-                    targetPitchSample: retainedToneResetApplied ? toneTargetSelection?.sample : nil,
+                    targetPitchSample: toneInstrumentResetApplied && channelState.activeEventIndex != nil ? toneTargetSelection?.sample : nil,
                     volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil,
                     executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil
                 )

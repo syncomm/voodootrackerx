@@ -166,6 +166,11 @@ host.
   and full fadeout, then applies explicit writers. Sounding metadata, generation and
   cursor stay retained; carried instrument and target pitch are independent.
   This covers Linear/Amiga 3xx and Linear 5xy/volume Fx. Amiga consumers remain G28.
+- Cold supported note+instrument tone portamento restores volume 0/pan 128
+  without a source/header cache. Instrument, neutral target and speed still carry;
+  explicit writers follow. Later ordinary note-only starts its exact mapped source
+  while carrying tracker volume/pan and clocks. Declared empty headers retain
+  their own defaults; completed/released retained-source reset stays distinct.
 - Gxx fresh notes capture the global volume visible at their channel turn;
   later same-tick writers do not backfill earlier birth/held targets. Real later
   volume publications compare against the source generation's held target,

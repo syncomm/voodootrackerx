@@ -63,6 +63,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/linear-arpeggio-ordering.xm | \
     tests/reference-xm/generated/amiga-arpeggio-ordering.xm | \
     tests/reference-xm/generated/amiga-portamento-up.xm | \
+    tests/reference-xm/generated/cold-tone-portamento-initialization.xm | \
     tests/reference-xm/generated/tone-portamento-retained-source-reset.xm | \
     tests/reference-xm/generated/regular-portamento-memory-admission.xm | \
     tests/fixtures/minimal.mod)

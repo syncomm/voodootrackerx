@@ -2313,6 +2313,25 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         guard hasActiveVoice || channelState.semanticInstrumentIndex != nil else {
+            // No sounding header has supplied tuning yet. FT2 admits the target
+            // against neutral cold tuning, independently of the newly carried map.
+            // Keep current/source pitch absent; only a later real note starts PCM.
+            let supported = usesLinearFrequencyTable || (cell.effectType == 3 && volumeColumnTonePortamentoAmount == nil)
+            if supported, let note = targetNoteFromCell {
+                if usesLinearFrequencyTable, let target = linearPitchTarget(note: note, relativeNote: 0, finetune: 0,
+                    baseSampleRate: PlaybackSample.xmNeutralSampleRate, outputSampleRate: timingConfig.sampleRate) {
+                    channelState.tonePortamentoTargetNote = note
+                    channelState.tonePortamentoTargetLinearPeriod = target.linearPeriod
+                    channelState.tonePortamentoTargetAmigaPeriod = nil
+                    channelState.tonePortamentoTargetPlaybackStep = target.playbackStep
+                } else if !usesLinearFrequencyTable, let target = amigaPitchTarget(note: note, relativeNote: 0, finetune: 0,
+                    baseSampleRate: PlaybackSample.xmNeutralSampleRate, outputSampleRate: timingConfig.sampleRate) {
+                    channelState.tonePortamentoTargetNote = note
+                    channelState.tonePortamentoTargetLinearPeriod = nil
+                    channelState.tonePortamentoTargetAmigaPeriod = target.amigaPeriod
+                    channelState.tonePortamentoTargetPlaybackStep = target.playbackStep
+                }
+            }
             return tonePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -2325,8 +2344,15 @@ extension PlaybackSongSyntheticAdapter {
                 activeVoiceFound: false,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
+                sameCellNote: sameCellNote,
+                instrumentStateUpdated: instrumentStateUpdated,
+                instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
+                channelVolumeBefore: channelVolumeBefore,
+                channelVolumeAfter: channelVolumeAfter,
+                noteTargetBefore: noteTargetBefore,
+                noteTargetAfter: channelState.tonePortamentoTargetNote,
                 targetExistsBefore: targetExistsBefore,
-                targetExistsAfter: targetExistsBefore,
+                targetExistsAfter: channelState.tonePortamentoTargetPlaybackStep != nil,
                 frequencyTableStatus: activeFrequencyTableStatus,
                 targetNote: targetNoteFromCell ?? channelState.tonePortamentoTargetNote,
                 targetLinearPeriod: channelState.tonePortamentoTargetLinearPeriod,
@@ -2340,7 +2366,9 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
                 stepUpdates: [],
-                policy: "no_active_voice_no_retrigger"
+                policy: supported && instrumentStateUpdated
+                    ? "same_cell_tone_portamento_cold_initialization_no_source"
+                    : "no_active_voice_no_retrigger"
             )
         }
 

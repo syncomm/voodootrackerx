@@ -398,7 +398,11 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         planningHistoryDiagnostics.resetEntriesIndexed = rowHistories.values.reduce(0) { $0 + $1.resetEntryCount }
         planningHistoryDiagnostics.estimatedIndexBytes = rowHistories.values.reduce(0) { $0 + $1.estimatedIndexBytes }
         let changesByEvent = Dictionary(grouping: changes, by: \.activeEventIndex)
-        let releasesByChannel = Dictionary(grouping: plan.diagnostics.keyOffEvents.filter(\.applied), by: \.channelIndex)
+        // Cold release history also owns inactive clock bookkeeping. It never
+        // authorizes a source event, including after a subsequent cold tone reset.
+        let releasesByChannel = Dictionary(grouping: plan.diagnostics.keyOffEvents.filter {
+            $0.applied || $0.reason == .noActiveVoice
+        }, by: \.channelIndex)
         let positionsByChannel = Dictionary(grouping: plan.diagnostics.envelopePositionEffects, by: \.channelIndex)
         let cutsByChannel = Dictionary(grouping: plan.diagnostics.noteCutEffects.filter(\.applied), by: \.channelIndex)
         let panSlidesByChannel = Dictionary(grouping: plan.diagnostics.voiceStateUpdates.filter {
@@ -475,14 +479,21 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                         // Before any route there is no initialized curve/decrement. Fold the
                         // existing reset/release history; K00 must not fabricate unity fadeout.
                         let immediateReset = rowHistories[channel]?.silentResets(start: 0, stop: start,
-                            work: &planningHistoryDiagnostics).last?.scheduledFrame ?? -1
+                            work: &planningHistoryDiagnostics).last
                         let delayedReset = (instrumentDelays[channel] ?? []).last {
                             $0.status == .instrumentOnlyNoRetainedNote && ($0.delayedFrame ?? Int.max) < start
                         }?.delayedFrame ?? -1
-                        let resetFrame = max(immediateReset, delayedReset)
+                        let resetFrame = max(immediateReset?.scheduledFrame ?? -1, delayedReset)
                         carried.semantic.fadeoutAccumulator = resetFrame < 0 ? 0 : 32_768
                         carried.semantic.keyOn = resetFrame > (coldRelease?.scheduledFrame ?? -1)
                         carried.semantic.panTick = carried.semantic.keyOn ? 0 : -1
+                        if let reset = immediateReset,
+                           case let .reset(dimensions) = reset.instrumentOnlyReset,
+                           !dimensions.panEnvelope {
+                            // A cold tone reset restores key/fadeout, but the dummy
+                            // instrument's disabled pan clock retains the release's -1.
+                            carried.semantic.panTick = -1
+                        }
                     }
                 }
                 if carries {

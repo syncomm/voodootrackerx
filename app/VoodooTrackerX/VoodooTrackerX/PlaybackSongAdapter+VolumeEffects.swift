@@ -65,15 +65,19 @@ extension PlaybackSongSyntheticAdapter {
         state.initializePanning(fromSampleHeader: state.triggeredSampleDefaultPan)
     }
 
-    /// Restarts instrument semantics on the retained source, without selecting or starting PCM.
-    static func applySameCellTonePortamentoRetainedSourceReset(
+    /// Restores owned defaults, or cold zero defaults, without selecting or starting PCM.
+    static func applySameCellTonePortamentoInstrumentReset(
         cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
         syntheticRow: Int, scheduledFrame: Int, globalVolume: Int,
-        song: PlaybackSong, state: inout ChannelState, context: inout AdapterRowContext
+        song: PlaybackSong, state: inout ChannelState, context: inout AdapterRowContext,
+        silentReset: inout MixerPlaybackStateChange?
     ) -> Bool {
-        guard let event = state.activeEventIndex, let owner = state.semanticInstrumentIndex,
-              let instrument = song.instrumentsByIndex[owner],
-              state.semanticSampleIndex != nil else { return false }
+        let instrument = state.semanticInstrumentIndex.flatMap { song.instrumentsByIndex[$0] }
+        let cold = state.activeEventIndex == nil && state.semanticInstrumentIndex == nil && state.semanticSampleIndex == nil
+        let ownsEmptyHeader = state.semanticInstrumentIndex.flatMap { song.xmSampleSlotProvenanceByInstrument[$0] }?
+            .contains { $0.sampleIndex == state.semanticSampleIndex && $0.declaredPayloadLength == 0 && $0.decodedPayloadLength == 0 } == true
+        guard cold || (instrument != nil && state.semanticSampleIndex != nil &&
+            (state.activeEventIndex != nil || ownsEmptyHeader)) else { return false }
         let before = state
         restoreCachedInstrumentDefaults(state: &state)
         state.keyOffWithoutVoice = false
@@ -87,10 +91,16 @@ extension PlaybackSongSyntheticAdapter {
         // The existing reset reconstructs segment, sustain/loop, key and fadeout
         // state under the sounding instrument's curves; it never restarts a source.
         // Disabled envelopes keep their inactive bookkeeping, as in FT2.
-        context.playbackStateEvents.append(.init(activeEventIndex: event, channelIndex: channelIndex,
-            scheduledFrame: scheduledFrame,
-            change: .reset(.init(volumeEnvelope: instrument.volumeEnvelope.enabled,
-                panEnvelope: instrument.panningEnvelope.enabled, keyOn: true, fadeout: true))))
+        let reset = MixerPlaybackStateChange.reset(.init(volumeEnvelope: instrument?.volumeEnvelope.enabled == true,
+            panEnvelope: instrument?.panningEnvelope.enabled == true, keyOn: true, fadeout: true))
+        if let event = state.activeEventIndex {
+            context.playbackStateEvents.append(.init(activeEventIndex: event, channelIndex: channelIndex,
+                scheduledFrame: scheduledFrame, change: reset))
+        } else {
+            // An empty header owns its clocks; a cold channel owns only key/fadeout.
+            // Reuse channel reset history without inventing a source or header cache.
+            silentReset = reset
+        }
         return true
     }
 

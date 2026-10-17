@@ -123,6 +123,12 @@ and active sample metadata; the row instrument may independently become carried
 and supply target pitch. Song volume consumes the header once, without another
 sample multiplier. This covers Linear/Amiga 3xx and Linear 5xy/volume Fx; Amiga
 5xy/volume Fx remain G28. Note-only/empty continuation does not acquire this reset.
+With no retained source/header owner, supported same-cell tone admission instead
+restores cold volume 0/pan 128 and key/fadeout, carries instrument/neutral target/
+speed, and starts no source. Explicit writers and Linear 5xy slides still execute.
+Later ordinary note-only starts the exact mapped source while carrying tracker
+state; header-cache refresh is separate. Declared empty headers keep their own
+defaults/clocks. `cold-tone-portamento-initialization.xm` pins this distinction.
 K00 suppresses a normal note-only trigger; ED0 carries ordinary state, valid
 nonzero EDx resets at its delayed tick, and out-of-row EDx does not trigger.
 E9x retains repeat resets; Rxy uses its persistent counter and sample restarts

@@ -183,16 +183,16 @@ final class Cold500Tests: XCTestCase {
         }
     }
 
-    func testAmigaPartialPathKeepsCold500UnclosedAndSeededBehavior() {
+    func testAmigaCold500UsesSharedRestorationAndSeededBehavior() {
         for parameter: UInt8 in [0, 4] {
             let (context, states) = inspect(song([[c(note: 49, instrument: 1)], [c(3, 1, note: 53)], [c(7, 0x48)], [c(5, parameter)]], linear: false))
             XCTAssertEqual(context.tonePortamentoEffects.filter { $0.syntheticRow == 3 }.flatMap(\.stepUpdates).count, 5)
-            XCTAssertEqual(states[3][0].outputChannelVolume, parameter == 0 ? 63 : 12)
+            XCTAssertEqual(states[3][0].outputChannelVolume, parameter == 0 ? 32 : 12)
             let updates = context.voiceStateUpdates.filter { $0.effectType == 5 }
-            XCTAssertEqual(updates.filter(\.applied).count, parameter == 0 ? 0 : 5)
-            if parameter == 0 { XCTAssertTrue(updates.allSatisfy(\.effectMemoryDeferred)); XCTAssertNil(states[3][0].volumeSlideMemory) }
+            XCTAssertEqual(updates.filter(\.applied).count, 5)
+            if parameter == 0 { XCTAssertTrue(updates.allSatisfy { !$0.effectMemoryDeferred && !$0.effectMemoryMissing }); XCTAssertNil(states[3][0].volumeSlideMemory) }
         }
-        XCTAssertEqual(inspect(song([[c(5)]], linear: false)).0.voiceStateUpdates.filter(\.applied).count, 0)
+        XCTAssertEqual(inspect(song([[c(5)]], linear: false)).0.voiceStateUpdates.filter(\.applied).count, 5)
     }
 
     func testPublicFixtureDiagnosticsGenerationAndWindowParity() throws {

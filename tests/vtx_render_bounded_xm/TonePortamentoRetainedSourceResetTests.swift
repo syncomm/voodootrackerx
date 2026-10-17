@@ -5,7 +5,7 @@ import XCTest
 final class TonePortamentoRetainedSourceResetTests: XCTestCase {
     typealias Adapter = PlaybackSongSyntheticAdapter
     private let rates = [44_100.0,48_000]
-    private var surfaces: [(Bool,UInt8,UInt8,UInt8)] { [(true,3,4,0),(false,3,4,0),(true,3,0,0),(false,3,0,0),(true,5,4,0),(true,0,0,0xF4)] }
+    private var surfaces: [(Bool,UInt8,UInt8,UInt8)] { [(true,3,4,0),(false,3,4,0),(true,3,0,0),(false,3,0,0),(true,5,4,0),(true,0,0,0xF4),(false,5,4,0),(false,0,0,0xF4)] }
 
     func testRetainedHeaderOwnershipAcrossSurfacesRoutesSpeedsAndFxxChannelOrder() throws {
         for rate in rates {

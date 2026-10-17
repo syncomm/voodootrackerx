@@ -50,6 +50,7 @@ ALL_FIXTURES = [
     "amiga-portamento-up.xm",
     "tone-portamento-retained-source-reset.xm",
     "cold-tone-portamento-initialization.xm",
+    "amiga-tone-portamento-consumers.xm",
 ]
 
 
@@ -602,6 +603,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "amiga-portamento-up.xm").resolve(),
                     (output_dir / "generated" / "tone-portamento-retained-source-reset.xm").resolve(),
                     (output_dir / "generated" / "cold-tone-portamento-initialization.xm").resolve(),
+                    (output_dir / "generated" / "amiga-tone-portamento-consumers.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -609,6 +611,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 [
                     "generated/amiga-arpeggio-ordering.xm",
                     "generated/amiga-portamento-up.xm",
+                    "generated/amiga-tone-portamento-consumers.xm",
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/cold-500-local-publication.xm",
@@ -706,6 +709,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 [
                     "generated/amiga-arpeggio-ordering.xm",
                     "generated/amiga-portamento-up.xm",
+                    "generated/amiga-tone-portamento-consumers.xm",
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/cold-500-local-publication.xm",
@@ -829,6 +833,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:amiga-arpeggio-ordering.xm": "generated/amiga-arpeggio-ordering.xm",
                     "xm:regular-portamento-memory-admission.xm": "generated/regular-portamento-memory-admission.xm",
                     "xm:amiga-portamento-up.xm": "generated/amiga-portamento-up.xm",
+                    "xm:amiga-tone-portamento-consumers.xm": "generated/amiga-tone-portamento-consumers.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",
                 },

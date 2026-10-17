@@ -741,11 +741,37 @@ Use Amiga Frequency Slides with the reference profile in
 [audio-comparison.md](../../docs/audio-comparison.md). Automated comparison does
 not establish listening evidence; generated reference WAVs stay outside git.
 
+## Amiga tone-portamento consumer fixture
+
+`generated/amiga-tone-portamento-consumers.xm` is project-generated Amiga XM:
+12 channels, 24 rows, speed 3/BPM 125 initially, 120 ticks / 2.4 seconds.
+
+| Rows | Control |
+| --- | --- |
+| 0–3 | Retained 504/F4, cold 504/F4 to exact sample1 note-only starts, A04/604/A24 to cold 500, seeded F0, explicit cold F4+C20, initialized empty Fx/5xy and completed/released ownership. |
+| 4–8 | Earlier F01 and later F02/F06 with F03; speed-1 nonexecution, Fx speed admission, larger/mixed 5xy and shared 500 replay. |
+| 9–13 | Mute before replacements, then finetune +127/relative +12 B-to-C targets; explicit target seeds isolate the existing 3xx authority. |
+| 14–19 | Muted replacements, neutral exact reach/overshoot and already-reached continuation. |
+| 20–23 | Muted valid-low/high boundary controls under existing G30 lookup/conversion policy. |
+
+Cold continuations start real sources at carried zero gain; the explicit writer
+and seeded upward 500 controls remain audible. Retained sources keep generation
+and cursor while owned defaults/clocks reset. Initialized empty headers retain
+volume 24/pan 80 before shared slides; later note-only uses the exact mapped
+sample1 and carries the resulting volume 16/pan 80 independently of header metadata.
+Model tests extend the byte, speed, tuning and memory matrix beyond this compact
+fixture. Both-rate whole/window/runtime/host checks share the same event frames.
+Matched FT2-profile controls pass with existing onset/interpolation/G30 residuals;
+reference WAVs and generated diagnostics stay outside git. This is bounded
+consumer closure, preserving the existing 3xx target-lifetime boundary across
+ordinary note+instrument triggers and other unclosed pitch interactions.
+
 ## Cold tone-portamento initialization fixture
 
 `generated/cold-tone-portamento-initialization.xm` is project-authored Linear XM,
 15 channels, 16 rows, BPM 125: 44 ticks / 0.88 seconds. Amiga tests project the same
-fixture while omitting stored 5xy/Fx cells; those consumers remain G28.
+fixture while omitting stored 5xy/Fx cells to preserve this prerequisite baseline.
+The G28 fixture above covers those Amiga consumers.
 
 | Rows | Control |
 | --- | --- |
@@ -765,7 +791,8 @@ both-rate whole/window/runtime delivery. Reference WAVs remain outside git.
 `generated/tone-portamento-retained-source-reset.xm` uses project-authored PCM
 and distinct source/target headers (volume 32/20, pan 96/192). It is stored in
 Linear mode. Amiga 3xx tests project it into Amiga while omitting stored 5xy/Fx
-cells; those Amiga consumers remain G28.
+cells to preserve this prerequisite baseline. The G28 fixture above covers
+those Amiga consumers.
 
 | Rows | Control |
 | --- | --- |

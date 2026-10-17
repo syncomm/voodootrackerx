@@ -12,7 +12,9 @@ final class ColdTonePortamentoInitializationTests: XCTestCase {
                 for (linear, effect, parameter, column, seed): (Bool, UInt8, UInt8, UInt8, PlaybackCell?) in [
                     (true,3,4,0,nil), (false,3,4,0,nil), (true,3,0,0,nil), (false,3,0,0,nil),
                     (true,3,0,0,c(3,4)), (false,3,0,0,c(3,4)), (true,5,4,0,nil), (true,5,0,0,nil),
-                    (true,0,0,0xF4,nil), (true,0,0,0xF0,nil), (true,0,0,0xF0,c(volume: 0xF4))
+                    (true,0,0,0xF4,nil), (true,0,0,0xF0,nil), (true,0,0,0xF0,c(volume: 0xF4)),
+                    (false,5,4,0,nil), (false,5,0,0,nil), (false,0,0,0xF4,nil),
+                    (false,0,0,0xF0,nil), (false,0,0,0xF0,c(3,4)), (false,0,0,0xF0,c(volume: 0xF4))
                 ] {
                     let prefix = seed.map { [$0] } ?? []
                     let module = song(prefix + [c(effect,parameter,note: 49,instrument: 1,volume: column),c(note: 61),c(3)],

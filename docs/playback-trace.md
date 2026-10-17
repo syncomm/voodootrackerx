@@ -162,7 +162,10 @@ enabled retained envelopes and restore key/fadeout state. Source/sample
 before/after remain retained, while the raw row instrument and target note
 describe independent target routing.
 No source trigger, replacement or cursor reset occurs. These fields cover
-Linear/Amiga 3xx and Linear 5xy/volume Fx; G28's Amiga consumers stay deferred.
+3xx/5xy/volume Fx in both modes. G28 Amiga consumers report `amiga_applied`
+through the existing frequency-mode field. Tone target/speed/reached status and
+5xy volume execution/replay remain independent; no unsupported-mode label is
+used for the newly supported consumers.
 Cold same-cell admission uses the existing tone diagnostic with
 `policy: same_cell_tone_portamento_cold_initialization_no_source`, instrument
 state/volume before-after and target/speed fields. Source/sample metadata stays
@@ -199,11 +202,11 @@ The minimum-period/break-on-clamp edge remains G30; no schema field is added.
 sample-step updates and the `Axy` tick-level volume-slide policy for gain
 updates. Same-cell note `5xy` rows set the tone-portamento target without
 retriggering, empty-note rows continue an existing target when available, and
-`500` reuses shared Axy-style volume-slide memory when available. Cold Linear
-`500` instead reports applied implicit-zero updates on nonzero ticks using
+`500` reuses shared Axy-style volume-slide memory when available. Cold
+`500` in either mode reports applied implicit-zero updates on nonzero ticks using
 `volume_slide_policy: 500_cold_zero_slide_output_restoration`; speed 1 reports
 `500_cold_zero_slide_no_nonzero_ticks`. Memory-source is absent and reused,
-missing and deferred flags are false. Partial Amiga cold 500 stays deferred.
+missing and deferred flags are false. Amiga uses those same policies and fields.
 Join tone diagnostics (target, speed, status, step updates) independently of
 volume execution. `publication_reason: local_volume_writer`, held gain and
 source-generation fields distinguish execution from an actual changed target.

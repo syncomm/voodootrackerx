@@ -584,10 +584,10 @@ extension PlaybackSongSyntheticAdapter {
         let requestedSlide = axyVolumeSlideAmounts(effectParam: cell.effectParam)
         rememberVolumeSlide(from: cell, source: source, channelIndex: channelIndex,
                             rowSpeed: timingConfig.speed, channelState: &channelState)
-        // Cold A00 and supported Linear 500 execute zero independently of tone
-        // admission, without inventing A/5/6 history or broadening Amiga 5xy.
+        // Cold A00/500 execute zero independently of tone admission in either
+        // mode, without inventing shared A/5/6 history.
         let coldA00 = cell.effectType == 0x0A && cell.effectParam == 0 && channelState.volumeSlideMemory == nil
-        let cold500 = usesLinearFrequencyTable && cell.effectType == 0x05 && cell.effectParam == 0 && channelState.volumeSlideMemory == nil
+        let cold500 = cell.effectType == 0x05 && cell.effectParam == 0 && channelState.volumeSlideMemory == nil
         let coldZeroSlide = coldA00 || cold500
         let coldPolicy = coldA00 ? "a00_cold_zero_slide" : "500_cold_zero_slide"
         let slide: VolumeSlideAmounts

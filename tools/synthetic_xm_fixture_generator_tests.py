@@ -48,6 +48,7 @@ ALL_FIXTURES = [
     "amiga-arpeggio-ordering.xm",
     "regular-portamento-memory-admission.xm",
     "amiga-portamento-up.xm",
+    "tone-portamento-retained-source-reset.xm",
 ]
 
 
@@ -598,6 +599,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "amiga-arpeggio-ordering.xm").resolve(),
                     (output_dir / "generated" / "regular-portamento-memory-admission.xm").resolve(),
                     (output_dir / "generated" / "amiga-portamento-up.xm").resolve(),
+                    (output_dir / "generated" / "tone-portamento-retained-source-reset.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -634,6 +636,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/portamento-scaling-linear.xm",
                     "generated/regular-portamento-memory-admission.xm",
                     "generated/rxy-counter-timing-carry.xm",
+                    "generated/tone-portamento-retained-source-reset.xm",
                     "generated/tremolo-effects.xm",
                     "generated/vibrato-empty-route-state.xm",
                     "generated/vibrato-semantics.xm",
@@ -729,6 +732,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/portamento-scaling-linear.xm",
                     "generated/regular-portamento-memory-admission.xm",
                     "generated/rxy-counter-timing-carry.xm",
+                    "generated/tone-portamento-retained-source-reset.xm",
                     "generated/tremolo-effects.xm",
                     "generated/vibrato-empty-route-state.xm",
                     "generated/vibrato-semantics.xm",
@@ -821,6 +825,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:amiga-arpeggio-ordering.xm": "generated/amiga-arpeggio-ordering.xm",
                     "xm:regular-portamento-memory-admission.xm": "generated/regular-portamento-memory-admission.xm",
                     "xm:amiga-portamento-up.xm": "generated/amiga-portamento-up.xm",
+                    "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",
                 },
             )
 

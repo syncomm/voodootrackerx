@@ -7155,7 +7155,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.rawVolumeColumn == 0x30 })
         let tonePortamento = try XCTUnwrap(result.diagnostics.tonePortamentoEffects.first)
 
-        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [1, 0.984375, 0.96875])
+        // At this 100 Hz test rate, the existing 5 ms semantic reset is zero frames.
+        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [1, 0.5, 0.5])
         XCTAssertEqual(result.diagnostics.eventMappings.count, 1)
         XCTAssertEqual(result.plan.pattern.events.count, 1)
         XCTAssertEqual(tonePortamento.status, .applied)
@@ -7242,7 +7243,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(tonePortamento.samplePositionReset, false)
         XCTAssertEqual(tonePortamento.instrumentStateUpdated, true)
         XCTAssertEqual(tonePortamento.instrumentDefaultVolumeApplied, true)
-        XCTAssertEqual(tonePortamento.envelopeReset, false)
+        XCTAssertEqual(tonePortamento.envelopeReset, true)
         XCTAssertEqual(tonePortamento.channelVolumeBefore, 0)
         XCTAssertEqual(tonePortamento.channelVolumeAfter, 64)
         XCTAssertEqual(tonePortamento.gainBefore, 0)
@@ -7309,7 +7310,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         }
     }
 
-    func testPlaybackSongAdapterSameCell3xxInstrumentSelectionUpdatesDefaultGainWithoutRetrigger() throws {
+    func testPlaybackSongAdapterSameCell3xxRetainsSoundingHeaderWhileSelectingCarriedInstrument() throws {
         let firstSample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1, 1, 1], volume: 0.25, baseSampleRate: 100)
         let secondSample = makePlaybackSample(instrumentIndex: 2, sampleIndex: 1, pcm: [0.5, 0.5, 0.5], volume: 0.5, baseSampleRate: 100)
         let song = makePlaybackSong(
@@ -7340,21 +7341,21 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.diagnostics.eventMappings.count, 1)
         XCTAssertEqual(result.plan.pattern.events.count, 1)
         XCTAssertEqual(tonePortamento.instrumentIndexBefore, 1)
-        XCTAssertEqual(tonePortamento.instrumentIndexAfter, 2)
+        XCTAssertEqual(tonePortamento.instrumentIndexAfter, 1)
         XCTAssertEqual(tonePortamento.sampleSelectedBefore, 0)
-        XCTAssertEqual(tonePortamento.sampleSelectedAfter, 1)
-        XCTAssertEqual(tonePortamento.instrumentDefaultVolumeApplied, true)
+        XCTAssertEqual(tonePortamento.sampleSelectedAfter, 0)
+        XCTAssertEqual(tonePortamento.instrumentDefaultVolumeApplied, false)
         XCTAssertEqual(tonePortamento.channelVolumeBefore, 16)
-        XCTAssertEqual(tonePortamento.channelVolumeAfter, 64)
+        XCTAssertEqual(tonePortamento.channelVolumeAfter, 16)
         XCTAssertEqual(tonePortamento.gainBefore, 0.25)
-        XCTAssertEqual(tonePortamento.gainAfter, 1)
+        XCTAssertEqual(tonePortamento.gainAfter, 0.25)
         XCTAssertEqual(tonePortamento.noteTriggerEventCreated, false)
         XCTAssertEqual(tonePortamento.samplePositionReset, false)
         XCTAssertEqual(update.activeVoiceUpdated, true)
         XCTAssertEqual(update.effectiveVolumeBefore, 16)
-        XCTAssertEqual(update.effectiveVolumeAfter, 64)
+        XCTAssertEqual(update.effectiveVolumeAfter, 16)
         XCTAssertEqual(update.gainBefore, 0.25)
-        XCTAssertEqual(update.gainAfter, 1)
+        XCTAssertEqual(update.gainAfter, 0.25)
     }
 
     func testPlaybackSongAdapterA0FSpeed3AppliesOnTicksAfterTick0() throws {

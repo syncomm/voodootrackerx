@@ -5045,6 +5045,51 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testTonePortamentoRetainedSourceResetFixtureRuntimeParity() throws {
+        for linear in [true,false] {
+            try assertFixtureRuntimeParity(fixtureName: "tone-portamento-retained-source-reset.xm",linear: linear)
+        }
+    }
+
+    func testTonePortamentoResetRetainsRuntimeCursorAndCannotResurrectCompletedSource() throws {
+        for (linear,fx,param,volume): (Bool,UInt8,UInt8,UInt8) in [(true,3,4,0),(false,3,4,0),(true,3,0,0),(false,3,0,0),(true,5,4,0),(true,0,0,0xF4)] {
+            for completed in [false,true] {
+                func c(_ effect: UInt8 = 0,_ byte: UInt8 = 0,note: UInt8 = 0,instrument: UInt8 = 0,volume: UInt8 = 0) -> PlaybackCell {
+                    .init(note: note,instrument: instrument,volumeColumn: volume,effectType: effect,effectParam: byte)
+                }
+                let source = PlaybackSample(instrumentIndex: 1,sampleIndex: 0,pcm: Array(repeating: 1/32,count: 256),volume: 0.5,panning: 96,
+                    relativeNote: 0,finetune: 0,baseSampleRate: 8363,loopStart: 0,loopLength: completed ? 0 : 256,loopType: completed ? 0 : 1)
+                let target = PlaybackSample(instrumentIndex: 2,sampleIndex: 0,pcm: Array(repeating: 1/8,count: 256),volume: 20/64,panning: 192,
+                    relativeNote: 0,finetune: 0,baseSampleRate: 8363,loopStart: 0,loopLength: 256,loopType: 1)
+                let rows = [[c(12,64,note: 49,instrument: 1)],[c(3,4,note: 53,volume: 0xCF)],[c(fx,param,note: 61,instrument: 2,volume: volume)]]
+                let song = makePlaybackSong(orderPatternIndices: [0],patternRowsByIndex: [0: rows.enumerated().map { .init(index: $0.offset,cells: $0.element) }],
+                    instrumentsByIndex: [1: .init(index: 1,samples: [source]),2: .init(index: 2,samples: [target])],
+                    initialTiming: .init(speed: 3,bpm: 125),usesLinearFrequencyTable: linear)
+                for rate in [44_100.0,48_000] {
+                    let plan = RuntimeCMixerAdapterEventPlan.make(song: song,sampleRate: rate)
+                    XCTAssertEqual(plan.plan?.pattern.events.count,1)
+                    let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate,channelCount: 1),maximumRenderFrames: 4096)
+                    core.configureAdapterEventScheduleForTesting(plan.events,runtimeFrameOffset: 0)
+                    let resetFrame = 6*Int(rate/50)
+                    var frame = 0
+                    while frame < resetFrame {
+                        let count = min(4093,resetFrame-frame); _ = renderRuntimePCM(core,frames: count); frame += count
+                    }
+                    let before = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                    _ = renderRuntimePCM(core,frames: 1)
+                    let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                    XCTAssertEqual(after.active,!completed)
+                    if completed { XCTAssertEqual(after.samplePosition,before.samplePosition) }
+                    else { XCTAssertEqual(after.samplePosition,(before.samplePosition+after.sampleStep).truncatingRemainder(dividingBy: 256),accuracy: 1e-9) }
+                    let applied = core.drainAppliedAdapterEventDiagnostics()
+                    XCTAssertEqual(applied.filter { if case .noteTrigger = $0.event.action { return true }; return false }.count,1)
+                    XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
+                }
+            }
+        }
+    }
+
+    @MainActor
     func testAmigaPortamentoUpFixtureRuntimeParity() throws {
         try assertFixtureRuntimeParity(fixtureName: "amiga-portamento-up.xm")
     }
@@ -5153,7 +5198,15 @@ final class RuntimeCMixerTests: XCTestCase {
     private func assertFixtureRuntimeParity(fixtureName: String, linear: Bool? = nil) throws {
         let fixture = try referenceXMFixtureURL("generated/" + fixtureName)
         let parsed = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
-        let song = PlaybackSong(title: parsed.title, orders: parsed.orders, patternsByIndex: parsed.patternsByIndex,
+        let patterns = linear == false && fixtureName == "tone-portamento-retained-source-reset.xm" ? parsed.patternsByIndex.mapValues { pattern in
+            PlaybackPattern(index: pattern.index,rows: pattern.rows.map { row in
+                PlaybackRow(index: row.index,cells: row.cells.map { cell in
+                    cell.effectType == 5 || cell.volumeColumn >= 0xF0
+                        ? PlaybackCell(note: 0,instrument: 0,volumeColumn: 0,effectType: 0,effectParam: 0) : cell
+                })
+            })
+        } : parsed.patternsByIndex
+        let song = PlaybackSong(title: parsed.title, orders: parsed.orders, patternsByIndex: patterns,
             instrumentsByIndex: parsed.instrumentsByIndex, restartOrderIndex: parsed.restartOrderIndex, endBehavior: parsed.endBehavior,
             initialTiming: parsed.initialTiming, usesLinearFrequencyTable: linear ?? parsed.usesLinearFrequencyTable,
             xmSampleSlotProvenanceByInstrument: parsed.xmSampleSlotProvenanceByInstrument)
@@ -5164,10 +5217,10 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             // Arpeggio row-exit and row-entry writes can share a frame; use the runtime's ordering.
-            let ordered = ["linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm"].contains(fixtureName)
+            let ordered = ["linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm"].contains(fixtureName)
                 ? runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] } : runtime.events
             let planned = ordered.filter { event in
-                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm"].contains(fixtureName) {
+                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm"].contains(fixtureName) {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
                     case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
@@ -5199,7 +5252,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
-            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm"].contains(fixtureName) {
+            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm"].contains(fixtureName) {
                 XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
             }

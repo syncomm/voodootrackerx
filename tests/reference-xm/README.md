@@ -740,3 +740,25 @@ no lookup, clamp, fixed-point conversion or portamento policy changes here.
 Use Amiga Frequency Slides with the reference profile in
 [audio-comparison.md](../../docs/audio-comparison.md). Automated comparison does
 not establish listening evidence; generated reference WAVs stay outside git.
+
+## Tone-portamento retained-source reset fixture
+
+`generated/tone-portamento-retained-source-reset.xm` uses project-authored PCM
+and distinct source/target headers (volume 32/20, pan 96/192). It is stored in
+Linear mode. Amiga 3xx tests project it into Amiga while omitting stored 5xy/Fx
+cells; those Amiga consumers remain G28.
+
+| Rows | Control |
+| --- | --- |
+| 0–3 | Tracker 64/cache 32, pan 240/cache 96; 304/300/504/F4 reset, cold/completed exclusions |
+| 4–5 | Column volume/fine/pan and Cxx override the retained reset |
+| 6–9 | Release, modulation, envelope/key/fadeout reset and 8xx override |
+| 10–14 | Earlier/later F01/F02/F03/F06; speed-1 reset without movement |
+| 15–20 | Instrument-only/note-only/empty exclusions; later ordinary note uses carried instrument 2, whose new cache becomes authoritative |
+| 21–23 | Empty targets, no-owner protection and ordinary-trigger regression |
+
+Focused tests add logical envelope segment/sustain/loop reconstruction, missing
+targets, all supported surfaces and exact reset/tick/window splits. Runtime tests
+pin frames, held targets and cursor/generation continuity at 44.1/48 kHz. Listen
+to rows 0–14 for reset/writer behavior and rows 15–20 for retained versus carried
+ownership. Automated checks do not establish listening; FT2 WAVs remain external.

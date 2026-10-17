@@ -65,6 +65,35 @@ extension PlaybackSongSyntheticAdapter {
         state.initializePanning(fromSampleHeader: state.triggeredSampleDefaultPan)
     }
 
+    /// Restarts instrument semantics on the retained source, without selecting or starting PCM.
+    static func applySameCellTonePortamentoRetainedSourceReset(
+        cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        syntheticRow: Int, scheduledFrame: Int, globalVolume: Int,
+        song: PlaybackSong, state: inout ChannelState, context: inout AdapterRowContext
+    ) -> Bool {
+        guard let event = state.activeEventIndex, let owner = state.semanticInstrumentIndex,
+              let instrument = song.instrumentsByIndex[owner],
+              state.semanticSampleIndex != nil else { return false }
+        let before = state
+        restoreCachedInstrumentDefaults(state: &state)
+        state.keyOffWithoutVoice = false
+        context.voiceStateUpdates.append(voiceStateUpdateDiagnostic(
+            source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+            scheduledFrame: scheduledFrame, cell: cell, commandSource: .instrumentState,
+            command: .instrumentDefaultVolume(value: state.baseChannelVolume), rawVolumeColumn: nil,
+            effectType: cell.effectType, effectParam: cell.effectParam, status: .applied,
+            behavior: nil, channelStateBefore: before, channelStateAfter: state,
+            globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume))
+        // The existing reset reconstructs segment, sustain/loop, key and fadeout
+        // state under the sounding instrument's curves; it never restarts a source.
+        // Disabled envelopes keep their inactive bookkeeping, as in FT2.
+        context.playbackStateEvents.append(.init(activeEventIndex: event, channelIndex: channelIndex,
+            scheduledFrame: scheduledFrame,
+            change: .reset(.init(volumeEnvelope: instrument.volumeEnvelope.enabled,
+                panEnvelope: instrument.panningEnvelope.enabled, keyOn: true, fadeout: true))))
+        return true
+    }
+
     /// Delayed dispatch replays explicit setters after its reset, never tick-zero fine commands.
     static func resetDelayedInstrument(cell: PlaybackCell, state: inout ChannelState) {
         restoreCachedInstrumentDefaults(state: &state)

@@ -153,6 +153,16 @@ the `volume_column_tone_portamento` category and `volumeColumn` metadata when
 they can reuse the existing `3xx` target/sample-step path; no-active,
 no-target, and no-speed cases remain bounded diagnostics rather than invented
 playback.
+Supported same-cell note+instrument tone resets report
+`policy: same_cell_tone_portamento_retained_source_reset` (with `_no_speed`
+when tone movement has no speed), `instrument_state_updated`, `envelope_reset`
+and `envelope_reset_modeled`. The existing instrument-state volume/pan write
+precedes explicit column/Cxx/8xx writers; existing reset/semantic events restart
+enabled retained envelopes and restore key/fadeout state. Source/sample
+before/after remain retained, while the raw row instrument and target note
+describe independent target routing.
+No source trigger, replacement or cursor reset occurs. These fields cover
+Linear/Amiga 3xx and Linear 5xy/volume Fx; G28's Amiga consumers stay deferred.
 Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger
 once at the base note pitch; subsequent arpeggio ticks are emitted as planned
 sample-step updates. Empty-note nonzero `0xy` rows with an active voice emit the

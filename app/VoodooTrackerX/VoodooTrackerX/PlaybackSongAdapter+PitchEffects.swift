@@ -2271,6 +2271,8 @@ extension PlaybackSongSyntheticAdapter {
         }
         let commandSource: PlaybackSongSyntheticTonePortamentoCommandSource =
             volumeColumnTonePortamentoAmount == nil ? .effectColumn : .volumeColumn
+        let directionBefore = channelState.tonePortamentoDirection
+        var directionAtExecution: PlaybackSongSyntheticTonePortamentoDirection?
         let hasActiveVoice = channelState.activeEventIndex != nil
         let activeUsesAmigaFrequencyTable = !(channelState.activeUsesLinearFrequencyTable ?? usesLinearFrequencyTable)
         let activeFrequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus =
@@ -2321,12 +2323,16 @@ extension PlaybackSongSyntheticAdapter {
                     channelState.tonePortamentoTargetLinearPeriod = target.linearPeriod
                     channelState.tonePortamentoTargetAmigaPeriod = nil
                     channelState.tonePortamentoTargetPlaybackStep = target.playbackStep
+                    channelState.tonePortamentoDirection = .init(
+                        currentPeriod: channelState.activeLinearPeriod ?? 0, targetPeriod: target.linearPeriod)
                 } else if !usesLinearFrequencyTable, let target = amigaPitchTarget(note: note, relativeNote: 0, finetune: 0,
                     baseSampleRate: PlaybackSample.xmNeutralSampleRate, outputSampleRate: timingConfig.sampleRate) {
                     channelState.tonePortamentoTargetNote = note
                     channelState.tonePortamentoTargetLinearPeriod = nil
                     channelState.tonePortamentoTargetAmigaPeriod = target.amigaPeriod
                     channelState.tonePortamentoTargetPlaybackStep = target.playbackStep
+                    channelState.tonePortamentoDirection = .init(
+                        currentPeriod: channelState.activeAmigaPeriod ?? 0, targetPeriod: target.amigaPeriod)
                 }
             }
             return tonePortamentoDiagnostic(
@@ -2362,6 +2368,9 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                directionBefore: directionBefore,
+                directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                directionAfter: channelState.tonePortamentoDirection,
                 stepUpdates: [],
                 policy: instrumentStateUpdated
                     ? "same_cell_tone_portamento_cold_initialization_no_source"
@@ -2399,6 +2408,9 @@ extension PlaybackSongSyntheticAdapter {
                     currentPlaybackStepBefore: currentPlaybackStepBefore,
                     currentPlaybackStepAfter: channelState.activePlaybackStep,
                     portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                    directionBefore: directionBefore,
+                    directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                    directionAfter: channelState.tonePortamentoDirection,
                     stepUpdates: [],
                     policy: "missing_active_pitch_sample_state"
                 )
@@ -2438,6 +2450,9 @@ extension PlaybackSongSyntheticAdapter {
                         currentPlaybackStepBefore: currentPlaybackStepBefore,
                         currentPlaybackStepAfter: channelState.activePlaybackStep,
                         portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                        directionBefore: directionBefore,
+                        directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                        directionAfter: channelState.tonePortamentoDirection,
                         stepUpdates: [],
                         policy: "target_pitch_out_of_range"
                     )
@@ -2446,6 +2461,8 @@ extension PlaybackSongSyntheticAdapter {
                 channelState.tonePortamentoTargetLinearPeriod = target.linearPeriod
                 channelState.tonePortamentoTargetAmigaPeriod = nil
                 channelState.tonePortamentoTargetPlaybackStep = target.playbackStep
+                channelState.tonePortamentoDirection = .init(
+                    currentPeriod: channelState.activeLinearPeriod ?? 0, targetPeriod: target.linearPeriod)
             } else if channelState.activeUsesLinearFrequencyTable == false {
                 guard let target = amigaPitchTarget(
                     note: targetNote,
@@ -2480,6 +2497,9 @@ extension PlaybackSongSyntheticAdapter {
                         currentPlaybackStepBefore: currentPlaybackStepBefore,
                         currentPlaybackStepAfter: channelState.activePlaybackStep,
                         portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                        directionBefore: directionBefore,
+                        directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                        directionAfter: channelState.tonePortamentoDirection,
                         stepUpdates: [],
                         policy: "amiga_target_pitch_out_of_range"
                     )
@@ -2488,6 +2508,8 @@ extension PlaybackSongSyntheticAdapter {
                 channelState.tonePortamentoTargetLinearPeriod = nil
                 channelState.tonePortamentoTargetAmigaPeriod = target.amigaPeriod
                 channelState.tonePortamentoTargetPlaybackStep = target.playbackStep
+                channelState.tonePortamentoDirection = .init(
+                    currentPeriod: channelState.activeAmigaPeriod ?? 0, targetPeriod: target.amigaPeriod)
             } else {
                 return tonePortamentoDiagnostic(
                     source: source,
@@ -2515,6 +2537,9 @@ extension PlaybackSongSyntheticAdapter {
                     currentPlaybackStepBefore: currentPlaybackStepBefore,
                     currentPlaybackStepAfter: channelState.activePlaybackStep,
                     portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                    directionBefore: directionBefore,
+                    directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                    directionAfter: channelState.tonePortamentoDirection,
                     stepUpdates: [],
                     policy: "missing_active_pitch_mode"
                 )
@@ -2553,6 +2578,9 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                directionBefore: directionBefore,
+                directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                directionAfter: channelState.tonePortamentoDirection,
                 stepUpdates: [],
                 policy: commandSource == .volumeColumn
                     ? "volume_column_tone_portamento_no_existing_target"
@@ -2563,8 +2591,16 @@ extension PlaybackSongSyntheticAdapter {
         }
         let targetLinearPeriod = channelState.tonePortamentoTargetLinearPeriod
         let targetAmigaPeriod = channelState.tonePortamentoTargetAmigaPeriod
-        guard let speed = channelState.tonePortamentoSpeed,
-              speed > 0 else {
+        let speed = channelState.tonePortamentoSpeed ?? 0
+        let currentPeriod = activeUsesAmigaFrequencyTable ? channelState.activeAmigaPeriod : channelState.activeLinearPeriod
+        let targetPeriod = activeUsesAmigaFrequencyTable ? targetAmigaPeriod : targetLinearPeriod
+        // A zero-speed invocation can still clamp an already-crossed target;
+        // it does not create speed memory or move an uncrossed period.
+        let zeroSpeedClamp = currentPeriod.flatMap { current in targetPeriod.map { target in
+            channelState.tonePortamentoDirection == .towardLowerPeriod && current <= target ||
+                channelState.tonePortamentoDirection == .towardHigherPeriod && current >= target
+        } } ?? false
+        guard speed > 0 || speed == 0 && zeroSpeedClamp else {
             return tonePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -2600,6 +2636,9 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                directionBefore: directionBefore,
+                directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                directionAfter: channelState.tonePortamentoDirection,
                 stepUpdates: [],
                 policy: targetPitchSample != nil ? "same_cell_tone_portamento_retained_source_reset_no_speed" : commandSource == .volumeColumn
                     ? "volume_column_tone_portamento_no_speed"
@@ -2636,6 +2675,9 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: speed,
+                directionBefore: directionBefore,
+                directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                directionAfter: channelState.tonePortamentoDirection,
                 stepUpdates: [],
                 policy: "missing_active_pitch_state"
             )
@@ -2670,6 +2712,9 @@ extension PlaybackSongSyntheticAdapter {
                     currentPlaybackStepBefore: currentPlaybackStepBefore,
                     currentPlaybackStepAfter: channelState.activePlaybackStep,
                     portamentoSpeed: speed,
+                    directionBefore: directionBefore,
+                    directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                    directionAfter: channelState.tonePortamentoDirection,
                     stepUpdates: [],
                     policy: "missing_active_amiga_pitch_state"
                 )
@@ -2678,15 +2723,18 @@ extension PlaybackSongSyntheticAdapter {
             var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
             let rowSpeed = max(1, timingConfig.speed)
             let slideUnits = Double(speed) * xmAmigaPortamentoUnitsPerParam
+            directionAtExecution = channelState.tonePortamentoDirection
             for tick in executionTicks ?? (1..<rowSpeed) {
+                guard channelState.tonePortamentoDirection != .none else { break }
                 if abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001 {
+                    channelState.tonePortamentoDirection = .towardHigherPeriod
                     currentAmigaPeriod = targetAmigaPeriod
                     currentPlaybackStep = targetPlaybackStep
                     break
                 }
                 let beforePeriod = currentAmigaPeriod
                 let beforeStep = currentPlaybackStep
-                if targetAmigaPeriod < currentAmigaPeriod {
+                if channelState.tonePortamentoDirection == .towardLowerPeriod {
                     currentAmigaPeriod = max(targetAmigaPeriod, currentAmigaPeriod - slideUnits)
                 } else {
                     currentAmigaPeriod = min(targetAmigaPeriod, currentAmigaPeriod + slideUnits)
@@ -2712,6 +2760,8 @@ extension PlaybackSongSyntheticAdapter {
                     reachedTarget: reachedTarget
                 ))
                 if reachedTarget {
+                    // FT2 leaves the higher-period direction latched after either clamp.
+                    channelState.tonePortamentoDirection = .towardHigherPeriod
                     currentAmigaPeriod = targetAmigaPeriod
                     currentPlaybackStep = targetPlaybackStep
                     break
@@ -2768,6 +2818,9 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: speed,
+                directionBefore: directionBefore,
+                directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                directionAfter: channelState.tonePortamentoDirection,
                 stepUpdates: stepUpdates,
                 policy: targetPitchSample != nil ? "same_cell_tone_portamento_retained_source_reset" :
                     "amiga_period_units_per_tick_row_level_first_pass"
@@ -2802,6 +2855,9 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: speed,
+                directionBefore: directionBefore,
+                directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+                directionAfter: channelState.tonePortamentoDirection,
                 stepUpdates: [],
                 policy: "missing_active_linear_pitch_state"
             )
@@ -2809,15 +2865,18 @@ extension PlaybackSongSyntheticAdapter {
 
         var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
         let rowSpeed = max(1, timingConfig.speed)
+        directionAtExecution = channelState.tonePortamentoDirection
         for tick in executionTicks ?? (1..<rowSpeed) {
+            guard channelState.tonePortamentoDirection != .none else { break }
             if abs(currentLinearPeriod - targetLinearPeriod) <= 0.000000001 {
+                channelState.tonePortamentoDirection = .towardHigherPeriod
                 currentLinearPeriod = targetLinearPeriod
                 currentPlaybackStep = targetPlaybackStep
                 break
             }
             let beforePeriod = currentLinearPeriod
             let beforeStep = currentPlaybackStep
-            if targetLinearPeriod < currentLinearPeriod {
+            if channelState.tonePortamentoDirection == .towardLowerPeriod {
                 currentLinearPeriod = max(targetLinearPeriod, currentLinearPeriod - Double(speed) * xmLinearPortamentoUnitsPerParam)
             } else {
                 currentLinearPeriod = min(targetLinearPeriod, currentLinearPeriod + Double(speed) * xmLinearPortamentoUnitsPerParam)
@@ -2841,6 +2900,8 @@ extension PlaybackSongSyntheticAdapter {
                 reachedTarget: reachedTarget
             ))
             if reachedTarget {
+                // FT2 leaves the higher-period direction latched after either clamp.
+                channelState.tonePortamentoDirection = .towardHigherPeriod
                 currentLinearPeriod = targetLinearPeriod
                 currentPlaybackStep = targetPlaybackStep
                 break
@@ -2897,6 +2958,9 @@ extension PlaybackSongSyntheticAdapter {
             currentPlaybackStepBefore: currentPlaybackStepBefore,
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             portamentoSpeed: speed,
+            directionBefore: directionBefore,
+            directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+            directionAfter: channelState.tonePortamentoDirection,
             stepUpdates: stepUpdates,
             policy: targetPitchSample != nil ? "same_cell_tone_portamento_retained_source_reset" : commandSource == .volumeColumn
                 ? "volume_column_tone_portamento_reuses_3xx_target_and_sample_step_path_first_pass"
@@ -2953,6 +3017,9 @@ extension PlaybackSongSyntheticAdapter {
         currentPlaybackStepBefore: Double?,
         currentPlaybackStepAfter: Double?,
         portamentoSpeed: Int,
+        directionBefore: PlaybackSongSyntheticTonePortamentoDirection = .none,
+        directionAtExecution: PlaybackSongSyntheticTonePortamentoDirection = .none,
+        directionAfter: PlaybackSongSyntheticTonePortamentoDirection = .none,
         stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
         policy: String
     ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
@@ -3011,6 +3078,9 @@ extension PlaybackSongSyntheticAdapter {
             portamentoSpeed: portamentoSpeed,
             rowSpeed: timingConfig.speed,
             rowBPM: timingConfig.bpm,
+            directionBefore: directionBefore,
+            directionAtExecution: directionAtExecution,
+            directionAfter: directionAfter,
             stepUpdates: stepUpdates,
             policy: policy
         )

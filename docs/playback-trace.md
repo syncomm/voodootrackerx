@@ -178,8 +178,13 @@ with the later tone diagnostic's `target_exists_before`, `note_target_before`,
 `note_target_after`, target period/step and `active_event_index`: retained targets
 stay present on the new generation, explicit 3xx/5xy/Fx notes replace them, and
 cold channels retain absence. Fresh plan/channel initialization clears state.
-No schema or new memory family is required. Direction-latch/progression quirks
-remain separate from this lifetime evidence.
+Existing tone records add `direction_before`, `direction_at_execution` and
+`direction_after` with `none`, `toward_lower_period` or `toward_higher_period`.
+Join those fields with target admission and step-update periods to distinguish
+retained/replaced direction and a crossed-target clamp. Equality admits `none`;
+an executed clamp leaves the higher-period direction. Cold target admission and
+zero-speed clamps do not fabricate source or speed-memory provenance. These are
+additive fields in the existing records and compatibility wrappers.
 
 Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger
 once at the base note pitch; subsequent arpeggio ticks are emitted as planned

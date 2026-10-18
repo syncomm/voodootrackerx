@@ -1128,6 +1128,18 @@ enum PlaybackSongSyntheticTonePortamentoCommandSource: String, Equatable {
     case volumeColumn = "volume_column"
 }
 
+/// Channel-owned period direction, independent of the current source and pitch.
+enum PlaybackSongSyntheticTonePortamentoDirection: String, Equatable {
+    case none
+    case towardLowerPeriod = "toward_lower_period"
+    case towardHigherPeriod = "toward_higher_period"
+
+    init(currentPeriod: Double, targetPeriod: Double) {
+        self = currentPeriod == targetPeriod ? .none
+            : targetPeriod < currentPeriod ? .towardLowerPeriod : .towardHigherPeriod
+    }
+}
+
 struct PlaybackSongSyntheticTonePortamentoDiagnostic: Equatable {
     enum Status: Equatable {
         case applied
@@ -1191,6 +1203,9 @@ struct PlaybackSongSyntheticTonePortamentoDiagnostic: Equatable {
     let portamentoSpeed: Int
     let rowSpeed: Int
     let rowBPM: Int
+    var directionBefore: PlaybackSongSyntheticTonePortamentoDirection = .none
+    var directionAtExecution: PlaybackSongSyntheticTonePortamentoDirection = .none
+    var directionAfter: PlaybackSongSyntheticTonePortamentoDirection = .none
     let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let policy: String
 }

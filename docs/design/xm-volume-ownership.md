@@ -191,12 +191,21 @@ current period. Explicit target-setting 3xx/5xy/volume Fx notes replace the targ
 instrument-only and note97/K00 release rows preserve it. Empty routes retain the
 target without inventing PCM; a fresh channel/plan invents no target.
 
-`ordinary-trigger-tone-target-lifetime.xm` and both-mode tests pin this lifetime
-separately from pitch progression. The existing engine derives direction from
-current/target period; FT2 retains a direction latch, which can snap to the target
-after a crossing or cold admission. This pre-existing note-only/empty-route
-boundary, ECx's separate hard-retirement contract, G29 execution and G30 conversion
-are not closed by target retention.
+`ordinary-trigger-tone-target-lifetime.xm` pins target lifetime independently of
+the direction contract in `tone-portamento-direction-latch.xm`. Direction is
+channel-owned latent state alongside target and speed (A, intended stateful
+tracker semantics). New 3xx/5xy/volume-Fx target admission compares the current
+canonical period to the target once, latching `towardLowerPeriod`,
+`towardHigherPeriod`, or `none` for equality. Cold admission compares against
+period zero without creating a source. Ordinary triggers, pitch writers,
+instrument-only rows and releases preserve the latch; speed-only writes do not
+recompute it. Continuation consumes it even after the current pitch crosses the
+target. An executed clamp leaves `towardHigherPeriod` latched in either mode;
+later perturbations consume that state. Implicit zero speed still permits the
+crossed-target clamp without establishing speed memory. Equal-target admission
+instead disables motion until a new target is admitted. Existing redundant held
+targets remain deduplicated. ECx's separate hard-retirement contract, G29
+execution and G30 conversion remain outside this bounded lifetime closure.
 
 ### Note97 and Kxx release/default/writer precedence (G24)
 

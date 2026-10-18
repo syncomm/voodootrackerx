@@ -70,6 +70,8 @@ enum PlaybackSongSyntheticAdapter {
         var rRetriggerSpeedMemory: UInt8 = 0
         var rVolumeModeMemory: UInt8 = 0
         var rRetriggerCounter: UInt8 = 0
+        // The channel-owned latch uses existing byte-alignment padding.
+        var tonePortamentoDirection: PlaybackSongSyntheticTonePortamentoDirection = .none
         var triggeredSampleDefaultVolume = 0
         var triggeredSampleDefaultPan: UInt8 = 128
         var keyOffWithoutVoice = false
@@ -271,6 +273,7 @@ enum PlaybackSongSyntheticAdapter {
         state.tonePortamentoTargetLinearPeriod = nil
         state.tonePortamentoTargetAmigaPeriod = nil
         state.tonePortamentoTargetPlaybackStep = nil
+        state.tonePortamentoDirection = .none
     }
 
     static func effectMemorySource(

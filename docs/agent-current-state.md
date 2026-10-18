@@ -172,9 +172,11 @@ host.
   sounding source without clearing the target or tone speed; existing note-only
   carry and explicit-instrument default/reset rules remain intact. Later 300 can
   resume on the new generation. Explicit 3xx/5xy/Fx
-  notes replace the target. The existing progression engine still differs from
-  FT2's latched direction after crossing a target or admitting one while cold;
-  target retention does not close that separate boundary or G29 effect execution.
+  notes replace the target and latch a channel-owned period direction. Equality
+  installs no direction; unrelated pitch/source changes preserve it. Later
+  300/500/F0 consumes that latch. An executed target clamp leaves the
+  higher-period direction latched; implicit zero speed can clamp a crossed
+  target without creating speed memory. G29 execution remains separate.
 - Cold supported note+instrument tone portamento restores volume 0/pan 128
   without a source/header cache. Instrument, neutral target and speed still carry;
   explicit writers follow. Later ordinary note-only starts its exact mapped source

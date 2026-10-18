@@ -27,6 +27,7 @@ final class EmptyCellConstructionTests: XCTestCase {
         carried.portamentoUpMemory = .init(amount: 4, source: memory)
         carried.activeLinearPeriod = 4608
         carried.tonePortamentoTargetNote = 53
+        carried.tonePortamentoDirection = .towardLowerPeriod
         carried.tonePortamentoSpeed = 8
         carried.vibratoSpeed = 4
         carried.vibratoDepth = 8

@@ -6,6 +6,16 @@ remain intentionally deferred.
 
 ## Purpose
 
+`tone-portamento-direction-latch.xm` uses five rows and twenty channels. Rows
+0–2 establish sources/targets and apply supported ordinary, regular-slide,
+header-finetune and exact-keymap crossings; F02 gives one regular-slide tick.
+Rows 3–4 restore F03 and exercise 300/500/F0, explicit target replacement,
+equal-target inactivity, post-arrival direction, cold zero-speed clamp and
+instrument/release preservation. Tests also pin Linear fine/extra-fine/E5,
+move-away, cold/completed/empty and independent historical directions in both
+modes/rates. PCM is original mathematical data; reference WAVs remain external.
+G29 arithmetic, G30 conversion/extremes and onset/retirement remain separate.
+
 `ordinary-trigger-tone-target-lifetime.xm` uses four rows and eight channels:
 row 0 starts sources, row 1 seeds E-4/304, row 2 applies the boundary, and row 3
 continues with 300. Channels 0–3 cover same instrument, different instrument,

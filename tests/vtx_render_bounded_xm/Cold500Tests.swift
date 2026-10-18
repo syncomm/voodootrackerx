@@ -153,6 +153,7 @@ final class Cold500Tests: XCTestCase {
             controls.tonePortamentoSpeed = state == 1 || state == 3 ? 1 : nil
             controls.tonePortamentoTargetLinearPeriod = state == 1 || state == 2 ? 4352 : nil
             controls.tonePortamentoTargetPlaybackStep = controls.tonePortamentoTargetLinearPeriod.map { pow(2, (4608 - $0) / 768) }
+            controls.tonePortamentoDirection = controls.tonePortamentoTargetLinearPeriod == nil ? .none : .towardLowerPeriod
             let before = controls
             let updates = Adapter.applyEffectColumnVolumeSlide(from: c(5), source: traversal.rows[0].source,
                 channelIndex: 0, syntheticRow: 0, timingConfig: timing.timingConfig(forSyntheticRow: 0),

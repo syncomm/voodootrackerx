@@ -61,8 +61,8 @@ host.
 - G25 Linear `0xy` in-range tick ordering is closed. Tick zero uses base pitch;
   later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using command-row
   Fxx timing. `000` is inert with no parameter memory; pitch updates retain the
-  source generation/cursor. G30 still owns conversion precision and transposed
-  range/extreme clamps: B-7 `037` selects +7/+3 correctly while retaining VTX
+  source generation/cursor. G30A closes bounded conversion precision; G30B owns
+  transposed range/extreme clamps: B-7 `037` selects +7/+3 correctly while retaining VTX
   periods 1152/1408 versus FT2's 1540/1540.
 - G26 Amiga `0xy` is closed for in-range quantized pitches. It reuses G25's
   phase selector and the existing Amiga note/finetune lookup and sample-step
@@ -70,7 +70,7 @@ host.
   retained/released sources and both-rate delivery are pinned. Paired Release
   planning/cache checks and startup attribution pass; the overall product
   ≤1 s startup target remains outstanding. `000` remains inert. Range/extreme
-  conversion remains G30; broader modulation interactions remain G39, without
+  projection remains G30B; broader modulation interactions remain G39, without
   a universal Amiga pitch-parity claim.
 - G19 E90 is a special row-entry source trigger at cursor zero, with no interval
   memory. Instrumentless rows carry volume, pan, envelopes, release/fadeout and
@@ -239,8 +239,15 @@ host.
   mapped note lookup, preserving relative note and ordinary defaults/reset.
   No-note E5 is inert with no memory or later-trigger retune. All five writers
   preserve latent tone target/direction/speed. Both-rate whole/window/core/host
-  checks and reference audio pass with known onset/conversion residuals.
-  G30 range/minimum/conversion and universal Amiga parity remain separate.
+  checks and reference audio pass with known onset/interpolation residuals.
+  G30B range/minimum and universal Amiga parity remain separate.
+- G30A closes valid-domain Linear finetune quantization and shared reference-step
+  conversion: `7680 - 64*(effectiveNote-1) - 4*floor(finetune/8)` and a Q16
+  sample step converted exactly to Double. Existing pitch consumers share that
+  adapter authority at 44.1/48 kHz, with zero sustained cursor drift. Source
+  admission, carried periods, signed arithmetic, extreme target/direction and
+  arpeggio projection remain G30B; G30 as a whole is open. C DSP, onset,
+  interpolation rounding and 32-frame retirement policy are unchanged.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

@@ -94,8 +94,8 @@ struct SampleImportTuning: Equatable {
         guard sourceSampleRate.isFinite, sourceSampleRate > 0 else {
             throw SampleImportError.invalidSampleRate
         }
-        // Existing linear playback uses 64 period units per semitone and finetune / 2,
-        // therefore one signed finetune unit is exactly 1/128 semitone.
+        // Preserve the stored 1/128-semitone tuning grid. Playback independently
+        // quantizes these header bytes; the reported error below observes that path.
         let stepsPerSemitone = Int(PlaybackSongSyntheticAdapter.xmLinearPeriodUnitsPerSemitone * 2)
         let targetSteps = 12 * log2(sourceSampleRate / PlaybackSample.xmNeutralSampleRate) * Double(stepsPerSemitone)
         let c4NoteValue = 49

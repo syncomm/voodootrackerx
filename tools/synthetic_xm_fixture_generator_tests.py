@@ -54,6 +54,8 @@ ALL_FIXTURES = [
     "ordinary-trigger-tone-target-lifetime.xm",
     "tone-portamento-direction-latch.xm",
     "amiga-fine-extra-fine-finetune.xm",
+    "bounded-pitch-conversion-linear.xm",
+    "bounded-pitch-conversion-amiga.xm",
 ]
 
 
@@ -610,6 +612,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "ordinary-trigger-tone-target-lifetime.xm").resolve(),
                     (output_dir / "generated" / "tone-portamento-direction-latch.xm").resolve(),
                     (output_dir / "generated" / "amiga-fine-extra-fine-finetune.xm").resolve(),
+                    (output_dir / "generated" / "bounded-pitch-conversion-linear.xm").resolve(),
+                    (output_dir / "generated" / "bounded-pitch-conversion-amiga.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -621,6 +625,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/amiga-tone-portamento-consumers.xm",
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
+                    "generated/bounded-pitch-conversion-amiga.xm",
+                    "generated/bounded-pitch-conversion-linear.xm",
                     "generated/cold-500-local-publication.xm",
                     "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
@@ -722,6 +728,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/amiga-tone-portamento-consumers.xm",
                     "generated/amiga-vibrato.xm",
                     "generated/basic-instrument-sample.xm",
+                    "generated/bounded-pitch-conversion-amiga.xm",
+                    "generated/bounded-pitch-conversion-linear.xm",
                     "generated/cold-500-local-publication.xm",
                     "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
@@ -849,6 +857,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:ordinary-trigger-tone-target-lifetime.xm": "generated/ordinary-trigger-tone-target-lifetime.xm",
                     "xm:tone-portamento-direction-latch.xm": "generated/tone-portamento-direction-latch.xm",
                     "xm:amiga-fine-extra-fine-finetune.xm": "generated/amiga-fine-extra-fine-finetune.xm",
+                    "xm:bounded-pitch-conversion-linear.xm": "generated/bounded-pitch-conversion-linear.xm",
+                    "xm:bounded-pitch-conversion-amiga.xm": "generated/bounded-pitch-conversion-amiga.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",
                 },

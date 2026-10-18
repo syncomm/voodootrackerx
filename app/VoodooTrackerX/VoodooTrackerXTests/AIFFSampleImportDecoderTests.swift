@@ -55,8 +55,9 @@ final class AIFFSampleImportDecoderTests: XCTestCase {
         XCTAssertEqual(candidates[1], candidates[2])
     }
     func testExtendedRatesFeedSharedTuningWithoutResampling() throws {
-        let rates = [8_363, 11_025, 22_050, 32_000, 44_100, 48_000, 88_200, 96_000]
-        for rate in rates {
+        let rates = [(8_363,65536), (11_025,86225), (22_050,172451), (32_000,250125),
+            (44_100,344903), (48_000,376119), (88_200,689807), (96_000,752239)]
+        for (rate,delta) in rates {
             try withTemporaryAudio(name: "rate.aiff", data: aiff(
                 sampleRate: rate, bits: 16, frameCount: 2,
                 pcm: signedPCM([0, 1_000], bytes: 2, littleEndian: false)
@@ -68,7 +69,8 @@ final class AIFFSampleImportDecoderTests: XCTestCase {
                 XCTAssertEqual(candidate.frameCount, 2)
                 XCTAssertEqual(candidate.relativeNote, tuning.relativeNote)
                 XCTAssertEqual(candidate.finetune, tuning.finetune)
-                XCTAssertLessThanOrEqual(abs(tuning.pitchErrorCents), 100.0 / 256.0 + 0.000_001)
+                XCTAssertEqual(tuning.playbackSampleRate, Double(delta)*8363/65536)
+                XCTAssertLessThanOrEqual(abs(tuning.pitchErrorCents), 6.25)
             }
         }
     }

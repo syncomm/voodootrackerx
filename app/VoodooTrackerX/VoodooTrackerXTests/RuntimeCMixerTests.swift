@@ -4495,7 +4495,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 }
                 let event = try XCTUnwrap(planned.first { $0.source == diagnostic.source && $0.syntheticTick == update.syntheticTick })
                 guard case let .stepUpdate(_, step) = event.action else { return XCTFail("Missing pitch event") }
-                XCTAssertEqual(step, period == 0 ? 0 : 8363 * 6848 / period / 48000, accuracy: 1e-12)
+                XCTAssertEqual(step, PlaybackSongSyntheticAdapter.playbackStep(amigaPeriod: period, baseSampleRate: 8363, outputSampleRate: 48000)!, accuracy: 1e-12)
                 XCTAssertEqual(event.scheduledFrame, diagnostic.source.rowIndex * 5760 + update.syntheticTick * 960)
             }
         }
@@ -5089,8 +5089,10 @@ final class RuntimeCMixerTests: XCTestCase {
                     _ = renderRuntimePCM(core,frames: 1); frame += 1
                     let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: index))
                     XCTAssertTrue(after.active)
-                    let expectedStep = boundary == 6*Int(rate/50) ? 8363/rate
-                        : linear ? 8363*pow(2,16.0/768)/rate : 8363*6848/6784/rate
+                    let period = boundary == 6*Int(rate/50) ? (linear ? 4608.0 : 6848) : (linear ? 4592 : 6784)
+                    let expectedStep = (linear
+                        ? PlaybackSongSyntheticAdapter.playbackStep(linearPeriod: period, baseSampleRate: 8363, outputSampleRate: rate)
+                        : PlaybackSongSyntheticAdapter.playbackStep(amigaPeriod: period, baseSampleRate: 8363, outputSampleRate: rate))!
                     XCTAssertEqual(after.sampleStep,expectedStep,accuracy: 1e-12)
                     XCTAssertEqual(after.samplePosition,((before?.samplePosition ?? 0)+expectedStep).truncatingRemainder(dividingBy: 256),accuracy: 1e-9)
                 }
@@ -5184,6 +5186,41 @@ final class RuntimeCMixerTests: XCTestCase {
             XCTAssertTrue(core.drainAppliedAdapterEventDiagnostics().allSatisfy { $0.eventFrameDelta == 0 })
             XCTAssertEqual(tone.directionAtExecution,.towardLowerPeriod)
             XCTAssertEqual(tone.directionAfter,.towardHigherPeriod)
+        }
+    }
+
+    @MainActor
+    func testBoundedPitchConversionRuntimeParityAndReferenceCursors() throws {
+        let expected = [[42.73944091796875,170.957763671875,86.788818359375],
+                        [42.6982421875,170.79296875,85.96484375]]
+        for linear in [true,false] {
+            let fixture = "bounded-pitch-conversion-\(linear ? "linear" : "amiga").xm"
+            try assertFixtureRuntimeParity(fixtureName: fixture,linear: linear)
+            let url = try referenceXMFixtureURL("generated/"+fixture)
+            let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: url.path),modulePath: url.path)
+            for (ri,rate) in [44_100.0,48_000].enumerated() {
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song,sampleRate: rate)
+                let mapping = try XCTUnwrap(runtime.plan?.diagnostics.eventMappings[2])
+                XCTAssertEqual(mapping.effectiveFinetune,0)
+                XCTAssertEqual(mapping.sampleIndex,0)
+                XCTAssertEqual(mapping.instrumentIndex,1)
+                XCTAssertEqual(linear ? mapping.linearPeriod : mapping.amigaPeriod,linear ? 4608 : 6848)
+                let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate,channelCount: 1),maximumRenderFrames: 4096)
+                core.configureAdapterEventScheduleForTesting(runtime.events,runtimeFrameOffset: 0)
+                var frame = 0
+                for (i,seconds) in [0.25,1.0,5.0].enumerated() {
+                    let checkpoint = Int(rate*seconds)
+                    while frame < checkpoint {
+                        let count = min(4093,checkpoint-frame)
+                        _ = renderRuntimePCM(core,frames: count); frame += count
+                    }
+                    let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 2))
+                    XCTAssertTrue(voice.active)
+                    XCTAssertEqual(voice.samplePosition,expected[ri][i])
+                    XCTAssertEqual(voice.sampleStep,(rate == 44100 ? 12428.0 : 11418)/65536)
+                }
+                XCTAssertTrue(core.drainAppliedAdapterEventDiagnostics().allSatisfy { $0.eventFrameDelta == 0 })
+            }
         }
     }
 
@@ -5379,6 +5416,7 @@ final class RuntimeCMixerTests: XCTestCase {
             instrumentsByIndex: parsed.instrumentsByIndex, restartOrderIndex: parsed.restartOrderIndex, endBehavior: parsed.endBehavior,
             initialTiming: parsed.initialTiming, usesLinearFrequencyTable: linear ?? parsed.usesLinearFrequencyTable,
             xmSampleSlotProvenanceByInstrument: parsed.xmSampleSlotProvenanceByInstrument)
+        let boundedPitchFixture = fixtureName.hasPrefix("bounded-pitch-conversion-")
         for rate in [44_100.0, 48_000] {
             let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
@@ -5386,10 +5424,10 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             // Arpeggio row-exit and row-entry writes can share a frame; use the runtime's ordering.
-            let ordered = ["linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName)
+            let ordered = ["linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) || boundedPitchFixture
                 ? runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] } : runtime.events
             let planned = ordered.filter { event in
-                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) {
+                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) || boundedPitchFixture {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
                     case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
@@ -5400,7 +5438,7 @@ final class RuntimeCMixerTests: XCTestCase {
             }
             XCTAssertFalse(planned.isEmpty)
             // Multiple replacement slots can sum in a different Float32 order.
-            let pcmTolerance: Float = fixtureName == "global-volume-publication.xm" ? Float.ulpOfOne : 1e-7
+            let pcmTolerance: Float = ["global-volume-publication.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) ? Float.ulpOfOne : 1e-7
             let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
                 outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
             core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
@@ -5421,7 +5459,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
-            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) {
+            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) || boundedPitchFixture {
                 XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
             }
@@ -5598,7 +5636,9 @@ final class RuntimeCMixerTests: XCTestCase {
                     if event.source.rowIndex == 3 {
                         let periods = linear ? [4615.0, 4605, 4593, 4583, 4575] : [1719.0, 1709, 1697, 1687, 1679]
                         let period = periods[event.syntheticTick - 1]
-                        let expected = linear ? 8363 * pow(2, (4608 - period) / 768) / rate : 8363 * 1712 / period / rate
+                        let expected = (linear
+                            ? PlaybackSongSyntheticAdapter.playbackStep(linearPeriod: period, baseSampleRate: 8363, outputSampleRate: rate)
+                            : PlaybackSongSyntheticAdapter.playbackStep(amigaPeriod: period*4, baseSampleRate: 8363, outputSampleRate: rate))!
                         XCTAssertEqual(step, expected, accuracy: 1e-12)
                         XCTAssertEqual(event.scheduledFrame, Int(rate / 50) * (18 + event.syntheticTick))
                     }
@@ -5654,7 +5694,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertEqual(event.scheduledFrame, event.source.rowIndex * 5_760 + event.syntheticTick * 960)
                 guard case let .stepUpdate(_, step) = event.action else { return XCTFail("Expected pitch update") }
                 XCTAssertEqual(step, update.playbackStepAfter)
-                XCTAssertEqual(step, 8_363 * pow(2, (4_608 - update.linearPeriodAfter) / 768) / 48_000,
+                XCTAssertEqual(step, PlaybackSongSyntheticAdapter.playbackStep(linearPeriod: update.linearPeriodAfter, baseSampleRate: 8363, outputSampleRate: 48000)!,
                                accuracy: 1e-12)
             }
         }

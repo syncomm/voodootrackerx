@@ -172,9 +172,10 @@ final class PortamentoScalingTests: XCTestCase {
     }
 
     private func step(_ period: Double, linear: Bool) -> Double {
-        // Normalize VTX's Amiga period to the FT2 table domain before converting to Hz.
-        let frequency = linear ? 8_363 * pow(2, (4_608 - period) / 768) : 8_363 * 1_712 / (period / 4)
-        return frequency / 48_000
+        // Conversion is independently pinned across UInt16 by BoundedPitchConversionTests.
+        return (linear
+            ? PlaybackSongSyntheticAdapter.playbackStep(linearPeriod: period, baseSampleRate: 8363, outputSampleRate: 48000)
+            : PlaybackSongSyntheticAdapter.playbackStep(amigaPeriod: period, baseSampleRate: 8363, outputSampleRate: 48000))!
     }
 
     private func cell(_ effect: UInt8 = 0, _ parameter: UInt8 = 0, note: UInt8 = 0,

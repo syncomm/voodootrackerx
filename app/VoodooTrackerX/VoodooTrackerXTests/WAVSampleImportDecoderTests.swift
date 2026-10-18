@@ -99,18 +99,19 @@ final class WAVSampleImportDecoderTests: XCTestCase {
         )
         XCTAssertEqual(first.pcm.last, 0.25)
     }
-    func testTuningInvertsCurrentLinearPlaybackMapping() throws {
-        let expected: [(Double, Int, Int)] = [
-            (8_363, 0, 0), (16_726, 12, 0),
-            (44_100, 29, -28), (48_000, 30, 32), (96_000, 42, 32),
-            (8_000, -1, 30),
+    func testStoredTuningGridAndQuantizedPlaybackRateRemainSeparate() throws {
+        let expected: [(Double, Int, Int, Int)] = [
+            (8_363, 0, 0, 65536), (16_726, 12, 0, 131072),
+            (44_100, 29, -28, 344903), (48_000, 30, 32, 376119), (96_000, 42, 32, 752239),
+            (8_000, -1, 30, 62531),
         ]
-        for (rate, relativeNote, finetune) in expected {
+        for (rate, relativeNote, finetune, delta) in expected {
             let tuning = try SampleImportTuning(sourceSampleRate: rate)
             XCTAssertEqual(tuning.relativeNote, relativeNote, "\(rate)")
             XCTAssertEqual(tuning.finetune, finetune, "\(rate)")
-            XCTAssertLessThanOrEqual(abs(tuning.pitchErrorCents), 100.0 / 128.0 / 2.0 + 0.000_001)
-            XCTAssertEqual(tuning.playbackSampleRate, rate, accuracy: rate * 0.000_5)
+            // Stored metadata is unchanged; FT2 groups eight finetune bytes.
+            XCTAssertLessThanOrEqual(abs(tuning.pitchErrorCents), 6.25)
+            XCTAssertEqual(tuning.playbackSampleRate, Double(delta)*8363/65536)
             let current = try XCTUnwrap(PlaybackSongSyntheticAdapter.linearPitchTarget(
                 note: 49, relativeNote: relativeNote, finetune: finetune,
                 baseSampleRate: PlaybackSample.xmNeutralSampleRate, outputSampleRate: PlaybackSample.xmNeutralSampleRate

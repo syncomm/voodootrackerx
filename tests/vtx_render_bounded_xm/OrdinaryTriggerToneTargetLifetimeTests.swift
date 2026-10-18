@@ -36,7 +36,7 @@ final class OrdinaryTriggerToneTargetLifetimeTests: XCTestCase {
                         let initial = try XCTUnwrap(effect == 14
                             ? [UInt8(0x11):6832.0,0x21:6864,0x58:6848,0x57:6896][byte]
                             : [UInt8(0x11):6844.0,0x21:6852][byte])
-                        XCTAssertEqual(context.events[1].playbackStep,8363*6848/initial/rate,accuracy: 1e-12)
+                        XCTAssertEqual(context.events[1].playbackStep,Adapter.playbackStep(amigaPeriod: initial, baseSampleRate: 8363, outputSampleRate: rate)!,accuracy: 1e-12)
                     }
                 }
             }

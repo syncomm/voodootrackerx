@@ -5264,6 +5264,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         case .instrumentOnlyUnavailable: return "instrument_only_delayed_route_unavailable"
         case .instrumentOnlyNoRetainedNote: return "instrument_only_no_retained_note"
         case .instrumentOnlyInvalidInstrument: return "instrument_only_invalid_instrument"
+        case .sourceRefused: return "source_refused_instrument_reset_independent"
         case .instrumentOnlyOutOfRow: return "instrument_only_out_of_row"
         case .instrumentOnlyImmediate: return "instrument_only_ed0_immediate"
         }
@@ -5529,6 +5530,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "key_off"
         case .invalidNote:
             return "invalid_note"
+        case .effectiveNoteRefused:
+            return "effective_note_refused"
         case .missingInstrument:
             return "missing_instrument"
         case .unknownInstrument:

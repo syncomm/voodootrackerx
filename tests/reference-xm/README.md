@@ -135,6 +135,47 @@ Generated WAV, JSON, Markdown, trace, log, screenshot, and exploratory render
 artifacts stay under `/tmp` or another ignored local path unless a future PR
 explicitly approves committing that exact artifact.
 
+## Extreme pitch state and independent reset (G30B)
+
+`extreme-pitch-state-linear.xm` and `extreme-pitch-state-amiga.xm` share 21
+channels, 32 rows and original mathematical PCM. Speed 6/BPM 125 changes to F02
+at row 8 and F06 at row 10, giving 184 ticks / 3.68 seconds. Linear is 8,591 bytes,
+SHA-256 `0bc3de7e8ee7a77ffb01807b36e56deab422d11a001105583d21bf703099cc6c`;
+Amiga is 8,611 bytes,
+SHA-256 `9d48e811380c2a16d3ded876ae013af8649df2c6548fa961dda998b103751a69`.
+
+| Channels | Control |
+| --- | --- |
+| 0 | Effective-zero new source retaining pitch; later latent-target continuation. |
+| 1–4 | Refused explicit/carried/same-instrument notes, exact mapped slot, E5 and ED1; retained source versus independent reset. Channel 4 later admits delayed effective zero. |
+| 5–6 | High lookup/upward minimum; low downward signed threshold and E2/X2 continuation. |
+| 7–9 | Reachable Amiga 2FF→301/501/F1 clamp, zero-speed 500 and 300/F0 continuation; Linear bounded counterparts. |
+| 10–11 | E1/X1 signed-negative consumers and independent replay. |
+| 12–13 | High/low inverse arpeggio projection, including zero-nibble X/Y phases. |
+| 14–15 | Amiga upper-wrap zero hold/resume and lower underflow; bounded Linear modulation. Channel 15 carries Fxx. |
+| 16–18 | Completed, declared empty and cold refused owners; no invented live PCM. |
+| 19 | Explicit volume/pan writers after refused resets, followed by restoration of the sounding cache. |
+| 20 | Cold effective-zero source held at cursor zero before its first sample; later ordinary replacement. |
+
+[ExtremePitchStateTests](../vtx_render_bounded_xm/ExtremePitchStateTests.swift)
+adds dense relative-note/finetune admission controls, native-word slide and tone
+fingerprints, the complete bounded arpeggio projection, source/header/cache and
+reset ownership, ED0/ED1 timing, cached-default publication after a writer, and
+whole/window splits before/at/after admission, signed ticks, clamps and wraps.
+Runtime tests use both fixtures at 44.1/48 kHz with exact source identities,
+steps and planned/applied frames. Refusal preserves PCM/generation/cursor/pitch
+while independently applying proven instrument reset semantics. Immediate
+note-only refusal does not reset; ED note-only refusal resets at dispatch without
+restoring cached defaults. Explicit later writers win.
+
+G30A remains the downstream quantization/step authority. Native Amiga periods
+are VTX periods divided by four; ordinary lookup, signed slides/tone and unsigned
+vibrato wrap retain distinct policies. Reference audio is automated under the
+matching FT2 profile; onset/retirement, interpolation, generic gain ramps and
+static pan law remain separately owned. Autovibrato metadata is disabled here;
+G32 remains a missing parent. Final combined G30 verification remains open.
+Reference WAVs and local observation artifacts are not part of this pack.
+
 ## Generated Fixtures
 
 `generated/amiga-portamento-up.xm` is an 18-row Amiga control with original
@@ -143,9 +184,8 @@ looped sine PCM. Rows 0–4 pin cold 100, speed-1 seed/replacement refusal and
 Rows 7–11 cover release, retained slides and note-only sources; 12–15 put
 F01/F02/F03 before the effect channel. Both-rate tests cover all nine requested
 parameters, speeds 1/2/3/6, finetunes -128/0/+1/+127 and relative ±12/0.
-Rows 16–17 isolate B-7 1FF/100: the existing VTX minimum 107 and one update per
-clamped row differ from FT2 native period 1 and later refreshes (G30). Compare
-ordinary listening through row 15 separately from this deliberate edge control.
+Rows 16–17 isolate B-7 1FF/100: G30B reaches native period 1 / VTX 4.
+Converged redundant refreshes remain deduplicated; source/cursor state is retained.
 Whole/window/runtime/host checks preserve source generations and cursors;
 reference WAVs stay external and automated checks do not establish listening.
 
@@ -734,16 +774,17 @@ speed 6/BPM 125 initially; same-row Fxx changes give 81 ticks / 1.62 seconds.
 - Rows 3–5: note-only `073` at F03, `010`, then `000`.
 - Rows 6–9: low in-range `037`/`073` at F06, release, then retained-source `001`.
 - Rows 10–13: F07 before same-cell/active `037`, then F02 before `073` and `000`.
-- Rows 14–15: B-7 `037` pins phase ordering separately from unchanged G30 range
-  targets: VTX +7/+3 periods 1152/1408 versus FT2 1540/1540.
+- Rows 14–15: B-7 `037` pins phase ordering and G30B inverse projection:
+  both raised phases resolve to period 1540.
 - Rows 16–18: in-range `01F`/`0F1` at F04 with sustained continuation, then `000`.
 
 G25 closes in-range ordering: tick zero is base; later ticks select
 `[base,x,y][(effectiveSpeed - tick) % 3]`. `LinearArpeggioOrderingTests` adds
 speeds 1–8, all seven nonzero parameter controls, Fxx channel order, tuning,
 source ownership and windows before/at/after updates. Runtime tests pin retained
-cursor/generation and exact application frames at 44.1/48 kHz. G30 conversion,
-G26 Amiga and existing onset/retirement policies remain separate. Listen to
+cursor/generation and exact application frames at 44.1/48 kHz. G30A conversion,
+G26 Amiga and G30B extremes are separate bounded contracts;
+existing onset/retirement policies remain separate. Listen to
 rows 0–13 and 16–18 for ordering; rows 14–15 are a G30 boundary example.
 Automated checks do not establish listening evidence; FT2 WAVs remain external.
 
@@ -767,8 +808,8 @@ It uses project-authored looped sine PCM, Amiga frequency mode, sample finetune
 quantized periods, finetunes -128/-64/-1/0/+1/+64/+127, relative -12/0/+12,
 source generations, no-owner behavior and both-rate whole/window/runtime plans.
 App runtime tests additionally pin applied frames and retained-source cursor
-continuity. Separate high/low edge controls preserve current G30 range policy;
-no lookup, clamp, fixed-point conversion or portamento policy changes here.
+continuity. Separate high/low edge controls now pin G30B bounded projection;
+G30A retains fixed-point conversion ownership.
 Use Amiga Frequency Slides with the reference profile in
 [audio-comparison.md](../../docs/audio-comparison.md). Automated comparison does
 not establish listening evidence; generated reference WAVs stay outside git.
@@ -861,7 +902,7 @@ fixtures last 5.76 seconds. Both use the same original 16-bit PCM recipes.
 [BoundedPitchConversionTests](../vtx_render_bounded_xm/BoundedPitchConversionTests.swift)
 pins all signed Linear tuning groups, valid relative-note combinations, literal
 reference steps/cursors, the full UInt16 conversion fingerprints, and the
-separate known-wrong extreme-state fences. Runtime tests use the same pair at
+separate G30B reference extreme-state fences. Runtime tests use the same pair at
 44.1/48 kHz with whole/window/core/engine parity and exact event frames.
 
 Reference comparisons use the pinned FT2 settings in
@@ -869,6 +910,7 @@ Reference comparisons use the pinned FT2 settings in
 interpolation, volume ramping on, amplification 10, master 256, Precise BPM off.
 Inspect periods and steps separately. G30A removes sustained conversion drift;
 new-source onset and the reference's 15-bit interpolation fraction/integer PCM
-rounding remain separate from VTX's Float interpolation. G30 remains open for
-extreme admission, carried periods, signed arithmetic and target/direction policy.
+rounding remain separate from VTX's Float interpolation. G30B closes bounded
+extreme admission, carried periods, signed arithmetic and
+target/direction policy above. Final combined G30 verification remains open.
 No reference WAVs are included.

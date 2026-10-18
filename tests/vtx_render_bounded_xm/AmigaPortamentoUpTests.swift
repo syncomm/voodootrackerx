@@ -43,15 +43,21 @@ final class AmigaPortamentoUpTests: XCTestCase {
                                     XCTAssertEqual(d.slideAmount, Int(amount))
                                     XCTAssertEqual(d.currentAmigaPeriodBefore, start)
                                     XCTAssertNil(d.currentLinearPeriodBefore)
-                                    XCTAssertFalse(d.clamped)
                                     XCTAssertEqual(d.stepUpdates.map(\.syntheticTick), Array(1..<speed))
                                     XCTAssertEqual(d.stepUpdates.map(\.scheduledFrame), (1..<speed).map { (3+$0)*Int(rate/50) })
+                                    var expected = start
                                     for u in d.stepUpdates {
                                         let delta = Double(amount)*16*(effect == 1 ? -1.0 : 1)
-                                        XCTAssertEqual(u.amigaPeriodBefore, start+Double(u.syntheticTick-1)*delta)
-                                        XCTAssertEqual(u.amigaPeriodAfter, start+Double(u.syntheticTick)*delta)
-                                        XCTAssertEqual(u.playbackStepAfter, Adapter.playbackStep(amigaPeriod: start+Double(u.syntheticTick)*delta, baseSampleRate: 8363, outputSampleRate: rate)!, accuracy: 1e-12)
+                                        XCTAssertEqual(u.amigaPeriodBefore, expected)
+                                        let raw = expected + delta
+                                        // In-range units stay literal. G30B's separately
+                                        // fingerprinted authority owns signed threshold crossings.
+                                        expected = raw >= 4 && raw < 128000 ? raw
+                                            : Adapter.amigaSlidePeriod(expected,nativeDelta: Int(delta/4))
+                                        XCTAssertEqual(u.amigaPeriodAfter, expected)
+                                        XCTAssertEqual(u.playbackStepAfter, Adapter.playbackStep(amigaPeriod: expected, baseSampleRate: 8363, outputSampleRate: rate)!, accuracy: 1e-12)
                                     }
+                                    XCTAssertEqual(d.clamped,d.stepUpdates.contains { $0.clamped })
                                     if speed == 1 { XCTAssertEqual(d.policy, "regular_portamento_no_nonzero_ticks_no_memory_admission") }
                                     XCTAssertEqual(plan.pattern.events.count, 1)
                                 }
@@ -63,7 +69,7 @@ final class AmigaPortamentoUpTests: XCTestCase {
         }
     }
 
-    func testNoOwnerAdmitsMemoryWithoutPlaybackAndClampRetainsG30Policy() throws {
+    func testNoOwnerAdmitsMemoryWithoutPlaybackAndG30BMinimumIsNativeOne() throws {
         for rate in rates {
             let cold = adapt([[c(1)], [c(1,4)], [c(1)]], rate)
             XCTAssertTrue(cold.pattern.events.isEmpty)
@@ -74,13 +80,12 @@ final class AmigaPortamentoUpTests: XCTestCase {
             XCTAssertEqual(edge.pattern.events.count, 1)
             for d in edge.diagnostics.portamentoSlideEffects {
                 XCTAssertTrue(d.clamped)
-                XCTAssertEqual(d.currentAmigaPeriodAfter, 107)
+                XCTAssertEqual(d.currentAmigaPeriodAfter, 4)
                 XCTAssertEqual(d.stepUpdates.count, 1)
                 XCTAssertEqual(d.stepUpdates.first?.syntheticTick, 1)
-                XCTAssertEqual(d.stepUpdates.first?.playbackStepAfter ?? 0, Adapter.playbackStep(amigaPeriod: 107, baseSampleRate: 8363, outputSampleRate: rate)!, accuracy: 1e-12)
+                XCTAssertEqual(d.stepUpdates.first?.playbackStepAfter ?? 0, Adapter.playbackStep(amigaPeriod: 4, baseSampleRate: 8363, outputSampleRate: rate)!, accuracy: 1e-12)
             }
-            // Existing VTX minimum/break-on-clamp is retained. FT2 reaches native
-            // period 1 (4 in this representation); that extreme residual is G30.
+            // Repeated minimum refresh flags do not require redundant step writes.
         }
     }
 

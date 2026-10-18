@@ -296,7 +296,8 @@ extension PlaybackSongSyntheticPlan {
             playbackStateEvents: playbackStateEvents,
             xmEnvelopeTimeline: xmEnvelopeTimeline,
             xmAudibleTimeline: xmAudibleTimeline,
-            xmChannelRows: xmChannelRows, xmEmptyRoutes: xmEmptyRoutes
+            xmChannelRows: xmChannelRows, xmEmptyRoutes: xmEmptyRoutes, xmInstrumentSelections: xmInstrumentSelections,
+            initialHeldPitchEventIndices: initialHeldPitchEventIndices
         )
     }
 }
@@ -961,6 +962,7 @@ struct PlaybackSongSyntheticNoteDelayDiagnostic: Equatable {
         case applied
         case noNoteDeferred
         case outOfRowNoOp
+        case sourceRefused
         case instrumentOnlyStarted
         case instrumentOnlyUnavailable
         case instrumentOnlyNoRetainedNote
@@ -1677,6 +1679,7 @@ struct PlaybackSongSyntheticIgnoredCell: Equatable {
         case instrumentOnly
         case keyOff
         case invalidNote
+        case effectiveNoteRefused
         case missingInstrument
         case unknownInstrument
         case instrumentHasNoPlayableSample

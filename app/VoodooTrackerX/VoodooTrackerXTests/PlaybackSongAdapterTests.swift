@@ -1714,7 +1714,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertLessThan(mappings[1].playbackStep, baseline.playbackStep)
     }
 
-    func testPlaybackSongSyntheticAdapterXxyClampsLinearPeriodBounds() throws {
+    func testPlaybackSongSyntheticAdapterXxyUsesNativeLinearWordBounds() throws {
         let highSample = makeRampPlaybackSample(
             frameCount: 600,
             instrumentIndex: 1,
@@ -1725,7 +1725,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let lowSample = makeRampPlaybackSample(
             frameCount: 600,
             instrumentIndex: 2,
-            relativeNote: -100,
+            relativeNote: 0,
             finetune: -128,
             baseSampleRate: 100
         )
@@ -1733,7 +1733,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 96, instrument: 1, effectType: 0x21, effectParam: 0x1F),
-                makePlaybackRow(index: 1, note: 1, instrument: 2, effectType: 0x21, effectParam: 0x2F),
+                makePlaybackRow(index: 1, effectType: 0x21, effectParam: 0x10),
+                makePlaybackRow(index: 2, effectType: 0x21, effectParam: 0x10),
+                makePlaybackRow(index: 3, effectType: 0x21, effectParam: 0x10),
+                makePlaybackRow(index: 4, effectType: 0x21, effectParam: 0x10),
+                makePlaybackRow(index: 5, note: 1, instrument: 2, effectType: 0x21, effectParam: 0x2F),
             ]],
             instrumentsByIndex: [
                 1: PlaybackInstrument(index: 1, samples: [highSample]),
@@ -1742,13 +1746,15 @@ final class PlaybackSongAdapterTests: XCTestCase {
         )
 
         let effects = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.extraFinePortamentoEffects
-        let upClamp = try XCTUnwrap(effects.first { $0.direction == .up })
+        let upEffects = effects.filter { $0.direction == .up }
+        let upClamp = try XCTUnwrap(upEffects.last)
         let downClamp = try XCTUnwrap(effects.first { $0.direction == .down })
 
         XCTAssertTrue(upClamp.clamped)
-        XCTAssertTrue(downClamp.clamped)
-        XCTAssertEqual(try XCTUnwrap(upClamp.currentLinearPeriodAfter), PlaybackSongSyntheticAdapter.xmLinearMinimumSafePeriod, accuracy: 0.000000001)
-        XCTAssertEqual(try XCTUnwrap(downClamp.currentLinearPeriodAfter), PlaybackSongSyntheticAdapter.xmLinearMaximumSafePeriod, accuracy: 0.000000001)
+        XCTAssertFalse(downClamp.clamped)
+        XCTAssertEqual(upEffects.compactMap(\.currentLinearPeriodAfter),[53,38,23,8,1])
+        XCTAssertEqual(try XCTUnwrap(upClamp.currentLinearPeriodAfter),1)
+        XCTAssertEqual(try XCTUnwrap(downClamp.currentLinearPeriodAfter),7759)
     }
 
     func testPlaybackSongSyntheticAdapterXxySplitAndWindowedRenderDeterministic() {
@@ -2896,7 +2902,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(diagnostic.currentPlaybackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore))
     }
 
-    func testPlaybackSongAdapterAmigaPortamento2xxClampsAtSafePeriodBound() throws {
+    func testPlaybackSongAdapterAmigaPortamento2xxContinuesThroughSignedThreshold() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -2912,8 +2918,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(diagnostic.status, .applied)
         XCTAssertTrue(diagnostic.clamped)
-        XCTAssertEqual(try XCTUnwrap(diagnostic.currentAmigaPeriodAfter), PlaybackSongSyntheticAdapter.xmAmigaMaximumSafePeriod, accuracy: 0.000_001)
-        XCTAssertTrue(try XCTUnwrap(diagnostic.stepUpdates.last).clamped)
+        XCTAssertEqual(diagnostic.stepUpdates.count,99)
+        XCTAssertEqual(diagnostic.stepUpdates[4].amigaPeriodAfter,127996)
+        XCTAssertEqual(diagnostic.stepUpdates[5].amigaPeriodAfter,132076)
+        XCTAssertEqual(diagnostic.currentAmigaPeriodAfter,246316)
+        XCTAssertFalse(try XCTUnwrap(diagnostic.stepUpdates.last).clamped)
     }
 
     func testPlaybackSongAdapterPortamentoSlideParameterChangesAmount() throws {

@@ -875,7 +875,8 @@ final class PlaybackSongOfflineRenderer {
             playbackStateEvents: plan.playbackStateEvents,
             xmEnvelopeTimeline: plan.xmEnvelopeTimeline,
             xmAudibleTimeline: plan.xmAudibleTimeline,
-            xmChannelRows: plan.xmChannelRows, xmEmptyRoutes: plan.xmEmptyRoutes
+            xmChannelRows: plan.xmChannelRows, xmEmptyRoutes: plan.xmEmptyRoutes, xmInstrumentSelections: plan.xmInstrumentSelections,
+            initialHeldPitchEventIndices: plan.initialHeldPitchEventIndices
         )
     }
 
@@ -1943,6 +1944,16 @@ final class PlaybackSongOfflineRenderer {
         _ plan: PlaybackSongSyntheticPlan, voiceIndexByEventIndex: [Int: Int], on mixer: CSoftwareMixer,
         includedEventIndices: Set<Int>? = nil, windowStartFrame: Int = 0, windowEndFrame: Int = Int.max
     ) {
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        for eventIndex in plan.initialHeldPitchEventIndices {
+            let frame = scheduler.frame(for: plan.pattern.events[eventIndex])
+            guard frame >= windowStartFrame, frame < windowEndFrame,
+                  includesEvent(eventIndex, includedEventIndices: includedEventIndices),
+                  let voice = voiceIndexByEventIndex[eventIndex] else { continue }
+            // Use the existing explicit-zero update; generic initial-step sanitization stays intact.
+            mixer.scheduleVoicePlaybackStepUpdate(voiceIndex: voice,
+                scheduledFrame: frame - windowStartFrame, playbackStep: 0)
+        }
         mixer.setSourceStopSchedule(plan.xmEmptyRoutes.compactMap { route in
             guard route.scheduledFrame >= windowStartFrame, route.scheduledFrame < windowEndFrame,
                   let event = route.stoppedEventIndex, includesEvent(event, includedEventIndices: includedEventIndices),
@@ -2664,7 +2675,7 @@ final class PlaybackSongOfflineRenderer {
         plan: PlaybackSongSyntheticPlan,
         before boundaryFrame: Int
     ) -> StepStateAtBoundary {
-        var playbackStep = event.playbackStep
+        var playbackStep = plan.initialHeldPitchEventIndices.contains(eventIndex) ? 0 : event.playbackStep
         var sawPriorUpdate = false
         var hasFutureUpdate = false
         for update in sampleStepUpdates(for: eventIndex, plan: plan) {
@@ -3016,7 +3027,8 @@ final class PlaybackSongOfflineRenderer {
                     $0.frame == $1.frame ? $0.tick < $1.tick : $0.frame < $1.frame
                 }
                 let start = scheduler.frame(for: event), lower = segments.count
-                var cursor = start, position = Double(max(0, event.initialSourceFrame)), step = event.playbackStep
+                var cursor = start, position = Double(max(0, event.initialSourceFrame))
+                var step = plan.initialHeldPitchEventIndices.contains(source) ? 0 : event.playbackStep
                 segments.append(.init(frame: start, position: position, step: step))
                 for update in bySource[source] where update.frame > start {
                     // Preserve the scan's sequential Double operations, including equal-frame writes.
@@ -3329,7 +3341,7 @@ final class PlaybackSongOfflineRenderer {
         }
         var advancedPosition = initialPosition
         var cursorFrame = eventStartFrame
-        var currentStep = event.playbackStep
+        var currentStep = plan.initialHeldPitchEventIndices.contains(eventIndex) ? 0 : event.playbackStep
         if let pitchHistory {
             guard let position = pitchHistory.advancedPosition(for: eventIndex, at: boundaryFrame) else { return nil }
             advancedPosition = position

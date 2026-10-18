@@ -214,15 +214,15 @@ final class ExtraFinePitchMemoryTests: XCTestCase {
         }
     }
 
-    func testParentClampsReplayAndColdZeroNeverClampsValidOrUninitializedPeriods() {
-        for (seed, zero, period, boundary): (UInt8, UInt8, Double, Double) in [
-            (0x1F, 0x10, Adapter.xmLinearMinimumSafePeriod + 2, Adapter.xmLinearMinimumSafePeriod),
-            (0x2F, 0x20, Adapter.xmLinearMaximumSafePeriod - 2, Adapter.xmLinearMaximumSafePeriod)
+    func testNativeExtremeReplayAndColdZeroKeepMemoryAndPublicationRules() {
+        for (seed, zero, period, expected): (UInt8, UInt8, Double, [Double]) in [
+            (0x1F, 0x10, 66, [51,36,21]),
+            (0x2F, 0x20, 7742, [7757,7772,7787])
         ] {
             let (context, states) = inspect(song([[c(33, seed)], [c(33, zero)], [c(33, zero)]]), initial: represented(period))
-            XCTAssertEqual(states.map { $0[0].activeLinearPeriod }, Array(repeating: boundary, count: 3))
-            XCTAssertEqual(steps(context).count, 1)
-            XCTAssertEqual(executions(context).last?.publicationSuppressionReason, "held_pitch_converged")
+            XCTAssertEqual(states.map { $0[0].activeLinearPeriod }, expected.map(Optional.some))
+            XCTAssertEqual(steps(context).count, 3)
+            XCTAssertNil(executions(context).last?.publicationSuppressionReason)
         }
         for zero: UInt8 in [0x10, 0x20] {
             for period in [0.0, 1, 31999] {

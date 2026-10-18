@@ -53,25 +53,39 @@ host.
 - Regular `1xx`/`2xx` directional memory is admitted by executed nonzero ticks.
   Effective speed-1 rows neither seed nor replace it; `100`/`200` replay only
   admitted history. Linear and Amiga `1xx`/`2xx` share this admission rule.
-- G27 in-range Amiga `1xx` subtracts `16 * resolved parameter` per nonzero tick,
-  reusing the existing Amiga period, clamp and sample-step conversion. `100`
-  replays independent upward memory without restarting a source. The retained
-  minimum period 107 and break-on-clamp differ from FT2 native period 1 at the
-  high-pitch edge; broader range/extreme policy remains G30.
+- G27 Amiga `1xx` subtracts `16 * resolved parameter` per nonzero tick; `100`
+  replays independent upward memory without restarting a source. G30B adds native
+  UInt16 storage and the signed upward minimum of 1 (VTX period 4). Downward
+  slides have a distinct signed-threshold rule and continue beyond that threshold.
 - G25 Linear `0xy` in-range tick ordering is closed. Tick zero uses base pitch;
   later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using command-row
   Fxx timing. `000` is inert with no parameter memory; pitch updates retain the
-  source generation/cursor. G30A closes bounded conversion precision; G30B owns
-  transposed range/extreme clamps: B-7 `037` selects +7/+3 correctly while retaining VTX
-  periods 1152/1408 versus FT2's 1540/1540.
+  source generation/cursor. G30A owns conversion precision; G30B's bounded inverse
+  projection gives B-7 `037` periods 1540/1540. The base phase remains unprojected;
+  an X/Y phase projects even when its selected nibble is zero.
 - G26 Amiga `0xy` is closed for in-range quantized pitches. It reuses G25's
   phase selector and the existing Amiga note/finetune lookup and sample-step
   conversion. Tuning, relative-note/octave crossings, effective Fxx speed,
   retained/released sources and both-rate delivery are pinned. Paired Release
   planning/cache checks and startup attribution pass; the overall product
-  ≤1 s startup target remains outstanding. `000` remains inert. Range/extreme
-  projection remains G30B; broader modulation interactions remain G39, without
+  ≤1 s startup target remains outstanding. `000` remains inert. G30B closes bounded
+  extreme projection; broader modulation interactions remain G39, without
   a universal Amiga pitch-parity claim.
+- G30B ordinary mapped-note admission uses UInt8 note-plus-relative arithmetic:
+  1...119 starts PCM with lookup pitch, 0 starts PCM retaining current/base pitch,
+  and 120...255 refuses source replacement. Exact raw-note routing precedes pitch
+  admission. Refusal preserves generation/cursor/pitch and latent tone state while
+  independently applying proven instrument resets to the retained source. Explicit
+  instruments restore the sounding cache before later volume/pan writers; immediate
+  note-only refusal does not reset. EDx classifies and resets at actual dispatch.
+  Cold effective-zero PCM receives an existing explicit zero-step update before
+  its first rendered frame. No C DSP or callback change is involved.
+- G30B Amiga ordinary lookup spans VTX periods 88...116096. Shared native-word
+  slide arithmetic and direction-specific tone comparisons preserve in-range
+  units, timing and memory; zero-speed tone execution can still clamp a crossed
+  target. Arpeggio projection and Amiga vibrato UInt16 wrap remain distinct
+  policies. G30A supplies downstream quantization/conversion unchanged. G30B is
+  bounded closure; final combined G30 verification remains open.
 - G19 E90 is a special row-entry source trigger at cursor zero, with no interval
   memory. Instrumentless rows carry volume, pan, envelopes, release/fadeout and
   effect memory; explicit instruments resolve the exact note map and reset once
@@ -240,13 +254,14 @@ host.
   No-note E5 is inert with no memory or later-trigger retune. All five writers
   preserve latent tone target/direction/speed. Both-rate whole/window/core/host
   checks and reference audio pass with known onset/interpolation residuals.
-  G30B range/minimum and universal Amiga parity remain separate.
+  G30B closes bounded range/minimum separately; universal Amiga parity remains open.
 - G30A closes valid-domain Linear finetune quantization and shared reference-step
   conversion: `7680 - 64*(effectiveNote-1) - 4*floor(finetune/8)` and a Q16
   sample step converted exactly to Double. Existing pitch consumers share that
   adapter authority at 44.1/48 kHz, with zero sustained cursor drift. Source
   admission, carried periods, signed arithmetic, extreme target/direction and
-  arpeggio projection remain G30B; G30 as a whole is open. C DSP, onset,
+  arpeggio projection are owned by G30B above; final combined G30 verification
+  remains open. C DSP, onset,
   interpolation rounding and 32-frame retirement policy are unchanged.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.

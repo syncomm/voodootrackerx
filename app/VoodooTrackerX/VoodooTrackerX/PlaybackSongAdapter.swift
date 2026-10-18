@@ -19,6 +19,9 @@ struct PlaybackSongSyntheticPlan: Equatable {
     var xmAudibleTimeline: PlaybackXMAudibleTimeline? = nil
     var xmChannelRows: [PlaybackXMChannelRow] = []
     var xmEmptyRoutes: [PlaybackXMEmptyRoute] = []
+    var xmInstrumentSelections: [PlaybackXMInstrumentSelection] = []
+    // A cold effective-zero trigger starts PCM, then holds it before its first frame.
+    var initialHeldPitchEventIndices: Set<Int> = []
 }
 
 /// Targets the existing trigger event identity, never a reusable mixer slot.
@@ -461,6 +464,8 @@ enum PlaybackSongSyntheticAdapter {
         var coldReleasedEventIndices = Set<Int>()
         var xmChannelRows = [PlaybackXMChannelRow]()
         var xmEmptyRoutes = [PlaybackXMEmptyRoute]()
+        var xmInstrumentSelections = [PlaybackXMInstrumentSelection]()
+        var initialHeldPitchEventIndices = Set<Int>()
         var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
         var setFinetuneEffects = [PlaybackSongSyntheticSetFinetuneDiagnostic]()
         var envelopePositionEffects = [PlaybackSongSyntheticEnvelopePositionDiagnostic]()
@@ -732,6 +737,8 @@ enum PlaybackSongSyntheticAdapter {
         plan.playbackStateEvents = context.playbackStateEvents
         plan.xmChannelRows = context.xmChannelRows
         plan.xmEmptyRoutes = context.xmEmptyRoutes
+        plan.xmInstrumentSelections = context.xmInstrumentSelections
+        plan.initialHeldPitchEventIndices = context.initialHeldPitchEventIndices
         plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
         admitFinePitchPublications(in: &plan, profileSession: profileSession, oracle: eligibilityOracle)
         // Eligibility must see managed envelope/release lifetime. Only completed
@@ -943,7 +950,11 @@ enum PlaybackSongSyntheticAdapter {
             }
             let isNoteOnly = cell.instrument == 0
             let routedInstrumentIndex = isNoteOnly ? channelState.carriedInstrumentIndex ?? 0 : Int(cell.instrument)
-            if isDelayedInstrumentOnly(cell) {
+            let refusedSelection = refusedOrdinarySelection(cell: cell, instrumentIndex: routedInstrumentIndex, song: song)
+            let retainsDelayedTrigger = isNonzeroOrdinaryDelay(cell) && refusedOrdinarySelection(cell: cell,
+                instrumentIndex: routedInstrumentIndex, song: song, admission: .retained) != nil
+            let delaysRefusedTrigger = refusedSelection != nil && isNonzeroOrdinaryDelay(cell)
+            if isDelayedInstrumentOnly(cell) || delaysRefusedTrigger {
                 // ED1...EDF selects the carried owner now; source/default/reset work
                 // waits for the nonzero-tick pass after all row-entry writers.
                 if song.instrumentsByIndex[Int(cell.instrument)] != nil {
@@ -956,6 +967,10 @@ enum PlaybackSongSyntheticAdapter {
                 continue
             }
             var instrumentOnlyReset: MixerPlaybackStateChange?
+            var delayedRetainedRowEntry: ChannelState? = retainsDelayedTrigger ? channelState : nil
+            if cell.instrument > 0, song.instrumentsByIndex[Int(cell.instrument)] != nil {
+                delayedRetainedRowEntry?.carriedInstrumentIndex = Int(cell.instrument)
+            }
             defer {
                 if isRxyMultiRetriggerEffect(cell) {
                     handleRxyTick(cell: cell, source: source, channelIndex: channelIndex,
@@ -968,7 +983,7 @@ enum PlaybackSongSyntheticAdapter {
                         previousEventIndex: e90PreviousEvent, firstRowEvent: firstRowEvent, context: context))
                 }
                 context.xmChannelRows.append(.init(source: source, channelIndex: channelIndex,
-                    syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame, controls: channelState,
+                    syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame, controls: delayedRetainedRowEntry ?? channelState,
                     instrumentOnlyReset: instrumentOnlyReset))
                 let axyUpdates = isOrdinaryVolumeColumnSlide(cell.volumeColumn) ? [] : applyEffectColumnVolumeSlide(
                     from: cell,
@@ -988,7 +1003,15 @@ enum PlaybackSongSyntheticAdapter {
             }
             let extendedSubcommand = cell.effectType == 0x0E ? ((cell.effectParam >> 4) & 0x0F) : nil
             let hasNoteCutEffect = extendedSubcommand == 0x0C
-            let hasNoteDelayEffect = extendedSubcommand == 0x0D
+            let hasNoteDelayEffect = extendedSubcommand == 0x0D && refusedSelection == nil
+            if extendedSubcommand == 0x0D, refusedSelection != nil {
+                context.noteDelayEffects.append(.init(source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, syntheticTick: 0, effectType: cell.effectType,
+                    effectParam: cell.effectParam, status: .sourceRefused, detected: true,
+                    applied: true, deferred: false, ignoredAsNoOp: false, outOfRow: false,
+                    requestedTick: 0, rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm,
+                    originalFrame: scheduledStartFrame, delayedFrame: scheduledStartFrame, eventIndex: nil))
+            }
             let hasRetriggerEffect = isE9xRetriggerEffect(cell) && !isE90
             let hasSetFinetuneEffect = extendedSubcommand == 0x05
             let hasFinePortamentoUpEffect = extendedSubcommand == 0x01
@@ -1005,6 +1028,15 @@ enum PlaybackSongSyntheticAdapter {
             var volumeColumn = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
             let hasVolumeColumnTonePortamento = isTonePortamentoVolumeColumn(volumeColumn)
             let handlesTonePortamento = !isE90 && (hasTonePortamento || hasVolumeColumnTonePortamento)
+            if let refusedSelection {
+                applyRefusedOrdinarySelection(refusedSelection, cell: cell, source: source,
+                    channelIndex: channelIndex, syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
+                    timingConfig: timingConfig, song: song, state: &channelState, context: &context)
+                // Continue through the existing writers/effect dispatch on the retained
+                // source. Refusal suppresses only the ordinary source/pitch trigger.
+                cell = .init(note: 0, instrument: 0, volumeColumn: cell.volumeColumn,
+                    effectType: cell.effectType, effectParam: cell.effectParam)
+            }
             if (1...96).contains(cell.note), !handlesTonePortamento,
                !(hasKxxKeyOff && cell.effectParam == 0),
                !hasNoteDelayEffect || Int(cell.effectParam & 15) < timingConfig.speed {
@@ -1121,7 +1153,7 @@ enum PlaybackSongSyntheticAdapter {
                 cell: cell, song: song, source: source, channelIndex: channelIndex,
                 syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
                 globalVolume: context.globalVolumeState.volumeValue,
-                initializesInstrumentVolume: explicitTriggerSelection?.sample != nil || selectedEmptyPitch != nil || restoresInstrumentOnlyDefaults ||
+                initializesInstrumentVolume: refusedSelection != nil || explicitTriggerSelection?.sample != nil || selectedEmptyPitch != nil || restoresInstrumentOnlyDefaults ||
                     (toneTargetSelection?.sample != nil && channelState.activeEventIndex != nil) ||
                     (toneTargetSelection != nil && channelState.activeEventIndex == nil && channelState.semanticInstrumentIndex == nil),
                 channelState: &channelState, updates: &context.voiceStateUpdates
@@ -1145,12 +1177,12 @@ enum PlaybackSongSyntheticAdapter {
             }
             let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && handlesTonePortamento && !toneInstrumentResetApplied
             let channelStateBeforeVolumeColumn = channelState
-            if !delaysInstrumentVolumeState {
+            if !delaysInstrumentVolumeState && !retainsDelayedTrigger {
                 volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState,
                     memorySource: effectMemorySource(source: source, channelIndex: channelIndex, cell: cell))
             }
             let hasDeferredEffectCell = hasDeferredEffect(cell, channelState: channelState)
-            if !delaysInstrumentVolumeState, let update = voiceStateUpdate(
+            if !delaysInstrumentVolumeState && !retainsDelayedTrigger, let update = voiceStateUpdate(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
@@ -1208,7 +1240,7 @@ enum PlaybackSongSyntheticAdapter {
                     globalVolumeState: &context.globalVolumeState
                 ))
             }
-            if !delaysInstrumentVolumeState, cell.volumeColumn != 0 {
+            if !delaysInstrumentVolumeState && !retainsDelayedTrigger, cell.volumeColumn != 0 {
                 context.volumeColumnMappings.append(PlaybackSongSyntheticVolumeColumnMapping(
                     source: source,
                     channelIndex: channelIndex,
@@ -1396,7 +1428,7 @@ enum PlaybackSongSyntheticAdapter {
                         noteCutEffects: &context.noteCutEffects
                     )
                 }
-                if hasSetFinetuneEffect {
+                if hasSetFinetuneEffect && refusedSelection == nil {
                     context.setFinetuneEffects.append(setFinetuneDiagnostic(
                         from: cell,
                         source: source,
@@ -1490,6 +1522,7 @@ enum PlaybackSongSyntheticAdapter {
                     context.channelStates[channelIndex] = channelState
                     continue
                 }
+                if refusedSelection != nil { continue }
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -2021,7 +2054,7 @@ enum PlaybackSongSyntheticAdapter {
                 continue
             }
 
-            if !handlesTonePortamento && !isNoteOnly {
+            if !handlesTonePortamento && !isNoteOnly && !retainsDelayedTrigger {
                 volumeColumn = applyTriggeredSamplePanning(
                     sample.panning,
                     volumeColumn: volumeColumn,
@@ -2095,10 +2128,21 @@ enum PlaybackSongSyntheticAdapter {
                             timingPlan: timingPlan, state: &channelState, globalVolume: context.globalVolumeState.volumeValue))
                     }
                 }
+                if retainsDelayedTrigger {
+                    if cell.instrument > 0 {
+                        channelState.triggeredSampleDefaultVolume = sampleVolumeRawEstimate(for: sample.volume)
+                        channelState.triggeredSampleDefaultPan = sample.panning
+                        restoreCachedInstrumentDefaults(state: &channelState)
+                    }
+                    switch volumeColumn.command {
+                    case .setVolume, .setPanning: _ = applyVolumeColumn(volumeColumn, to: &channelState)
+                    default: break
+                    }
+                }
                 // The established EDx path has resolved a real delayed trigger.
                 // Reset at that trigger, rather than on an out-of-row delay.
                 resetTremoloTriggerPhases(state: &channelState)
-                if channelState.tremolo.activated, cell.instrument > 0 {
+                if channelState.tremolo.activated, cell.instrument > 0, !retainsDelayedTrigger {
                     channelState.baseChannelVolume = 64
                     // FT2's delayed trigger replays an explicit volume value,
                     // not slide commands already handled by the column path.
@@ -2117,6 +2161,11 @@ enum PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 finetuneOverride: setFinetuneOverride
             )
+            if ordinaryPitchAdmission(note: cell.note, relativeNote: sample.relativeNote) == .retained {
+                pitchMapping = retainedPitchMapping(sample: sample, state: channelState,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable, timingConfig: timingConfig,
+                    finetune: setFinetuneOverride ?? sample.finetune)
+            }
             if hasSetFinetuneEffect {
                 context.setFinetuneEffects.append(setFinetuneDiagnostic(
                     from: cell,
@@ -2191,6 +2240,9 @@ enum PlaybackSongSyntheticAdapter {
                 globalVolume: context.globalVolumeState.volumeValue
             )
             let pan = channelState.pan
+            if pitchMapping.playbackStep == 0 {
+                context.initialHeldPitchEventIndices.insert(eventIndex)
+            }
             if isNoteOnly && scheduledNoteTick == 0 {
                 context.noteOnlyEventIndices.insert(eventIndex)
                 if channelState.activeEventIndex == nil && channelState.keyOffWithoutVoice {
@@ -2356,7 +2408,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = channelState
             }
             if let noteDelay, noteDelay.applied {
-                context.noteDelayEffects.append(noteDelayDiagnostic(
+                var appliedDelay = noteDelayDiagnostic(
                     from: cell,
                     source: source,
                     channelIndex: channelIndex,
@@ -2365,7 +2417,13 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     originalFrame: scheduledStartFrame,
                     eventIndex: eventIndex
-                ) ?? noteDelay)
+                ) ?? noteDelay
+                if retainsDelayedTrigger {
+                    appliedDelay.cachedDefaultVolume = channelState.triggeredSampleDefaultVolume
+                    appliedDelay.cachedDefaultPan = channelState.triggeredSampleDefaultPan
+                    appliedDelay.delayedPanningValue = channelState.panningValue
+                }
+                context.noteDelayEffects.append(appliedDelay)
             }
             if hasRetriggerEffect {
                 _ = handleRetrigger(
@@ -2404,6 +2462,13 @@ enum PlaybackSongSyntheticAdapter {
             let cell = row.cells[channelIndex]
             if isDelayedInstrumentOnly(cell) {
                 handleDelayedInstrumentOnly(cell: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, song: song, timingConfig: timingConfig,
+                    timingPlan: timingPlan, context: &context)
+                continue
+            }
+            if isNonzeroOrdinaryDelay(cell), let selection = refusedOrdinarySelection(cell: cell,
+                instrumentIndex: cell.instrument == 0 ? context.channelStates[channelIndex].carriedInstrumentIndex ?? 0 : Int(cell.instrument), song: song) {
+                handleDelayedRefusedOrdinary(selection, cell: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, song: song, timingConfig: timingConfig,
                     timingPlan: timingPlan, context: &context)
                 continue

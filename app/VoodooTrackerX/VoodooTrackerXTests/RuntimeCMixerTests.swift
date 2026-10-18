@@ -5224,6 +5224,39 @@ final class RuntimeCMixerTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testExtremePitchStateRuntimeParityAndRefusedSourceCursors() throws {
+        for linear in [true,false] {
+            let fixture = "extreme-pitch-state-\(linear ? "linear" : "amiga").xm"
+            try assertFixtureRuntimeParity(fixtureName: fixture,linear: linear)
+            let url = try referenceXMFixtureURL("generated/"+fixture)
+            let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: url.path),modulePath: url.path)
+            for rate in [44_100.0,48_000] {
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song,sampleRate: rate)
+                let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate,channelCount: 1),maximumRenderFrames: 4096)
+                core.configureAdapterEventScheduleForTesting(runtime.events,runtimeFrameOffset: 0)
+                var frame = 0
+                for (tick,channel) in [(12,1),(13,4)] {
+                    let checkpoint = tick*Int(rate/50)
+                    while frame < checkpoint {
+                        let count = min(4093,checkpoint-frame)
+                        _ = renderRuntimePCM(core,frames: count); frame += count
+                    }
+                    let mapping = try XCTUnwrap(runtime.plan?.diagnostics.eventMappings.first {
+                        $0.channelIndex == channel && $0.source.rowIndex == 0
+                    })
+                    let before = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: mapping.eventIndex))
+                    _ = renderRuntimePCM(core,frames: 1);frame += 1
+                    let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: mapping.eventIndex))
+                    XCTAssertTrue(before.active && after.active)
+                    XCTAssertEqual(after.sampleStep,before.sampleStep)
+                    XCTAssertEqual(after.samplePosition,(before.samplePosition+before.sampleStep).truncatingRemainder(dividingBy: 256),accuracy: 1e-9)
+                }
+                XCTAssertTrue(core.drainAppliedAdapterEventDiagnostics().allSatisfy { $0.eventFrameDelta == 0 })
+            }
+        }
+    }
+
     func testColdTonePortamentoLaterNoteOnlyStartsOneSilentSourceAtCursorZero() throws {
         for (linear,fx,param,column): (Bool,UInt8,UInt8,UInt8) in [(true,3,4,0),(false,3,4,0),(true,5,4,0),(true,0,0,0xF4),(false,5,4,0),(false,0,0,0xF4)] {
             let sample = PlaybackSample(instrumentIndex: 1,sampleIndex: 0,pcm: Array(repeating: 1/8,count: 256),volume: 20/64,panning: 192,
@@ -5416,7 +5449,7 @@ final class RuntimeCMixerTests: XCTestCase {
             instrumentsByIndex: parsed.instrumentsByIndex, restartOrderIndex: parsed.restartOrderIndex, endBehavior: parsed.endBehavior,
             initialTiming: parsed.initialTiming, usesLinearFrequencyTable: linear ?? parsed.usesLinearFrequencyTable,
             xmSampleSlotProvenanceByInstrument: parsed.xmSampleSlotProvenanceByInstrument)
-        let boundedPitchFixture = fixtureName.hasPrefix("bounded-pitch-conversion-")
+        let boundedPitchFixture = fixtureName.hasPrefix("bounded-pitch-conversion-") || fixtureName.hasPrefix("extreme-pitch-state-")
         for rate in [44_100.0, 48_000] {
             let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)

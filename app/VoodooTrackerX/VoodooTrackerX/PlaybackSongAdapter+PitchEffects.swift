@@ -122,7 +122,7 @@ extension PlaybackSongSyntheticAdapter {
                 let beforePeriod = currentAmigaPeriod
                 let beforeStep = currentPlaybackStep
                 let rawAfter = currentAmigaPeriod + slideUnits
-                let afterPeriod = clampedAmigaPeriod(rawAfter)
+                let afterPeriod = amigaSlidePeriod(currentAmigaPeriod, nativeDelta: Int(slideUnits / 4))
                 let didClamp = abs(afterPeriod - rawAfter) > 0.000000001
                 clamped = clamped || didClamp
                 guard let nextStep = playbackStep(
@@ -172,7 +172,7 @@ extension PlaybackSongSyntheticAdapter {
                     reachedTarget: false,
                     clamped: didClamp
                 ))
-                if didClamp {
+                if didClamp && direction == .up {
                     break
                 }
             }
@@ -253,7 +253,8 @@ extension PlaybackSongSyntheticAdapter {
             let rawAfter = direction == .up
                 ? currentLinearPeriod - Double(slideAmount) * xmLinearPortamentoUnitsPerParam
                 : currentLinearPeriod + Double(slideAmount) * xmLinearPortamentoUnitsPerParam
-            let afterPeriod = clampedLinearPeriod(rawAfter)
+            let afterPeriod = pitchSlidePeriod(currentLinearPeriod,
+                nativeDelta: Int(rawAfter - currentLinearPeriod), linear: true)
             let didClamp = abs(afterPeriod - rawAfter) > 0.000000001
             clamped = clamped || didClamp
             guard let nextStep = playbackStep(
@@ -301,7 +302,7 @@ extension PlaybackSongSyntheticAdapter {
                 reachedTarget: false,
                 clamped: didClamp
             ))
-            if didClamp {
+            if didClamp && direction == .up {
                 break
             }
         }
@@ -600,7 +601,8 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         let rawAfter = currentLinearPeriod - Double(amount) * (usesLinearFrequencyTable ? xmLinearPortamentoUnitsPerParam : xmAmigaPortamentoUnitsPerParam)
-        let afterPeriod = amount == 0 ? currentLinearPeriod : (usesLinearFrequencyTable ? clampedLinearPeriod(rawAfter) : clampedAmigaPeriod(rawAfter))
+        let afterPeriod = amount == 0 ? currentLinearPeriod : pitchSlidePeriod(currentLinearPeriod,
+            nativeDelta: Int((rawAfter - currentLinearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,
@@ -734,7 +736,8 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         let rawAfter = linearPeriod - Double(amount) * (usesLinearFrequencyTable ? xmLinearPortamentoUnitsPerParam : xmAmigaPortamentoUnitsPerParam)
-        let afterPeriod = amount == 0 ? linearPeriod : (usesLinearFrequencyTable ? clampedLinearPeriod(rawAfter) : clampedAmigaPeriod(rawAfter))
+        let afterPeriod = amount == 0 ? linearPeriod : pitchSlidePeriod(linearPeriod,
+            nativeDelta: Int((rawAfter - linearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,
@@ -971,7 +974,8 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         let rawAfter = currentLinearPeriod + Double(amount) * (usesLinearFrequencyTable ? xmLinearPortamentoUnitsPerParam : xmAmigaPortamentoUnitsPerParam)
-        let afterPeriod = amount == 0 ? currentLinearPeriod : (usesLinearFrequencyTable ? clampedLinearPeriod(rawAfter) : clampedAmigaPeriod(rawAfter))
+        let afterPeriod = amount == 0 ? currentLinearPeriod : pitchSlidePeriod(currentLinearPeriod,
+            nativeDelta: Int((rawAfter - currentLinearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,
@@ -1105,7 +1109,8 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         let rawAfter = linearPeriod + Double(amount) * (usesLinearFrequencyTable ? xmLinearPortamentoUnitsPerParam : xmAmigaPortamentoUnitsPerParam)
-        let afterPeriod = amount == 0 ? linearPeriod : (usesLinearFrequencyTable ? clampedLinearPeriod(rawAfter) : clampedAmigaPeriod(rawAfter))
+        let afterPeriod = amount == 0 ? linearPeriod : pitchSlidePeriod(linearPeriod,
+            nativeDelta: Int((rawAfter - linearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,
@@ -1369,7 +1374,8 @@ extension PlaybackSongSyntheticAdapter {
         let rawAfter = direction == .up
             ? currentLinearPeriod - Double(amount) * (usesLinearFrequencyTable ? 1 : xmAmigaPeriodLookupScale)
             : currentLinearPeriod + Double(amount) * (usesLinearFrequencyTable ? 1 : xmAmigaPeriodLookupScale)
-        let afterPeriod = amount == 0 ? currentLinearPeriod : (usesLinearFrequencyTable ? clampedLinearPeriod(rawAfter) : clampedAmigaPeriod(rawAfter))
+        let afterPeriod = amount == 0 ? currentLinearPeriod : pitchSlidePeriod(currentLinearPeriod,
+            nativeDelta: Int((rawAfter - currentLinearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,
@@ -1542,7 +1548,8 @@ extension PlaybackSongSyntheticAdapter {
         let rawAfter = direction == .up
             ? linearPeriod - Double(amount) * (usesLinearFrequencyTable ? 1 : xmAmigaPeriodLookupScale)
             : linearPeriod + Double(amount) * (usesLinearFrequencyTable ? 1 : xmAmigaPeriodLookupScale)
-        let afterPeriod = amount == 0 ? linearPeriod : (usesLinearFrequencyTable ? clampedLinearPeriod(rawAfter) : clampedAmigaPeriod(rawAfter))
+        let afterPeriod = amount == 0 ? linearPeriod : pitchSlidePeriod(linearPeriod,
+            nativeDelta: Int((rawAfter - linearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,
@@ -1783,24 +1790,11 @@ extension PlaybackSongSyntheticAdapter {
             let semitoneOffset = arpeggioSemitoneOffset(
                 effectiveSpeed: rowSpeed, tick: tick, x: xSemitoneOffset, y: ySemitoneOffset
             )
-            // Selection shares G25 timing. Amiga phases reuse ordinary note/tuning
-            // lookup and its existing range policy; base pitch remains canonical.
-            let modulatedPeriod: Double?
-            if isLinear {
-                modulatedPeriod = clampedLinearPeriod(
-                    basePeriod - Double(semitoneOffset) * xmLinearPeriodUnitsPerSemitone
-                )
-            } else if semitoneOffset == 0 {
-                modulatedPeriod = basePeriod
-            } else {
-                modulatedPeriod = amigaPitchTarget(
-                    note: channelState.carriedNote,
-                    relativeNote: channelState.activeSampleRelativeNote! + semitoneOffset,
-                    finetune: channelState.activeSampleFinetune!,
-                    baseSampleRate: baseSampleRate,
-                    outputSampleRate: timingConfig.sampleRate
-                )?.amigaPeriod
-            }
+            // G25's base phase holds canonical pitch. X/Y phases project even
+            // a zero nibble; projection neither admits a note nor mutates base state.
+            let modulatedPeriod: Double? = tick == 0 || (rowSpeed - tick) % 3 == 0 ? basePeriod
+                : arpeggioPeriod(basePeriod, finetune: channelState.activeSampleFinetune ?? 0,
+                    offset: semitoneOffset, linear: isLinear)
             guard let modulatedPeriod,
                   let nextStep = isLinear
                     ? playbackStep(linearPeriod: modulatedPeriod, baseSampleRate: baseSampleRate,
@@ -2341,7 +2335,7 @@ extension PlaybackSongSyntheticAdapter {
             // against neutral cold tuning, independently of the newly carried map.
             // Keep current/source pitch absent; only a later real note starts PCM.
             if let note = targetNoteFromCell {
-                if usesLinearFrequencyTable, let target = linearPitchTarget(note: note, relativeNote: 0, finetune: 0,
+                if usesLinearFrequencyTable, let target = linearTonePitchTarget(note: note, relativeNote: 0, finetune: 0,
                     baseSampleRate: PlaybackSample.xmNeutralSampleRate, outputSampleRate: timingConfig.sampleRate) {
                     channelState.tonePortamentoTargetNote = note
                     channelState.tonePortamentoTargetLinearPeriod = target.linearPeriod
@@ -2349,7 +2343,7 @@ extension PlaybackSongSyntheticAdapter {
                     channelState.tonePortamentoTargetPlaybackStep = target.playbackStep
                     channelState.tonePortamentoDirection = .init(
                         currentPeriod: channelState.activeLinearPeriod ?? 0, targetPeriod: target.linearPeriod)
-                } else if !usesLinearFrequencyTable, let target = amigaPitchTarget(note: note, relativeNote: 0, finetune: 0,
+                } else if !usesLinearFrequencyTable, let target = amigaTonePitchTarget(note: note, relativeNote: 0, finetune: 0,
                     baseSampleRate: PlaybackSample.xmNeutralSampleRate, outputSampleRate: timingConfig.sampleRate) {
                     channelState.tonePortamentoTargetNote = note
                     channelState.tonePortamentoTargetLinearPeriod = nil
@@ -2402,7 +2396,10 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        if let targetNote = targetNoteFromCell {
+        if let targetNote = targetNoteFromCell,
+           toneTargetPeriod(note: targetNote, relativeNote: targetPitchSample?.relativeNote ?? channelState.activeSampleRelativeNote ?? 0,
+               finetune: targetPitchSample?.finetune ?? channelState.activeSampleFinetune ?? 0,
+               linear: !activeUsesAmigaFrequencyTable) != nil {
             guard let baseSampleRate = targetPitchSample?.baseSampleRate ?? channelState.activeSampleBaseSampleRate,
                   let relativeNote = targetPitchSample?.relativeNote ?? channelState.activeSampleRelativeNote,
                   let finetune = targetPitchSample?.finetune ?? channelState.activeSampleFinetune else {
@@ -2441,7 +2438,7 @@ extension PlaybackSongSyntheticAdapter {
             }
 
             if channelState.activeUsesLinearFrequencyTable == true {
-                guard let target = linearPitchTarget(
+                guard let target = linearTonePitchTarget(
                     note: targetNote,
                     relativeNote: relativeNote,
                     finetune: finetune,
@@ -2488,7 +2485,7 @@ extension PlaybackSongSyntheticAdapter {
                 channelState.tonePortamentoDirection = .init(
                     currentPeriod: channelState.activeLinearPeriod ?? 0, targetPeriod: target.linearPeriod)
             } else if channelState.activeUsesLinearFrequencyTable == false {
-                guard let target = amigaPitchTarget(
+                guard let target = amigaTonePitchTarget(
                     note: targetNote,
                     relativeNote: relativeNote,
                     finetune: finetune,
@@ -2621,8 +2618,9 @@ extension PlaybackSongSyntheticAdapter {
         // A zero-speed invocation can still clamp an already-crossed target;
         // it does not create speed memory or move an uncrossed period.
         let zeroSpeedClamp = currentPeriod.flatMap { current in targetPeriod.map { target in
-            channelState.tonePortamentoDirection == .towardLowerPeriod && current <= target ||
-                channelState.tonePortamentoDirection == .towardHigherPeriod && current >= target
+            channelState.tonePortamentoDirection != .none &&
+                pitchTonePeriod(current, target: target, nativeSpeed: 0,
+                    direction: channelState.tonePortamentoDirection, linear: !activeUsesAmigaFrequencyTable) == target
         } } ?? false
         guard speed > 0 || speed == 0 && zeroSpeedClamp else {
             return tonePortamentoDiagnostic(
@@ -2746,7 +2744,6 @@ extension PlaybackSongSyntheticAdapter {
 
             var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
             let rowSpeed = max(1, timingConfig.speed)
-            let slideUnits = Double(speed) * xmAmigaPortamentoUnitsPerParam
             directionAtExecution = channelState.tonePortamentoDirection
             for tick in executionTicks ?? (1..<rowSpeed) {
                 guard channelState.tonePortamentoDirection != .none else { break }
@@ -2758,11 +2755,8 @@ extension PlaybackSongSyntheticAdapter {
                 }
                 let beforePeriod = currentAmigaPeriod
                 let beforeStep = currentPlaybackStep
-                if channelState.tonePortamentoDirection == .towardLowerPeriod {
-                    currentAmigaPeriod = max(targetAmigaPeriod, currentAmigaPeriod - slideUnits)
-                } else {
-                    currentAmigaPeriod = min(targetAmigaPeriod, currentAmigaPeriod + slideUnits)
-                }
+                currentAmigaPeriod = amigaTonePeriod(currentAmigaPeriod, target: targetAmigaPeriod,
+                    nativeSpeed: speed * 4, direction: channelState.tonePortamentoDirection)
                 guard let nextStep = playbackStep(
                     amigaPeriod: currentAmigaPeriod,
                     baseSampleRate: baseSampleRate,
@@ -2900,11 +2894,8 @@ extension PlaybackSongSyntheticAdapter {
             }
             let beforePeriod = currentLinearPeriod
             let beforeStep = currentPlaybackStep
-            if channelState.tonePortamentoDirection == .towardLowerPeriod {
-                currentLinearPeriod = max(targetLinearPeriod, currentLinearPeriod - Double(speed) * xmLinearPortamentoUnitsPerParam)
-            } else {
-                currentLinearPeriod = min(targetLinearPeriod, currentLinearPeriod + Double(speed) * xmLinearPortamentoUnitsPerParam)
-            }
+            currentLinearPeriod = pitchTonePeriod(currentLinearPeriod, target: targetLinearPeriod,
+                nativeSpeed: speed * 4, direction: channelState.tonePortamentoDirection, linear: true)
             guard let nextStep = playbackStep(
                 linearPeriod: currentLinearPeriod,
                 baseSampleRate: baseSampleRate,

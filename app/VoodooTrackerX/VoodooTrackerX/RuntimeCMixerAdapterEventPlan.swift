@@ -233,7 +233,8 @@ struct RuntimeCMixerAdapterPlanAssembly {
 
     private static func priority(_ event: RuntimeCMixerAdapterEvent) -> Int {
         switch event.action {
-        case .gainPanUpdate, .stepUpdate: return 0
+        case .gainPanUpdate: return 0
+        case let .stepUpdate(_, step): return step == 0 && event.categories.contains("initial_pitch_hold") ? 3 : 0
         case .noteCut, .sourceStop: return 1
         case .noteTrigger: return 2
         case .playbackStateChange: return 3
@@ -282,7 +283,8 @@ struct RuntimeCMixerAdapterEventStorage: Equatable {
 
     private static func priority(_ event: RuntimeCMixerAdapterEvent) -> Int {
         switch event.action {
-        case .gainPanUpdate, .stepUpdate: return 0
+        case .gainPanUpdate: return 0
+        case let .stepUpdate(_, step): return step == 0 && event.categories.contains("initial_pitch_hold") ? 3 : 0
         case .noteCut, .sourceStop: return 1
         case .noteTrigger: return 2
         case .playbackStateChange: return 3
@@ -645,6 +647,17 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 effectType: hasBridgedEffectMetadata ? bridgedEffectType : nil,
                 effectParam: hasBridgedEffectMetadata ? bridgedEffectParam : nil
             ))
+            nextID += 1
+        }
+
+        for eventIndex in adaptedPlan.initialHeldPitchEventIndices.sorted() {
+            let event = adaptedPlan.pattern.events[eventIndex]
+            guard let mapping = eventMappingsByIndex[eventIndex] else { continue }
+            events.append(RuntimeCMixerAdapterEvent(id: nextID, source: mapping.source,
+                channelIndex: mapping.channelIndex, syntheticTick: mapping.syntheticTick,
+                scheduledFrame: scheduler.frame(for: event),
+                action: .stepUpdate(activeEventIndex: eventIndex, playbackStep: 0),
+                categories: ["step_update", "initial_pitch_hold"]))
             nextID += 1
         }
 

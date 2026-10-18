@@ -137,29 +137,29 @@ final class BoundedPitchConversionTests: XCTestCase {
         } }
     }
 
-    func testExtremeSemanticFencesRetainBaselineAdmissionClampAndDirection() throws {
+    func testG30BExtremeSemanticsRemainUpstreamOfBoundedConversion() throws {
         for rate in rates {
-            for (note,relative,period) in [(1,-2,109568.0),(1,-1,109568),(96,24,120)] {
+            for (note,relative,admitted) in [(1,-2,false),(1,-1,true),(96,24,false)] {
                 let (context,states) = inspect(song([[c(49,1)],[c(UInt8(note),2)]],
                     linear: false,secondRelative: relative),rate)
-                XCTAssertEqual(context.events.count,2) // Baseline still starts, not reference refusal.
-                XCTAssertEqual(context.events[1].initialSourceFrame,0)
-                XCTAssertEqual(states[1].activeEventIndex,1)
-                XCTAssertEqual(states[1].activeInstrumentIndex,2)
-                XCTAssertEqual(states[1].activeAmigaPeriod,period)
+                XCTAssertEqual(context.events.count,admitted ? 2 : 1)
+                XCTAssertEqual(context.events.last?.initialSourceFrame,0)
+                XCTAssertEqual(states[1].activeEventIndex,admitted ? 1 : 0)
+                XCTAssertEqual(states[1].activeInstrumentIndex,admitted ? 2 : 1)
+                XCTAssertEqual(states[1].activeAmigaPeriod,6848)
                 XCTAssertNil(states[1].tonePortamentoTargetNote)
             }
             let (low,states) = inspect(song([[c(1,1)],[c(fx: 2,param: 255)],
                 [c(fx: 2,param: 255)],[c(96,fx: 3,param: 1)]],linear: false,fine: -128,speed: 6),rate)
-            XCTAssertEqual(states.map(\.activeAmigaPeriod),[116096,136496,156896,156816])
+            XCTAssertEqual(states.map(\.activeAmigaPeriod),[116096,136156,156556,480])
             XCTAssertEqual(states.last?.tonePortamentoTargetAmigaPeriod,480)
-            XCTAssertEqual(states.last?.tonePortamentoDirection,.towardLowerPeriod)
+            XCTAssertEqual(states.last?.tonePortamentoDirection,.towardHigherPeriod)
             XCTAssertEqual(states.last?.tonePortamentoSpeed,1)
             XCTAssertEqual(low.events.count,1)
-            XCTAssertEqual(low.tonePortamentoEffects[0].stepUpdates.first?.amigaPeriodAfter,156880)
+            XCTAssertEqual(low.tonePortamentoEffects[0].stepUpdates.first?.amigaPeriodAfter,480)
             XCTAssertEqual(low.tonePortamentoEffects[0].stepUpdates.first?.scheduledFrame,19*Int(rate/50))
             let (high,hs) = inspect(song([[c(96,1)],[c(fx: 1,param: 255)]],linear: false,speed: 6),rate)
-            XCTAssertEqual(hs.last?.activeAmigaPeriod,107)
+            XCTAssertEqual(hs.last?.activeAmigaPeriod,4)
             XCTAssertEqual(high.portamentoSlideEffects[0].stepUpdates.count,1)
             XCTAssertEqual(hs.last?.activeEventIndex,0)
         }

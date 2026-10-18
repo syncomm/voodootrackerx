@@ -98,7 +98,20 @@ reported periods use groups of eight signed finetune values; reported frequencie
 are the corrected scheduled Q16 sample step times output rate. Both Linear and
 Amiga period-derived updates share that conversion. Period-state fields,
 source generation, target/direction/speed and event frames retain their existing
-authority; G30B extreme-state fences are not reference-closure claims.
+authority; G30B independently determines admission and extreme period state below.
+
+G30B retained-pitch triggers report `effective_note_value: 0`, no lookup index,
+and the retained semantic period/G30A step in the event mapping. Refused notes
+report ignored-cell reason `effective_note_refused`; no note event/generation
+is created. A valid refused ED dispatch reports status
+`source_refused_instrument_reset_independent` at its actual tick/frame, including
+ED0. Independent cached-default writers and semantic/audible reset targets
+continue to identify the retained generation. `initial_pitch_hold` labels an
+existing step-zero event after a cold effective-zero source trigger, before any
+rendered frame; generic initial-step sanitization is unchanged. No schema version
+changes. Native Amiga words are the reported VTX periods divided by four; tone
+admission direction is unsigned, lower-period tick comparison signed, and
+higher-period comparison unsigned. Final combined G30 verification remains open.
 
 For runtime C mixer adapter events, same-cell XM `E5x` set-finetune note
 triggers keep the original `effectCommand`/`effectParameter` metadata in the
@@ -216,11 +229,9 @@ Bounded `arpeggio_effects` entries expose frequency mode and canonical Amiga
 periods; step entries retain
 `selected_semitone_offset` beside the existing Amiga period/step/frame fields. Join
 `active_event_index` to the existing event mapping for base note and tuning.
-This observes selection separately from conversion: B-7 `037` selects +7/+3,
-while existing Linear VTX periods 1152/1408 versus FT2 1540/1540 remain G30 debt.
-Amiga raised native periods 75/95 versus FT2 107/107 and low/base-range
-state/conversion policy also remain G30B. No-owner diagnostics report unavailable
-pitch mode.
+G30B uses bounded inverse-period projection for X/Y phases, including a zero
+nibble; base phases remain unprojected. B-7 `037` gives Linear 1540 and Amiga
+VTX 428 for both raised phases. No-owner diagnostics report unavailable pitch mode.
 Source generation/cursor, runtime event categories and trace schema are unchanged.
 `100` and `200` replay directional memory admitted by prior executed nonzero
 `1xx`/`2xx` ticks. Effective speed-1 rows neither seed nor replace that history.
@@ -232,7 +243,10 @@ schema or source/cursor ownership. Amiga `1xx` now reports `applied` with
 `amiga_applied` mode, subtracting `16 * resolved amount` per nonzero tick. Its
 seeded `100` policy is `amiga_zero_param_reuses_prior_1xx_portamento_up_memory`;
 existing direction, memory, no-owner and `clamped` fields distinguish the paths.
-The minimum-period/break-on-clamp edge remains G30; no schema field is added.
+G30B upward execution uses native UInt16 subtraction and signed minimum 1
+(Amiga VTX 4). Downward execution applies the distinct signed 32000→31999
+threshold and continues through negative signed values. Existing period/clamped
+fields expose the result without a new schema version.
 `5xy` rows reuse the current `3xx` tone-portamento target/speed for
 sample-step updates and the `Axy` tick-level volume-slide policy for gain
 updates. Same-cell note `5xy` rows set the tone-portamento target without

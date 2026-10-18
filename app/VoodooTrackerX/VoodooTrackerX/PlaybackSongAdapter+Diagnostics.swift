@@ -838,7 +838,7 @@ extension PlaybackSongSyntheticAdapter {
             return .instrumentOnly
         case .keyOff:
             return .noteOffKeyOffOnly
-        case .invalidNote:
+        case .invalidNote, .effectiveNoteRefused:
             return .invalidNote
         case .missingInstrument:
             return .missingInstrument

@@ -168,6 +168,13 @@ host.
   This covers 3xx/5xy/volume Fx in both modes. G28 Amiga 5xy composes existing
   3xx progression with the shared A/5/6 writer; Fx stores its nibble << 4 in
   shared tone-speed memory. Cold 500 and F0 reuse their established zero/replay rules.
+- Tone targets are latent channel state. Ordinary mapped triggers replace the
+  sounding source without clearing the target or tone speed; existing note-only
+  carry and explicit-instrument default/reset rules remain intact. Later 300 can
+  resume on the new generation. Explicit 3xx/5xy/Fx
+  notes replace the target. The existing progression engine still differs from
+  FT2's latched direction after crossing a target or admitting one while cold;
+  target retention does not close that separate boundary or G29 effect execution.
 - Cold supported note+instrument tone portamento restores volume 0/pan 128
   without a source/header cache. Instrument, neutral target and speed still carry;
   explicit writers follow. Later ordinary note-only starts its exact mapped source

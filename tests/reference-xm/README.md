@@ -6,6 +6,16 @@ remain intentionally deferred.
 
 ## Purpose
 
+`ordinary-trigger-tone-target-lifetime.xm` uses four rows and eight channels:
+row 0 starts sources, row 1 seeds E-4/304, row 2 applies the boundary, and row 3
+continues with 300. Channels 0–3 cover same instrument, different instrument,
+different exact keymap sample and neutral E58; 4–6 replace the target through
+3xx/5xy/volume Fx; 7 is the existing note-only control. Tests run the same data
+in both modes and at both rates, with parameterized ordinary effects, release,
+empty/completed/cold routes and speed changes. Mathematical PCM is original;
+reference WAVs remain external. G29 execution, direction-latch quirks, G30
+conversion and onset/retirement remain separate.
+
 `rxy-counter-timing-carry.xm` covers G21's persistent R counter, interval-zero
 execution, F01/F02/F03/F06, volume-column gates/slides, G20 nibble replay,
 order/E6 carry, same-cell coalescing, exact empty routes and initialized

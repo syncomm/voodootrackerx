@@ -51,6 +51,7 @@ ALL_FIXTURES = [
     "tone-portamento-retained-source-reset.xm",
     "cold-tone-portamento-initialization.xm",
     "amiga-tone-portamento-consumers.xm",
+    "ordinary-trigger-tone-target-lifetime.xm",
 ]
 
 
@@ -604,6 +605,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "tone-portamento-retained-source-reset.xm").resolve(),
                     (output_dir / "generated" / "cold-tone-portamento-initialization.xm").resolve(),
                     (output_dir / "generated" / "amiga-tone-portamento-consumers.xm").resolve(),
+                    (output_dir / "generated" / "ordinary-trigger-tone-target-lifetime.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -638,6 +640,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/note-only-routing.xm",
                     "generated/noteoff-kxx-precedence.xm",
+                    "generated/ordinary-trigger-tone-target-lifetime.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/regular-portamento-memory-admission.xm",
@@ -736,6 +739,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/multi-pattern-loop-boundary.xm",
                     "generated/note-only-routing.xm",
                     "generated/noteoff-kxx-precedence.xm",
+                    "generated/ordinary-trigger-tone-target-lifetime.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/regular-portamento-memory-admission.xm",
@@ -834,6 +838,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:regular-portamento-memory-admission.xm": "generated/regular-portamento-memory-admission.xm",
                     "xm:amiga-portamento-up.xm": "generated/amiga-portamento-up.xm",
                     "xm:amiga-tone-portamento-consumers.xm": "generated/amiga-tone-portamento-consumers.xm",
+                    "xm:ordinary-trigger-tone-target-lifetime.xm": "generated/ordinary-trigger-tone-target-lifetime.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",
                 },

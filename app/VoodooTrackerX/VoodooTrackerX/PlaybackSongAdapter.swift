@@ -2238,12 +2238,8 @@ enum PlaybackSongSyntheticAdapter {
             channelState.activeSampleFinetune = pitchMapping.effectiveFinetune ?? sample.finetune
             channelState.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
             applyActiveVolumeEnvelopeMapping(envelopeMapping, to: &channelState)
-            if !isNoteOnly {
-                channelState.tonePortamentoTargetNote = nil
-                channelState.tonePortamentoTargetLinearPeriod = nil
-                channelState.tonePortamentoTargetAmigaPeriod = nil
-                channelState.tonePortamentoTargetPlaybackStep = nil
-            }
+            // The latent tone target belongs to the channel, independently of this
+            // new source. Only target-setting commands replace it; 300 can reuse it.
             channelState.volumeValueZeroedByAxy = false
             context.channelStates[channelIndex] = channelState
             context.eventMappings.append(PlaybackSongSyntheticEventMapping(

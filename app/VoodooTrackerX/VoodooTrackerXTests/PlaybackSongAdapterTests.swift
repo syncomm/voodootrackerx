@@ -1932,7 +1932,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         )
     }
 
-    func testPlaybackSongSyntheticAdapterAmigaE5xSetFinetuneRemainsDeferred() throws {
+    func testPlaybackSongSyntheticAdapterAmigaE5xAppliesToOrdinaryTrigger() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -1947,9 +1947,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let diagnostic = try XCTUnwrap(result.diagnostics.setFinetuneEffects.first)
 
         XCTAssertEqual(mapping.frequencyTableStatus, .amigaApplied)
-        XCTAssertEqual(mapping.effectiveFinetune, 0)
-        XCTAssertEqual(diagnostic.status, .unsupportedFrequencyTable)
-        XCTAssertFalse(diagnostic.applied)
+        XCTAssertEqual(mapping.effectiveFinetune, 112)
+        XCTAssertEqual(mapping.amigaPeriod, 6512)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.applied)
     }
 
     func testPlaybackSongSyntheticAdapterInvalidSampleRateFallsBackToNeutralStep() throws {

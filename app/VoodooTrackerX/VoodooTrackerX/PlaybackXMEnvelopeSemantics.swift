@@ -185,7 +185,7 @@ extension PlaybackSongSyntheticAdapter {
         let instrument = song.instrumentsByIndex[instrumentIndex]!
         state.semanticVolumeEnvelopeEnabled = instrument.volumeEnvelope.enabled
         applyActiveVolumeEnvelopeMapping(mixerVolumeEnvelope(from: instrument.volumeEnvelope, timingConfig: timingConfig), to: &state)
-        let finetune = cell.effectType == 0x0E && cell.effectParam >> 4 == 5 && song.usesLinearFrequencyTable
+        let finetune = cell.effectType == 0x0E && cell.effectParam >> 4 == 5
             ? setFinetuneValue(from: cell) : header.finetune
         // These are period-domain controls, not a source cursor or a mixer step event.
         state.activeSampleBaseSampleRate = PlaybackSample.xmNeutralSampleRate

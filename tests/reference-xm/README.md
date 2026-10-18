@@ -6,6 +6,18 @@ remain intentionally deferred.
 
 ## Purpose
 
+`amiga-fine-extra-fine-finetune.xm` uses fourteen rows and twenty channels.
+Channels 0–3 seed/replay fine and extra-fine memories and cover note97, ordinary
+folding and active-source updates. Channels 4–8 use the actual E1F/E2F/X18/X28/
+E5F target crossings and later 300. Channels 9–12 cover E50/E57/E58/E5F, exact
+sample/different-instrument routing and writer precedence; channels 13–18 cover
+release, cold, completed, empty, high-pitch and inert no-note E5 controls.
+Rows 6–9 place F01/F02/F03/F06 after affected channels; rows 10–13 place them
+before. PCM is original mathematical data. Swift tests pin the wider nibble,
+header-tuning/relative-note, memory and retained G30 boundary matrix. FT2 WAVs
+and local diagnostic artifacts remain external; G30 conversion/range and
+onset/retirement remain separate.
+
 `tone-portamento-direction-latch.xm` uses five rows and twenty channels. Rows
 0–2 establish sources/targets and apply supported ordinary, regular-slide,
 header-finetune and exact-keymap crossings; F02 gives one regular-slide tick.

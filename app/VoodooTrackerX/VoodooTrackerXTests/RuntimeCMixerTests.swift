@@ -5141,6 +5141,52 @@ final class RuntimeCMixerTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testAmigaFineExtraFineFinetuneRuntimeParityAndSourceCursors() throws {
+        let fixture = "amiga-fine-extra-fine-finetune.xm"
+        let url = try referenceXMFixtureURL("generated/"+fixture)
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: url.path),modulePath: url.path)
+        try assertFixtureRuntimeParity(fixtureName: fixture,linear: false)
+        for rate in [44_100.0,48_000] {
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song,sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan)
+            let fine = try XCTUnwrap(plan.diagnostics.finePortamentoUpEffects.first { $0.channelIndex == 0 && $0.syntheticRow == 1 })
+            let extra = try XCTUnwrap(plan.diagnostics.extraFinePortamentoEffects.first { $0.channelIndex == 2 && $0.syntheticRow == 1 })
+            let tone = try XCTUnwrap(plan.diagnostics.tonePortamentoEffects.first { $0.channelIndex == 4 && $0.syntheticRow == 3 })
+            let finetune = try XCTUnwrap(plan.diagnostics.setFinetuneEffects.first { $0.channelIndex == 9 && $0.syntheticRow == 1 })
+            let e5Index = try XCTUnwrap(finetune.activeEventIndex)
+            XCTAssertEqual(finetune.effectiveFinetune,-128)
+            XCTAssertEqual(plan.diagnostics.eventMappings[e5Index].amigaPeriod,7256)
+            let checks = try [fine.stepUpdates.first,extra.stepUpdates.first,tone.stepUpdates.first].enumerated().map { offset,item in
+                let update = try XCTUnwrap(item)
+                let index = try XCTUnwrap(offset == 0 ? fine.activeEventIndex : offset == 1 ? extra.activeEventIndex : tone.activeEventIndex)
+                return (frame: update.scheduledFrame,index: index,step: update.playbackStepAfter,restart: false)
+            } + [(frame: 3*Int(rate/50),index: e5Index,step: plan.pattern.events[e5Index].playbackStep,restart: true)]
+            let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate,channelCount: 1),maximumRenderFrames: 4096)
+            core.configureAdapterEventScheduleForTesting(runtime.events,runtimeFrameOffset: 0)
+            var frame = 0
+            for boundary in Set(checks.map(\.frame)).sorted() {
+                while frame < boundary {
+                    let count = min(4093,boundary-frame)
+                    _ = renderRuntimePCM(core,frames: count);frame += count
+                }
+                let selected = checks.filter { $0.frame == boundary }
+                let before = selected.map { core.adapterVoiceDiagnosticForTesting(eventIndex: $0.index) }
+                _ = renderRuntimePCM(core,frames: 1);frame += 1
+                for (check,prior) in zip(selected,before) {
+                    let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: check.index))
+                    XCTAssertTrue(after.active)
+                    XCTAssertEqual(after.sampleStep,check.step,accuracy: 1e-12)
+                    let start = check.restart ? 0 : try XCTUnwrap(prior).samplePosition
+                    XCTAssertEqual(after.samplePosition,(start+check.step).truncatingRemainder(dividingBy: 256),accuracy: 1e-9)
+                }
+            }
+            XCTAssertTrue(core.drainAppliedAdapterEventDiagnostics().allSatisfy { $0.eventFrameDelta == 0 })
+            XCTAssertEqual(tone.directionAtExecution,.towardLowerPeriod)
+            XCTAssertEqual(tone.directionAfter,.towardHigherPeriod)
+        }
+    }
+
     func testColdTonePortamentoLaterNoteOnlyStartsOneSilentSourceAtCursorZero() throws {
         for (linear,fx,param,column): (Bool,UInt8,UInt8,UInt8) in [(true,3,4,0),(false,3,4,0),(true,5,4,0),(true,0,0,0xF4),(false,5,4,0),(false,0,0,0xF4)] {
             let sample = PlaybackSample(instrumentIndex: 1,sampleIndex: 0,pcm: Array(repeating: 1/8,count: 256),volume: 20/64,panning: 192,
@@ -5340,10 +5386,10 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, orderCount: song.orders.count, config: config, frames: end))
             XCTAssertEqual(runtime.plan, offline.plan)
             // Arpeggio row-exit and row-entry writes can share a frame; use the runtime's ordering.
-            let ordered = ["linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm"].contains(fixtureName)
+            let ordered = ["linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName)
                 ? runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] } : runtime.events
             let planned = ordered.filter { event in
-                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm"].contains(fixtureName) {
+                if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
                     case .noteTrigger, .gainPanUpdate, .stepUpdate, .noteCut: return true
@@ -5375,7 +5421,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertLessThanOrEqual(zip(delivered, expected).map { abs($0 - $1) }.max() ?? 0, pcmTolerance, "Engine rate \(rate), frame \(rendered)")
                 rendered += count
             }
-            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm"].contains(fixtureName) {
+            if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) {
                 XCTAssertEqual(applied.map(\.event), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
                 XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
             }

@@ -96,8 +96,9 @@ Recorded fields include:
 For runtime C mixer adapter events, same-cell XM `E5x` set-finetune note
 triggers keep the original `effectCommand`/`effectParameter` metadata in the
 trace context. The applied sample-step and effective finetune are planned by the
-shared adapter diagnostics; no-note `E5x` cases remain diagnosed as deferred
-effect-memory/no-note cases instead of being treated as current-voice memory.
+shared adapter diagnostics. Amiga no-note E5 reports `no_note_inert` and
+`no_same_cell_note_ft2_inert_no_memory`, with no deferred-memory claim, source
+retune or later-trigger mutation. Linear legacy no-note labels stay unchanged.
 Linear E1x/E2x own independent per-channel directional amount/origin memories.
 Seeded E10/E20 replay at tick zero; cold forms restore held output from meaningful
 canonical real pitch with zero arithmetic and no provenance. Same-cell forms fold
@@ -105,7 +106,8 @@ into the one trigger's initial step. Empty-note forms preserve source identity
 and cursor, publishing only a differing step to an eligible current generation.
 Converged targets deduplicate; completed/empty routes may restore retained
 semantic output without C publication. FT2's source-less cold-E10 0→1 clamp
-artifact is intentionally omitted. Amiga fine/extra-fine remains G29.
+artifact is intentionally omitted. G29 shares these same memories and scheduler
+with Amiga, using ±16 nibble units instead of Linear ±4.
 
 Bounded-render `fine_portamento_up_effects` / `fine_portamento_down_effects`
 retain their existing aliases and period/step/source/frame fields. Additive fields
@@ -126,12 +128,22 @@ E1/E2. Seeded X10/X20 replay at tick zero; cold forms restore meaningful canonic
 real pitch to held output with zero arithmetic and no provenance. Same-cell
 forms fold into one trigger. Empty-note forms retain identity/cursor; completed
 and empty routes cannot receive C step writes. Converged targets deduplicate;
-uninitialized cold X10 intentionally omits FT2's 0→1 clamp artifact. Amiga stays
-G29 and other X subcommands stay deferred. `xxy_extra_fine_portamento_effects`
+uninitialized cold X10 intentionally omits FT2's 0→1 clamp artifact. G29 Amiga
+uses the same stores with ±4 nibble units; other X subcommands stay deferred.
+`xxy_extra_fine_portamento_effects`
 retains raw `amount_nibble` and resolved `amount`, with the execution fields above
 and `extra_fine_memory_value` / `extra_fine_memory_origin` in place of the fine
 memory names. Runtime family categories add `effect_memory_reused` or
 `cold_extra_fine_pitch_restoration`; source identity and frames remain explicit.
+Fine/extra-fine `frequency_table` selects the units of the legacy
+`current_linear_period_*` and `output_linear_period_*` fields: Linear periods
+or VTX's 4x Amiga periods. Amiga step updates also populate the existing
+`amiga_period_before/after` fields. Amiga applied policies use `amiga_period`
+in place of `linear_period`; replay/cold/origin/source eligibility fields remain
+shared. Same-cell Amiga E5 joins its effective finetune/step to the ordinary
+event mapping's Amiga period and exact instrument/sample identity. All five
+G29 pitch writers preserve latent tone target/direction/speed. G30 retained
+range/conversion differences are separate; schema versions are unchanged.
 Same-cell `EAx`/`EBx` fine volume slide note triggers keep effect metadata and
 trigger with the tick-zero adjusted channel volume. EAx/EBx own independent
 per-channel directional memories. Seeded EA0/EB0 replay their own amount; cold

@@ -9,7 +9,7 @@ final class OrdinaryTriggerToneTargetLifetimeTests: XCTestCase {
 
     func testOrdinaryEffectsRetainTargetAndSpeedOnTheNewGeneration() throws {
         // Pinned FT2 controls at both rates: ordinary triggers preserve the target
-        // independently of their own pitch/volume writers. Amiga G29 stays deferred.
+        // independently of their own pitch/volume writers, including Amiga G29.
         let effects: [(UInt8, UInt8)] = [(0,0),(0,0x37),(1,4),(2,4),(4,0x48),(10,4),(12,32),(8,48),
             (14,0x11),(14,0x21),(33,0x11),(33,0x21),(14,0x58),(14,0x57)]
         for linear in [true, false] {
@@ -18,6 +18,7 @@ final class OrdinaryTriggerToneTargetLifetimeTests: XCTestCase {
                     let (context, states) = inspect(song(prefix + [[c(effect,byte,note: 49,instrument: 1)],[c(3)]],linear: linear),rate)
                     assertTarget(states[2], equals: states[1])
                     XCTAssertEqual(states[2].tonePortamentoSpeed,4)
+                    XCTAssertEqual(states[2].tonePortamentoDirection,states[1].tonePortamentoDirection)
                     XCTAssertEqual(context.events.count,2)
                     XCTAssertEqual(states[2].activeEventIndex,1)
                     XCTAssertEqual(context.events[1].initialSourceFrame,0)
@@ -32,7 +33,10 @@ final class OrdinaryTriggerToneTargetLifetimeTests: XCTestCase {
                     XCTAssertEqual(later.stepUpdates.map(\.linearPeriodAfter),[start-(linear ? 16 : 64),start-(linear ? 32 : 128)])
                     XCTAssertEqual(later.stepUpdates.map(\.scheduledFrame),[10,11].map { $0*Int(rate/50) })
                     if !linear && [14,33].contains(effect) {
-                        XCTAssertEqual(context.events[1].playbackStep,8363/rate,accuracy: 1e-12)
+                        let initial = try XCTUnwrap(effect == 14
+                            ? [UInt8(0x11):6832.0,0x21:6864,0x58:6848,0x57:6896][byte]
+                            : [UInt8(0x11):6844.0,0x21:6852][byte])
+                        XCTAssertEqual(context.events[1].playbackStep,8363*6848/initial/rate,accuracy: 1e-12)
                     }
                 }
             }

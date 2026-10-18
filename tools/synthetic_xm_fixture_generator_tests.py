@@ -53,6 +53,7 @@ ALL_FIXTURES = [
     "amiga-tone-portamento-consumers.xm",
     "ordinary-trigger-tone-target-lifetime.xm",
     "tone-portamento-direction-latch.xm",
+    "amiga-fine-extra-fine-finetune.xm",
 ]
 
 
@@ -608,12 +609,14 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "amiga-tone-portamento-consumers.xm").resolve(),
                     (output_dir / "generated" / "ordinary-trigger-tone-target-lifetime.xm").resolve(),
                     (output_dir / "generated" / "tone-portamento-direction-latch.xm").resolve(),
+                    (output_dir / "generated" / "amiga-fine-extra-fine-finetune.xm").resolve(),
                 ],
             )
             self.assertEqual(
                 files,
                 [
                     "generated/amiga-arpeggio-ordering.xm",
+                    "generated/amiga-fine-extra-fine-finetune.xm",
                     "generated/amiga-portamento-up.xm",
                     "generated/amiga-tone-portamento-consumers.xm",
                     "generated/amiga-vibrato.xm",
@@ -714,6 +717,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                 files,
                 [
                     "generated/amiga-arpeggio-ordering.xm",
+                    "generated/amiga-fine-extra-fine-finetune.xm",
                     "generated/amiga-portamento-up.xm",
                     "generated/amiga-tone-portamento-consumers.xm",
                     "generated/amiga-vibrato.xm",
@@ -844,6 +848,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:amiga-tone-portamento-consumers.xm": "generated/amiga-tone-portamento-consumers.xm",
                     "xm:ordinary-trigger-tone-target-lifetime.xm": "generated/ordinary-trigger-tone-target-lifetime.xm",
                     "xm:tone-portamento-direction-latch.xm": "generated/tone-portamento-direction-latch.xm",
+                    "xm:amiga-fine-extra-fine-finetune.xm": "generated/amiga-fine-extra-fine-finetune.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",
                 },

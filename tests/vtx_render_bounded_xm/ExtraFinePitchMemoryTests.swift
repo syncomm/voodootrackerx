@@ -235,15 +235,17 @@ final class ExtraFinePitchMemoryTests: XCTestCase {
         }
     }
 
-    func testAmigaExtraFinePitchGuardAndG29RemainUnchanged() {
+    func testAmigaUsesTheSameDirectionalMemoryStores() {
         for parameter: UInt8 in [0x13, 0x10, 0x24, 0x20] {
             for sameCell in [false, true] {
                 let (context, states) = inspect(song([[c(note: 49, instrument: 1)],
                     [c(33, parameter, note: sameCell ? 49 : 0, instrument: sameCell ? 1 : 0)]], linear: false))
-                XCTAssertTrue(steps(context).isEmpty)
-                XCTAssertTrue(states.allSatisfy { $0[0].extraFinePitchUpMemory == nil && $0[0].extraFinePitchDownMemory == nil })
-                XCTAssertTrue(context.extraFinePortamentoEffects.allSatisfy { $0.status == .unsupportedFrequencyTable })
-                XCTAssertTrue(executions(context).allSatisfy { !$0.usesLinearFrequencyTable && !$0.publicationRequested })
+                let expected = parameter & 15
+                XCTAssertEqual(steps(context).count,expected == 0 || sameCell ? 0 : 1)
+                let memory = parameter >> 4 == 1 ? states.last![0].extraFinePitchUpMemory : states.last![0].extraFinePitchDownMemory
+                XCTAssertEqual(memory?.amount,expected == 0 ? nil : Int(expected))
+                XCTAssertTrue(context.extraFinePortamentoEffects.allSatisfy { $0.status == .applied })
+                XCTAssertTrue(executions(context).allSatisfy { !$0.usesLinearFrequencyTable && $0.publicationRequested })
             }
         }
     }

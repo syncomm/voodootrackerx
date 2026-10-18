@@ -85,7 +85,7 @@ final class LinearArpeggioOrderingTests: XCTestCase {
         }
     }
 
-    func testTunedPitchAndExplicitG30UpperBoundaryPreserveExistingConversion() throws {
+    func testTunedPitchAndG30BUpperProjectionUseSharedConversion() throws {
         for rate in rates {
             for (fine, base): (Int, Double) in [(8,4412), (1,4416)] {
                 let plan = adapt([[c(0x37, note: 49, instrument: 1)], [c()]], rate, finetune: fine, relative: 3)
@@ -96,8 +96,7 @@ final class LinearArpeggioOrderingTests: XCTestCase {
             let plan = adapt([[c(0x37, note: 96, instrument: 1)], [c()]], rate)
             let d = try XCTUnwrap(plan.diagnostics.arpeggioEffects.first)
             XCTAssertEqual(offsets(6, 0x37), [0,7,3,0,7,3])
-            // FT2's raised targets are 1540. G30 owns that range policy; keep VTX's arithmetic.
-            XCTAssertEqual(d.stepUpdates.map(\.linearPeriodAfter), [1152,1408,1600,1152,1408,1600])
+            XCTAssertEqual(d.stepUpdates.map(\.linearPeriodAfter), [1540,1540,1600,1540,1540,1600])
             for u in d.stepUpdates { XCTAssertEqual(u.playbackStepAfter, step(u.linearPeriodAfter, rate), accuracy: 1e-12) }
         }
     }
@@ -107,7 +106,9 @@ final class LinearArpeggioOrderingTests: XCTestCase {
             let parameter: UInt8 = command == 14 || command == 33 ? 0x11 : 4
             let plan = adapt([[c(note: 49, instrument: 1)], [c(note: command == 3 || command == 5 ? 53 : 0, effect: command, parameter: parameter)], [c(0x37)], [c()]], 48000)
             let d = plan.diagnostics.arpeggioEffects[0], base = d.currentLinearPeriodBefore!
-            XCTAssertEqual(d.stepUpdates.map(\.linearPeriodAfter), [base,base-448,base-192,base,base-448,base-192,base])
+            let y = PlaybackSongSyntheticAdapter.arpeggioPeriod(base,finetune: 0,offset: 7,linear: true)
+            let x = PlaybackSongSyntheticAdapter.arpeggioPeriod(base,finetune: 0,offset: 3,linear: true)
+            XCTAssertEqual(d.stepUpdates.map(\.linearPeriodAfter), [base,y,x,base,y,x,base])
             XCTAssertEqual(d.currentLinearPeriodAfter, base)
             XCTAssertEqual(plan.pattern.events.count, 1)
         }

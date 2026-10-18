@@ -32,24 +32,28 @@ extension PlaybackSongSyntheticAdapter {
         syntheticRow: Int, scheduledFrame: Int, globalVolume: Int,
         channelState: inout ChannelState,
         updates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
-        resets: inout [PlaybackVoiceStateEvent]
+        resets: inout [PlaybackVoiceStateEvent],
+        restoresDefaults: Bool = true,
+        resetDimensions: MixerPlaybackReset = .init(volumeEnvelope: true, panEnvelope: true, keyOn: true, fadeout: true)
     ) -> MixerPlaybackStateChange? {
         let before = channelState
-        restoreCachedInstrumentDefaults(state: &channelState)
-        updates.append(voiceStateUpdateDiagnostic(
+        if restoresDefaults {
+            restoreCachedInstrumentDefaults(state: &channelState)
+            updates.append(voiceStateUpdateDiagnostic(
             source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
             scheduledFrame: scheduledFrame, cell: cell, commandSource: .instrumentState,
             command: .instrumentDefaultVolume(value: channelState.baseChannelVolume), rawVolumeColumn: nil,
             effectType: cell.effectType, effectParam: cell.effectParam, status: .applied,
             behavior: nil, channelStateBefore: before, channelStateAfter: channelState,
             globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume
-        ))
+            ))
+        }
         // K00 releases without restarting envelopes. Volume-column portamento
         // takes precedence over K00; phase reset uses the same existing gate.
         let releasesImmediately = cell.effectType == 0x14 && cell.effectParam == 0 && cell.volumeColumn >> 4 != 0x0F
         // E90 + NOTE_OFF restores cached volume/pan, but never triggers the instrument.
         guard !releasesImmediately, cell.note != 97 else { return nil }
-        let reset = MixerPlaybackStateChange.reset(.init(volumeEnvelope: true, panEnvelope: true, keyOn: true, fadeout: true))
+        let reset = MixerPlaybackStateChange.reset(resetDimensions)
         if let event = channelState.activeEventIndex {
             resets.append(.init(activeEventIndex: event, channelIndex: channelIndex,
                 scheduledFrame: scheduledFrame, change: reset))
@@ -114,6 +118,115 @@ extension PlaybackSongSyntheticAdapter {
         case .setVolume, .setPanning: _ = applyVolumeColumn(column, to: &state)
         default: break
         }
+    }
+
+    struct RefusedOrdinarySelection {
+        let instrumentIndex: Int
+        let sampleIndex: Int
+        let relativeNote: Int
+    }
+
+    static func isNonzeroOrdinaryDelay(_ cell: PlaybackCell) -> Bool {
+        (1...96).contains(cell.note) && cell.effectType == 14 && (0xD1...0xDF).contains(cell.effectParam)
+    }
+
+    /// Resolves the raw key once before classifying pitch; absence never invents a route.
+    static func refusedOrdinarySelection(cell: PlaybackCell, instrumentIndex: Int,
+        song: PlaybackSong, admission: OrdinaryPitchAdmission = .refused) -> RefusedOrdinarySelection? {
+        guard (1...96).contains(cell.note),
+              isNonzeroOrdinaryDelay(cell) ||
+                (cell.effectType != 3 && cell.effectType != 5 && cell.volumeColumn >> 4 != 15 &&
+                    !(cell.effectType == 20 && cell.effectParam == 0)),
+              let instrument = song.instrumentsByIndex[instrumentIndex] else { return nil }
+        let selection = selectSample(forNote: cell.note, from: instrument, missingKeymapPolicy: .fail)
+        guard let slot = selection.mappedSampleIndex,
+              let relative = selection.sample?.relativeNote ?? song.xmSampleSlotProvenanceByInstrument[instrumentIndex]?
+                .first(where: { $0.sampleIndex == slot && $0.declaredPayloadLength == 0 })?.relativeNote,
+              ordinaryPitchAdmission(note: cell.note, relativeNote: relative) == admission else { return nil }
+        return .init(instrumentIndex: instrumentIndex, sampleIndex: slot, relativeNote: relative)
+    }
+
+    /// Changes only channel control ownership; sounding PCM/header and cached defaults survive.
+    /// The same existing reset authority serves immediate and delayed refusal.
+    static func applyRefusedOrdinarySelection(_ selection: RefusedOrdinarySelection, cell: PlaybackCell,
+        source: PlaybackPosition, channelIndex: Int, syntheticRow: Int, scheduledFrame: Int,
+        timingConfig: SyntheticTrackerTimingConfig, song: PlaybackSong, delayed: Bool = false,
+        state: inout ChannelState, context: inout AdapterRowContext) {
+        let instrument = song.instrumentsByIndex[selection.instrumentIndex]!
+        if cell.instrument > 0 { state.carriedInstrumentIndex = selection.instrumentIndex }
+        state.carriedNote = cell.note
+        state.semanticInstrumentIndex = selection.instrumentIndex
+        state.semanticSampleIndex = selection.sampleIndex
+        state.semanticVolumeEnvelopeEnabled = instrument.volumeEnvelope.enabled
+        state.activeSampleRelativeNote = selection.relativeNote
+        state.activeSampleFinetune = state.activeSampleFinetune ?? 0
+        state.activeSampleBaseSampleRate = state.activeSampleBaseSampleRate ?? PlaybackSample.xmNeutralSampleRate
+        state.activeUsesLinearFrequencyTable = state.activeUsesLinearFrequencyTable ?? song.usesLinearFrequencyTable
+        applyActiveVolumeEnvelopeMapping(mixerVolumeEnvelope(from: instrument.volumeEnvelope,
+            timingConfig: timingConfig), to: &state)
+        var reset: MixerPlaybackStateChange?
+        if cell.instrument > 0 || delayed {
+            // The rejected note admits no replacement. Publish this independent
+            // instrument writer to the retained generation through the existing path.
+            let resetCell = PlaybackCell(note: 0, instrument: cell.instrument, volumeColumn: cell.volumeColumn,
+                effectType: cell.effectType, effectParam: cell.effectParam)
+            reset = restoreInstrumentOnlyDefaults(cell: resetCell, source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, scheduledFrame: scheduledFrame, globalVolume: context.globalVolumeState.volumeValue,
+                channelState: &state, updates: &context.voiceStateUpdates, resets: &context.playbackStateEvents,
+                restoresDefaults: cell.instrument > 0,
+                resetDimensions: .init(volumeEnvelope: instrument.volumeEnvelope.enabled,
+                    panEnvelope: instrument.panningEnvelope.enabled, keyOn: true, fadeout: true))
+            resetTremoloTriggerPhases(state: &state)
+            state.keyOffWithoutVoice = false
+        }
+        if delayed {
+            let before = state
+            let column = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
+            if case .setVolume = column.command { _ = applyVolumeColumn(column, to: &state) }
+            if case .setPanning = column.command { _ = applyVolumeColumn(column, to: &state) }
+            if let update = voiceStateUpdate(source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame, cell: cell, volumeColumn: column, channelStateBefore: before,
+                channelStateAfter: state, globalVolumeValue: context.globalVolumeState.volumeValue) {
+                context.voiceStateUpdates.append(update)
+            }
+        }
+        context.xmInstrumentSelections.append(.init(channelIndex: channelIndex, scheduledFrame: scheduledFrame,
+            instrumentIndex: selection.instrumentIndex, sampleIndex: selection.sampleIndex,
+            reset: state.activeEventIndex == nil ? reset : nil, channelPanningValue: delayed ? state.panningValue : nil))
+        let ignored = ignoredCell(source: source, channelIndex: channelIndex, cell: cell,
+            reason: .effectiveNoteRefused, mappedSampleIndex: selection.sampleIndex,
+            volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
+            hasIgnoredVolumeColumn: false, hasIgnoredEffect: false)
+        context.ignoredCells.append(ignored)
+        context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+    }
+
+    /// EDx's actual invocation classifies and resets after this tick's ordinary column writer.
+    static func handleDelayedRefusedOrdinary(_ selection: RefusedOrdinarySelection, cell: PlaybackCell,
+        source: PlaybackPosition, channelIndex: Int, syntheticRow: Int, song: PlaybackSong,
+        timingConfig: SyntheticTrackerTimingConfig, timingPlan: PlaybackSongFxxTimingPlan,
+        context: inout AdapterRowContext) {
+        var state = context.channelStates[channelIndex]
+        let requested = extendedEffectTick(cell)
+        let slide = isOrdinaryVolumeColumnSlide(cell.volumeColumn) ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
+        for tick in 1..<max(1, timingConfig.speed) {
+            context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(slide, cell: cell, source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
+                timingPlan: timingPlan, state: &state, globalVolume: context.globalVolumeState.volumeValue))
+            if tick == requested {
+                applyRefusedOrdinarySelection(selection, cell: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                    timingConfig: timingConfig, song: song, delayed: true, state: &state, context: &context)
+            }
+        }
+        let inRow = requested < timingConfig.speed
+        context.noteDelayEffects.append(.init(source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+            syntheticTick: requested, effectType: cell.effectType, effectParam: cell.effectParam,
+            status: inRow ? .sourceRefused : .outOfRowNoOp, detected: true, applied: inRow,
+            deferred: false, ignoredAsNoOp: !inRow, outOfRow: !inRow, requestedTick: requested,
+            rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm, originalFrame: timingPlan.frameFor(row: syntheticRow),
+            delayedFrame: inRow ? timingPlan.frameFor(row: syntheticRow, tick: requested) : nil, eventIndex: nil))
+        context.channelStates[channelIndex] = state
     }
 
     static func prepareTremoloRow(

@@ -498,10 +498,10 @@ extension PlaybackSongSyntheticAdapter {
         let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: relativeNote)
         let effectiveNoteIndex = effectiveNoteValue - 1
         let effectiveFinetune = clampedFinetune(finetune)
-        let amigaPeriod = clampedAmigaPeriod(amigaPeriodFromLookup(
+        let amigaPeriod = amigaPeriodFromLookup(
             effectiveNoteValue: effectiveNoteValue,
             finetune: effectiveFinetune
-        ))
+        )
         guard let step = playbackStep(
             amigaPeriod: amigaPeriod,
             baseSampleRate: baseSampleRate,
@@ -688,6 +688,134 @@ extension PlaybackSongSyntheticAdapter {
 
     static func clampedFinetune(_ finetune: Int) -> Int {
         min(127, max(-128, finetune))
+    }
+
+    enum OrdinaryPitchAdmission: Equatable {
+        case refused
+        case retained
+        case lookup
+    }
+
+    /// Header transposition is byte arithmetic, after routing by the raw 96-note keymap.
+    static func ordinaryPitchAdmission(note: UInt8, relativeNote: Int) -> OrdinaryPitchAdmission {
+        let effective = UInt8(truncatingIfNeeded: Int(note) + relativeNote)
+        return effective >= 120 ? .refused : effective == 0 ? .retained : .lookup
+    }
+
+    /// An admitted effective-zero note starts PCM at the existing native base pitch.
+    static func retainedPitchMapping(sample: PlaybackSample, state: ChannelState,
+        usesLinearFrequencyTable linear: Bool, timingConfig: SyntheticTrackerTimingConfig,
+        finetune: Int) -> PlaybackStepMapping {
+        retainedPitchMapping(baseSampleRate: sample.baseSampleRate, state: state,
+            usesLinearFrequencyTable: linear, timingConfig: timingConfig, finetune: finetune)
+    }
+
+    /// Retains pitch for a declared header as well as a represented PCM sample.
+    static func retainedPitchMapping(baseSampleRate: Double, state: ChannelState,
+        usesLinearFrequencyTable linear: Bool, timingConfig: SyntheticTrackerTimingConfig,
+        finetune: Int) -> PlaybackStepMapping {
+        let period = (linear ? state.activeLinearPeriod : state.activeAmigaPeriod) ?? 0
+        let step = (linear ? playbackStep(linearPeriod: period, baseSampleRate: baseSampleRate,
+            outputSampleRate: timingConfig.sampleRate) : playbackStep(amigaPeriod: period,
+                baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate)) ?? 0
+        return .init(playbackStep: step, outputSampleRate: timingConfig.sampleRate,
+            effectiveNoteValue: 0, effectiveNoteIndex: nil, effectiveFinetune: clampedFinetune(finetune),
+            linearPeriod: linear ? period : nil, linearFrequency: linear ? step * timingConfig.sampleRate : nil,
+            amigaPeriod: linear ? nil : period, amigaFrequency: linear ? nil : step * timingConfig.sampleRate,
+            finetuneStatus: .applied, frequencyTableStatus: linear ? .linearApplied : .amigaApplied,
+            linearFrequencyApplied: linear, amigaFrequencyApplied: !linear, amigaFrequencyDeferred: false,
+            applied: true, usedNeutralStep: step == 1)
+    }
+
+    /// Tone admission checks its UInt16 lookup index, independently of ordinary byte admission.
+    static func toneTargetPeriod(note: UInt8, relativeNote: Int, finetune: Int, linear: Bool) -> Double? {
+        let fine = clampedFinetune(finetune)
+        let index = Int(UInt16(truncatingIfNeeded: (Int(note) + relativeNote - 1) * 16 + (fine >> 3) + 16))
+        guard index < 1_936 else { return nil }
+        if linear { return Double(quantizedLinearPeriod(effectiveNote: Int(note) + relativeNote, finetune: fine)) }
+        if xmAmigaPeriodLookup.indices.contains(index) { return Double(xmAmigaPeriodLookup[index]) * 4 }
+        // Characterized tone-only tail: a six-position arithmetic cycle and terminal zero.
+        // Ordinary admitted notes never address it; no reference table is added.
+        let phase = (index - 1_922 + 6) % 6
+        return index == 1_935 ? 0 : Double(phase <= 2 ? phase * 16 : (6 - phase) * 8) * 4
+    }
+
+    static func linearTonePitchTarget(note: UInt8, relativeNote: Int, finetune: Int,
+        baseSampleRate: Double, outputSampleRate: Double) -> LinearPitchTarget? {
+        guard let period = toneTargetPeriod(note: note, relativeNote: relativeNote, finetune: finetune, linear: true),
+              let step = playbackStep(linearPeriod: period, baseSampleRate: baseSampleRate, outputSampleRate: outputSampleRate) else { return nil }
+        return .init(linearPeriod: period, playbackStep: step, linearFrequency: step * outputSampleRate,
+            effectiveNoteValue: Int(note) + relativeNote, effectiveNoteIndex: Int(note) + relativeNote - 1,
+            effectiveFinetune: clampedFinetune(finetune))
+    }
+
+    static func amigaTonePitchTarget(note: UInt8, relativeNote: Int, finetune: Int,
+        baseSampleRate: Double, outputSampleRate: Double) -> AmigaPitchTarget? {
+        guard let period = toneTargetPeriod(note: note, relativeNote: relativeNote, finetune: finetune, linear: false),
+              let step = playbackStep(amigaPeriod: period, baseSampleRate: baseSampleRate, outputSampleRate: outputSampleRate) else { return nil }
+        return .init(amigaPeriod: period, playbackStep: step, amigaFrequency: step * outputSampleRate,
+            effectiveNoteValue: Int(note) + relativeNote, effectiveNoteIndex: Int(note) + relativeNote - 1,
+            effectiveFinetune: clampedFinetune(finetune))
+    }
+
+    /// Native UInt16 storage precedes the direction-specific signed clamp; VTX state stays x4.
+    /// Up replaces signed results below 1 with 1. Down replaces signed results at/above
+    /// 32000 with 31999, so negative signed results intentionally continue through that edge.
+    static func amigaSlidePeriod(_ period: Double, nativeDelta: Int) -> Double {
+        pitchSlidePeriod(period, nativeDelta: nativeDelta, linear: false)
+    }
+
+    /// Both tables share native storage arithmetic; only VTX's Amiga scale differs.
+    static func pitchSlidePeriod(_ period: Double, nativeDelta: Int, linear: Bool) -> Double {
+        let scale = linear ? 1.0 : 4
+        let next = UInt16(truncatingIfNeeded: Int(period / scale) + nativeDelta)
+        let signed = Int16(bitPattern: next)
+        let result = nativeDelta < 0 && signed < 1 ? UInt16(1)
+            : nativeDelta > 0 && signed >= 32_000 ? UInt16(31_999) : next
+        return Double(result) * scale
+    }
+
+    /// Admission latches unsigned direction. Lower-period ticks compare the wrapped
+    /// result and target as Int16; higher-period ticks compare them as UInt16.
+    static func amigaTonePeriod(_ period: Double, target: Double, nativeSpeed: Int,
+        direction: PlaybackSongSyntheticTonePortamentoDirection) -> Double {
+        pitchTonePeriod(period, target: target, nativeSpeed: nativeSpeed, direction: direction, linear: false)
+    }
+
+    static func pitchTonePeriod(_ period: Double, target: Double, nativeSpeed: Int,
+        direction: PlaybackSongSyntheticTonePortamentoDirection, linear: Bool) -> Double {
+        let scale = linear ? 1.0 : 4
+        let current = UInt16(truncatingIfNeeded: Int(period / scale))
+        let destination = UInt16(truncatingIfNeeded: Int(target / scale))
+        let speed = UInt16(truncatingIfNeeded: nativeSpeed)
+        switch direction {
+        case .none: return period
+        case .towardLowerPeriod:
+            let next = current &- speed
+            return Double(Int16(bitPattern: next) <= Int16(bitPattern: destination) ? destination : next) * scale
+        case .towardHigherPeriod:
+            let next = current &+ speed
+            return Double(next >= destination ? destination : next) * scale
+        }
+    }
+
+    /// Projects the held period onto the reference's bounded inverse-note search.
+    /// Half-semitone thresholds choose among 96 notes; the output index has its own
+    /// 1550->1551 edge, independent of ordinary note admission and period-state clamps.
+    static func arpeggioPeriod(_ period: Double, finetune: Int, offset: Int, linear: Bool) -> Double {
+        let tuning = (finetune >> 3) + 16
+        func nativePeriod(_ index: Int) -> Int {
+            linear ? 7_744 - index * 4 : Int(xmAmigaPeriodLookup[index])
+        }
+        let native = linear ? Int(period) : Int(period / 4)
+        var lower = 0, upper = 96
+        while upper - lower > 1 {
+            let middle = (lower + upper) / 2
+            if native < nativePeriod(max(0, middle * 16 + tuning - 8)) { lower = middle }
+            else { upper = middle }
+        }
+        let index = (lower + offset) * 16 + tuning
+        return Double(nativePeriod(index >= 1_550 ? 1_551 : index)) * (linear ? 1 : 4)
     }
 
     static func mixerVolumeEnvelope(

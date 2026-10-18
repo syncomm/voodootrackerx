@@ -139,6 +139,18 @@ struct PlaybackXMEmptyRoute: Equatable {
     var tick = 0
 }
 
+/// Channel control ownership can change while its sounding PCM generation is retained.
+/// Only source-less resets need the returned reset decision here; live-source resets
+/// already use PlaybackVoiceStateEvent and the existing envelope fold.
+struct PlaybackXMInstrumentSelection: Equatable {
+    let channelIndex: Int
+    let scheduledFrame: Int
+    let instrumentIndex: Int
+    let sampleIndex: Int
+    let reset: MixerPlaybackStateChange?
+    let channelPanningValue: Double?
+}
+
 /// One channel's canonical tick state. A nil source generation requires no mixer voice.
 struct PlaybackXMChannelUpdate: Equatable {
     let channelIndex: Int
@@ -192,7 +204,10 @@ extension PlaybackSongSyntheticAdapter {
         state.activeSampleRelativeNote = header.relativeNote
         state.activeSampleFinetune = finetune
         state.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
-        let pitch = playbackStepMapping(note: cell.note, relativeNote: header.relativeNote, finetune: finetune,
+        let pitch = ordinaryPitchAdmission(note: cell.note, relativeNote: header.relativeNote) == .retained
+            ? retainedPitchMapping(baseSampleRate: PlaybackSample.xmNeutralSampleRate, state: state,
+                usesLinearFrequencyTable: song.usesLinearFrequencyTable, timingConfig: timingConfig, finetune: finetune)
+            : playbackStepMapping(note: cell.note, relativeNote: header.relativeNote, finetune: finetune,
             baseSampleRate: PlaybackSample.xmNeutralSampleRate, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
             timingConfig: timingConfig)
         state.activeLinearPeriod = pitch.linearPeriod
@@ -338,7 +353,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         updatesByEvent = [:]
         channelUpdates = []
         planningHistoryDiagnostics = PlaybackXMHistoryLookupDiagnostics()
-        guard !plan.xmEmptyRoutes.isEmpty ||
+        guard !plan.xmEmptyRoutes.isEmpty || !plan.xmInstrumentSelections.isEmpty ||
                 plan.pattern.events.contains(where: { $0.volumeEnvelope != nil || $0.panEnvelope != nil }) ||
                 plan.diagnostics.keyOffEvents.contains(where: \.applied) || !plan.playbackStateEvents.isEmpty ||
                 !plan.noteOnlyEventIndices.isEmpty else { return }
@@ -384,12 +399,22 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         routes += plan.xmEmptyRoutes.map { Route(eventIndex: nil, channelIndex: $0.channelIndex,
             instrumentIndex: $0.instrumentIndex, sampleIndex: $0.sampleIndex, frame: $0.scheduledFrame,
             preservesChannelState: $0.preservesChannelState) }
+        let selectionsByChannel = Dictionary(grouping: plan.xmInstrumentSelections, by: \.channelIndex)
         routes.sort { $0.frame == $1.frame ? ($0.eventIndex ?? -1) < ($1.eventIndex ?? -1) : $0.frame < $1.frame }
         let changes = PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan)
-        let routesByChannel = Dictionary(grouping: routes, by: \.channelIndex)
+        var routesByChannel = Dictionary(grouping: routes, by: \.channelIndex)
+        for (channel, selections) in selectionsByChannel {
+            if let first = selections.min(by: { $0.scheduledFrame < $1.scheduledFrame }),
+               first.scheduledFrame < (routesByChannel[channel]?.first?.frame ?? Int.max) {
+                // Reuse the existing route grouping; no additional song-wide pass.
+                routesByChannel[channel, default: []].insert(Route(eventIndex: nil, channelIndex: channel,
+                    instrumentIndex: first.instrumentIndex, sampleIndex: first.sampleIndex,
+                    frame: first.scheduledFrame, preservesChannelState: true), at: 0)
+            }
+        }
         let rowsByChannel = Dictionary(grouping: plan.xmChannelRows, by: \.channelIndex)
         let instrumentDelays = Dictionary(grouping: plan.diagnostics.noteDelayEffects.filter {
-            $0.rowEntryInstrumentSelected && $0.requestedTick > 0 && $0.applied
+            ($0.rowEntryInstrumentSelected || $0.delayedPanningValue != nil) && $0.requestedTick > 0 && $0.applied
         }, by: \.channelIndex)
         // Build the complete channel index set once, before any route queries.
         let rowHistories = rowsByChannel.mapValues { PlaybackXMChannelHistoryIndex(rows: $0) }
@@ -413,6 +438,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             let change: MixerPlaybackStateChange
         }
         for (channel, channelRoutes) in routesByChannel {
+            let selections = Dictionary((selectionsByChannel[channel] ?? []).map { ($0.scheduledFrame, $0) },
+                uniquingKeysWith: { _, last in last })
             let delayedSelections = Dictionary(uniqueKeysWithValues: (instrumentDelays[channel] ?? []).compactMap {
                 delay in delay.delayedFrame.map { ($0, delay) }
             })
@@ -425,7 +452,9 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 if let value = $1.channelPanningValueAfter { $0[$1.scheduledFrame] = value }
             }
             for (routeIndex, route) in channelRoutes.enumerated() {
-                guard let instrument = route.eventIndex.flatMap({ instruments[$0] }) ?? instrumentsByIdentity[route.instrumentIndex] else { continue }
+                guard var instrument = route.eventIndex.flatMap({ instruments[$0] }) ?? instrumentsByIdentity[route.instrumentIndex] else { continue }
+                var semanticInstrumentIndex = route.instrumentIndex
+                var semanticSampleIndex = route.sampleIndex
                 let index = route.eventIndex
                 let start = route.frame
                 let stop = routeIndex + 1 < channelRoutes.count ? channelRoutes[routeIndex + 1].frame : Int.max
@@ -460,13 +489,17 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     work: &planningHistoryDiagnostics) ?? []).map { row in
                     Change(scheduledFrame: row.scheduledFrame, change: row.instrumentOnlyReset!)
                 }
-                let volumeEnabled = index.map { plan.pattern.events[$0].volumeEnvelope != nil }
+                resets += selections.values.compactMap {
+                    guard let reset = $0.reset, $0.scheduledFrame >= start, $0.scheduledFrame < stop else { return nil }
+                    return Change(scheduledFrame: $0.scheduledFrame, change: reset)
+                }
+                var volumeEnabled = index.map { plan.pattern.events[$0].volumeEnvelope != nil }
                     ?? (instrument.volume.enabled && !instrument.volume.points.isEmpty)
-                let panEnabled = index.map { plan.pattern.events[$0].panEnvelope != nil }
+                var panEnabled = index.map { plan.pattern.events[$0].panEnvelope != nil }
                     ?? (instrument.pan.enabled && !instrument.pan.points.isEmpty)
                 let publishesToVoice = volumeEnabled || panEnabled || releases.contains { $0 < sourceEnd } ||
                     resets.contains { $0.scheduledFrame < sourceEnd } || !plan.noteOnlyEventIndices.isEmpty
-                guard publishesToVoice || plan.xmEmptyRoutes.contains(where: { $0.channelIndex == channel }) else { continue }
+                guard publishesToVoice || !selections.isEmpty || plan.xmEmptyRoutes.contains(where: { $0.channelIndex == channel }) else { continue }
                 let routeControls = routeRow?.controls
                 let delayedSelection = delayedSelections[start]
                 var channelPanning = delayedSelection?.delayedPanningValue ?? routeControls?.panningValue ?? 128
@@ -504,8 +537,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 }
                 carried.instrument = instrument
                 var state = carried.semantic
-                let pan = instrument.pan
-                let panClock = PlaybackVolumeEnvelope(enabled: pan.enabled, points: pan.points,
+                var pan = instrument.pan
+                var panClock = PlaybackVolumeEnvelope(enabled: pan.enabled, points: pan.points,
                     sustainPointIndex: pan.sustainPointIndex, loopStartPointIndex: pan.loopStartPointIndex,
                     loopEndPointIndex: pan.loopEndPointIndex, typeFlags: pan.typeFlags, fadeout: 0)
                 var first = true
@@ -530,11 +563,26 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 for tick in clock {
                     let frame = tick.frame
                     guard frame >= start && frame < stop else { continue }
+                    if let selection = selections[frame], let next = instrumentsByIdentity[selection.instrumentIndex] {
+                        if instrument.volume != next.volume { carried.volume.followsCurve = false }
+                        if instrument.pan != next.pan { carried.pan.followsCurve = false }
+                        instrument = next
+                        carried.instrument = next
+                        semanticInstrumentIndex = selection.instrumentIndex
+                        semanticSampleIndex = selection.sampleIndex
+                        volumeEnabled = next.volume.enabled && !next.volume.points.isEmpty
+                        panEnabled = next.pan.enabled && !next.pan.points.isEmpty
+                        pan = next.pan
+                        panClock = PlaybackVolumeEnvelope(enabled: pan.enabled, points: pan.points,
+                            sustainPointIndex: pan.sustainPointIndex, loopStartPointIndex: pan.loopStartPointIndex,
+                            loopEndPointIndex: pan.loopEndPointIndex, typeFlags: pan.typeFlags, fadeout: 0)
+                    }
                     // Tick-zero writers keep their row authority; slides supply the exact
                     // stored pan for later publications, carrying the final value into tails.
                     if tick.tick == 0, let value = channelPans[tick.row] { channelPanning = value }
                     // A delayed source reset follows this tick's column slide.
                     if let value = panSlides[frame], !(first && delayedSelection != nil) { channelPanning = value }
+                    if let value = selections[frame]?.channelPanningValue { channelPanning = value }
                     var resetVolume = first && !carries
                     var resetPan = first && !carries
                     let wasKeyOn = state.keyOn
@@ -597,8 +645,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                         state.fadeoutAccumulator = max(0, state.fadeoutAccumulator - max(0, carried.fadeoutDecrement))
                     }
                     let sourceIndex = frame < sourceEnd ? index : nil
-                    channelUpdates.append(.init(channelIndex: channel, instrumentIndex: route.instrumentIndex,
-                        sampleIndex: route.sampleIndex.flatMap(UInt8.init(exactly:)), sourceEventIndex: sourceIndex, source: tick.source,
+                    channelUpdates.append(.init(channelIndex: channel, instrumentIndex: semanticInstrumentIndex,
+                        sampleIndex: semanticSampleIndex.flatMap(UInt8.init(exactly:)), sourceEventIndex: sourceIndex, source: tick.source,
                         tick: tick.tick, scheduledFrame: frame, bpm: tick.bpm, speed: tick.speed, state: state,
                         carriedInstrumentIndex: carriedInstruments.byRow[tick.row] ?? carriedInstruments.lastCarriedInstrument,
                         cachedDefaultVolume: delayedSelection?.cachedDefaultVolume ?? routeControls?.triggeredSampleDefaultVolume,

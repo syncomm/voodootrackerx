@@ -56,6 +56,8 @@ ALL_FIXTURES = [
     "amiga-fine-extra-fine-finetune.xm",
     "bounded-pitch-conversion-linear.xm",
     "bounded-pitch-conversion-amiga.xm",
+    "extreme-pitch-state-linear.xm",
+    "extreme-pitch-state-amiga.xm",
 ]
 
 
@@ -614,6 +616,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "amiga-fine-extra-fine-finetune.xm").resolve(),
                     (output_dir / "generated" / "bounded-pitch-conversion-linear.xm").resolve(),
                     (output_dir / "generated" / "bounded-pitch-conversion-amiga.xm").resolve(),
+                    (output_dir / "generated" / "extreme-pitch-state-linear.xm").resolve(),
+                    (output_dir / "generated" / "extreme-pitch-state-amiga.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -637,6 +641,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
                     "generated/extra-fine-pitch-directional-memory.xm",
+                    "generated/extreme-pitch-state-amiga.xm",
+                    "generated/extreme-pitch-state-linear.xm",
                     "generated/fine-pitch-directional-memory.xm",
                     "generated/fine-volume-directional-memory.xm",
                     "generated/fxx-timing.xm",
@@ -740,6 +746,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/empty-slot-playback-state.xm",
                     "generated/envelope-release-fadeout-timing.xm",
                     "generated/extra-fine-pitch-directional-memory.xm",
+                    "generated/extreme-pitch-state-amiga.xm",
+                    "generated/extreme-pitch-state-linear.xm",
                     "generated/fine-pitch-directional-memory.xm",
                     "generated/fine-volume-directional-memory.xm",
                     "generated/fxx-timing.xm",
@@ -859,6 +867,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:amiga-fine-extra-fine-finetune.xm": "generated/amiga-fine-extra-fine-finetune.xm",
                     "xm:bounded-pitch-conversion-linear.xm": "generated/bounded-pitch-conversion-linear.xm",
                     "xm:bounded-pitch-conversion-amiga.xm": "generated/bounded-pitch-conversion-amiga.xm",
+                    "xm:extreme-pitch-state-amiga.xm": "generated/extreme-pitch-state-amiga.xm",
+                    "xm:extreme-pitch-state-linear.xm": "generated/extreme-pitch-state-linear.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",
                 },

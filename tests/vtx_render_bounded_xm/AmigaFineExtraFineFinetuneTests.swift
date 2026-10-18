@@ -202,13 +202,14 @@ final class AmigaFineExtraFineFinetuneTests: XCTestCase {
         } }
     }
 
-    func testG30RangeAndConversionPoliciesRemainSeparate() {
+    func testG30BExtremesKeepFineMemorySeparateFromAdmissionAndConversion() {
         for rate in rates {
             let high = inspect(song([[c(96,1)],[pitch(1,15,96,1)]],relative: 12),rate)
-            XCTAssertEqual(high.1[1][0].activeAmigaPeriod,107) // FT2 reaches native period 1; retained G30 minimum.
+            XCTAssertEqual(high.1[1][0].activeAmigaPeriod,4)
             XCTAssertTrue(high.0.finePortamentoUpEffects.first?.clamped == true)
             let low = inspect(song([[c(1,1)],[pitch(2,15,1,1)]],relative: -12),rate)
-            XCTAssertEqual(low.1[1][0].activeAmigaPeriod,109808) // Existing base-note admission differs from FT2 here.
+            XCTAssertNil(low.1[1][0].activeAmigaPeriod)
+            XCTAssertTrue(low.0.events.isEmpty)
             let nongrid = inspect(song([[c(49,1)],[pitch(3,1)]],finetune: 1),rate)
             XCTAssertEqual(nongrid.1[0][0].activeAmigaPeriod,6848)
             XCTAssertEqual(nongrid.1[1][0].activeAmigaPeriod,6844)

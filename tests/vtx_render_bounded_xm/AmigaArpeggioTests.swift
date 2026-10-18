@@ -128,13 +128,11 @@ final class AmigaArpeggioTests: XCTestCase {
         }
     }
 
-    func testG30HighAndLowBaseRangePolicyStaysWithExistingPitchResolver() throws {
+    func testG30BHighProjectionAndLowAdmissionUseDistinctPolicies() throws {
         for rate in rates {
-            // Baseline VTX 4x periods, deliberately distinct from FT2 range policy.
             let edges: [(UInt8, Int, Int, Double, [Double])] = [
-                (96,0,0,452,[300,380,452,300,380,452]),
+                (96,0,0,452,[428,428,452,428,428,452]),
                 (1,0,-128,116096,[77312,97536,116096,77312,97536,116096]),
-                (1,-12,0,109568,Array(repeating: 109568, count: 5)),
             ]
             for (note, relative, fine, base, expected) in edges {
                 let plan = adapt([[c(0x37, note: note, instrument: 1)], [c()]], rate, fine: fine, relative: relative)
@@ -144,12 +142,12 @@ final class AmigaArpeggioTests: XCTestCase {
                 let offsets = [7,3,0,7,3,0]
                 for (u, offset) in zip(d.stepUpdates, offsets) {
                     XCTAssertEqual(Adapter.arpeggioSemitoneOffset(effectiveSpeed: 6, tick: u.syntheticTick, x: 3, y: 7), offset)
-                    let target = try XCTUnwrap(Adapter.amigaPitchTarget(note: note, relativeNote: relative+offset,
-                        finetune: fine, baseSampleRate: 8363, outputSampleRate: rate))
-                    XCTAssertEqual(u.amigaPeriodAfter, target.amigaPeriod)
-                    XCTAssertEqual(u.playbackStepAfter, target.playbackStep)
+                    XCTAssertEqual(u.playbackStepAfter,step(try XCTUnwrap(u.amigaPeriodAfter),rate))
                 }
             }
+            let refused = adapt([[c(0x37,note: 1,instrument: 1)]],rate,relative: -12)
+            XCTAssertTrue(refused.pattern.events.isEmpty)
+            XCTAssertTrue(refused.diagnostics.arpeggioEffects.allSatisfy { $0.stepUpdates.isEmpty && $0.currentAmigaPeriodBefore == nil })
         }
     }
 

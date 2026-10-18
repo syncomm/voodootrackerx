@@ -144,12 +144,12 @@ notes and matrix IDs, including the cross-cutting obligations below.
 
 | Command | Name | Support | FT2 closure | FT2 memory | VTX pitch mode | Current behavior / remaining boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| `0xy` | Arpeggio | Implemented | Partial; G25/G26 in-range contracts closed | None; `000` inert | Both | Tick zero is base; later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using effective same-row Fxx speed. Source/cursor and arithmetic are preserved; G30A supplies quantization/step conversion. B-7 `037` retains periods 1152/1408 versus FT2 1540/1540; extreme projection remains G30B. Amiga phases resolve through the existing quantized note/finetune lookup, with relative-note metadata. Amiga range/extremes remain G30B; step conversion is G30A. |
-| `1xx` | Portamento up | Implemented | Partial; G27 in-range Amiga contract closed | Own; `100` supported | Both | Linear `4 * xx`, Amiga `16 * xx` subtraction per nonzero tick through the existing period/clamp/sample-step foundation. Corrected generic memory admission requires an executed nonzero tick; speed 1 neither seeds nor replaces history. G30 retains broader range/extremes, including VTX minimum 107 versus FT2 native 1. |
-| `2xx` | Portamento down | Implemented | Partial | Own; `200` supported | Both | Linear `4 * xx`, Amiga `16 * xx` in VTX's 4x representation. Same memory admission rule as `1xx`; speed 1 neither seeds nor replaces it. Units are closed; extreme boundaries remain G30B. |
-| `3xx` | Tone portamento | Implemented | Partial | Shared with volume-column `Fx`; `300` target/speed supported | Both | No retrigger, target-clamped nonzero ticks and Amiga quantized targets are established. Targets, speed and period direction are independent channel state. Explicit 3xx/5xy/Fx target admission latches direction; equality installs none. Ordinary source/pitch changes retain it; 300/500/F0 consumes it. An executed clamp leaves higher-period direction, including a crossed-target clamp at implicit zero speed without memory provenance. Glissando and G30B range remain separate. |
+| `0xy` | Arpeggio | Implemented | Partial; G25/G26 in-range contracts closed | None; `000` inert | Both | Tick zero is base; later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using effective same-row Fxx speed. Source/cursor and arithmetic are preserved; G30A supplies quantization/step conversion. G30B inverse projection gives B-7 `037` periods 1540/1540. Amiga phases resolve through the existing quantized note/finetune lookup, with relative-note metadata. G30B owns bounded Amiga extremes; step conversion is G30A. |
+| `1xx` | Portamento up | Implemented | Partial; G27 in-range Amiga contract closed | Own; `100` supported | Both | Linear `4 * xx`, Amiga `16 * xx` subtraction per nonzero tick through the shared native-word arithmetic and G30A conversion. Corrected generic memory admission requires an executed nonzero tick; speed 1 neither seeds nor replaces history. G30B closes the native minimum 1 (Amiga VTX 4); final combined G30 verification remains open. |
+| `2xx` | Portamento down | Implemented | Partial | Own; `200` supported | Both | Linear `4 * xx`, Amiga `16 * xx` in VTX's 4x representation. Same memory admission rule as `1xx`; speed 1 neither seeds nor replaces it. G30B closes the distinct signed-threshold boundary below. |
+| `3xx` | Tone portamento | Implemented | Partial | Shared with volume-column `Fx`; `300` target/speed supported | Both | No retrigger, target-clamped nonzero ticks and Amiga quantized targets are established. Targets, speed and period direction are independent channel state. Explicit 3xx/5xy/Fx target admission latches direction; equality installs none. Ordinary source/pitch changes retain it; 300/500/F0 consumes it. An executed clamp leaves higher-period direction, including a crossed-target clamp at implicit zero speed without memory provenance. G30B closes bounded extremes below; glissando remains separate. |
 | `4xy` | Vibrato | Implemented | Partial | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay, Amiga wrap/zero-step hold and G10 shared volume-column dispatch are closed. Full audible interactions remain G39. |
-| `5xy` | Tone portamento + volume slide | Implemented | Partial; G28 Amiga composition closed | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Both | Amiga reuses 3xx progression plus the existing shared volume writer, including independent cold 500 execution and whole-byte replay. Same-cell ownership selects retained/empty defaults or cold initialization before explicit writers. Fxx/speed-1, exact routes and source/cursor carry are pinned. G30 and parent pitch limitations remain separate. |
+| `5xy` | Tone portamento + volume slide | Implemented | Partial; G28 Amiga composition closed | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Both | Amiga reuses 3xx progression plus the existing shared volume writer, including independent cold 500 execution and whole-byte replay. Same-cell ownership selects retained/empty defaults or cold initialization before explicit writers. Fxx/speed-1, exact routes and source/cursor carry are pinned. G30B supplies bounded extremes below; final G30 verification and parent limitations remain separate. |
 | `6xy` | Vibrato + volume slide | Implemented | Partial | Shared `4xy` vibrato and `Axy`/`5xy`/`6xy` slide byte; `600` supported | Both | Vibrato then slide on ticks `1..<speed`; no tick-zero/speed-1 slide. Unseeded `600` restores base to output with zero amount and publishes against the held source target even when local values are unchanged. Timing/memory/local publication are closed; G39 remains. |
 | `7xy` | Tremolo | Implemented | Partial | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. Onset, ramps and trigger/cut interactions remain G39; G01 removes duplicate header scaling. |
 | `8xx` | Set panning | Implemented | Known difference | None | Not applicable | Exact tick-zero panning state exists. Final stereo pan law differs (G40); this is separate from E8 and pan envelopes. |
@@ -159,11 +159,11 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Cxx` | Set volume | Implemented | Closed | None | Not applicable | Bounded tick-zero channel-volume state/clamp is supported; audible header/gain/ramp obligations remain separate. |
 | `Dxx` | Pattern break | Implemented | Needs characterization | None | Not applicable | BCD target/traversal exists; broader B/D/E6 precedence remains G38. |
 | `E0x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch. VTX's no-op needs no audible XM filter; MOD hardware-filter semantics are a separate target. |
-| `E1x` | Fine portamento up | Implemented | Closed G17 Linear / G29 in-range Amiga | Own per-channel up amount; seeded `E10` supported | Both | Tick-zero Linear `4 * x` / Amiga `16 * x`; same-cell folding and independent replay. Cold forms restore meaningful held pitch without provenance; ineligible publications are suppressed. G30B clamps/range remain separate. |
-| `E2x` | Fine portamento down | Implemented | Closed G17 Linear / G29 in-range Amiga | Own per-channel down amount; seeded `E20` supported | Both | Same bounded timing/restoration as E1 with independent downward memory and positive deltas. Ordinary source changes preserve tone target/direction/speed. G30 remains separate. |
+| `E1x` | Fine portamento up | Implemented | Closed G17 Linear / G29 in-range Amiga | Own per-channel up amount; seeded `E10` supported | Both | Tick-zero Linear `4 * x` / Amiga `16 * x`; same-cell folding and independent replay. Cold forms restore meaningful held pitch without provenance; ineligible publications are suppressed. G30B supplies native-word clamps below. |
+| `E2x` | Fine portamento down | Implemented | Closed G17 Linear / G29 in-range Amiga | Own per-channel down amount; seeded `E20` supported | Both | Same bounded timing/restoration as E1 with independent downward memory and positive deltas. Ordinary source changes preserve tone target/direction/speed. Final combined G30 verification remains separate. |
 | `E3x` | Glissando control | Deferred | Open | Special; persistent enable/disable control | Not applicable | Genuine FT2 v1 target G36, separate from inert E0/E8/EF. Linear/Amiga tone-output quantization still needs a focused oracle. |
 | `E4x` | Vibrato control | Implemented | Closed | Special; persistent control for `4xy`/`6xy` | Not applicable | All 16 controls: sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 ignored. Bounded control contract only. |
-| `E5x` | Set finetune | Implemented | Partial; G29 in-range Amiga trigger closed | None; no-note form inert | Both | Ordinary exact mapped note trigger uses `16 * nibble - 128` instead of header finetune, preserving relative note, defaults/reset and latent tone target/direction/speed. No-note E5 does not retune current/later sources. Amiga reports inert; the Linear legacy no-note diagnostic is unchanged. G30B range remains separate. |
+| `E5x` | Set finetune | Implemented | Partial; G29 in-range Amiga trigger closed | None; no-note form inert | Both | Ordinary exact mapped note trigger uses `16 * nibble - 128` instead of header finetune, preserving relative note, defaults/reset and latent tone target/direction/speed. No-note E5 does not retune current/later sources. Amiga reports inert; the Linear legacy no-note diagnostic is unchanged. G30B supplies ordinary admission below. |
 | `E6x` | Pattern loop | Implemented | Partial | Special; channel loop start/counter | Not applicable | Explicit E60 start exists. Implicit initial loop start missing (G37); B/D/E6 ordering remains G38. |
 | `E7x` | Tremolo control | Implemented | Closed | Special; persistent control independent of E4 | Not applicable | All nibble aliases and phase-reset suppression are supported; ramp retains FT2's vibrato-phase sign quirk. Full `7xy` audio remains G39. |
 | `E8x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; current no-op matches. OpenMPT's audible panning alias is outside FT2 v1; use supported `8xx`. |
@@ -183,7 +183,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Pxy` | Panning slide | Deferred | Open | Own byte; pinned `P00` replays it | Not applicable | Real FT2/XM v1 target G33. Legacy handler support is not C-adapter support; remaining timing/writer/pan-envelope interactions need characterization. |
 | `Rxy` | Multi retrigger | Implemented | Closed G20 memory / G21 counter and carry / G22 integer volume modes | Independent zero-initialized interval/mode bytes and persistent counter | Not applicable | Memory resolves before invocation gating. Eligible ticks increment the counter; reaching the interval resets it and restarts the exact retained route at cursor zero, carrying semantic state. Interval zero executes every eligible tick. Volume modes use exact pinned FT2 integer arithmetic over 0...64. Only fully uninitialized volume bookkeeping is excluded as C; retirement reconstruction debt remains separate. |
 | `Txy` | Tremor | Deferred | Open | Own byte; pinned `T00` replays it | Not applicable | Real FT2/XM v1 target G34. Counter/phase, cold state, trigger carry and volume-writer interactions still need characterization. |
-| `X1x` / `X2x` | Extra fine portamento | Implemented | Closed G18 Linear / G29 in-range Amiga | Own independent per-channel up/down amount/origin | Both | Tick-zero Linear `x` / Amiga `4 * x`; seeded X10/X20 replay their direction independently of E1/E2. Cold restoration, deduplication and source eligibility are preserved. Fine:extra-fine granularity is 4:1; G30 remains separate. |
+| `X1x` / `X2x` | Extra fine portamento | Implemented | Closed G18 Linear / G29 in-range Amiga | Own independent per-channel up/down amount/origin | Both | Tick-zero Linear `x` / Amiga `4 * x`; seeded X10/X20 replay their direction independently of E1/E2. Cold restoration, deduplication and source eligibility are preserved. Fine:extra-fine granularity is 4:1; Final combined G30 verification remains separate. |
 | `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug commands | Extension | Outside v1 | Not applicable | Not applicable | No runtime/offline support. Extension/hack families require a separately accepted compatibility target. |
 | `Vxx`, `Wxx` | High-byte diagnostic unknowns | Classification-only | Outside v1 | None in pinned FT2 | Not applicable | Unused/dummy in pinned FT2 dispatch. Diagnostic occurrence does not establish an FT2 effect or identify an extension. |
 
@@ -213,7 +213,7 @@ Linear nonzero units and restoration stay unchanged.
 
 E1x/E2x retain separate channel-local amount/origin memories, independent of
 1/2/3, X1/X2 and shared vibrato state. Nonzero and seeded zero commands execute
-once at tick zero, with existing Linear arithmetic/clamps and same-cell trigger
+once at tick zero, with G30B native-word arithmetic and same-cell trigger
 folding. Cold E10/E20 perform zero arithmetic on meaningful canonical real pitch
 and restore held output from it, publishing only when the current source is
 eligible and its held step differs. A later fine publication subsumes a preceding
@@ -225,7 +225,7 @@ uninitialized pitch remains absent. Pinned FT2's source-less cold-E10 0→1 clam
 mutation and redundant refresh flags are intentionally not emulated. This is a
 bounded Linear contract; G29 extends its existing stores and scheduler to Amiga.
 Amiga fine deltas are ±16 times the nibble in VTX units; target/direction/speed
-remain independent channel state. G30B range/state semantics are unchanged.
+remain independent channel state. G30B supplies the native-word extreme policy below.
 
 X1x/X2x have separate channel-local directional extra-fine memories. Seeded
 X10/X20 replay their own amount; cold forms restore held output from meaningful
@@ -354,7 +354,7 @@ effect-column whole-command memory just because their names resemble it.
 | Vibrato depth (`B0...BF`) | Implemented | Closed | Shared vibrato depth with `4xy`/`6xy` | Both | G10: Bx writes nonzero depth and executes on each nonzero tick; B0 preserves depth and executes. Speed 1 has no Bx write or execution. Bx precedes same-tick 4xy/6xy writer/execution. |
 | Set panning (`C0...CF`) | Implemented | Closed | None | Not applicable | G11: tick-zero stored pan is `16 * nibble`, C8 = 128 and CF = 240. Header/Cx/8xx precedence, silent carry and G09/G06/G07 remain intact; final stereo conversion/law is separately G40. |
 | Panning slide left/right (`D0...EF`) | Implemented | Closed | None; D0/E0 are special zero cases | Not applicable | G09: ticks `1..<effective row speed`, clamped stored pan; D0 forces zero, E0 preserves it. Speed 1 has no slide. Header/Cx/8xx tick-zero order and G06/G07 remain intact; G11/G33/G40 stay separate. |
-| Tone portamento (`F0...FF`) | Implemented | Partial; G28 Amiga consumer closed | Shared `3xx` speed; `F0` retains it | Both | Fx stores `nibble << 4` in shared raw speed, including at speed 1; existing mode conversion gives Linear `64 * nibble` / Amiga `256 * nibble` VTX period units per nonzero tick. Retained/empty/cold ownership, F0 replay and no-retrigger continuation are pinned. G30 and parent pitch limitations remain separate. |
+| Tone portamento (`F0...FF`) | Implemented | Partial; G28 Amiga consumer closed | Shared `3xx` speed; `F0` retains it | Both | Fx stores `nibble << 4` in shared raw speed, including at speed 1; existing mode conversion gives Linear `64 * nibble` / Amiga `256 * nibble` VTX period units per nonzero tick. Retained/empty/cold ownership, F0 replay and no-retrigger continuation are pinned. G30B supplies bounded extremes below; final G30 verification and parent limitations remain separate. |
 | Unsupported / unknown bytes | Classification-only | Outside v1 | Not applicable | Not applicable | Diagnostic visibility grants no playback support. |
 
 ## Frequency Table Support
@@ -370,8 +370,8 @@ effect-column whole-command memory just because their names resemble it.
 - G29 Amiga `E1x`/`E2x` and `X1x`/`X2x` share existing directional memory
   and tick-zero scheduling. Same-cell `E5x` uses the ordinary mapped trigger
   and Amiga lookup; no-note E5 stays inert. Pitch writers preserve latent tone
-  target/direction/speed. G30B range/extremes and broader interactions
-  remain separate; this bounded closure does not establish universal Amiga parity.
+  target/direction/speed. G30B closes the bounded range/extremes below; broader
+  interactions remain separate, without universal Amiga parity.
 - Private Amiga-table coverage is tracked locally; do not publish private
   filenames, local paths, or corpus details.
 
@@ -380,7 +380,7 @@ effect-column whole-command memory just because their names resemble it.
 For already-valid effective notes 1...119, Linear periods are
 `7680 - 64*(effectiveNote-1) - 4*floor(finetune/8)`. Arithmetic right shift by
 three supplies the signed floor. Same-cell E5 and tone targets use the same
-helper; out-of-domain admission/clamp decisions retain their prior behavior.
+helper; G30B separately decides out-of-domain admission and effect state.
 
 Both pitch modes publish a shared project-authored Q16 sample step divided by
 65536 into the existing Double event payload. Linear conversion rounds Q24
@@ -399,10 +399,51 @@ residuals are the existing onset and interpolation fraction/PCM rounding;
 retirement remains 32 frames. Stored sample-import tuning and PCM are unchanged;
 its existing derived playback-rate/error diagnostics now observe quantization.
 
-**G30 remains open.** G30B owns effective-note admission/refusal, carried period,
-Amiga base/clamp policy, signed UInt16 effect arithmetic, extreme tone comparison/
-direction and arpeggio projection. Amiga vibrato's existing UInt16 state wrap is
-preserved separately from ordinary note/slide clamps.
+### G30B extreme pitch state and independent instrument reset
+
+Raw note + instrument resolves the exact keymap before transposition. UInt8
+addition of raw note and signed relative note gives three ordinary outcomes:
+1...119 starts the selected source with lookup pitch; 0 starts it with retained
+current/base pitch; 120...255 refuses the source. This authority covers explicit
+and carried instruments, same-cell E5 and actual ED dispatch. Effective zero owns
+new defaults/reset without replacing latent tone target/direction/speed. A cold
+zero-period source is held through an existing explicit step-zero event after
+creation and before rendering; generic initial-step sanitization is unchanged.
+
+Refusal preserves sounding source/header, generation, cursor/fraction, current
+pitch, cached volume/pan, cached finetune and latent tone state. Control-instrument
+selection is independent. An explicit instrument restores the old sounding
+cache, key-on, integer fadeout and enabled volume/pan clocks under the selected
+control instrument's curves/rate; existing E4/E7 phase-reset gates still apply.
+Later explicit volume/pan writers win. Immediate note-only refusal does not
+reset; delayed note-only refusal resets clocks/key/fadeout at dispatch without
+restoring cached defaults. Completed/empty owners gain no live source; a valid
+cold explicit instrument can establish semantic ownership. G32 autovibrato is
+still a missing parent, without a new automatic-modulation implementation here.
+
+Ordinary Amiga native lookup spans 22...29024 (VTX 88...116096). Effects use
+native UInt16 storage, with Linear scale 1 and Amiga VTX scale 4. Upward 1xx/E1/X1
+wrap the subtraction, then replace Int16 results below 1 with 1. Downward 2xx/E2/X2
+wrap addition, then replace Int16 results at/above 32000 with 31999; negative
+signed results continue. Regular/fine native deltas remain four times the
+parameter/nibble, extra-fine one. Zero-amount source-less artifacts remain excluded.
+
+Tone target admission uses its own UInt16 lookup-index boundary and unsigned
+direction latch. Lower-period execution compares wrapped result/target as Int16;
+higher-period execution compares UInt16. A crossed target clamps even at zero
+speed, leaving the higher-period latch. The reachable Amiga 2FF→301 control
+clamps 156556 to 480 on its first nonzero tick. 3xx/5xy/Fx share this authority;
+their memories, writer order and timing remain unchanged.
+
+Arpeggio uses a bounded inverse-period projection over the existing lookup,
+independent of ordinary admission. G25/G26 phase order stays unchanged: base
+phase is unprojected, X/Y phases project even a zero nibble. B-7 `037` gives
+Linear 1540 and Amiga 428 for both raised phases. Amiga vibrato retains its
+separate UInt16 wrap, including period/step-zero hold and resume.
+
+The public extreme-pitch fixture pair and reference fingerprints pin these
+bounded contracts. G30A remains the unchanged downstream step authority.
+**Final combined G30 verification remains open.**
 
 ## Shared Volume-Slide Memory Contract
 
@@ -510,9 +551,9 @@ wrap, including 118 - 119 = 65535 and 65417 + 119 = 0.
 
 `amiga-vibrato.xm`, `AmigaVibratoTests`, and `RuntimeCMixerTests` pin periods,
 memory/controls, zero hold/resume, and exact runtime/offline event frames.
-The existing extreme Amiga note-base clamp remains a separate parity boundary,
-while G30A closes bounded fixed-point step conversion. This does not
-promote other Amiga pitch families; the shared slide schedule is specified above.
+G30B separately closes ordinary lookup and supported slide/tone extremes;
+G30A owns fixed-point step conversion. Neither policy replaces vibrato wrap or
+closes broader G39 interactions; the shared slide schedule is specified above.
 
 ## Portamento Units
 
@@ -585,10 +626,10 @@ support alone does not close these domains:
   Amiga quantized arpeggio reuses it under G26; G27 upward slides and G28
   5xy/Fx consumers close their bounded mode paths. G29 closes in-range Amiga
   E1/E2/X1/X2 and same-cell E5 through existing memory/trigger authorities;
-  range/state boundaries remain G30B; G30A conversion is closed above.
-  Supported Amiga vibrato's unsigned wrap/zero hold is closed; other
-  period wrap/clamp behavior is not. Full 4xy/6xy/7xy audible interactions
-  remain G39 without reopening their closed integer engines or 6xy timing.
+  G30B closes bounded range/state behavior; G30A conversion is closed above.
+  Supported Amiga vibrato's unsigned wrap/zero hold remains a separate policy.
+  Final combined G30 verification remains open. Full 4xy/6xy/7xy audible
+  interactions remain G39 without reopening their closed integer engines or 6xy timing.
 - **Sources and loops:** 9xx/900 offset/end/loop boundaries and ping-pong
   turnaround precision remain under G41 where unclosed. Sample/instrument
   changes must preserve exact routing, defaults, silent clocks and note-only

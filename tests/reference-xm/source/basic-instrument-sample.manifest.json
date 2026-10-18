@@ -13408,6 +13408,734 @@
       "xm_output": "generated/bounded-pitch-conversion-amiga.xm",
       "xm_sha256": "a64a48bd6b600deae9925c3e9dd310828604d19c4e105655849cc930302e973d",
       "xm_size_bytes": 2895
+    },
+    {
+      "id": "extreme-pitch-state-linear",
+      "intended_tests": [
+        "effective-note admission versus semantic reset",
+        "retained PCM and exact routing/default ownership",
+        "signed Amiga slide/tone continuation and zero-speed clamp",
+        "G30A steps and whole/window/runtime event frames"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 21,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 512,
+            "name": "PUBLIC OWNED",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 24
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [32, 64]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 2048,
+            "name": "PUBLIC RETAIN",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": -1,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 48], [32, 48]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 2048,
+            "name": "PUBLIC REFUSE",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": -2,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 48], [32, 48]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 512,
+            "name": "PUBLIC EXACT MAP",
+            "note_sample_map": [{"end_note": 1, "sample": 1, "start_note": 1}, {"end_note": 96, "sample": 0, "start_note": 2}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 24
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": -2,
+                "slot": 1,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [32, 64]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC HIGH",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 23,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC LOW",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": -128,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC WRAP",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 8,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 512,
+            "name": "PUBLIC COMPLETED",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 0, "mode": "none", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 24
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [32, 64]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 512,
+            "name": "PUBLIC EMPTY",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 0, "mode": "none", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 1, "frame_count": 0, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 24
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [32, 64]], "type_flags": 1}
+          }
+        ],
+        "orders": [0],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 19, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 19, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 2, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 4, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 1, "effect_type": 3, "instrument": 0, "note": 53, "row": 5, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 2, "note": 1, "row": 6, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 3, "instrument": 0, "note": 0, "row": 7, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 4, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 1, "row": 6, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 4, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 4, "note": 1, "row": 3, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 209, "effect_type": 14, "instrument": 0, "note": 1, "row": 4, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 95, "effect_type": 14, "instrument": 4, "note": 1, "row": 5, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 4, "note": 49, "row": 7, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 95, "effect_type": 14, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 95, "effect_type": 14, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 87, "effect_type": 14, "instrument": 2, "note": 1, "row": 4, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 209, "effect_type": 14, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 209, "effect_type": 14, "instrument": 2, "note": 1, "row": 4, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 0, "effect_type": 0, "instrument": 5, "note": 96, "row": 0, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 255, "effect_type": 1, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 33, "effect_type": 14, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 33, "effect_type": 33, "instrument": 0, "note": 0, "row": 5, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 6, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 1, "effect_type": 3, "instrument": 0, "note": 96, "row": 3, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 3, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 5, "instrument": 0, "note": 0, "row": 5, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 6, "volume_column": 240},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 7, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 3, "instrument": 0, "note": 0, "row": 8, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 1, "effect_type": 5, "instrument": 0, "note": 96, "row": 3, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 5, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 5, "volume_column": 240},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 6, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 5, "instrument": 0, "note": 0, "row": 7, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 96, "row": 3, "volume_column": 241},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 4, "volume_column": 240},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 3, "instrument": 0, "note": 0, "row": 5, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 6, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 7, "volume_column": 240},
+              {"channel": 10, "effect_parameter": 17, "effect_type": 14, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 16, "effect_type": 14, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 5, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 31, "effect_type": 14, "instrument": 0, "note": 0, "row": 6, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 17, "effect_type": 33, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 16, "effect_type": 33, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 5, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 31, "effect_type": 33, "instrument": 0, "note": 0, "row": 6, "volume_column": 0},
+              {"channel": 12, "effect_parameter": 0, "effect_type": 0, "instrument": 5, "note": 96, "row": 0, "volume_column": 0},
+              {"channel": 12, "effect_parameter": 55, "effect_type": 0, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 12, "effect_parameter": 16, "effect_type": 0, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 13, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 13, "effect_parameter": 55, "effect_type": 0, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 13, "effect_parameter": 16, "effect_type": 0, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 79, "effect_type": 4, "instrument": 0, "note": 0, "row": 11, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 0, "effect_type": 4, "instrument": 0, "note": 0, "row": 12, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 0, "effect_type": 4, "instrument": 0, "note": 0, "row": 13, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 0, "effect_type": 4, "instrument": 0, "note": 0, "row": 14, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 0, "effect_type": 0, "instrument": 7, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 66, "effect_type": 14, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 79, "effect_type": 4, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 0, "effect_type": 4, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 2, "effect_type": 15, "instrument": 0, "note": 0, "row": 8, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 6, "effect_type": 15, "instrument": 0, "note": 0, "row": 10, "volume_column": 0},
+              {"channel": 16, "effect_parameter": 0, "effect_type": 0, "instrument": 8, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 16, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 17, "effect_parameter": 0, "effect_type": 0, "instrument": 9, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 17, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 17, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 18, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 18, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 19, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 2, "volume_column": 48},
+              {"channel": 19, "effect_parameter": 48, "effect_type": 8, "instrument": 3, "note": 1, "row": 3, "volume_column": 0},
+              {"channel": 20, "effect_parameter": 0, "effect_type": 0, "instrument": 2, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 20, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 2, "volume_column": 0}
+            ],
+            "rows": 32
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "PUBLIC EXTREME PITCH",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "extreme-pitch-state-linear.xm",
+      "purpose": "G30B source admission, independent refused reset, signed Amiga state and bounded arpeggio projection.",
+      "significant_rows": [
+        {"description": "Ordinary high/low starts, initialized empty and truly cold refused owners.", "row": 0},
+        {"description": "Effective-zero, refused, E5 and ED1 source/reset outcomes; second low 2FF row.", "row": 2},
+        {"description": "First signed 301/501/F1 clamp; E1/X1 signed-negative consumers.", "row": 3},
+        {"description": "F02 makes one precise native period approach for the upper-wrap control.", "row": 8},
+        {"description": "Amiga upper vibrato wraps to period/step zero, then resumes without a new source.", "row": 12}
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": ["G30 final combined gate remains separate.", "Onset/retirement, envelope arithmetic, autovibrato and pan law remain separately owned."],
+      "xm_output": "generated/extreme-pitch-state-linear.xm",
+      "xm_sha256": "0bc3de7e8ee7a77ffb01807b36e56deab422d11a001105583d21bf703099cc6c",
+      "xm_size_bytes": 8591
+    },
+    {
+      "id": "extreme-pitch-state-amiga",
+      "intended_tests": [
+        "effective-note admission versus semantic reset",
+        "retained PCM and exact routing/default ownership",
+        "signed Amiga slide/tone continuation and zero-speed clamp",
+        "G30A steps and whole/window/runtime event frames"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 21,
+        "flags": 0,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 512,
+            "name": "PUBLIC OWNED",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 24
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [32, 64]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 2048,
+            "name": "PUBLIC RETAIN",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": -1,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 48], [32, 48]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 2048,
+            "name": "PUBLIC REFUSE",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": -2,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 48], [32, 48]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 512,
+            "name": "PUBLIC EXACT MAP",
+            "note_sample_map": [{"end_note": 1, "sample": 1, "start_note": 1}, {"end_note": 96, "sample": 0, "start_note": 2}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 24
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": -2,
+                "slot": 1,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [32, 64]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC HIGH",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 23,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC LOW",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": -128,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC WRAP",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 8,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 512,
+            "name": "PUBLIC COMPLETED",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 0, "mode": "none", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 24
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [32, 64]], "type_flags": 1}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 512,
+            "name": "PUBLIC EMPTY",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": true, "points": [[0, 32], [32, 32]], "type_flags": 1},
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 0, "mode": "none", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 1, "frame_count": 0, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 24
+              }
+            ],
+            "volume_envelope": {"enabled": true, "points": [[0, 64], [32, 64]], "type_flags": 1}
+          }
+        ],
+        "orders": [0],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 19, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 19, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 2, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 4, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 1, "effect_type": 3, "instrument": 0, "note": 53, "row": 5, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 2, "note": 1, "row": 6, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 3, "instrument": 0, "note": 0, "row": 7, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 4, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 1, "row": 6, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 4, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 4, "note": 1, "row": 3, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 209, "effect_type": 14, "instrument": 0, "note": 1, "row": 4, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 95, "effect_type": 14, "instrument": 4, "note": 1, "row": 5, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 0, "instrument": 4, "note": 49, "row": 7, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 95, "effect_type": 14, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 95, "effect_type": 14, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 87, "effect_type": 14, "instrument": 2, "note": 1, "row": 4, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 209, "effect_type": 14, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 209, "effect_type": 14, "instrument": 2, "note": 1, "row": 4, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 0, "effect_type": 0, "instrument": 5, "note": 96, "row": 0, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 255, "effect_type": 1, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 0, "effect_type": 2, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 33, "effect_type": 14, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 33, "effect_type": 33, "instrument": 0, "note": 0, "row": 5, "volume_column": 0},
+              {"channel": 6, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 6, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 1, "effect_type": 3, "instrument": 0, "note": 96, "row": 3, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 3, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 5, "instrument": 0, "note": 0, "row": 5, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 6, "volume_column": 240},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 7, "volume_column": 0},
+              {"channel": 7, "effect_parameter": 0, "effect_type": 3, "instrument": 0, "note": 0, "row": 8, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 1, "effect_type": 5, "instrument": 0, "note": 96, "row": 3, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 5, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 5, "volume_column": 240},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 6, "volume_column": 0},
+              {"channel": 8, "effect_parameter": 0, "effect_type": 5, "instrument": 0, "note": 0, "row": 7, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 96, "row": 3, "volume_column": 241},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 4, "volume_column": 240},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 3, "instrument": 0, "note": 0, "row": 5, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 49, "row": 6, "volume_column": 0},
+              {"channel": 9, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 7, "volume_column": 240},
+              {"channel": 10, "effect_parameter": 17, "effect_type": 14, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 16, "effect_type": 14, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 5, "volume_column": 0},
+              {"channel": 10, "effect_parameter": 31, "effect_type": 14, "instrument": 0, "note": 0, "row": 6, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 17, "effect_type": 33, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 16, "effect_type": 33, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 5, "volume_column": 0},
+              {"channel": 11, "effect_parameter": 31, "effect_type": 33, "instrument": 0, "note": 0, "row": 6, "volume_column": 0},
+              {"channel": 12, "effect_parameter": 0, "effect_type": 0, "instrument": 5, "note": 96, "row": 0, "volume_column": 0},
+              {"channel": 12, "effect_parameter": 55, "effect_type": 0, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 12, "effect_parameter": 16, "effect_type": 0, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 13, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 13, "effect_parameter": 55, "effect_type": 0, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 13, "effect_parameter": 16, "effect_type": 0, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 4, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 5, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 6, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 7, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 194, "effect_type": 2, "instrument": 0, "note": 0, "row": 8, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 34, "effect_type": 33, "instrument": 0, "note": 0, "row": 9, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 66, "effect_type": 14, "instrument": 0, "note": 0, "row": 10, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 79, "effect_type": 4, "instrument": 0, "note": 0, "row": 11, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 0, "effect_type": 4, "instrument": 0, "note": 0, "row": 12, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 0, "effect_type": 4, "instrument": 0, "note": 0, "row": 13, "volume_column": 0},
+              {"channel": 14, "effect_parameter": 0, "effect_type": 4, "instrument": 0, "note": 0, "row": 14, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 0, "effect_type": 0, "instrument": 7, "note": 95, "row": 0, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 66, "effect_type": 14, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 79, "effect_type": 4, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 0, "effect_type": 4, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 2, "effect_type": 15, "instrument": 0, "note": 0, "row": 8, "volume_column": 0},
+              {"channel": 15, "effect_parameter": 6, "effect_type": 15, "instrument": 0, "note": 0, "row": 10, "volume_column": 0},
+              {"channel": 16, "effect_parameter": 0, "effect_type": 0, "instrument": 8, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 16, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 17, "effect_parameter": 0, "effect_type": 0, "instrument": 9, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 17, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 17, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 2, "volume_column": 0},
+              {"channel": 18, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 18, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 97, "row": 1, "volume_column": 0},
+              {"channel": 19, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 2, "volume_column": 48},
+              {"channel": 19, "effect_parameter": 48, "effect_type": 8, "instrument": 3, "note": 1, "row": 3, "volume_column": 0},
+              {"channel": 20, "effect_parameter": 0, "effect_type": 0, "instrument": 2, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 20, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 2, "volume_column": 0}
+            ],
+            "rows": 32
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "PUBLIC EXTREME PITCH",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "extreme-pitch-state-amiga.xm",
+      "purpose": "G30B source admission, independent refused reset, signed Amiga state and bounded arpeggio projection.",
+      "significant_rows": [
+        {"description": "Ordinary high/low starts, initialized empty and truly cold refused owners.", "row": 0},
+        {"description": "Effective-zero, refused, E5 and ED1 source/reset outcomes; second low 2FF row.", "row": 2},
+        {"description": "First signed 301/501/F1 clamp; E1/X1 signed-negative consumers.", "row": 3},
+        {"description": "F02 makes one precise native period approach for the upper-wrap control.", "row": 8},
+        {"description": "Amiga upper vibrato wraps to period/step zero, then resumes without a new source.", "row": 12}
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": ["G30 final combined gate remains separate.", "Onset/retirement, envelope arithmetic, autovibrato and pan law remain separately owned."],
+      "xm_output": "generated/extreme-pitch-state-amiga.xm",
+      "xm_sha256": "9d48e811380c2a16d3ded876ae013af8649df2c6548fa961dda998b103751a69",
+      "xm_size_bytes": 8611
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

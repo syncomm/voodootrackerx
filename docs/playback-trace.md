@@ -171,6 +171,16 @@ Cold same-cell admission uses the existing tone diagnostic with
 state/volume before-after and target/speed fields. Source/sample metadata stays
 absent; no trigger or envelope source event is fabricated. Existing channel reset
 history carries key/fadeout into later ordinary note-only routing. No schema changes.
+
+An ordinary mapped trigger retains the channel's latent tone target independently
+of its new source generation. Join the ordinary trigger's source identity/cursor
+with the later tone diagnostic's `target_exists_before`, `note_target_before`,
+`note_target_after`, target period/step and `active_event_index`: retained targets
+stay present on the new generation, explicit 3xx/5xy/Fx notes replace them, and
+cold channels retain absence. Fresh plan/channel initialization clears state.
+No schema or new memory family is required. Direction-latch/progression quirks
+remain separate from this lifetime evidence.
+
 Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger
 once at the base note pitch; subsequent arpeggio ticks are emitted as planned
 sample-step updates. Empty-note nonzero `0xy` rows with an active voice emit the

@@ -181,6 +181,23 @@ conversion, envelope arithmetic and final stereo pan law remain separate.
 `tone-portamento-retained-source-reset.xm` and its focused tests pin the reset,
 ownership, explicit writers and source/runtime/window boundaries at both rates.
 
+### Ordinary triggers and latent tone targets
+
+Tone-portamento targets are latent channel state, independent of source
+generation. Ordinary mapped note-only and note+instrument triggers retain the
+target and tone speed while replacing the source, resetting its cursor and
+following their existing default/envelope rules. Later 300 resumes from the new
+current period. Explicit target-setting 3xx/5xy/volume Fx notes replace the target;
+instrument-only and note97/K00 release rows preserve it. Empty routes retain the
+target without inventing PCM; a fresh channel/plan invents no target.
+
+`ordinary-trigger-tone-target-lifetime.xm` and both-mode tests pin this lifetime
+separately from pitch progression. The existing engine derives direction from
+current/target period; FT2 retains a direction latch, which can snap to the target
+after a crossing or cold admission. This pre-existing note-only/empty-route
+boundary, ECx's separate hard-retirement contract, G29 execution and G30 conversion
+are not closed by target retention.
+
 ### Note97 and Kxx release/default/writer precedence (G24)
 
 Select the valid carried instrument first, then release once at tick zero,

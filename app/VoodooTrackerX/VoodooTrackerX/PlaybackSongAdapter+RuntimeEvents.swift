@@ -405,14 +405,13 @@ extension PlaybackSongSyntheticAdapter {
         let effectiveNoteIndex = effectiveNoteValue - 1
         let effectiveFinetune = clampedFinetune(finetune)
 
-        // XM linear frequency mode is period based even though the C mixer consumes a source-sample step.
-        // FT2 applies sample relative note to the pattern note and clamps the zero-based real note to 0...118.
-        // FT2's linear period formula is:
-        // period = 7680 - (zeroBasedNote * 64) - (finetune / 2)
-        // C-4 is note value 49, zero-based note 48, period 4608, so it maps to the sample base rate.
-        let linearPeriod = xmLinearPeriodBase
-            - (Double(effectiveNoteIndex) * xmLinearPeriodUnitsPerSemitone)
-            - (Double(effectiveFinetune) / 2.0)
+        let rawEffectiveNote = Int(note) + relativeNote
+        // G30A corrects admitted notes only. Keep the existing out-of-domain
+        // clamping/carried-pitch policy for the separate extreme-state contract.
+        let linearPeriod = (1...xmLinearMaximumEffectiveNoteValue).contains(rawEffectiveNote)
+            ? Double(quantizedLinearPeriod(effectiveNote: effectiveNoteValue, finetune: effectiveFinetune))
+            : xmLinearPeriodBase - Double(effectiveNoteIndex) * xmLinearPeriodUnitsPerSemitone
+                - Double(effectiveFinetune) / 2
         guard let step = playbackStep(
             linearPeriod: linearPeriod,
             baseSampleRate: baseSampleRate,
@@ -441,26 +440,46 @@ extension PlaybackSongSyntheticAdapter {
         baseSampleRate: Double,
         outputSampleRate: Double
     ) -> Double? {
-        guard linearPeriod.isFinite,
-              outputSampleRate.isFinite,
-              outputSampleRate > 0,
-              baseSampleRate.isFinite,
-              baseSampleRate > 0 else {
-            return nil
+        referencePlaybackStep(nativePeriod: linearPeriod, linear: true,
+            baseSampleRate: baseSampleRate, outputSampleRate: outputSampleRate)
+    }
+
+    /// Exact Linear lookup coordinates for an already-valid note and signed Int8 tuning.
+    /// Signed right shift supplies floor(finetune / 8), including negative nongrid values.
+    static func quantizedLinearPeriod(effectiveNote: Int, finetune: Int) -> Int {
+        7_680 - 64 * (effectiveNote - 1) - 4 * (finetune >> 3)
+    }
+
+    /// Converts output pitch without admitting notes, clamping state or changing effect history.
+    /// Project-authored Q24 coefficient/exponent quantization and Q16 output reproduce the
+    /// pinned reference at matched rates. UInt64 intermediates avoid overflow; only the
+    /// reference's Linear UInt16 inverse and UInt32 delta/shift domains wrap. Fractional
+    /// legacy periods truncate here, without rewriting their upstream semantic state.
+    static func referencePlaybackStep(nativePeriod: Double, linear: Bool,
+        baseSampleRate: Double, outputSampleRate: Double) -> Double? {
+        guard nativePeriod.isFinite, nativePeriod >= 0,
+              baseSampleRate.isFinite, baseSampleRate > 0,
+              outputSampleRate.isFinite, outputSampleRate > 0 else { return nil }
+        let period = UInt32(nativePeriod.truncatingRemainder(dividingBy: 65_536))
+        if period == 0 { return 0 } // An explicit zero step holds the existing cursor.
+        let scale = linear ? 16_777_216.0 : 112_197_632.0 // 2^24 or 1712 * 2^16.
+        let roundedCoefficient = (scale * baseSampleRate / outputSampleRate).rounded()
+        guard roundedCoefficient.isFinite, roundedCoefficient >= 0,
+              roundedCoefficient < Double(UInt64.max) else { return nil }
+        let coefficient = UInt64(roundedCoefficient)
+        let delta: UInt64
+        if linear {
+            let inverse = (9_216 &- period) & 65_535
+            let fraction = UInt64((16_777_216 * exp2(Double(inverse % 768) / 768)).rounded())
+            let product = fraction.multipliedReportingOverflow(by: coefficient)
+            guard !product.overflow else { return nil }
+            let word = UInt32(truncatingIfNeeded: product.partialValue >> 24)
+            delta = UInt64(word >> ((14 &- (inverse / 768)) & 31))
+        } else {
+            delta = coefficient / UInt64(period)
         }
-        let linearFrequency = baseSampleRate * pow(
-            2.0,
-            (xmLinearC4Period - linearPeriod) / xmLinearPeriodUnitsPerOctave
-        )
-        let step = linearFrequency / outputSampleRate
-        guard linearFrequency.isFinite,
-              linearFrequency > 0,
-              step.isFinite,
-              step > 0,
-              step <= Double(UInt32.max) else {
-            return nil
-        }
-        return step
+        let step = Double(delta) / 65_536
+        return step <= Double(UInt32.max) ? step : nil
     }
 
     static func amigaPitchTarget(
@@ -642,26 +661,8 @@ extension PlaybackSongSyntheticAdapter {
         baseSampleRate: Double,
         outputSampleRate: Double
     ) -> Double? {
-        guard amigaPeriod.isFinite,
-              amigaPeriod >= 0,
-              outputSampleRate.isFinite,
-              outputSampleRate > 0,
-              baseSampleRate.isFinite,
-              baseSampleRate > 0 else {
-            return nil
-        }
-        // FT2 period zero means 0 Hz: deliver an explicit held-cursor update.
-        if amigaPeriod == 0 { return 0 }
-        let amigaFrequency = baseSampleRate * xmAmigaC4Period / amigaPeriod
-        let step = amigaFrequency / outputSampleRate
-        guard amigaFrequency.isFinite,
-              amigaFrequency > 0,
-              step.isFinite,
-              step > 0,
-              step <= Double(UInt32.max) else {
-            return nil
-        }
-        return step
+        referencePlaybackStep(nativePeriod: amigaPeriod / xmAmigaPeriodLookupScale, linear: false,
+            baseSampleRate: baseSampleRate, outputSampleRate: outputSampleRate)
     }
 
     static func clampedLinearPeriod(_ linearPeriod: Double) -> Double {

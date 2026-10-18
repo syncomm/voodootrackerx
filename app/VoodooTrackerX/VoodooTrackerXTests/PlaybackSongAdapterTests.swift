@@ -534,7 +534,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(mapping.sampleRelativeNote, 12)
         XCTAssertEqual(mapping.sampleFinetune, 64)
         XCTAssertEqual(mapping.sampleBaseSampleRate, 100)
-        XCTAssertEqual(mapping.playbackStep, 2 * pow(2.0, 0.5 / 12.0), accuracy: 0.000000001)
+        XCTAssertEqual(mapping.playbackStep, 134912.0 / 65536, accuracy: 0.000000001)
         XCTAssertEqual(event.gain, 0.5)
         XCTAssertEqual(event.loop, MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4))
         XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
@@ -1118,7 +1118,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             let expectedEffectiveNoteIndex: Int
             let expectedFinetune: Int
             let expectedLinearPeriod: Double
-            let expectedLinearFrequency: Double
+            let expectedQ16Delta: Int
         }
 
         let baseSampleRate = 8_363.0
@@ -1134,7 +1134,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 0,
                 expectedFinetune: 0,
                 expectedLinearPeriod: 7_680,
-                expectedLinearFrequency: baseSampleRate / 16.0
+                expectedQ16Delta: 776
             ),
             LinearPitchCase(
                 name: "C-1",
@@ -1147,7 +1147,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 12,
                 expectedFinetune: 0,
                 expectedLinearPeriod: 6_912,
-                expectedLinearFrequency: baseSampleRate / 8.0
+                expectedQ16Delta: 1553
             ),
             LinearPitchCase(
                 name: "C-4 at 44.1 kHz",
@@ -1160,7 +1160,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 48,
                 expectedFinetune: 0,
                 expectedLinearPeriod: 4_608,
-                expectedLinearFrequency: baseSampleRate
+                expectedQ16Delta: 12428
             ),
             LinearPitchCase(
                 name: "C-4 at 48 kHz",
@@ -1173,7 +1173,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 48,
                 expectedFinetune: 0,
                 expectedLinearPeriod: 4_608,
-                expectedLinearFrequency: baseSampleRate
+                expectedQ16Delta: 11418
             ),
             LinearPitchCase(
                 name: "C-5",
@@ -1186,7 +1186,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 60,
                 expectedFinetune: 0,
                 expectedLinearPeriod: 3_840,
-                expectedLinearFrequency: baseSampleRate * 2.0
+                expectedQ16Delta: 24856
             ),
             LinearPitchCase(
                 name: "relative note -12",
@@ -1199,7 +1199,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 36,
                 expectedFinetune: 0,
                 expectedLinearPeriod: 5_376,
-                expectedLinearFrequency: baseSampleRate / 2.0
+                expectedQ16Delta: 6214
             ),
             LinearPitchCase(
                 name: "relative note +12",
@@ -1212,7 +1212,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 60,
                 expectedFinetune: 0,
                 expectedLinearPeriod: 3_840,
-                expectedLinearFrequency: baseSampleRate * 2.0
+                expectedQ16Delta: 24856
             ),
             LinearPitchCase(
                 name: "negative finetune",
@@ -1225,7 +1225,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 48,
                 expectedFinetune: -64,
                 expectedLinearPeriod: 4_640,
-                expectedLinearFrequency: baseSampleRate * pow(2.0, -32.0 / 768.0)
+                expectedQ16Delta: 12074
             ),
             LinearPitchCase(
                 name: "positive finetune",
@@ -1238,7 +1238,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 48,
                 expectedFinetune: 64,
                 expectedLinearPeriod: 4_576,
-                expectedLinearFrequency: baseSampleRate * pow(2.0, 32.0 / 768.0)
+                expectedQ16Delta: 12792
             ),
             LinearPitchCase(
                 name: "E5F finetune override",
@@ -1251,11 +1251,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 expectedEffectiveNoteIndex: 48,
                 expectedFinetune: 112,
                 expectedLinearPeriod: 4_552,
-                expectedLinearFrequency: baseSampleRate * pow(2.0, 56.0 / 768.0)
+                expectedQ16Delta: 13072
             ),
         ]
 
+        // Q16 targets observed through the pinned reference; conversion itself is
+        // exhaustively verified by the package BoundedPitchConversionTests.
         for pitchCase in cases {
+            let expectedStep = Double(pitchCase.expectedQ16Delta) / 65536
             let sample = makePlaybackSample(
                 pcm: [0, 1, 2, 3],
                 relativeNote: pitchCase.relativeNote,
@@ -1291,13 +1294,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
             )
             XCTAssertEqual(
                 try XCTUnwrap(mapping.linearFrequency, pitchCase.name),
-                pitchCase.expectedLinearFrequency,
+                expectedStep * pitchCase.outputSampleRate,
                 accuracy: 0.000_001,
                 pitchCase.name
             )
             XCTAssertEqual(
                 mapping.playbackStep,
-                pitchCase.expectedLinearFrequency / pitchCase.outputSampleRate,
+                expectedStep,
                 accuracy: 0.000_001,
                 pitchCase.name
             )
@@ -1332,19 +1335,19 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(highTransposed.linearPeriod), 832, accuracy: 0.000_001)
         XCTAssertEqual(
             try XCTUnwrap(highTransposed.linearFrequency),
-            8_363.0 * pow(2.0, (4_608.0 - 832.0) / 768.0),
+            375376.0 * 44100 / 65536,
             accuracy: 0.000_001
         )
         XCTAssertEqual(
             highTransposed.playbackStep,
-            (8_363.0 * pow(2.0, (4_608.0 - 832.0) / 768.0)) / 44_100.0,
+            375376.0 / 65536,
             accuracy: 0.000_001
         )
 
         XCTAssertEqual(lowTransposed.effectiveNoteValue, 1)
         XCTAssertEqual(lowTransposed.effectiveNoteIndex, 0)
         XCTAssertEqual(try XCTUnwrap(lowTransposed.linearPeriod), 7_680, accuracy: 0.000_001)
-        XCTAssertEqual(try XCTUnwrap(lowTransposed.linearFrequency), 8_363.0 / 16.0, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(lowTransposed.linearFrequency), 776.0 * 44100 / 65536, accuracy: 0.000_001)
     }
 
     func testPlaybackSongSyntheticAdapterUsesRelativeNoteAndFinetuneInPlaybackStep() throws {
@@ -1386,10 +1389,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(relativeMapping.sampleRelativeNote, 12)
         XCTAssertEqual(negativeRelativeMapping.playbackStep, 0.5, accuracy: 0.000000001)
         XCTAssertEqual(negativeRelativeMapping.sampleRelativeNote, -12)
-        XCTAssertEqual(finetunedMapping.playbackStep, pow(2.0, 0.5 / 12.0), accuracy: 0.000000001)
+        XCTAssertEqual(finetunedMapping.playbackStep, 67456.0 / 65536, accuracy: 0.000000001)
         XCTAssertEqual(finetunedMapping.sampleFinetune, 64)
         XCTAssertEqual(finetunedMapping.finetuneStatus, .applied)
-        XCTAssertEqual(negativeFinetunedMapping.playbackStep, pow(2.0, -0.5 / 12.0), accuracy: 0.000000001)
+        XCTAssertEqual(negativeFinetunedMapping.playbackStep, 63670.0 / 65536, accuracy: 0.000000001)
         XCTAssertEqual(negativeFinetunedMapping.sampleFinetune, -64)
         XCTAssertLessThan(negativeFinetunedMapping.playbackStep, 1)
         XCTAssertGreaterThan(finetunedMapping.playbackStep, 1)
@@ -1421,7 +1424,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.effectiveFinetune, 112)
         XCTAssertEqual(e5xMapping.sampleFinetune, 0)
         XCTAssertEqual(e5xMapping.effectiveFinetune, 112)
-        XCTAssertEqual(e5xMapping.playbackStep, pow(2.0, 0.875 / 12.0), accuracy: 0.000000001)
+        XCTAssertEqual(e5xMapping.playbackStep, 68933.0 / 65536, accuracy: 0.000000001)
         XCTAssertGreaterThan(e5xMapping.playbackStep, baselineMapping.playbackStep)
     }
 
@@ -1441,8 +1444,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(e50.effectiveFinetune, -128)
         XCTAssertEqual(e5f.effectiveFinetune, 112)
-        XCTAssertEqual(e50.playbackStep, pow(2.0, -1.0 / 12.0), accuracy: 0.000000001)
-        XCTAssertEqual(e5f.playbackStep, pow(2.0, 0.875 / 12.0), accuracy: 0.000000001)
+        XCTAssertEqual(e50.playbackStep, 61857.0 / 65536, accuracy: 0.000000001)
+        XCTAssertEqual(e5f.playbackStep, 68933.0 / 65536, accuracy: 0.000000001)
         XCTAssertLessThan(e50.playbackStep, e5f.playbackStep)
     }
 
@@ -1879,10 +1882,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
 
         XCTAssertEqual(c4.amigaPeriod, 6_848, accuracy: 0.000000001)
-        XCTAssertEqual(c4.amigaFrequency, 8_363, accuracy: 0.000000001)
-        XCTAssertEqual(c4.playbackStep, 8_363.0 / 48_000.0, accuracy: 0.000000001)
+        XCTAssertEqual(c4.amigaFrequency, 11418.0 * 48000 / 65536, accuracy: 0.000000001)
+        XCTAssertEqual(c4.playbackStep, 11418.0 / 65536, accuracy: 0.000000001)
         XCTAssertEqual(c5.amigaPeriod, 3_424, accuracy: 0.000000001)
-        XCTAssertEqual(c5.amigaFrequency, 16_726, accuracy: 0.000000001)
+        XCTAssertEqual(c5.amigaFrequency, 22836.0 * 48000 / 65536, accuracy: 0.000000001)
         XCTAssertEqual(relativeC5.amigaPeriod, c5.amigaPeriod, accuracy: 0.000000001)
         XCTAssertEqual(finetunedUp.amigaPeriod, 6_656, accuracy: 0.000000001)
         XCTAssertGreaterThan(finetunedUp.amigaFrequency, c4.amigaFrequency)
@@ -2009,7 +2012,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(mapping.effectiveNoteIndex, 60)
         XCTAssertEqual(mapping.effectiveFinetune, 64)
         XCTAssertEqual(try XCTUnwrap(mapping.linearPeriod), 3_808, accuracy: 0.000000001)
-        XCTAssertEqual(mapping.linearFrequency ?? 0, 8_363 * pow(2.0, 800.0 / 768.0), accuracy: 0.0001)
+        XCTAssertEqual(mapping.linearFrequency ?? 0, 25584.0 * 44100 / 65536, accuracy: 0.0001)
         XCTAssertTrue(mapping.linearFrequencyApplied)
         XCTAssertFalse(mapping.amigaFrequencyDeferred)
         XCTAssertFalse(mapping.pitchMappingUsedNeutralStep)
@@ -2623,7 +2626,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(firstUpdate.amigaPeriodAfter), 3_332, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(secondUpdate.amigaPeriodAfter), 3_196, accuracy: 0.000_001)
         XCTAssertTrue(secondUpdate.reachedTarget)
-        XCTAssertEqual(secondUpdate.playbackStepAfter, 6_848.0 / 3_196.0, accuracy: 0.000_001)
+        XCTAssertEqual(secondUpdate.playbackStepAfter, 140422.0 / 65536, accuracy: 0.000_001)
     }
 
     func testPlaybackSongAdapterAmigaTonePortamento3xxDiagnosticsCoverNoActiveNoTargetAndNoSpeed() throws {
@@ -2762,8 +2765,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         )
 
         let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
-        let expectedPeriod = 7_680.0 - (Double((50 + 1) - 1) * 64.0) - 1.0
-        let expectedStep = 200.0 * pow(2.0, (4_608.0 - expectedPeriod) / 768.0) / 100.0
+        let expectedPeriod = 4480.0 // Finetune +2 belongs to the zero bucket.
+        let expectedStep = 147123.0 / 65536
 
         XCTAssertEqual(try XCTUnwrap(diagnostic.targetLinearPeriod), expectedPeriod, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(diagnostic.targetPlaybackStep), expectedStep, accuracy: 0.000_001)
@@ -3323,8 +3326,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         )
 
         let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.portamentoSlideEffects.first)
-        let expectedPeriod = 7_680.0 - (Double((49 + 1) - 1) * 64.0) - 1.0
-        let expectedStep = 200.0 * pow(2.0, (4_608.0 - expectedPeriod) / 768.0) / 100.0
+        let expectedPeriod = 4544.0 // Finetune +2 belongs to the zero bucket.
+        let expectedStep = 138865.0 / 65536
 
         XCTAssertEqual(try XCTUnwrap(diagnostic.currentLinearPeriodBefore), expectedPeriod, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(diagnostic.currentPlaybackStepBefore), expectedStep, accuracy: 0.000_001)

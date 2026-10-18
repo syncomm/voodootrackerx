@@ -840,3 +840,35 @@ targets, all supported surfaces and exact reset/tick/window splits. Runtime test
 pin frames, held targets and cursor/generation continuity at 44.1/48 kHz. Listen
 to rows 0–14 for reset/writer behavior and rows 15–20 for retained versus carried
 ownership. Automated checks do not establish listening; FT2 WAVs remain external.
+
+## Bounded pitch conversion (G30A)
+
+`bounded-pitch-conversion-linear.xm` and
+`bounded-pitch-conversion-amiga.xm` are a matched 96-row, speed-3/BPM-125 pair.
+The first 84 rows sustain six public sine voices for 5.04 seconds; the complete
+fixtures last 5.76 seconds. Both use the same original 16-bit PCM recipes.
+
+| Rows / channels | Control |
+| --- | --- |
+| 0–83, channel 0 | C-4, header finetune +1. Linear period 4608; Amiga 6848. |
+| 0–83, channel 1 | C#4 with relative -1 and header -1: effective C-4. Linear 4612; Amiga 6872. |
+| 0–83, channels 2–4 | Header +1 under E58, E50 and E5F: effective tuning 0, -128 and +112. |
+| 0–83, channel 5 | C-3 with relative +12 and header +127: effective C-4. Linear 4548; Amiga 6488. |
+| 84 | 037, 101, 201, 301, 448 and X11 exercise the shared conversion consumers. |
+| 85–87 | E11/E21/X21/X11, 501, 600 and volume F1 retain their existing arithmetic, memory and schedule. |
+| 88–91 | E57/E59, note-only and no-note E5 preserve exact routing and ordinary trigger ownership. |
+
+[BoundedPitchConversionTests](../vtx_render_bounded_xm/BoundedPitchConversionTests.swift)
+pins all signed Linear tuning groups, valid relative-note combinations, literal
+reference steps/cursors, the full UInt16 conversion fingerprints, and the
+separate known-wrong extreme-state fences. Runtime tests use the same pair at
+44.1/48 kHz with whole/window/core/engine parity and exact event frames.
+
+Reference comparisons use the pinned FT2 settings in
+[the audio workflow](../../docs/audio-comparison.md): Float32 stereo, Linear
+interpolation, volume ramping on, amplification 10, master 256, Precise BPM off.
+Inspect periods and steps separately. G30A removes sustained conversion drift;
+new-source onset and the reference's 15-bit interpolation fraction/integer PCM
+rounding remain separate from VTX's Float interpolation. G30 remains open for
+extreme admission, carried periods, signed arithmetic and target/direction policy.
+No reference WAVs are included.

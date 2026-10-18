@@ -117,7 +117,7 @@ final class AmigaVibratoTests: XCTestCase {
         XCTAssertNotEqual(pcm[159361], pcm[159360])
     }
 
-    private func step(_ period: Int) -> Double { period == 0 ? 0 : 8363 * 1712 / Double(period) / 48000 }
+    private func step(_ period: Int) -> Double { Adapter.playbackStep(amigaPeriod: Double(period*4), baseSampleRate: 8363, outputSampleRate: 48000)! }
 
     private func cell(_ effect: UInt8 = 0, _ param: UInt8 = 0, note: UInt8 = 0,
                       instrument: UInt8 = 0, volume: UInt8 = 0) -> PlaybackCell {

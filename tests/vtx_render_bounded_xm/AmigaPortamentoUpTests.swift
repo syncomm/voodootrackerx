@@ -3,6 +3,7 @@ import Foundation
 import XCTest
 
 final class AmigaPortamentoUpTests: XCTestCase {
+    private typealias Adapter = PlaybackSongSyntheticAdapter
     private let rates = [44_100.0, 48_000]
 
     func testAmiga104And100UseExistingStepPath() throws {
@@ -49,7 +50,7 @@ final class AmigaPortamentoUpTests: XCTestCase {
                                         let delta = Double(amount)*16*(effect == 1 ? -1.0 : 1)
                                         XCTAssertEqual(u.amigaPeriodBefore, start+Double(u.syntheticTick-1)*delta)
                                         XCTAssertEqual(u.amigaPeriodAfter, start+Double(u.syntheticTick)*delta)
-                                        XCTAssertEqual(u.playbackStepAfter, 8363*6848/(start+Double(u.syntheticTick)*delta)/rate, accuracy: 1e-12)
+                                        XCTAssertEqual(u.playbackStepAfter, Adapter.playbackStep(amigaPeriod: start+Double(u.syntheticTick)*delta, baseSampleRate: 8363, outputSampleRate: rate)!, accuracy: 1e-12)
                                     }
                                     if speed == 1 { XCTAssertEqual(d.policy, "regular_portamento_no_nonzero_ticks_no_memory_admission") }
                                     XCTAssertEqual(plan.pattern.events.count, 1)
@@ -76,7 +77,7 @@ final class AmigaPortamentoUpTests: XCTestCase {
                 XCTAssertEqual(d.currentAmigaPeriodAfter, 107)
                 XCTAssertEqual(d.stepUpdates.count, 1)
                 XCTAssertEqual(d.stepUpdates.first?.syntheticTick, 1)
-                XCTAssertEqual(d.stepUpdates.first?.playbackStepAfter ?? 0, 8363*6848/107/rate, accuracy: 1e-12)
+                XCTAssertEqual(d.stepUpdates.first?.playbackStepAfter ?? 0, Adapter.playbackStep(amigaPeriod: 107, baseSampleRate: 8363, outputSampleRate: rate)!, accuracy: 1e-12)
             }
             // Existing VTX minimum/break-on-clamp is retained. FT2 reaches native
             // period 1 (4 in this representation); that extreme residual is G30.

@@ -56,8 +56,10 @@ final class RegularPortamentoMemoryAdmissionTests: XCTestCase {
                             XCTAssertEqual(updates.map(\.scheduledFrame), ((1..<speed).map { 3+$0 } + (speed > 1 ? [4+speed, 5+speed] : [])).map { $0*Int(rate/50) })
                             XCTAssertFalse(seed.clamped || replay.clamped)
                             for update in updates {
-                                let hz = linear ? 8363*pow(2, (4608-update.linearPeriodAfter)/768) : 8363*6848/update.linearPeriodAfter
-                                XCTAssertEqual(update.playbackStepAfter, hz/rate, accuracy: 1e-12)
+                                let step = linear
+                                    ? Adapter.playbackStep(linearPeriod: update.linearPeriodAfter, baseSampleRate: 8363, outputSampleRate: rate)
+                                    : Adapter.playbackStep(amigaPeriod: update.linearPeriodAfter, baseSampleRate: 8363, outputSampleRate: rate)
+                                XCTAssertEqual(update.playbackStepAfter, try XCTUnwrap(step), accuracy: 1e-12)
                             }
                         }
                     }

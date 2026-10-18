@@ -87,7 +87,7 @@ final class LinearArpeggioOrderingTests: XCTestCase {
 
     func testTunedPitchAndExplicitG30UpperBoundaryPreserveExistingConversion() throws {
         for rate in rates {
-            for (fine, base): (Int, Double) in [(8,4412), (1,4415.5)] {
+            for (fine, base): (Int, Double) in [(8,4412), (1,4416)] {
                 let plan = adapt([[c(0x37, note: 49, instrument: 1)], [c()]], rate, finetune: fine, relative: 3)
                 XCTAssertEqual(plan.pattern.events[0].playbackStep, step(base, rate), accuracy: 1e-12)
                 let d = try XCTUnwrap(plan.diagnostics.arpeggioEffects.first)

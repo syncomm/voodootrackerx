@@ -191,7 +191,7 @@ final class AmigaArpeggioTests: XCTestCase {
         }
     }
 
-    private func step(_ period: Double, _ rate: Double) -> Double { 8363*6848/period/rate }
+    private func step(_ period: Double, _ rate: Double) -> Double { Adapter.playbackStep(amigaPeriod: period, baseSampleRate: 8363, outputSampleRate: rate)! }
     private func assertPCM(_ lhs: [Float], _ rhs: [Float], file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(lhs.count, rhs.count, file: file, line: line)
         XCTAssertLessThanOrEqual(zip(lhs,rhs).map { abs($0-$1) }.max() ?? 0, 1e-7, file: file, line: line)

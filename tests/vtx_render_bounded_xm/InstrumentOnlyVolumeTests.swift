@@ -48,7 +48,9 @@ final class InstrumentOnlyVolumeTests: XCTestCase {
         XCTAssertGreaterThan(pcm[(11_520 * 2)..<(12_480 * 2)].map(abs).max() ?? 0, 0)
         // Instrument 2 is a two-frame one-shot. The later instrument-only cell
         // retains its cache but cannot reactivate its completed source.
-        XCTAssertTrue(pcm[(12_480 * 2)..<(28_800 * 2)].allSatisfy { $0 == 0 })
+        // G30A's represented 100 Hz source uses step 136/65536 at 48 kHz;
+        // two source frames complete after 964 output frames (previously 960).
+        XCTAssertTrue(pcm[(12_484 * 2)..<(28_800 * 2)].allSatisfy { $0 == 0 })
     }
 
     func testSameCellWritersOverrideCachedVolumeAndPan() {

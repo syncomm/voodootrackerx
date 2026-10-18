@@ -93,6 +93,13 @@ Recorded fields include:
   `ignored`, or `updated`
 - `decisionReason`: short machine-readable context for the decision
 
+G30A keeps all schemas and field names. For valid Linear effective notes,
+reported periods use groups of eight signed finetune values; reported frequencies
+are the corrected scheduled Q16 sample step times output rate. Both Linear and
+Amiga period-derived updates share that conversion. Period-state fields,
+source generation, target/direction/speed and event frames retain their existing
+authority; G30B extreme-state fences are not reference-closure claims.
+
 For runtime C mixer adapter events, same-cell XM `E5x` set-finetune note
 triggers keep the original `effectCommand`/`effectParameter` metadata in the
 trace context. The applied sample-step and effective finetune are planned by the
@@ -212,7 +219,8 @@ periods; step entries retain
 This observes selection separately from conversion: B-7 `037` selects +7/+3,
 while existing Linear VTX periods 1152/1408 versus FT2 1540/1540 remain G30 debt.
 Amiga raised native periods 75/95 versus FT2 107/107 and low/base-range
-conversion also remain G30. No-owner diagnostics report unavailable pitch mode.
+state/conversion policy also remain G30B. No-owner diagnostics report unavailable
+pitch mode.
 Source generation/cursor, runtime event categories and trace schema are unchanged.
 `100` and `200` replay directional memory admitted by prior executed nonzero
 `1xx`/`2xx` ticks. Effective speed-1 rows neither seed nor replace that history.

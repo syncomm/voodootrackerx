@@ -13168,6 +13168,246 @@
       "xm_output": "generated/amiga-fine-extra-fine-finetune.xm",
       "xm_sha256": "a6c35739d418b8c766270b47a4e625d1f4238964c2da03ec50a26fa0f1ab3e17",
       "xm_size_bytes": 3520
+    },
+    {
+      "id": "bounded-pitch-conversion-linear",
+      "intended_tests": ["valid-domain finetune groups and relative note", "sustained phase and period-derived effect consumers", "whole/window/runtime corrected-step parity"],
+      "module": {
+        "bpm": 125,
+        "channels": 6,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC G30A TUNING",
+            "note_sample_map": [
+              {"end_note": 36, "sample": 0, "start_note": 1},
+              {"end_note": 37, "sample": 2, "start_note": 37},
+              {"end_note": 49, "sample": 0, "start_note": 38},
+              {"end_note": 50, "sample": 1, "start_note": 50},
+              {"end_note": 96, "sample": 0, "start_note": 51}
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 1,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": -1,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": -1,
+                "slot": 1,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 12,
+                "slot": 2,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [0],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 50, "row": 0, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 88, "effect_type": 14, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 80, "effect_type": 14, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 95, "effect_type": 14, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 37, "row": 0, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 55, "effect_type": 0, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 1, "effect_type": 1, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 3, "instrument": 0, "note": 50, "row": 84, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 72, "effect_type": 4, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 17, "effect_type": 33, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 17, "effect_type": 14, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 33, "effect_type": 14, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 33, "effect_type": 33, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 5, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 0, "effect_type": 6, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 17, "effect_type": 33, "instrument": 0, "note": 0, "row": 86, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 86, "volume_column": 241},
+              {"channel": 0, "effect_parameter": 33, "effect_type": 33, "instrument": 0, "note": 0, "row": 87, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 87, "effect_type": 14, "instrument": 1, "note": 49, "row": 88, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 89, "effect_type": 14, "instrument": 1, "note": 49, "row": 89, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 50, "row": 90, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 95, "effect_type": 14, "instrument": 0, "note": 0, "row": 91, "volume_column": 0}
+            ],
+            "rows": 96
+          }
+        ],
+        "restart_position": 0,
+        "speed": 3,
+        "title": "PUBLIC BOUNDED PITCH",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "bounded-pitch-conversion-linear.xm",
+      "purpose": "G30A bounded nongrid quantization and sustained reference-step conversion; extreme state stays baseline.",
+      "significant_rows": [
+        {"description": "Six sustained voices: +1, -1/relative -1, E58 exact, E50 -128, E5F +112 and +127/relative +12.", "row": 0},
+        {"description": "0xy, 1xx, 2xx, 3xx, 4xy and X11 consumers after the sustained window.", "row": 84},
+        {"description": "E1/E2/X1/X2, 5xy and volume Fx continue the same retained sources.", "row": 85},
+        {"description": "E57/E59, note-only and inert no-note E5 preserve existing ownership.", "row": 89}
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": ["G30B extreme admission, signed-state arithmetic and arpeggio projection remain open.", "Onset and 32-frame retirement reconstruction are separate."],
+      "xm_output": "generated/bounded-pitch-conversion-linear.xm",
+      "xm_sha256": "ee507da2ec13182725b5375f8b0b03d99f05546b22e8a3aff386830bf25321b5",
+      "xm_size_bytes": 2895
+    },
+    {
+      "id": "bounded-pitch-conversion-amiga",
+      "intended_tests": ["valid-domain finetune groups and relative note", "sustained phase and period-derived effect consumers", "whole/window/runtime corrected-step parity"],
+      "module": {
+        "bpm": 125,
+        "channels": 6,
+        "flags": 0,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "PUBLIC G30A TUNING",
+            "note_sample_map": [
+              {"end_note": 36, "sample": 0, "start_note": 1},
+              {"end_note": 37, "sample": 2, "start_note": 37},
+              {"end_note": 49, "sample": 0, "start_note": 38},
+              {"end_note": 50, "sample": 1, "start_note": 50},
+              {"end_note": 96, "sample": 0, "start_note": 51}
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 1,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": -1,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": -1,
+                "slot": 1,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 127,
+                "loop": {"length_frames": 256, "mode": "forward", "start_frame": 0},
+                "name": "PUBLIC G30A SINE",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 2048, "frame_count": 256, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "6327ffc42c015c0efe6f0f2b85657e4c52493dd45601cdccc99f22a661ed66d7",
+                "relative_note": 12,
+                "slot": 2,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [0],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 50, "row": 0, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 88, "effect_type": 14, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 80, "effect_type": 14, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 95, "effect_type": 14, "instrument": 1, "note": 49, "row": 0, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 37, "row": 0, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 55, "effect_type": 0, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 1, "effect_type": 1, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 1, "effect_type": 2, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 3, "instrument": 0, "note": 50, "row": 84, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 72, "effect_type": 4, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 5, "effect_parameter": 17, "effect_type": 33, "instrument": 0, "note": 0, "row": 84, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 17, "effect_type": 14, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 1, "effect_parameter": 33, "effect_type": 14, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 2, "effect_parameter": 33, "effect_type": 33, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 5, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 4, "effect_parameter": 0, "effect_type": 6, "instrument": 0, "note": 0, "row": 85, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 17, "effect_type": 33, "instrument": 0, "note": 0, "row": 86, "volume_column": 0},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 0, "row": 86, "volume_column": 241},
+              {"channel": 0, "effect_parameter": 33, "effect_type": 33, "instrument": 0, "note": 0, "row": 87, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 87, "effect_type": 14, "instrument": 1, "note": 49, "row": 88, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 89, "effect_type": 14, "instrument": 1, "note": 49, "row": 89, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 0, "instrument": 0, "note": 50, "row": 90, "volume_column": 0},
+              {"channel": 0, "effect_parameter": 95, "effect_type": 14, "instrument": 0, "note": 0, "row": 91, "volume_column": 0}
+            ],
+            "rows": 96
+          }
+        ],
+        "restart_position": 0,
+        "speed": 3,
+        "title": "PUBLIC BOUNDED PITCH",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "bounded-pitch-conversion-amiga.xm",
+      "purpose": "G30A bounded nongrid quantization and sustained reference-step conversion; extreme state stays baseline.",
+      "significant_rows": [
+        {"description": "Six sustained voices: +1, -1/relative -1, E58 exact, E50 -128, E5F +112 and +127/relative +12.", "row": 0},
+        {"description": "0xy, 1xx, 2xx, 3xx, 4xy and X11 consumers after the sustained window.", "row": 84},
+        {"description": "E1/E2/X1/X2, 5xy and volume Fx continue the same retained sources.", "row": 85},
+        {"description": "E57/E59, note-only and inert no-note E5 preserve existing ownership.", "row": 89}
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": ["G30B extreme admission, signed-state arithmetic and arpeggio projection remain open.", "Onset and 32-frame retirement reconstruction are separate."],
+      "xm_output": "generated/bounded-pitch-conversion-amiga.xm",
+      "xm_sha256": "a64a48bd6b600deae9925c3e9dd310828604d19c4e105655849cc930302e973d",
+      "xm_size_bytes": 2895
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

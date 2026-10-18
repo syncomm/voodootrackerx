@@ -1474,7 +1474,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Change Sample Finetune")
         XCTAssertEqual(harness.appliedDocuments.count, 1)
         XCTAssertEqual(originalEvent.playbackStep, 1, accuracy: 0.000_001)
-        XCTAssertEqual(editedEvent.playbackStep, pow(2.0, 0.5 / 12.0), accuracy: 0.000_001)
+        XCTAssertEqual(editedEvent.playbackStep, 67456.0 / 65536, accuracy: 0.000_001)
         XCTAssertEqual(originalPlan.pattern.events.count, editedPlan.pattern.events.count)
         XCTAssertEqual(originalPlan.pattern.rowCount, editedPlan.pattern.rowCount)
         XCTAssertEqual(originalPlan.timingConfig, editedPlan.timingConfig)

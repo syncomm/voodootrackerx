@@ -16,7 +16,7 @@ final class AmigaFineExtraFineFinetuneTests: XCTestCase {
             let before = form == 0 ? 6848.0 : 6464
             let delta = Double(nibble * (family < 3 ? 16 : 4)) * (family == 1 || family == 3 ? -1 : 1)
             XCTAssertEqual(d.period,before+delta)
-            XCTAssertEqual(try XCTUnwrap(d.step),8363*6848/(before+delta)/rate,accuracy: 1e-12)
+            XCTAssertEqual(try XCTUnwrap(d.step),Adapter.playbackStep(amigaPeriod: before+delta, baseSampleRate: 8363, outputSampleRate: rate)!,accuracy: 1e-12)
             XCTAssertEqual(d.execution.memoryValue,nibble)
             XCTAssertEqual(d.execution.memoryOrigin?.source.rowIndex,1)
             XCTAssertFalse(d.execution.usesLinearFrequencyTable)
@@ -109,7 +109,7 @@ final class AmigaFineExtraFineFinetuneTests: XCTestCase {
                 XCTAssertEqual(d.sampleFinetune,header)
                 XCTAssertEqual(d.effectiveFinetune,16*nibble-128)
                 XCTAssertEqual(mapping.amigaPeriod,expected)
-                XCTAssertEqual(mapping.playbackStep,8363*6848/expected/rate,accuracy: 1e-12)
+                XCTAssertEqual(mapping.playbackStep,Adapter.playbackStep(amigaPeriod: expected, baseSampleRate: 8363, outputSampleRate: rate)!,accuracy: 1e-12)
                 XCTAssertEqual(states.last![0].activeSampleRelativeNote,relative)
                 XCTAssertEqual(context.events.count,2)
                 XCTAssertEqual(context.events[1].initialSourceFrame,0)

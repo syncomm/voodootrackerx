@@ -34,8 +34,10 @@ final class VibratoEmptyRouteTests: XCTestCase {
                     let period = linear ? update.linearPeriodAfter : try XCTUnwrap(update.amigaPeriodAfter) / 4
                     XCTAssertEqual(period, periods[index])
                     XCTAssertEqual(update.scheduledFrame, Int(rate / 50) * (18 + index + 1))
-                    let step = linear ? 8363 * pow(2, (4608 - period) / 768) / rate : 8363 * 1712 / period / rate
-                    XCTAssertEqual(update.playbackStepAfter, step, accuracy: 1e-12)
+                    let step = linear
+                        ? Adapter.playbackStep(linearPeriod: period, baseSampleRate: 8363, outputSampleRate: rate)
+                        : Adapter.playbackStep(amigaPeriod: period*4, baseSampleRate: 8363, outputSampleRate: rate)
+                    XCTAssertEqual(update.playbackStepAfter, try XCTUnwrap(step), accuracy: 1e-12)
                 }
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
                 XCTAssertEqual(runtime.plan, plan)

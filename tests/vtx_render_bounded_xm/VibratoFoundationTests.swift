@@ -135,7 +135,7 @@ final class VibratoFoundationTests: XCTestCase {
         XCTAssertEqual(bounded.diagnostics.vibratoControlEffects.map(\.controlValue), Array(0...15) + [0])
     }
 
-    private func step(_ period: Double) -> Double { 8363 * pow(2, (4608 - period) / 768) / 48000 }
+    private func step(_ period: Double) -> Double { PlaybackSongSyntheticAdapter.playbackStep(linearPeriod: period, baseSampleRate: 8363, outputSampleRate: 48000)! }
 
     private func cell(_ effect: UInt8 = 0, _ parameter: UInt8 = 0, note: UInt8 = 0,
                       instrument: UInt8 = 0, volume: UInt8 = 0) -> PlaybackCell {

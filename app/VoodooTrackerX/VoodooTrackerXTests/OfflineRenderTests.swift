@@ -1189,7 +1189,7 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(mapping.loopMode, .forward)
         XCTAssertEqual(mapping.selectedSampleLength, 188)
         XCTAssertEqual(try XCTUnwrap(mapping.amigaPeriod), 6_972, accuracy: 0.000000001)
-        XCTAssertEqual(mapping.playbackStep, 0.17113042646777588, accuracy: 0.000000000001)
+        XCTAssertEqual(mapping.playbackStep, 11215.0 / 65536, accuracy: 0.000000000001)
         XCTAssertTrue(tonePortamento.applied)
         XCTAssertEqual(tonePortamento.activeEventIndex, 0)
         XCTAssertTrue(tonePortamento.sameCellNote)

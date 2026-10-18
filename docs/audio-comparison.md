@@ -315,9 +315,9 @@ swift run -c release vtx_render_bounded_xm \
 
 Use the unified compare/correlate/coverage commands below with those outputs
 and the corresponding reference. Compare 20 ms tick windows around command
-rows, allowing for FT2's native fixed-point step quantization versus VTX's
-analytic frequency conversion. Exact period trajectories, normalized by four
-for VTX Amiga state, are the numeric scale authority; WAV residual alone is
+rows. G30A uses reference-compatible Q16 steps in both modes; remaining
+waveform residuals include onset and interpolation fraction/integer PCM rounding.
+Exact period trajectories, normalized by four for VTX Amiga state, are the numeric scale authority; WAV residual alone is
 not a reason to change pitch conversion or mixer DSP.
 
 When ft2-clone is used as the primary reference, export outside the repository
@@ -332,9 +332,9 @@ For shared vibrato semantics use `vibrato-semantics.xm`: order 0, one order,
 isolates memory, all waveform/reset aliases, instrument-only reset, and seeded
 `6xy`. Compare exact tick periods first: C-4 `448` starts with
 `4608, 4632, 4653, 4666, 4671` on ticks 1–5; the next `400` row holds 4671
-through tick 0. FT2 fixed-point step quantization and gain ramps can still
-produce waveform residuals. This fixture does not validate Amiga execution
-or `600` slide memory.
+through tick 0. Stepping is reference-compatible under G30A; onset, interpolation
+rounding and gain ramps can still produce waveform residuals. This fixture does
+not validate Amiga execution or `600` slide memory.
 
 For Amiga vibrato use `amiga-vibrato.xm`: order 0, one order, 30 rows,
 172800 frames (3.6 seconds). Use the same profile above with **Amiga Frequency
@@ -342,7 +342,7 @@ Slides**. Its sample finetune +8 gives C-4 period 1706; `448` ticks 1–5 yield
 1706, 1730, 1751, 1764, 1769 before VTX's 4x mapping. A#7 at row 25 has base
 119; row 27 tick 3 reaches period/step zero at frame 158400 and resumes at
 159360. Compare exact tick periods and frames first; reference WAV residuals
-include existing step quantization and trigger/ramp differences.
+include existing interpolation rounding and trigger/ramp differences.
 The fixture README defines the public listening windows. Listening is a
 separate maintainer gate and must not be inferred from automated comparison.
 

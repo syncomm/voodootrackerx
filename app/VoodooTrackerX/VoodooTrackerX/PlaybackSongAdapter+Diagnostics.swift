@@ -148,13 +148,15 @@ extension PlaybackSongSyntheticAdapter {
         let deferred = effectMemoryDeferred ||
             status == .unsupportedFrequencyTable ||
             status == .outOfRange
-        let ignoredAsNoOp = status == .noActiveVoice
+        let ignoredAsNoOp = status == .noActiveVoice || status == .noNoteInert
         let policy: String
         switch status {
         case .applied:
             policy = "same_cell_note_overrides_sample_finetune_no_memory"
         case .noNoteDeferred:
             policy = "no_same_cell_note_effect_memory_deferred"
+        case .noNoteInert:
+            policy = "no_same_cell_note_ft2_inert_no_memory"
         case .noActiveVoice:
             policy = "no_playable_same_cell_note"
         case .unsupportedFrequencyTable:

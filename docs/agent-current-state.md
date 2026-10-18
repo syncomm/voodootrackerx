@@ -176,7 +176,7 @@ host.
   installs no direction; unrelated pitch/source changes preserve it. Later
   300/500/F0 consumes that latch. An executed target clamp leaves the
   higher-period direction latched; implicit zero speed can clamp a crossed
-  target without creating speed memory. G29 execution remains separate.
+  target without creating speed memory. G29 pitch writers preserve this state.
 - Cold supported note+instrument tone portamento restores volume 0/pan 128
   without a source/header cache. Instrument, neutral target and speed still carry;
   explicit writers follow. Later ordinary note-only starts its exact mapped source
@@ -223,14 +223,24 @@ host.
   unchanged and restore a differing held output from it without provenance.
   Converged targets deduplicate; uninitialized and completed sources receive no
   step publication or new voice. FT2's source-less cold-E10 0→1 clamp artifact
-  is intentionally omitted. Amiga fine/extra-fine remains G29.
+  is intentionally omitted. G29 extends these same stores to Amiga.
 - G18 Linear X1x/X2x own independent per-channel directional extra-fine memories,
   separate from E1/E2 and regular/tone/modulation state. Seeded X10/X20 replay
   once at tick zero. Cold forms perform zero arithmetic and restore meaningful
   canonical pitch to held output without provenance. Converged targets deduplicate;
   empty/completed routes cannot receive C step writes or a new voice. Uninitialized
   pitch stays absent, intentionally omitting FT2's cold-X10 0→1 clamp artifact.
-  Parent units/ranges remain unchanged; Amiga extra-fine remains G29.
+  Parent units/ranges remain unchanged; G29 shares these stores with Amiga.
+- G29 in-range Amiga E1x/E2x and X1x/X2x execute at tick zero through the
+  existing fine/extra-fine memories: fine uses ±16 times the resolved nibble,
+  extra-fine ±4, in VTX's 4x period domain. Same-cell forms fold into one
+  ordinary trigger; no-note forms retain source/cursor and silent semantic
+  ownership. Same-cell E5 uses `16 * nibble - 128` through the existing exact
+  mapped note lookup, preserving relative note and ordinary defaults/reset.
+  No-note E5 is inert with no memory or later-trigger retune. All five writers
+  preserve latent tone target/direction/speed. Both-rate whole/window/core/host
+  checks and reference audio pass with known onset/conversion residuals.
+  G30 range/minimum/conversion and universal Amiga parity remain separate.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

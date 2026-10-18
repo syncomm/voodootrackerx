@@ -1403,7 +1403,7 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
-                        status: .noNoteDeferred,
+                        status: song.usesLinearFrequencyTable ? .noNoteDeferred : .noNoteInert,
                         activeVoiceFound: channelState.activeEventIndex != nil,
                         activeEventIndex: channelState.activeEventIndex,
                         activeEventMappingIndex: channelState.activeEventMappingIndex
@@ -1467,7 +1467,7 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
-                        status: .noNoteDeferred,
+                        status: song.usesLinearFrequencyTable ? .noNoteDeferred : .noNoteInert,
                         activeVoiceFound: channelState.activeEventIndex != nil,
                         activeEventIndex: channelState.activeEventIndex,
                         activeEventMappingIndex: channelState.activeEventMappingIndex
@@ -1775,7 +1775,7 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
                         timingConfig: timingConfig,
-                        status: selectedEmptyPitch.map { song.usesLinearFrequencyTable ? setFinetuneStatus(for: $0) : .unsupportedFrequencyTable } ?? .noActiveVoice,
+                        status: selectedEmptyPitch.map { setFinetuneStatus(for: $0) } ?? .noActiveVoice,
                         activeVoiceFound: false,
                         activeEventIndex: nil,
                         activeEventMappingIndex: nil,
@@ -2107,7 +2107,7 @@ enum PlaybackSongSyntheticAdapter {
                     }
                 }
             }
-            let setFinetuneOverride = hasSetFinetuneEffect && song.usesLinearFrequencyTable
+            let setFinetuneOverride = hasSetFinetuneEffect
                 ? setFinetuneValue(from: cell)
                 : nil
             var pitchMapping = playbackStepMapping(
@@ -2124,9 +2124,7 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
-                    status: song.usesLinearFrequencyTable
-                        ? setFinetuneStatus(for: pitchMapping)
-                        : .unsupportedFrequencyTable,
+                    status: setFinetuneStatus(for: pitchMapping),
                     activeVoiceFound: true,
                     activeEventIndex: eventIndex,
                     activeEventMappingIndex: context.eventMappings.count,

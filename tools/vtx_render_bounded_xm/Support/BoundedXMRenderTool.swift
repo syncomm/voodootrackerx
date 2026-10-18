@@ -5219,6 +5219,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "applied"
         case .noNoteDeferred:
             return "no_note_deferred"
+        case .noNoteInert:
+            return "no_note_inert"
         case .noActiveVoice:
             return "no_active_voice"
         case .unsupportedFrequencyTable:

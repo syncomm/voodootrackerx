@@ -898,6 +898,7 @@ struct PlaybackSongSyntheticSetFinetuneDiagnostic: Equatable {
     enum Status: Equatable {
         case applied
         case noNoteDeferred
+        case noNoteInert
         case noActiveVoice
         case unsupportedFrequencyTable
         case outOfRange

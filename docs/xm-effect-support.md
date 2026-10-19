@@ -428,6 +428,13 @@ wrap addition, then replace Int16 results at/above 32000 with 31999; negative
 signed results continue. Regular/fine native deltas remain four times the
 parameter/nibble, extra-fine one. Zero-amount source-less artifacts remain excluded.
 
+Cold Amiga E10/X10 still execute the upward signed minimum on owned current
+pitch: reachable VTX 136156 becomes 4 at tick zero with amount zero and absent
+memory provenance. Completed/empty owners retain that semantic clamp while
+fine-pitch source eligibility suppresses PCM publication. Cold Amiga 100 applies
+the same minimum at its first nonzero tick only for the owned signed-negative
+state; it does not seed memory. Linear and downward zero-form behavior is unchanged.
+
 Tone target admission uses its own UInt16 lookup-index boundary and unsigned
 direction latch. Lower-period execution compares wrapped result/target as Int16;
 higher-period execution compares UInt16. A crossed target clamps even at zero

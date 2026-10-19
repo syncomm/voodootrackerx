@@ -5257,6 +5257,38 @@ final class RuntimeCMixerTests: XCTestCase {
         }
     }
 
+    func testAmigaColdZeroUpClampsRetainRuntimeGenerationAndCursorAtBothRates() throws {
+        let url = try referenceXMFixtureURL("generated/extreme-pitch-state-amiga.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: url.path),modulePath: url.path)
+        for rate in [44_100.0,48_000] { for (channel,tick) in [(21,0),(22,0),(23,1)] {
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song,sampleRate: rate)
+            let mapping = try XCTUnwrap(runtime.plan?.diagnostics.eventMappings.first { $0.channelIndex == channel })
+            let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate,channelCount: 1),maximumRenderFrames: 4096)
+            core.configureAdapterEventScheduleForTesting(runtime.events,runtimeFrameOffset: 0)
+            let clampFrame = (12+tick)*Int(rate/50)
+            var frame = 0
+            while frame < clampFrame {
+                let count = min(4093,clampFrame-frame)
+                _ = renderRuntimePCM(core,frames: count); frame += count
+            }
+            let before = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: mapping.eventIndex))
+            _ = renderRuntimePCM(core,frames: 1)
+            let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: mapping.eventIndex))
+            let step = try XCTUnwrap(PlaybackSongSyntheticAdapter.playbackStep(amigaPeriod: 4,baseSampleRate: 8363,outputSampleRate: rate))
+            XCTAssertTrue(before.active && after.active); XCTAssertEqual(after.sampleStep,step)
+            XCTAssertEqual(after.samplePosition,(before.samplePosition+step).truncatingRemainder(dividingBy: 256),accuracy: 1e-9)
+            var applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            while true {
+                let batch = core.drainAppliedAdapterEventDiagnostics()
+                if batch.isEmpty { break }
+                applied.append(contentsOf: batch.filter { $0.event.channelIndex == channel })
+            }
+            XCTAssertEqual(applied.filter { if case .noteTrigger = $0.event.action { return true }; return false }.count,1)
+            XCTAssertTrue(applied.contains { $0.event.scheduledFrame == clampFrame && $0.event.categories.contains("step_update") })
+            XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
+        } }
+    }
+
     func testColdTonePortamentoLaterNoteOnlyStartsOneSilentSourceAtCursorZero() throws {
         for (linear,fx,param,column): (Bool,UInt8,UInt8,UInt8) in [(true,3,4,0),(false,3,4,0),(true,5,4,0),(true,0,0,0xF4),(false,5,4,0),(false,0,0,0xF4)] {
             let sample = PlaybackSample(instrumentIndex: 1,sampleIndex: 0,pcm: Array(repeating: 1/8,count: 256),volume: 20/64,panning: 192,

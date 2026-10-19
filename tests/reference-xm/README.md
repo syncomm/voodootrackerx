@@ -137,12 +137,12 @@ explicitly approves committing that exact artifact.
 
 ## Extreme pitch state and independent reset (G30B)
 
-`extreme-pitch-state-linear.xm` and `extreme-pitch-state-amiga.xm` share 21
-channels, 32 rows and original mathematical PCM. Speed 6/BPM 125 changes to F02
+`extreme-pitch-state-linear.xm` and `extreme-pitch-state-amiga.xm` have 21 and 24
+channels respectively, 32 rows and original mathematical PCM. Speed 6/BPM 125 changes to F02
 at row 8 and F06 at row 10, giving 184 ticks / 3.68 seconds. Linear is 8,591 bytes,
 SHA-256 `0bc3de7e8ee7a77ffb01807b36e56deab422d11a001105583d21bf703099cc6c`;
-Amiga is 8,611 bytes,
-SHA-256 `9d48e811380c2a16d3ded876ae013af8649df2c6548fa961dda998b103751a69`.
+Amiga is 8,729 bytes,
+SHA-256 `d0b6456680303ace41e1dc8ae4920574d1c2b38d2ce7e7fbe7ef4f01d9fe0fe8`.
 
 | Channels | Control |
 | --- | --- |
@@ -156,6 +156,7 @@ SHA-256 `9d48e811380c2a16d3ded876ae013af8649df2c6548fa961dda998b103751a69`.
 | 16–18 | Completed, declared empty and cold refused owners; no invented live PCM. |
 | 19 | Explicit volume/pan writers after refused resets, followed by restoration of the sounding cache. |
 | 20 | Cold effective-zero source held at cursor zero before its first sample; later ordinary replacement. |
+| 21–23 (Amiga only) | Cold E10/X10 clamp the owned signed-negative period 136156 to 4 at row 2 tick zero; cold 100 clamps at tick one. Row 3 repeats without seeding upward memory or restarting the source. |
 
 [ExtremePitchStateTests](../vtx_render_bounded_xm/ExtremePitchStateTests.swift)
 adds dense relative-note/finetune admission controls, native-word slide and tone

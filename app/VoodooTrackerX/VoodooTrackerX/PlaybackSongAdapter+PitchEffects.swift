@@ -48,6 +48,15 @@ extension PlaybackSongSyntheticAdapter {
             memorySource = rememberedMemory.source
             effectMemoryReused = true
             effectMemoryMissing = false
+        } else if !usesLinearFrequencyTable, channelState.activeUsesLinearFrequencyTable == false,
+                  direction == .up, let period = currentAmigaPeriodBefore, period.isFinite, period > 0,
+                  Int16(bitPattern: UInt16(truncatingIfNeeded: Int(period / 4))) < 1 {
+            // Cold 100 still executes the owned signed clamp on a nonzero tick;
+            // execution does not establish directional memory provenance.
+            slideAmount = 0
+            memorySource = nil
+            effectMemoryReused = false
+            effectMemoryMissing = true
         } else {
             return portamentoSlideDiagnostic(
                 source: source,
@@ -122,7 +131,8 @@ extension PlaybackSongSyntheticAdapter {
                 let beforePeriod = currentAmigaPeriod
                 let beforeStep = currentPlaybackStep
                 let rawAfter = currentAmigaPeriod + slideUnits
-                let afterPeriod = amigaSlidePeriod(currentAmigaPeriod, nativeDelta: Int(slideUnits / 4))
+                let afterPeriod = pitchSlidePeriod(currentAmigaPeriod, nativeDelta: Int(slideUnits / 4),
+                    linear: false, upward: direction == .up)
                 let didClamp = abs(afterPeriod - rawAfter) > 0.000000001
                 clamped = clamped || didClamp
                 guard let nextStep = playbackStep(
@@ -369,7 +379,7 @@ extension PlaybackSongSyntheticAdapter {
         policy: String
     ) -> PlaybackSongSyntheticPortamentoSlideDiagnostic {
         let applied = status == .applied
-        let effectMemoryDeferred = effectMemoryMissing || status == .zeroParamEffectMemoryDeferred
+        let effectMemoryDeferred = (effectMemoryMissing && !applied) || status == .zeroParamEffectMemoryDeferred
         return PlaybackSongSyntheticPortamentoSlideDiagnostic(
             source: source,
             channelIndex: channelIndex,
@@ -601,8 +611,9 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         let rawAfter = currentLinearPeriod - Double(amount) * (usesLinearFrequencyTable ? xmLinearPortamentoUnitsPerParam : xmAmigaPortamentoUnitsPerParam)
-        let afterPeriod = amount == 0 ? currentLinearPeriod : pitchSlidePeriod(currentLinearPeriod,
-            nativeDelta: Int((rawAfter - currentLinearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
+        let afterPeriod = amount == 0 && usesLinearFrequencyTable ? currentLinearPeriod : pitchSlidePeriod(currentLinearPeriod,
+            nativeDelta: Int((rawAfter - currentLinearPeriod) / (usesLinearFrequencyTable ? 1 : 4)),
+            linear: usesLinearFrequencyTable, upward: !usesLinearFrequencyTable)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,
@@ -736,8 +747,9 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         let rawAfter = linearPeriod - Double(amount) * (usesLinearFrequencyTable ? xmLinearPortamentoUnitsPerParam : xmAmigaPortamentoUnitsPerParam)
-        let afterPeriod = amount == 0 ? linearPeriod : pitchSlidePeriod(linearPeriod,
-            nativeDelta: Int((rawAfter - linearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
+        let afterPeriod = amount == 0 && usesLinearFrequencyTable ? linearPeriod : pitchSlidePeriod(linearPeriod,
+            nativeDelta: Int((rawAfter - linearPeriod) / (usesLinearFrequencyTable ? 1 : 4)),
+            linear: usesLinearFrequencyTable, upward: !usesLinearFrequencyTable)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,
@@ -1374,8 +1386,9 @@ extension PlaybackSongSyntheticAdapter {
         let rawAfter = direction == .up
             ? currentLinearPeriod - Double(amount) * (usesLinearFrequencyTable ? 1 : xmAmigaPeriodLookupScale)
             : currentLinearPeriod + Double(amount) * (usesLinearFrequencyTable ? 1 : xmAmigaPeriodLookupScale)
-        let afterPeriod = amount == 0 ? currentLinearPeriod : pitchSlidePeriod(currentLinearPeriod,
-            nativeDelta: Int((rawAfter - currentLinearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
+        let afterPeriod = amount == 0 && (usesLinearFrequencyTable || direction == .down) ? currentLinearPeriod : pitchSlidePeriod(currentLinearPeriod,
+            nativeDelta: Int((rawAfter - currentLinearPeriod) / (usesLinearFrequencyTable ? 1 : 4)),
+            linear: usesLinearFrequencyTable, upward: !usesLinearFrequencyTable && direction == .up)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,
@@ -1548,8 +1561,9 @@ extension PlaybackSongSyntheticAdapter {
         let rawAfter = direction == .up
             ? linearPeriod - Double(amount) * (usesLinearFrequencyTable ? 1 : xmAmigaPeriodLookupScale)
             : linearPeriod + Double(amount) * (usesLinearFrequencyTable ? 1 : xmAmigaPeriodLookupScale)
-        let afterPeriod = amount == 0 ? linearPeriod : pitchSlidePeriod(linearPeriod,
-            nativeDelta: Int((rawAfter - linearPeriod) / (usesLinearFrequencyTable ? 1 : 4)), linear: usesLinearFrequencyTable)
+        let afterPeriod = amount == 0 && (usesLinearFrequencyTable || direction == .down) ? linearPeriod : pitchSlidePeriod(linearPeriod,
+            nativeDelta: Int((rawAfter - linearPeriod) / (usesLinearFrequencyTable ? 1 : 4)),
+            linear: usesLinearFrequencyTable, upward: !usesLinearFrequencyTable && direction == .up)
         let clamped = abs(afterPeriod - rawAfter) > 0.000000001
         guard let nextStep = finePitchStep(
             afterPeriod, linear: usesLinearFrequencyTable,

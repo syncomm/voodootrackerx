@@ -84,14 +84,14 @@ host.
   slide arithmetic and direction-specific tone comparisons preserve in-range
   units, timing and memory; zero-speed tone execution can still clamp a crossed
   target. Arpeggio projection and Amiga vibrato UInt16 wrap remain distinct
-  policies. G30A supplies downstream quantization/conversion unchanged. G30B is
-  bounded closure; final combined G30 verification remains open.
+  policies. G30A supplies downstream quantization/conversion unchanged. The
+  combined bounded G30 contract is closed; broader pitch interactions remain open.
 - Cold Amiga E10/X10 apply the upward signed minimum to owned current pitch
   even with zero amount and no memory provenance. Completed/empty semantic
   owners clamp without fine-pitch PCM publication; unowned channels stay absent.
   Cold Amiga 100 applies the same signed-negative clamp on its first nonzero
-  tick without seeding memory. The failed final G30 gate still requires a rerun
-  after this correction merges; G31 remains separate.
+  tick without seeding memory. Both-rate combined G30 verification covers these
+  consumers; G31 remains separate.
 - G19 E90 is a special row-entry source trigger at cursor zero, with no interval
   memory. Instrumentless rows carry volume, pan, envelopes, release/fadeout and
   effect memory; explicit instruments resolve the exact note map and reset once
@@ -266,8 +266,8 @@ host.
   sample step converted exactly to Double. Existing pitch consumers share that
   adapter authority at 44.1/48 kHz, with zero sustained cursor drift. Source
   admission, carried periods, signed arithmetic, extreme target/direction and
-  arpeggio projection are owned by G30B above; final combined G30 verification
-  remains open. C DSP, onset,
+  arpeggio projection are owned by G30B above and verified together under the
+  closed bounded G30 contract. C DSP, onset,
   interpolation rounding and 32-frame retirement policy are unchanged.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.

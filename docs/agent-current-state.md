@@ -86,6 +86,12 @@ host.
   target. Arpeggio projection and Amiga vibrato UInt16 wrap remain distinct
   policies. G30A supplies downstream quantization/conversion unchanged. G30B is
   bounded closure; final combined G30 verification remains open.
+- Cold Amiga E10/X10 apply the upward signed minimum to owned current pitch
+  even with zero amount and no memory provenance. Completed/empty semantic
+  owners clamp without fine-pitch PCM publication; unowned channels stay absent.
+  Cold Amiga 100 applies the same signed-negative clamp on its first nonzero
+  tick without seeding memory. The failed final G30 gate still requires a rerun
+  after this correction merges; G31 remains separate.
 - G19 E90 is a special row-entry source trigger at cursor zero, with no interval
   memory. Instrumentless rows carry volume, pan, envelopes, release/fadeout and
   effect memory; explicit instruments resolve the exact note map and reset once

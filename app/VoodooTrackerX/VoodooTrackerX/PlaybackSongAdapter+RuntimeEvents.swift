@@ -765,12 +765,13 @@ extension PlaybackSongSyntheticAdapter {
         pitchSlidePeriod(period, nativeDelta: nativeDelta, linear: false)
     }
 
-    /// Both tables share native storage arithmetic; only VTX's Amiga scale differs.
-    static func pitchSlidePeriod(_ period: Double, nativeDelta: Int, linear: Bool) -> Double {
+    /// Both tables share native storage arithmetic; an explicit upward consumer
+    /// retains its signed minimum check even when its resolved amount is zero.
+    static func pitchSlidePeriod(_ period: Double, nativeDelta: Int, linear: Bool, upward: Bool = false) -> Double {
         let scale = linear ? 1.0 : 4
         let next = UInt16(truncatingIfNeeded: Int(period / scale) + nativeDelta)
         let signed = Int16(bitPattern: next)
-        let result = nativeDelta < 0 && signed < 1 ? UInt16(1)
+        let result = (nativeDelta < 0 || (nativeDelta == 0 && upward)) && signed < 1 ? UInt16(1)
             : nativeDelta > 0 && signed >= 32_000 ? UInt16(31_999) : next
         return Double(result) * scale
     }

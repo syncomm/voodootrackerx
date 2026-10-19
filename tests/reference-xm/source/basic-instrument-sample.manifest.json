@@ -13778,7 +13778,7 @@
       ],
       "module": {
         "bpm": 125,
-        "channels": 21,
+        "channels": 24,
         "flags": 0,
         "instruments": [
           {
@@ -14112,7 +14112,19 @@
               {"channel": 19, "effect_parameter": 0, "effect_type": 0, "instrument": 3, "note": 1, "row": 2, "volume_column": 48},
               {"channel": 19, "effect_parameter": 48, "effect_type": 8, "instrument": 3, "note": 1, "row": 3, "volume_column": 0},
               {"channel": 20, "effect_parameter": 0, "effect_type": 0, "instrument": 2, "note": 1, "row": 0, "volume_column": 0},
-              {"channel": 20, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 2, "volume_column": 0}
+              {"channel": 20, "effect_parameter": 0, "effect_type": 0, "instrument": 1, "note": 49, "row": 2, "volume_column": 0},
+              {"channel": 21, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 21, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 21, "effect_parameter": 16, "effect_type": 14, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 21, "effect_parameter": 16, "effect_type": 14, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 22, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 22, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 22, "effect_parameter": 16, "effect_type": 33, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 22, "effect_parameter": 16, "effect_type": 33, "instrument": 0, "note": 0, "row": 3, "volume_column": 0},
+              {"channel": 23, "effect_parameter": 0, "effect_type": 0, "instrument": 6, "note": 1, "row": 0, "volume_column": 0},
+              {"channel": 23, "effect_parameter": 255, "effect_type": 2, "instrument": 0, "note": 0, "row": 1, "volume_column": 0},
+              {"channel": 23, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 2, "volume_column": 0},
+              {"channel": 23, "effect_parameter": 0, "effect_type": 1, "instrument": 0, "note": 0, "row": 3, "volume_column": 0}
             ],
             "rows": 32
           }
@@ -14126,7 +14138,7 @@
       "purpose": "G30B source admission, independent refused reset, signed Amiga state and bounded arpeggio projection.",
       "significant_rows": [
         {"description": "Ordinary high/low starts, initialized empty and truly cold refused owners.", "row": 0},
-        {"description": "Effective-zero, refused, E5 and ED1 source/reset outcomes; second low 2FF row.", "row": 2},
+        {"description": "Effective-zero/refused/E5/ED1 outcomes; cold E10/X10 tick-zero and 100 tick-one signed clamps; second low 2FF row.", "row": 2},
         {"description": "First signed 301/501/F1 clamp; E1/X1 signed-negative consumers.", "row": 3},
         {"description": "F02 makes one precise native period approach for the upper-wrap control.", "row": 8},
         {"description": "Amiga upper vibrato wraps to period/step zero, then resumes without a new source.", "row": 12}
@@ -14134,8 +14146,8 @@
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": ["G30 final combined gate remains separate.", "Onset/retirement, envelope arithmetic, autovibrato and pan law remain separately owned."],
       "xm_output": "generated/extreme-pitch-state-amiga.xm",
-      "xm_sha256": "9d48e811380c2a16d3ded876ae013af8649df2c6548fa961dda998b103751a69",
-      "xm_size_bytes": 8611
+      "xm_sha256": "d0b6456680303ace41e1dc8ae4920574d1c2b38d2ce7e7fbe7ef4f01d9fe0fe8",
+      "xm_size_bytes": 8729
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

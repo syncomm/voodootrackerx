@@ -111,7 +111,7 @@ existing step-zero event after a cold effective-zero source trigger, before any
 rendered frame; generic initial-step sanitization is unchanged. No schema version
 changes. Native Amiga words are the reported VTX periods divided by four; tone
 admission direction is unsigned, lower-period tick comparison signed, and
-higher-period comparison unsigned. Final combined G30 verification remains open.
+higher-period comparison unsigned. Combined bounded G30 verification is closed.
 
 For runtime C mixer adapter events, same-cell XM `E5x` set-finetune note
 triggers keep the original `effectCommand`/`effectParameter` metadata in the

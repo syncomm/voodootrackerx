@@ -99,7 +99,7 @@ verify semantic state, final targets, PCM and zero planned/applied frame delta.
 
 The bounded G07 Lxx panning-envelope positioning contract is `CLOSED` by
 maintainer acceptance of the automated controls and external verification below.
-G06 remains closed. G31 fractional/Q8 envelope arithmetic, G40 static/header/8xx
+G06 remains closed. Pan fractional/Q8 arithmetic, G40 static/header/8xx
 final pan law and the pan-sustain/release difference remain explicitly open;
 this is not overall panning-envelope parity.
 
@@ -290,7 +290,7 @@ and `F03`. Measurements establish these rules:
 | Field | Semantic rule |
 | --- | --- |
 | Initial state | Publish envelope position 0 on the trigger tick, key-on true, fadeout 32768 (unity). |
-| Advancement | Advance one logical position at each subsequent canonical XM tick; hold the factor between ticks. Existing VTX linear point interpolation is retained. |
+| Advancement | Advance one logical position at each subsequent canonical XM tick; hold the factor between ticks. Volume uses the bounded G31 Q8 policy below; pan retains Float interpolation. |
 | Sustain/release | Hold the sustain point while key-on. The release tick retains a held sustain value; the next tick advances. |
 | Loop | Wrap on the end tick to the start point (exclusive end). Looping continues after release, except that a released sustain point at the loop end lets progression escape the loop. |
 | `Lxx` | Preserve volume positioning; additionally position the enabled pan envelope under the sounding instrument's raw volume-sustain flag. Use the same canonical tick frame and existing interpolator. See the G07 contract above for loop/end boundaries. |
@@ -314,12 +314,42 @@ delta is zero. Window imports retain the prior snapshot, including a still
 running source whose fadeout is zero, without reviving completed or stale
 voices. Source cursor reconstruction and replacement ownership are unchanged.
 
-Fractional slopes remain a separate point-arithmetic difference: reference
-Q8 values for `(0,64), (3,32)` are `16384, 13654, 10924, 8192`, while VTX keeps
-its existing linear Float calculation. Reference raw pan-sustain counters also
-show a distinct release quirk in the observed neutral-pan case; VTX's logical
-pan clock is not a claim of raw FT2 point/counter parity. G06 makes the existing
-segment audible while preserving these separate arithmetic/clock boundaries.
+### G31 bounded volume-envelope Q8 arithmetic
+
+Direct volume evaluation and the carried volume segment share one
+project-authored integer policy. Between increasing points `(x0,y0),(x1,y1)`,
+`slopeQ8 = (256 * (y1-y0)) / (x1-x0)`, with signed division toward zero;
+`valueQ8 = 256*y0 + slopeQ8*(tick-x0)`. Exact point arrival reassigns
+`256*y1`, and the factor is `Float(valueQ8)/16384`. Volume value 64 is valid;
+half-Q8 slopes truncate to zero until point arrival. For `(0,64),(3,32)`,
+the observed integers are `16384,13654,10924,8192`, rather than ideal Float
+interpolation. This is the pinned clone's Q8 convention, not a claim of
+bit-identical original DOS FT2 output.
+
+Normalized Q8 values/slopes are exactly representable in the existing Float
+segment slots, including bounded carry and its existing `0...1` clamp. A new
+instrument curve still retains the old slope until its pending point is met.
+No clock, state width, planning pass, source eligibility or C DSP changes.
+Represented coordinates and parser/writer admission remain unchanged.
+Pan retains its prior Float value/slope, point domain and sustain/release quirk.
+Existing final gain multiplication order is retained; the odd-fade control
+differs from the reference by at most one Float32 ULP (`2.98e-8`).
+
+`XMVolumeEnvelopeQ8Tests`, `volume-envelope-q8.xm` and shared runtime tests pin
+direct/carried/final stereo factors, silent/completed routes, resets, release,
+normal loops, Fxx and both-rate whole/window/core delivery. Actual canonical-host
+captures also match the offline controls.
+Matched nongrid audio improves; existing onset/retirement, ramp accumulation
+and G40 pan-law residuals remain separately owned.
+
+Volume-Lxx loop/end positioning remains **open**. With points
+`(0,19),(3,53),(10,17),(15,61)`, volume flags 5 and loop indices 1/2, `L0A` retains VTX tick
+10/value 17 versus reference tick 3/value 53. After `L0C`, the next tick is
+VTX 3 versus reference 13. Resolve this in a separate contract before Phase 2
+freeze. Cold initialization on `(3,48),(10,16)` also remains open: VTX emits
+`48/64` on ticks 0...2 versus reference zero. Neither control is an arithmetic
+closure claim. Protected logical sustain clocks remain unchanged even where
+reference raw counters advance while their emitted factor holds.
 
 ## Independently measured reference
 

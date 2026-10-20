@@ -73,8 +73,11 @@ bounded contracts; they do not establish full command or audible parity.
 - G06 makes the existing panning-envelope segment audible through that final-L/R
   authority, preserving neutral/static baselines, exact routes and both-rate parity.
 - Bounded G07 Lxx panning-envelope positioning is closed under the raw
-  volume-sustain flag, preserving volume Lxx and G06. G31 arithmetic, G40 pan law
+  volume-sustain flag, preserving volume Lxx and G06. G40 pan law
   and the pan-sustain/release difference remain open.
+- Bounded G31 volume Q8 arithmetic is closed with direct/carried and both-rate
+  delivery/reference/performance verification. Volume-Lxx loop/end positioning
+  and cold before-first initialization remain separate open boundaries.
 - Instrument-only default restoration and ordinary note-only exact-keymap
   routing/state carry are implemented without fabricated sources or fallback.
 - G01 sample-header/channel-volume ownership consumes song output once.

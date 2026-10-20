@@ -230,6 +230,23 @@ struct PlaybackEnvelopePoint: Equatable {
     }
 }
 
+/// Project-authored volume-only arithmetic; one Q8 unit is 1/16384 of full volume.
+enum PlaybackVolumeEnvelopeQ8 {
+    static func slope(from start: PlaybackEnvelopePoint, to end: PlaybackEnvelopePoint) -> Int {
+        (256 * (end.value - start.value)) / max(1, end.tick - start.tick)
+    }
+
+    static func value(at tick: Int, from start: PlaybackEnvelopePoint, to end: PlaybackEnvelopePoint) -> Int {
+        if tick >= end.tick { return end.value * 256 }
+        let offset = min(max(1, end.tick - start.tick), max(0, tick - start.tick))
+        // Values are bounded to 0...64. A nonzero quotient bounds this product
+        // by its <=16384 numerator, including coordinates beyond FT2's range.
+        return start.value * 256 + slope(from: start, to: end) * offset
+    }
+
+    static func factor(_ value: Int) -> Float { Float(value) / 16_384 }
+}
+
 struct PlaybackVolumeEnvelope: Equatable {
     static let disabled = PlaybackVolumeEnvelope(
         enabled: false,
@@ -282,6 +299,15 @@ struct PlaybackVolumeEnvelope: Equatable {
     }
 
     func value(at tick: Int) -> Float {
+        value(at: tick, quantizedVolume: true)
+    }
+
+    /// Pan segments retain their established Float interpolation and point domain.
+    func floatingValue(at tick: Int) -> Float {
+        value(at: tick, quantizedVolume: false)
+    }
+
+    private func value(at tick: Int, quantizedVolume: Bool) -> Float {
         guard enabled, !points.isEmpty else {
             return 1
         }
@@ -297,6 +323,10 @@ struct PlaybackVolumeEnvelope: Equatable {
             let next = points[index]
             guard safeTick <= next.tick else {
                 continue
+            }
+            if quantizedVolume, previous.tick < next.tick, safeTick >= previous.tick {
+                return PlaybackVolumeEnvelopeQ8.factor(PlaybackVolumeEnvelopeQ8.value(
+                    at: safeTick, from: previous, to: next))
             }
             let distance = max(1, next.tick - previous.tick)
             let progress = Float(safeTick - previous.tick) / Float(distance)

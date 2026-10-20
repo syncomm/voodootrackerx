@@ -70,6 +70,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/bounded-pitch-conversion-linear.xm | \
     tests/reference-xm/generated/bounded-pitch-conversion-amiga.xm | \
     tests/reference-xm/generated/extreme-pitch-state-amiga.xm | \
+    tests/reference-xm/generated/volume-envelope-q8.xm | \
     tests/reference-xm/generated/extreme-pitch-state-linear.xm | \
     tests/reference-xm/generated/cold-tone-portamento-initialization.xm | \
     tests/reference-xm/generated/tone-portamento-retained-source-reset.xm | \

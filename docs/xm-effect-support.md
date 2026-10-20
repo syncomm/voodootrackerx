@@ -179,7 +179,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Gxx` | Global volume | Implemented | Closed channel-turn birth/held-target delivery | None | Not applicable | One clamped `0...64` global; fresh notes observe their channel turn, including same-cell Gxx. Later writers do not backfill earlier targets. Real later publications refresh from held gain even when calculated gain was unchanged; whole/window/runtime share source-generation order. Generic ramps, onset and broader mix parity remain separate. |
 | `Hxy` / `H00` | Global volume slide | Implemented | Closed G12 timing / G13 memory; retained cold artifact difference | Independent channel-local whole byte; cold `H00` is a true no-op | Not applicable | Nonzero ticks `1..<effectiveSpeed`, upper nibble wins, clamp `0...64`. F01 neither seeds nor replaces memory. Seeded H00 uses G12 ascending channel turns and held targets against one song-global volume; later writers do not revise earlier targets. FT2's cold zero-memory target-refresh artifact is intentionally not emulated. |
 | `Kxx` | Key off | Implemented | Partial | None | Not applicable | G24 bounded precedence closed: raw K00 suppresses ordinary starts and owns note97+K00 once; release → cached restore → column/Cxx/8xx writers. Nonzero Kxx uses low five bits after column writers; K20 has no invocation, out-of-row omits release. Cold key/fadeout carry and once-per-tick finalization preserve source/cache ownership. Both-rate canonical-host delivery and startup attribution pass; the overall product ≤1 s startup target remains outstanding. |
-| `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Existing volume positioning is preserved. Bounded G07 pan positioning is closed under the sounding instrument's raw volume-sustain flag, including disabled volume envelopes and silent-channel clocks. G31, G40 and pan-sustain/release differences remain open. |
+| `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Existing volume positioning is preserved. Bounded G07 pan positioning is closed under the sounding instrument's raw volume-sustain flag, including disabled volume envelopes and silent-channel clocks. Volume loop/end positioning, cold before-first initialization, pan arithmetic/sustain and G40 remain open; bounded volume Q8 follows G31. |
 | `Pxy` | Panning slide | Deferred | Open | Own byte; pinned `P00` replays it | Not applicable | Real FT2/XM v1 target G33. Legacy handler support is not C-adapter support; remaining timing/writer/pan-envelope interactions need characterization. |
 | `Rxy` | Multi retrigger | Implemented | Closed G20 memory / G21 counter and carry / G22 integer volume modes | Independent zero-initialized interval/mode bytes and persistent counter | Not applicable | Memory resolves before invocation gating. Eligible ticks increment the counter; reaching the interval resets it and restarts the exact retained route at cursor zero, carrying semantic state. Interval zero executes every eligible tick. Volume modes use exact pinned FT2 integer arithmetic over 0...64. Only fully uninitialized volume bookkeeping is excluded as C; retirement reconstruction debt remains separate. |
 | `Txy` | Tremor | Deferred | Open | Own byte; pinned `T00` replays it | Not applicable | Real FT2/XM v1 target G34. Counter/phase, cold state, trigger carry and volume-writer interactions still need characterization. |
@@ -463,7 +463,7 @@ G30 is closed for:
 
 Combined verification covers both rates, whole/window/runtime-core/canonical-host
 delivery, matched reference audio and paired Release guardrails. Remaining
-G31/G32/G33/G34/G35–G38/G39/G40/G41 and callback real-time safety stay open.
+G32/G33/G34/G35–G38/G39/G40/G41 and callback real-time safety stay open.
 
 ## Shared Volume-Slide Memory Contract
 
@@ -624,8 +624,14 @@ support alone does not close these domains:
   maintainer Xcode/listening acceptance. Volume Lxx is unchanged; this does not
   close overall panning-envelope parity.
 - **Envelopes and instrument modulation:** volume/pan clocks, sustain/loop,
-  release and integer fadeout foundations exist. Fractional envelope arithmetic
-  (G31) and pan-clock quirks still need closure. Instrument autovibrato (G32) is
+  release and integer fadeout foundations exist. Bounded G31 volume arithmetic
+  is closed: direct and carried segments share signed Q8 slope truncation and
+  exact point reassignment through the existing final stereo targets. Both-rate
+  whole/window/core/actual-host, reference-audio and Release gates pass. Volume-Lxx
+  loop/end positioning and cold before-first initialization remain open, as do pan
+  Float/Q8 and pan-clock quirks. See the
+  [owned volume policy](design/xm-reset-output-ramp.md#g31-bounded-volume-envelope-q8-arithmetic).
+  Instrument autovibrato (G32) is
   preserved but runtime-inert and remains Phase 2 playback work; later editable
   Instrument Editor controls are a separate roadmap milestone.
 - **Volume writers and memory:** H00 replay (G13) is closed; its cold FT2

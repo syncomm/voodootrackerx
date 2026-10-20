@@ -520,8 +520,9 @@ final class PlaybackModelTests: XCTestCase {
         )
 
         XCTAssertEqual(envelope.value(at: 0), 1, accuracy: 0.0001)
-        XCTAssertEqual(envelope.value(at: 5), 0.75, accuracy: 0.0001)
-        XCTAssertEqual(envelope.value(at: 15), 0.25, accuracy: 0.0001)
+        // Pinned reference: truncate the signed Q8 slope before advancing it.
+        XCTAssertEqual(envelope.value(at: 5), 0.75006103515625)
+        XCTAssertEqual(envelope.value(at: 15), 0.25006103515625)
         XCTAssertEqual(envelope.value(at: 25), 0, accuracy: 0.0001)
     }
 

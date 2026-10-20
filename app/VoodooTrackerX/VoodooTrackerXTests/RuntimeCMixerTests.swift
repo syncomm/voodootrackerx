@@ -863,6 +863,13 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testVolumeEnvelopeQ8FixtureSharesExactRuntimeTargetsAndWindowState() throws {
+        let fixture = try referenceXMFixtureURL("generated/volume-envelope-q8.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        try assertXMEnvelopeRuntimeParity(song)
+    }
+
+    @MainActor
     func testVolumeColumnSlidesUseExactSharedFramesInRuntimeCoreAndPlaybackEngine() throws {
         let fixture = try referenceXMFixtureURL("generated/volume-column-slide-timing.xm")
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)

@@ -6,6 +6,14 @@ remain intentionally deferred.
 
 ## Purpose
 
+`volume-envelope-q8.xm` is an original two-channel, twelve-row triangle control.
+Its volume points `(0,64),(3,32),(10,57),(15,17),(23,64)` distinguish signed Q8
+slope truncation and exact endpoint assignment. It covers center/off-center
+targets, note-only carry, instrument-only reset, sustain, note97/K02 release,
+interior L06 and F03/FFA timing. Volume-Lxx loop/end positioning, cold values
+before a nonzero first point, pan arithmetic and G40 remain separate contracts.
+Reference audio and diagnostic artifacts remain external.
+
 `amiga-fine-extra-fine-finetune.xm` uses fourteen rows and twenty channels.
 Channels 0–3 seed/replay fine and extra-fine memories and cover note97, ordinary
 folding and active-source updates. Channels 4–8 use the actual E1F/E2F/X18/X28/

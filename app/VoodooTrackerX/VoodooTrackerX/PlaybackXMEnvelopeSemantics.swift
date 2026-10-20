@@ -281,8 +281,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 releasing: releasing, allowsLoop: !positionedPastLoop)
         }
 
-        mutating func sample(_ position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool) {
-            value = envelope.value(at: position)
+        mutating func sample(_ position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool, volumeQ8: Bool = false) {
+            value = volumeQ8 ? envelope.value(at: position) : envelope.floatingValue(at: position)
             let points = envelope.points
             guard !points.isEmpty else { return }
             if keyOn && envelope.sustainEnabled, let index = envelope.sustainPointIndex,
@@ -291,7 +291,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 slope = 0
             } else if let next = points.firstIndex(where: { $0.tick > position }), next > 0 {
                 pendingPoint = next
-                slope = Float(points[next].value - points[next - 1].value) /
+                slope = volumeQ8 ? PlaybackVolumeEnvelopeQ8.factor(PlaybackVolumeEnvelopeQ8.slope(
+                    from: points[next - 1], to: points[next])) : Float(points[next].value - points[next - 1].value) /
                     Float(64 * max(1, points[next].tick - points[next - 1].tick))
             } else {
                 pendingPoint = points.count - 1
@@ -300,11 +301,13 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             followsCurve = true
         }
 
-        mutating func advance(from previous: Int, to position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool) {
+        mutating func advance(from previous: Int, to position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool, volumeQ8: Bool = false) {
             if followsCurve || (envelope.points.indices.contains(pendingPoint) &&
                 envelope.points[pendingPoint].tick == position) {
-                sample(position, envelope: envelope, keyOn: keyOn)
+                sample(position, envelope: envelope, keyOn: keyOn, volumeQ8: volumeQ8)
             } else if previous != position {
+                // Q8 factors/slopes are binary-exact in these existing Float slots;
+                // carrying their bounded sum needs no wider state or second clock.
                 value = min(1, max(0, value + slope))
             }
         }
@@ -619,9 +622,9 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                                 keyOn: state.keyOn, releasing: releasing)
                         }
                         if resetVolume {
-                            carried.volume.sample(state.volumeTick, envelope: instrument.volume, keyOn: state.keyOn)
+                            carried.volume.sample(state.volumeTick, envelope: instrument.volume, keyOn: state.keyOn, volumeQ8: true)
                         } else {
-                            carried.volume.advance(from: previous, to: state.volumeTick, envelope: instrument.volume, keyOn: state.keyOn)
+                            carried.volume.advance(from: previous, to: state.volumeTick, envelope: instrument.volume, keyOn: state.keyOn, volumeQ8: true)
                         }
                         state.volumeValue = carried.volume.value
                     } else {

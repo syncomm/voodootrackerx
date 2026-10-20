@@ -14148,6 +14148,194 @@
       "xm_output": "generated/extreme-pitch-state-amiga.xm",
       "xm_sha256": "d0b6456680303ace41e1dc8ae4920574d1c2b38d2ce7e7fbe7ef4f01d9fe0fe8",
       "xm_size_bytes": 8729
+    },
+    {
+      "id": "volume-envelope-q8",
+      "intended_tests": [
+        "exact volume Q8 factors",
+        "unchanged pan and canonical clocks",
+        "whole/window/runtime/CoreAudio delivery"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 2,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 1024,
+            "name": "Q8 VOLUME",
+            "note_sample_map": [
+              {
+                "end_note": 96,
+                "sample": 0,
+                "start_note": 1
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "ORIGINAL TRIANGLE",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "triangle"
+                },
+                "pcm_sha256": "ca6a786f61898c464e7b96528294d5b21d03d044b1ef44b10f494ba9731a5cd2",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "loop_end_point": null,
+              "loop_start_point": null,
+              "points": [
+                [
+                  0,
+                  64
+                ],
+                [
+                  3,
+                  32
+                ],
+                [
+                  10,
+                  57
+                ],
+                [
+                  15,
+                  17
+                ],
+                [
+                  23,
+                  64
+                ]
+              ],
+              "sustain_point": 2,
+              "type_flags": 3
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 0
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 192,
+                "effect_type": 8,
+                "instrument": 1,
+                "note": 56,
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 0,
+                "row": 1
+              },
+              {
+                "channel": 0,
+                "note": 49,
+                "row": 2
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 6,
+                "effect_type": 21,
+                "note": 0,
+                "row": 3
+              },
+              {
+                "channel": 0,
+                "note": 97,
+                "row": 4
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 3,
+                "effect_type": 15,
+                "note": 0,
+                "row": 5
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 250,
+                "effect_type": 15,
+                "note": 0,
+                "row": 6
+              },
+              {
+                "channel": 1,
+                "effect_parameter": 2,
+                "effect_type": 20,
+                "note": 0,
+                "row": 7
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 0,
+                "row": 8
+              }
+            ],
+            "rows": 12
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX VOLUME Q8",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "volume-envelope-q8.xm",
+      "purpose": "Original nongrid volume slopes with held sustain, release, interior Lxx, note-only carry and instrument-only reset.",
+      "significant_rows": [
+        "0: center/off-center sources",
+        "1: nonretriggering reset",
+        "2: note-only carry",
+        "3: interior L06",
+        "4: note97 release",
+        "5-6: F03 then FFA",
+        "7: K02 release",
+        "8: instrument-only reset"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "volume Lxx loop/end positioning",
+        "cold nonzero-first-point initialization",
+        "pan Q8 and G40"
+      ],
+      "xm_output": "generated/volume-envelope-q8.xm",
+      "xm_sha256": "fdd7f7daaf0b5dfa0ca76232243c9e6deeb8f40903ee79a65651010c874cd343",
+      "xm_size_bytes": 1202
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

@@ -58,6 +58,7 @@ ALL_FIXTURES = [
     "bounded-pitch-conversion-amiga.xm",
     "extreme-pitch-state-linear.xm",
     "extreme-pitch-state-amiga.xm",
+    "volume-envelope-q8.xm",
 ]
 
 
@@ -618,6 +619,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "bounded-pitch-conversion-amiga.xm").resolve(),
                     (output_dir / "generated" / "extreme-pitch-state-linear.xm").resolve(),
                     (output_dir / "generated" / "extreme-pitch-state-amiga.xm").resolve(),
+                    (output_dir / "generated" / "volume-envelope-q8.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -670,6 +672,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/volume-column-pan-slide-timing.xm",
                     "generated/volume-column-slide-timing.xm",
                     "generated/volume-column-vibrato.xm",
+                    "generated/volume-envelope-q8.xm",
                 ],
             )
             self.assertEqual(
@@ -775,6 +778,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/volume-column-pan-slide-timing.xm",
                     "generated/volume-column-slide-timing.xm",
                     "generated/volume-column-vibrato.xm",
+                    "generated/volume-envelope-q8.xm",
                     "source/basic-instrument-sample.manifest.json",
                 ],
             )
@@ -868,6 +872,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:bounded-pitch-conversion-linear.xm": "generated/bounded-pitch-conversion-linear.xm",
                     "xm:bounded-pitch-conversion-amiga.xm": "generated/bounded-pitch-conversion-amiga.xm",
                     "xm:extreme-pitch-state-amiga.xm": "generated/extreme-pitch-state-amiga.xm",
+                    "xm:volume-envelope-q8.xm": "generated/volume-envelope-q8.xm",
                     "xm:extreme-pitch-state-linear.xm": "generated/extreme-pitch-state-linear.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",

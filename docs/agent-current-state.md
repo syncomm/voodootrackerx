@@ -148,6 +148,9 @@ host.
 - XM envelope/release targets and integer fadeout consume that same tick plan
   in runtime and offline rendering. One C final-L/R state interpolates ordinary
   targets over the current tick and carries in-flight window progress.
+  Direct and carried volume factors use signed Q8 slopes with exact point
+  reassignment under the bounded G31 contract. Pan retains Float interpolation;
+  volume-Lxx loop/end positioning and cold before-first initialization remain open.
   Non-retriggering resets use a 5 ms transition from current audible output
   through that same state. Ordinary instrument-only cells restore the last
   selected declared header's cached volume/pan and reset channel semantics;

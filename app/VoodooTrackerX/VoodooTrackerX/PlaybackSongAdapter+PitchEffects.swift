@@ -417,10 +417,19 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
+    /// Publishes the incoming row after its same-source outgoing restoration.
+    static func appendArpeggio(_ command: PlaybackSongSyntheticArpeggioDiagnostic, to context: inout AdapterRowContext) {
+        subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
+            syntheticRow: command.syntheticRow, context: &context)
+        context.arpeggioEffects.append(command)
+    }
+
     static func appendFinePitch(_ command: PlaybackSongSyntheticFinePortamentoUpDiagnostic, to context: inout AdapterRowContext) {
         var command = command
         command.execution.coalescedVibratoExit = coalesceVibratoExit(updates: command.stepUpdates,
             eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
+        subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
+            syntheticRow: command.syntheticRow, context: &context)
         context.finePortamentoUpEffects.append(command)
     }
 
@@ -428,6 +437,8 @@ extension PlaybackSongSyntheticAdapter {
         var command = command
         command.execution.coalescedVibratoExit = coalesceVibratoExit(updates: command.stepUpdates,
             eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
+        subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
+            syntheticRow: command.syntheticRow, context: &context)
         context.finePortamentoDownEffects.append(command)
     }
 
@@ -435,7 +446,26 @@ extension PlaybackSongSyntheticAdapter {
         var command = command
         command.execution.coalescedVibratoExit = coalesceVibratoExit(updates: command.stepUpdates,
             eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
+        subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
+            syntheticRow: command.syntheticRow, context: &context)
         context.extraFinePortamentoEffects.append(command)
+    }
+
+    /// Row entry restores outgoing arpeggio before the incoming tick-zero writer.
+    /// Keep its raw evidence, but deliver only the later writer to every consumer;
+    /// a previous row's synthetic end tick must never win a same-frame tie.
+    private static func subsumeArpeggioExit(updates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        eventIndex: Int?, syntheticRow: Int, context: inout AdapterRowContext) {
+        guard let update = updates.first, update.syntheticTick == 0, let eventIndex else { return }
+        for index in context.arpeggioEffects.indices.reversed() {
+            let command = context.arpeggioEffects[index]
+            if command.syntheticRow < syntheticRow - 1 { break }
+            guard command.syntheticRow == syntheticRow - 1, command.activeEventIndex == eventIndex,
+                  let exit = command.stepUpdates.last, exit.syntheticTick == command.rowSpeed,
+                  exit.reachedTarget, exit.scheduledFrame == update.scheduledFrame else { continue }
+            context.arpeggioEffects[index].subsumedRowExit = context.arpeggioEffects[index].stepUpdates.removeLast()
+            return
+        }
     }
 
     /// A later fine writer subsumes the prior row's same-frame vibrato exit.
@@ -1768,8 +1798,10 @@ extension PlaybackSongSyntheticAdapter {
               isLinear || (channelState.activeUsesLinearFrequencyTable == false &&
                   channelState.carriedNote > 0 && channelState.activeSampleRelativeNote != nil &&
                   channelState.activeSampleFinetune != nil),
-              let basePlaybackStep = channelState.activePlaybackStep,
-              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
+              let incomingPlaybackStep = channelState.activePlaybackStep,
+              let baseSampleRate = channelState.activeSampleBaseSampleRate,
+              let basePlaybackStep = finePitchStep(basePeriod, linear: isLinear,
+                  baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate) else {
             return arpeggioDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -1793,8 +1825,16 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        var currentPeriod = basePeriod
-        var currentPlaybackStep = basePlaybackStep
+        // Pure column Bx leaves its output held at row entry. Effect-column 4/6
+        // exits already restore/clear this cache; an earlier arpeggio exit has
+        // likewise restored canonical pitch. Never invert a quantized step.
+        let heldPeriod = isLinear ? channelState.vibratoOutputLinearPeriod : channelState.vibratoOutputAmigaPeriod
+        let incomingPeriod = heldPeriod.flatMap { period in
+            finePitchStep(period, linear: isLinear, baseSampleRate: baseSampleRate,
+                outputSampleRate: timingConfig.sampleRate) == incomingPlaybackStep ? period : nil
+        } ?? basePeriod
+        var currentPeriod = incomingPeriod
+        var currentPlaybackStep = incomingPlaybackStep
         var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
         let rowSpeed = max(1, timingConfig.speed)
         let firstTick = includeTickZeroUpdate ? 0 : 1
@@ -1806,7 +1846,7 @@ extension PlaybackSongSyntheticAdapter {
             )
             // G25's base phase holds canonical pitch. X/Y phases project even
             // a zero nibble; projection neither admits a note nor mutates base state.
-            let modulatedPeriod: Double? = tick == 0 || (rowSpeed - tick) % 3 == 0 ? basePeriod
+            let modulatedPeriod: Double? = tick == 0 ? incomingPeriod : (rowSpeed - tick) % 3 == 0 ? basePeriod
                 : arpeggioPeriod(basePeriod, finetune: channelState.activeSampleFinetune ?? 0,
                     offset: semitoneOffset, linear: isLinear)
             guard let modulatedPeriod,
@@ -1869,8 +1909,9 @@ extension PlaybackSongSyntheticAdapter {
             currentPlaybackStep = basePlaybackStep
         }
 
-        if isLinear { channelState.activeLinearPeriod = currentPeriod }
-        else { channelState.activeAmigaPeriod = currentPeriod }
+        // The row effect owns output only; canonical note/slide pitch survives.
+        if isLinear { channelState.activeLinearPeriod = basePeriod; channelState.vibratoOutputLinearPeriod = nil }
+        else { channelState.activeAmigaPeriod = basePeriod; channelState.vibratoOutputAmigaPeriod = nil }
         channelState.activePlaybackStep = currentPlaybackStep
 
         return arpeggioDiagnostic(

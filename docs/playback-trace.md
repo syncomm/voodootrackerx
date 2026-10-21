@@ -221,7 +221,7 @@ additive fields in the existing records and compatibility wrappers.
 Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger
 once at the base note pitch; subsequent arpeggio ticks are emitted as planned
 sample-step updates. Empty-note nonzero `0xy` rows with an active voice emit the
-remaining-tick sample-step updates at row tick frames. Tick zero is base pitch;
+remaining-tick sample-step updates at row tick frames. Ordinary tick zero is base pitch;
 later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using same-row Fxx
 speed. Amiga phases resolve through the existing quantized note/finetune lookup
 with sample relative-note metadata. `000` is inert with no parameter memory.
@@ -233,6 +233,10 @@ G30B uses bounded inverse-period projection for X/Y phases, including a zero
 nibble; base phases remain unprojected. B-7 `037` gives Linear 1540 and Amiga
 VTX 428 for both raised phases. No-owner diagnostics report unavailable pitch mode.
 Source generation/cursor, runtime event categories and trace schema are unchanged.
+Pure Bx held output survives the first arpeggio tick zero. Prior arpeggio exits
+restore canonical pitch; when a later same-frame arpeggio/fine writer subsumes
+the exit, `subsumed_row_exit` preserves its raw period/step/frame separately from
+`step_updates` and delivery counts. Every consumer uses the same delivered list.
 `100` and `200` replay directional memory admitted by prior executed nonzero
 `1xx`/`2xx` ticks. Effective speed-1 rows neither seed nor replace that history.
 Supported nonzero speed-1 commands retain `applied` status with empty

@@ -1283,7 +1283,7 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                context.arpeggioEffects.append(diagnostic)
+                appendArpeggio(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
             if hasPortamentoSlide, !(1...96).contains(cell.note), cell.note != 97 {
@@ -2376,7 +2376,7 @@ enum PlaybackSongSyntheticAdapter {
                     channelState: &channelState,
                     includeTickZeroUpdate: false
                 )
-                context.arpeggioEffects.append(diagnostic)
+                appendArpeggio(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
             if hasPortamentoSlide {

@@ -5435,6 +5435,49 @@ final class RuntimeCMixerTests: XCTestCase {
         try assertArpeggioCursorContinuity(linear: true)
     }
 
+    func testG32A0RRetainedArpeggioRowHandoffCoreFramesCursorsAndPCM() throws {
+        for linear in [true,false] { for rate in [48000.0,44100] { for fine in [false,true] {
+            let sample = PlaybackSample(instrumentIndex: 1,sampleIndex: 0,
+                pcm: (0..<32768).map { Float((8192*sin(Double($0)*0.17)).rounded())/32768 },
+                volume: 0.5,panning: 128,relativeNote: 0,finetune: 0,baseSampleRate: 8363)
+            let rows = fine ? [makePlaybackRow(index: 0,note: 49,instrument: 1),
+                makePlaybackRow(index: 1,effectParam: 0x37),makePlaybackRow(index: 2,effectType: 14,effectParam: 0x11),
+                makePlaybackRow(index: 3),makePlaybackRow(index: 4),makePlaybackRow(index: 5)]
+                : [makePlaybackRow(index: 0,note: 49,instrument: 1,volumeColumn: 0xA4),
+                   makePlaybackRow(index: 1,volumeColumn: 0xB8),makePlaybackRow(index: 2,effectParam: 0x37),
+                   makePlaybackRow(index: 3,effectParam: 0x37),makePlaybackRow(index: 4),makePlaybackRow(index: 5)]
+            let song = makePlaybackSong(orderPatternIndices: [0],patternRowsByIndex: [0: rows],
+                instrumentsByIndex: [1: .init(index: 1,samples: [sample],noteSampleMap: Array(repeating: 0,count: 96))],
+                initialTiming: .init(speed: 6,bpm: 125),usesLinearFrequencyTable: linear)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song,sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), end = try XCTUnwrap(runtime.plannedSongEndFrame)
+            let history = PlaybackSongOfflineRenderer.PitchSourceHistory(plan: plan)
+            let config = MixerRenderConfig(sampleRate: rate,channelCount: 1)
+            let offline = PlaybackSongOfflineRenderer().render(.init(song: song,config: config,frames: end)).block.interleavedPCM
+            let core = RuntimeCMixerRenderCore(config: config,maximumRenderFrames: 4096,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events,runtimeFrameOffset: 0)
+            let checkpoints = [12,18,24,30].flatMap { n in [-1,0,1].map { n*Int(rate/50)+$0 } } + [end]
+            var rendered = 0
+            for frame in checkpoints {
+                while rendered < frame {
+                    let count = min(4093,frame-rendered), pcm = renderRuntimePCM(core,frames: min(4093,frame-rendered))
+                    XCTAssertLessThanOrEqual(zip(pcm,offline[rendered..<(rendered+count)]).map { abs($0-$1) }.max() ?? 0,1e-7)
+                    rendered += count
+                }
+                let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertEqual(voice.samplePosition,history.advancedPosition(for: 0,at: frame))
+                if frame%Int(rate/50) == 1 {
+                    XCTAssertEqual(voice.sampleStep,history.advancedPosition(for: 0,at: frame)! - history.advancedPosition(for: 0,at: frame-1)!)
+                }
+            }
+            let applied = core.drainAppliedAdapterEventDiagnostics()
+            XCTAssertEqual(applied.map(\.event),runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end })
+            XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
+            XCTAssertEqual(applied.filter { if case .noteTrigger = $0.event.action { return true }; return false }.count,1)
+        } } }
+    }
+
     private func assertArpeggioCursorContinuity(linear: Bool) throws {
         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
             pcm: Array(repeating: 1 / 32, count: 256), volume: 0.5,

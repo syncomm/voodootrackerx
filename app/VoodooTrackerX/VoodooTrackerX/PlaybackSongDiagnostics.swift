@@ -1434,8 +1434,11 @@ struct PlaybackSongSyntheticArpeggioDiagnostic: Equatable {
     let currentPlaybackStepAfter: Double?
     let rowSpeed: Int
     let rowBPM: Int
-    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
+    var stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let policy: String
+    /// Canonical restoration executed before a later same-frame row writer;
+    /// retained as evidence, excluded from the shared delivery list.
+    var subsumedRowExit: PlaybackSongSyntheticTonePortamentoStepUpdate? = nil
 }
 
 struct PlaybackSongSyntheticVibratoDiagnostic: Equatable {

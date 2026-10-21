@@ -2929,6 +2929,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "active_voice_update_count": diagnostic.applied ? diagnostic.stepUpdates.count : 0,
             "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
             "step_update_count": diagnostic.stepUpdates.count,
+            "subsumed_row_exit": diagnostic.subsumedRowExit.map(tonePortamentoStepUpdateJSON) as Any? ?? NSNull(),
             "step_updates": diagnostic.stepUpdates.map { update in
                 var fields = tonePortamentoStepUpdateJSON(update)
                 fields["selected_semitone_offset"] = PlaybackSongSyntheticAdapter.arpeggioSemitoneOffset(

@@ -57,12 +57,17 @@ host.
   replays independent upward memory without restarting a source. G30B adds native
   UInt16 storage and the signed upward minimum of 1 (VTX period 4). Downward
   slides have a distinct signed-threshold rule and continue beyond that threshold.
-- G25 Linear `0xy` in-range tick ordering is closed. Tick zero uses base pitch;
+- G25 Linear `0xy` in-range tick ordering is closed. Ordinary tick zero uses base pitch;
   later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using command-row
   Fxx timing. `000` is inert with no parameter memory; pitch updates retain the
   source generation/cursor. G30A owns conversion precision; G30B's bounded inverse
   projection gives B-7 `037` periods 1540/1540. The base phase remains unprojected;
   an X/Y phase projects even when its selected nibble is zero.
+- Retained-source arpeggio row handoff restores canonical pitch before the next
+  row's writer. Pure volume-column Bx output is held through the first arpeggio
+  tick zero; subsequent phases and blank/000 exits use canonical pitch. Incoming
+  arpeggio/fine writers subsume the prior exit across delivery/history consumers,
+  retaining its raw diagnostic evidence. Final-pitch migration and G32 remain blocked.
 - G26 Amiga `0xy` is closed for in-range quantized pitches. It reuses G25's
   phase selector and the existing Amiga note/finetune lookup and sample-step
   conversion. Tuning, relative-note/octave crossings, effective Fxx speed,

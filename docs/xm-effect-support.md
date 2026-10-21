@@ -144,7 +144,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 
 | Command | Name | Support | FT2 closure | FT2 memory | VTX pitch mode | Current behavior / remaining boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| `0xy` | Arpeggio | Implemented | Partial; G25/G26 in-range contracts closed | None; `000` inert | Both | Tick zero is base; later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using effective same-row Fxx speed. Source/cursor and arithmetic are preserved; G30A supplies quantization/step conversion. G30B inverse projection gives B-7 `037` periods 1540/1540. Amiga phases resolve through the existing quantized note/finetune lookup, with relative-note metadata. G30B owns bounded Amiga extremes; step conversion is G30A. |
+| `0xy` | Arpeggio | Implemented | Partial; G25/G26 in-range contracts closed | None; `000` inert | Both | Ordinary tick zero is base; pure Bx held-output entry follows G32A-0R below. Later ticks select `[base,x,y][(effectiveSpeed - tick) % 3]` using effective same-row Fxx speed. Source/cursor and arithmetic are preserved; G30A supplies quantization/step conversion. G30B inverse projection gives B-7 `037` periods 1540/1540. Amiga phases resolve through the existing quantized note/finetune lookup, with relative-note metadata. G30B owns bounded Amiga extremes; step conversion is G30A. |
 | `1xx` | Portamento up | Implemented | Partial; G27 in-range Amiga contract closed | Own; `100` supported | Both | Linear `4 * xx`, Amiga `16 * xx` subtraction per nonzero tick through the shared native-word arithmetic and G30A conversion. Corrected generic memory admission requires an executed nonzero tick; speed 1 neither seeds nor replaces history. Combined G30 closes the native minimum 1 (Amiga VTX 4), including the owned cold-100 signed-negative clamp without memory provenance. |
 | `2xx` | Portamento down | Implemented | Partial | Own; `200` supported | Both | Linear `4 * xx`, Amiga `16 * xx` in VTX's 4x representation. Same memory admission rule as `1xx`; speed 1 neither seeds nor replaces it. G30B closes the distinct signed-threshold boundary below. |
 | `3xx` | Tone portamento | Implemented | Partial | Shared with volume-column `Fx`; `300` target/speed supported | Both | No retrigger, target-clamped nonzero ticks and Amiga quantized targets are established. Targets, speed and period direction are independent channel state. Explicit 3xx/5xy/Fx target admission latches direction; equality installs none. Ordinary source/pitch changes retain it; 300/500/F0 consumes it. An executed clamp leaves higher-period direction, including a crossed-target clamp at implicit zero speed without memory provenance. G30B closes bounded extremes below; glissando remains separate. |
@@ -464,6 +464,18 @@ G30 is closed for:
 Combined verification covers both rates, whole/window/runtime-core/canonical-host
 delivery, matched reference audio and paired Release guardrails. Remaining
 G32/G33/G34/G35–G38/G39/G40/G41 and callback real-time safety stay open.
+
+### Retained-source arpeggio row handoff
+
+G32A-0R preserves canonical pitch separately from held effect output. Pure
+volume-column Bx output survives the first `0xy` tick zero; ordinary starts and
+effect-column 4xy/6xy exits retain base pitch. Later phases keep G25/G26 ordering.
+Leaving nonzero arpeggio restores the canonical G30A-converted step, including
+blank/000 rows. A later same-frame arpeggio or fine/extra-fine writer subsumes
+that outgoing restoration in the shared delivery list; its original period,
+step and frame remain diagnostic evidence. Source generation/cursor and
+strict-before history/continuation semantics are preserved. This bounded
+correction does not authorize the final-pitch migration or instrument autovibrato.
 
 ## Shared Volume-Slide Memory Contract
 

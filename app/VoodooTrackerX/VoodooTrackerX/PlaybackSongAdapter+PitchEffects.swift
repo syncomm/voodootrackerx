@@ -1991,6 +1991,28 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
+    /// Executes one ordinary EDx/Bx span with its current semantic/source owner.
+    static func appendOrdinaryDelayedVibrato(cell: PlaybackCell, source: PlaybackPosition,
+        channelIndex: Int, syntheticRow: Int, ticks: Range<Int>, timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan, state: inout ChannelState, context: inout AdapterRowContext) {
+        var diagnostic = handleVibrato(from: cell, source: source, channelIndex: channelIndex,
+            syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
+            channelState: &state, executionTicks: ticks, executeSemanticPitch: true)
+        diagnostic.ordinaryDelayedExecution = true
+        if diagnostic.activeEventIndex == nil {
+            diagnostic.inactiveSourceStepUpdates = diagnostic.stepUpdates
+            diagnostic.stepUpdates = []
+        }
+        context.ordinaryDelayedVibratoIndices.append(context.vibratoEffects.count)
+        context.vibratoEffects.append(diagnostic)
+    }
+
+    /// The real trigger owns this mixed frame; retain the raw calculation as evidence.
+    static func supersedeDelayedVibratoBirth(_ index: Int?, tick: Int, context: inout AdapterRowContext) {
+        guard let index, context.vibratoEffects[index].stepUpdates.last?.syntheticTick == tick else { return }
+        context.vibratoEffects[index].supersededDelayedBirth = context.vibratoEffects[index].stepUpdates.removeLast()
+    }
+
     static func handleVibrato(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -2000,7 +2022,8 @@ extension PlaybackSongSyntheticAdapter {
         timingPlan: PlaybackSongFxxTimingPlan,
         restoreAtRowEnd: Bool = false,
         channelState: inout ChannelState,
-        executionTicks: Range<Int>? = nil
+        executionTicks: Range<Int>? = nil,
+        executeSemanticPitch: Bool = false
     ) -> PlaybackSongSyntheticVibratoDiagnostic {
         let combined = isVibratoVolumeSlideEffect(cell)
         let effectVibrato = isVibratoEffect(cell) || combined
@@ -2022,6 +2045,7 @@ extension PlaybackSongSyntheticAdapter {
         let basePeriod = linear ? channelState.activeLinearPeriod : channelState.activeAmigaPeriod
         let outputPeriodBefore = (linear ? channelState.vibratoOutputLinearPeriod : channelState.vibratoOutputAmigaPeriod) ?? basePeriod
         let stepBefore = channelState.activePlaybackStep
+        let semanticPitch = executeSemanticPitch && basePeriod != nil && stepBefore != nil && channelState.activeSampleBaseSampleRate != nil
         var updates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
         var status: PlaybackSongSyntheticVibratoDiagnostic.Status = .applied
         var policy = combined ? "6xy_ft2_vibrato_plus_tick_volume_slide" : "ft2_integer_vibrato_linear_period"
@@ -2066,7 +2090,7 @@ extension PlaybackSongSyntheticAdapter {
                 guard status == .applied || status == .noActiveVoice else { continue }
                 let modulation = vibratoTick(phase: channelState.vibratoPhase, speed: channelState.vibratoSpeed,
                     depth: channelState.vibratoDepth, control: control.controlValue)
-                if status == .noActiveVoice {
+                if status == .noActiveVoice && !semanticPitch {
                     channelState.vibratoPhase = modulation.phaseAfter
                     continue
                 }
@@ -2092,7 +2116,8 @@ extension PlaybackSongSyntheticAdapter {
                 currentStep = step
             }
         }
-        if status == .applied, let basePeriod, let period = currentPeriod, let previousStep = currentStep {
+        if status == .applied || (status == .noActiveVoice && semanticPitch),
+           let basePeriod, let period = currentPeriod, let previousStep = currentStep {
             // getNewNote restores only on leaving 4/6, not between consecutive rows.
             // Lookahead uses the traversed next row, so jumps and loops share this rule.
             if restoreAtRowEnd, period != basePeriod,

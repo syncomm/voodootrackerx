@@ -80,7 +80,7 @@ final class OrdinaryMappedEmptyDispatchTests: XCTestCase {
                     XCTAssertEqual(after.panningValue, column == 0xC3 ? 48 : 208)
                     XCTAssertEqual(plan.xmEmptyRoutes.first?.scheduledFrame, (6 + delay) * Int(rate / 50))
                     XCTAssertTrue(plan.diagnostics.voiceStateUpdates.filter { $0.source.rowIndex == 1 }.allSatisfy { $0.syntheticTick > 0 })
-                    // Bx is a routing control here; its separate numeric phase disagreement stays open.
+                    // Bx numerical ordering is covered by OrdinaryDelayedVibratoTests.
                 }
             }
             let plain = A.adapt(song(delay: 0, linear: linear, rows: [c(49, 1), c(49, 2), c()]), orderIndex: 0, sampleRate: rate)

@@ -210,6 +210,11 @@ extension PlaybackSongSyntheticAdapter {
         let requested = extendedEffectTick(cell)
         let slide = isOrdinaryVolumeColumnSlide(cell.volumeColumn) ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
         for tick in 1..<max(1, timingConfig.speed) {
+            if cell.volumeColumn >> 4 == 0xB {
+                appendOrdinaryDelayedVibrato(cell: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, ticks: tick..<(tick + 1), timingConfig: timingConfig,
+                    timingPlan: timingPlan, state: &state, context: &context)
+            }
             context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(slide, cell: cell, source: source,
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
                 timingPlan: timingPlan, state: &state, globalVolume: context.globalVolumeState.volumeValue))

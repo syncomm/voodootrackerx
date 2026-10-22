@@ -387,6 +387,12 @@ nonzero-tick depth, waveform and phase through the existing step updates.
 Mixed ticks retain two distinct event IDs at the same planned frame, in execution
 order. The runtime trace schema is unchanged.
 
+Ordinary delayed Bx diagnostics additionally expose `ordinary_delayed_execution`,
+`superseded_delayed_birth` and `inactive_source_step_updates`. These preserve raw
+calculations excluded from `step_updates`, the shared runtime/offline/history
+delivery list. An admitted birth owns its first mixed step; a refused pitch can
+retain the old generation's birth-tick write. G23's separate dispatch is unchanged.
+
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing
 commands. It describes incoming timing, not the effective duration of an Fxx

@@ -1,5 +1,68 @@
 import Foundation
 
+/// Plan-local coordinates only. Native semantic pitch/owner/reset capture is not implemented here.
+final class PlaybackSongCanonicalTickClock: Equatable, Sendable {
+    struct ClockRun: Equatable {
+        let timingRowIndex: Int
+        let firstCanonicalTickOrdinal: Int
+    }
+
+    struct Coordinate: Equatable {
+        let syntheticRow: Int
+        let tick: Int
+        let channel: Int
+        let absoluteFrame: Int
+        let canonicalTickOrdinal: Int
+    }
+
+    let runs: [ClockRun]
+    let totalCanonicalTicks: Int
+    let sampleRate: Double
+    // These immutable Array values share the diagnostics' existing CoW storage.
+    let rowTiming: [PlaybackSongSyntheticRowTimingDiagnostic]
+    let rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]
+
+    init(runs: [ClockRun], totalCanonicalTicks: Int, sampleRate: Double,
+         rowTiming: [PlaybackSongSyntheticRowTimingDiagnostic], rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]) {
+        self.runs = runs
+        self.totalCanonicalTicks = totalCanonicalTicks
+        self.sampleRate = sampleRate
+        self.rowTiming = rowTiming
+        self.rowDiagnostics = rowDiagnostics
+    }
+
+    /// Rejects noncanonical ticks (including row exits) and channels without a cell; never advances state.
+    func coordinate(syntheticRow: Int, tick: Int, channel: Int) -> Coordinate? {
+        guard runs.indices.contains(syntheticRow) else { return nil }
+        let run = runs[syntheticRow]
+        guard rowTiming.indices.contains(run.timingRowIndex), rowDiagnostics.indices.contains(syntheticRow) else { return nil }
+        let timing = rowTiming[run.timingRowIndex]
+        guard timing.syntheticRow == syntheticRow, rowDiagnostics[syntheticRow].syntheticRow == syntheticRow,
+              tick >= 0, tick < timing.effectiveSpeed,
+              channel >= 0, channel < rowDiagnostics[syntheticRow].cellCount else { return nil }
+        let ordinal = run.firstCanonicalTickOrdinal.addingReportingOverflow(tick)
+        guard !ordinal.overflow else { return nil }
+        return Coordinate(syntheticRow: syntheticRow, tick: tick, channel: channel,
+            absoluteFrame: PlaybackSongFxxRowTiming.frame(rowStartExactFrame: timing.rowStartExactFrame,
+                tick: tick, bpm: timing.effectiveBPM, sampleRate: sampleRate), canonicalTickOrdinal: ordinal.partialValue)
+    }
+
+    static func == (lhs: PlaybackSongCanonicalTickClock, rhs: PlaybackSongCanonicalTickClock) -> Bool {
+        lhs === rhs || (lhs.runs == rhs.runs && lhs.totalCanonicalTicks == rhs.totalCanonicalTicks
+            && lhs.sampleRate == rhs.sampleRate && lhs.rowTiming == rhs.rowTiming && lhs.rowDiagnostics == rhs.rowDiagnostics)
+    }
+
+    static let empty = PlaybackSongCanonicalTickClock(runs: [], totalCanonicalTicks: 0, sampleRate: 0,
+        rowTiming: [], rowDiagnostics: [])
+}
+
+extension PlaybackSongSyntheticPlan {
+    /// Manually authored synthetic mixer plans have no adapter traversal or canonical clock runs.
+    init(timingConfig: SyntheticTrackerTimingConfig, pattern: SyntheticPattern, diagnostics: PlaybackSongSyntheticDiagnostics) {
+        self.init(timingConfig: timingConfig, pattern: pattern, diagnostics: diagnostics, canonicalTickClock: .empty)
+    }
+}
+
 struct PlaybackSongFxxRowTiming: Equatable {
     let source: PlaybackPosition
     let syntheticRow: Int
@@ -31,6 +94,11 @@ struct PlaybackSongFxxRowTiming: Equatable {
             effectiveSpeed: effectiveSpeed,
             effectiveBPM: effectiveBPM
         )
+    }
+
+    /// Shared Fxx arithmetic: preserve the multiplication, addition and floor order exactly.
+    static func frame(rowStartExactFrame: Double, tick: Int, bpm: Int, sampleRate: Double) -> Int {
+        floorFrame(rowStartExactFrame + (Double(tick) * (sampleRate * 2.5 / Double(max(1, bpm)))))
     }
 
     private static func floorFrame(_ exactFrame: Double) -> Int {
@@ -72,8 +140,8 @@ struct PlaybackSongFxxTimingPlan: Equatable {
         let safeRow = max(0, row)
         let timing = timingFor(syntheticRow: safeRow)
         let safeTick = min(max(0, tick), timing.speed - 1)
-        let exactFrame = timing.rowStartExactFrame + (Double(safeTick) * framesPerTick(bpm: timing.bpm))
-        return floorFrame(exactFrame)
+        return PlaybackSongFxxRowTiming.frame(rowStartExactFrame: timing.rowStartExactFrame,
+            tick: safeTick, bpm: timing.bpm, sampleRate: sampleRate)
     }
 
     private func timingFor(syntheticRow: Int) -> (rowStartExactFrame: Double, speed: Int, bpm: Int) {
@@ -100,16 +168,6 @@ struct PlaybackSongFxxTimingPlan: Equatable {
         framesPerTick(bpm: bpm) * Double(max(1, speed))
     }
 
-    private func floorFrame(_ exactFrame: Double) -> Int {
-        guard exactFrame.isFinite,
-              exactFrame > 0 else {
-            return 0
-        }
-        guard exactFrame < Double(Int.max) else {
-            return Int.max
-        }
-        return Int(exactFrame.rounded(.down))
-    }
 }
 
 enum PlaybackSongFxxTimingPlanner {

@@ -1,13 +1,24 @@
-# XM final pitch publication proposal
+# XM semantic pitch and ordered physical publication proposal
 
 Status: proposed, awaiting Gregory's architecture review in
 [issue #488](https://github.com/syncomm/voodootrackerx/issues/488).
-Baseline: `f6d5d9a4c7303d4e333d0ce8f368fc88e0cda9e6`; bounded G31 remains closed.
-This note and its test-only shadow experiment authorize no production migration
-or G32 behavior. The supplied G32 preflight is characterization evidence:
+Clock prerequisite baseline: `ad359d2c3f30b7b28b471caef5082a17721f803d`;
+bounded G31 remains closed. G32A-2A is separately authorized for coordinates only;
+complete capture, final pitch migration and G32 behavior remain unauthorized.
+The supplied G32 preflight is characterization evidence:
 208 reference renders / 519,120 oracle assertions, not rerun for this proposal.
 Existing code, accepted ADRs and the [effect contracts](../xm-effect-support.md)
 remain authoritative. This is not an accepted ADR.
+
+**Superseding architecture clarification (proposed):** unconditional final-only
+physical coalescing is rejected. C14 retains requests 10963 then 10835 Q16 at
+frame 7680: epsilon .003 holds 10963 with ordered delivery, versus 10835 with
+last-only delivery. One semantic effect-output period does not authorize removing
+an intermediate physical request. Raw calculations, admitted ordered requests,
+runtime accepted scheduling latch and physical C state/cursor are distinct.
+Semantic ownership, carried selection, source generation and conversion provenance
+also differ. Meaningful source-less pitch is not numeric zero; uncaptured pitch
+is not an implemented `.unavailable` result.
 
 ## Current ownership and consumer map
 
@@ -31,66 +42,54 @@ instrument and active source separately; its baseline stride is 1152 bytes.
 Fine/extra-fine birth adjustments are already folded into triggers; runtime
 skips `appliedToInitialPlaybackStep`. Their histories ignore updates at birth.
 Bx then 4xy can execute twice on one tick, with separate phase/memory results.
-Those diagnostics must remain visible even if only the last step reaches C.
+Those diagnostics and every admitted ordered request remain observable. Bx then
+4xy/6xy can produce two policy-relevant requests on one tick: semantic output
+may be one final period while runtime holds an earlier accepted request.
 
-| Consumer / exact call site | Required future switch |
-| --- | --- |
-| `RuntimeCMixerAdapterEventPlan.swift:make`, seven loops and initial-hold loop | Final step references and trigger intent replace pitch delivery fanout; diagnostics/categories retain writer provenance. |
-| `PlaybackSongOfflineRender.swift:PlaybackSongOfflineRenderSession.init` | Whole-song delivery uses the same final values. |
-| `PlaybackSongOfflineRenderer.renderWindowedCore`, scan scheduling | Window-local frames derive from the shared values. |
-| `windowSchedulingUpdateCandidates`, `schedulePreindexedWindowUpdates`, `preindexedStepUpdate` | Index final publication references, rather than resolving seven families independently. |
-| `sampleStepUpdates`, `sourcePositionState`, `continuations` | Scan/continuation pitch and strict-before cursor integration use final values. |
-| `PitchSourceHistory.init`, `advancedPosition`, `hasActiveSource` | Replace the existing seven-family extraction; retain cuts, lifetime and exact integration. |
-| `PlaybackSongAdapter.swift:admitFinePitchPublications` | Source eligibility must use the shared candidate prefix without circularly requiring admitted output. |
+**Depth-off consumer boundary:** preserve runtime seven-family fanout and initial
+holds, event IDs/categories/order/counts, epsilon 0…0.01/default 1e-5,
+whole/window/indexed/scan scheduling, continuations and strict-before source
+histories. Inclusive cuts, provisional fine/extra-fine and ordinary delayed Bx
+admission stay authoritative. The companion supplies neither physical history
+nor source eligibility. No final-only consumer or history switch is proposed.
 
 ## Alternatives
 
 | Design | Benefit | Cost / disposition |
 | --- | --- | --- |
-| 1. Compact projection during existing row planning | Has effect results, route facts and births before consumer fanout; can reserve value storage once. | Preferred, conditional on row-edge and eligibility proofs below. Requires explicit finalization after all staged writers, not a new planner. |
-| 2. Immutable index built near plan assembly | Convenient common consumer API and existing source-prefix storage. | Reject a new post-plan song fold. Accept immutable storage only as the result of design 1 and replacement input to the existing history build. |
-| 3. Adapter/trigger coalescing alone | Small local change; birth folding is straightforward. | Reject as sole authority: it is downstream of fine eligibility and offline/history consumers. Building it separately for each consumer multiplies work and can diverge. |
-
-The preferred seam is row-local projection plus shared immutable storage, not
-an eighth diagnostic family, an envelope-timeline expansion or a C waveform engine.
-Raw family diagnostics remain immutable and observable. Final delivery records
-identify the winning writer; intermediate diagnostics must not claim a C write
-that coalescing removed. Any trace projection happens during planning, not in C.
+| Candidate A: semantic versus physical ownership | Separates one semantic output from zero-or-more ordered physical intents. | Selected direction for further proof; complete production capture remains unimplemented. |
+| Candidate B: final-only physical compaction | Reduces physical requests. | Not authorized: C14 disproves policy neutrality. Lossless ordered spans need their own contract. |
+| Candidate C: surgical native capture/composition | Captures facts at existing arithmetic, selection and birth boundaries. | Preferred technique within A's ownership model; judge correctness, coverage, ordering and cost, not line count. |
 
 ## Proposed construction and ordering
 
-1. In the existing `adapt` row iteration / `appendEvents`, mark new diagnostic
-   spans and capture only incoming held-period/source scalars. After the row's
-   staged writers, visit those new spans once in existing family/writer order.
-   Do not refold prior rows or use end-of-row `ChannelState` as tick-zero input.
-2. Use a reusable scalar row workspace, bounded by actual channel count/effective
-   speed, plus pending boundary writes. Seed births from existing event mappings;
-   retain source-event indices as generation keys. Resolve by frame, existing
-   tick ordering, family and writer ordinal before selecting the final value.
-   Fold previous-row vibrato exit into the next frame's group only after its
-   writers are known; preserve G17/G18 exit subsumption and the terminal boundary.
-3. A proposed value record contains frame/tick identity, channel, source-event
-   identity, source-or-birth intent and final step; provenance refers to existing
-   diagnostics. Emit at most one record per channel/frame/generation after
-   ordering is resolved. Keep distinct-frame integration boundaries even for
-   equal steps: removing them can change sequential Double rounding. Do not add
-   a record on every plain depth-off tick merely to express a held value.
-4. Feed this storage into the existing `PitchSourceHistory` construction instead
-   of scanning seven families there. Retain provisional fine/extra-fine candidates
-   for its strict-before prefix; existing admission suppresses only ineligible
-   publications. Freeze admitted references during that existing admission walk.
-   Prove removal cannot change any earlier eligible prefix; no second song fold.
-5. Runtime, whole/window/scan/indexed delivery and continuation queries must
-   switch together. Store once per immutable plan; reuse cache and loop storage.
-   No callbacks, clocks, PCM buffers or document values are added by consumers.
+G32A-2A installs one immutable two-Int clock run per traversed row during the
+existing traversal, sharing Fxx timing and row-channel diagnostics. Pure queries
+derive valid tick/channel coordinates, including blank and source-less cells.
+No row-exit or terminal tick is added. Coverage/isolation copies and cached Play
+preserve the companion; envelope-tail extension does not extend this clock.
+There is no native period/owner/reset query, hidden oscillator or phase advance.
 
-The future enabled sequence is **canonical base → existing effect-output period
-→ automatic delta once per canonical tick → existing G30A conversion → source
-step or birth intent**. Linear uses its current units; Amiga automatic deltas
-are native units, projected to VTX's 4x domain at the existing converter boundary.
-Effect output is never reconstructed by inverting a quantized step. In the
-depth-off prerequisite, reuse existing converted steps exactly; do not recompute
-closed G30A/B or alter any family implementation to generate the projection.
+G32A-2B requires separate approval for native period, ownership/conversion and
+actual dispatch/reset capture before physical admission. Use incoming scalar seeds,
+not end-of-row snapshots as tick-zero state, and never invert Q16 or filtered C
+pitch. Generic source-less vibrato may advance legacy phase without calculating
+new output; held and newly calculated output must remain distinguishable.
+Reduce newly captured row facts with bounded scalar workspace and a pending
+prior-row boundary after established arpeggio/vibrato exit subsumption. Producer
+references follow actual fanout creation order; helper-call/effect-name order
+does not establish runtime order. Cold and runtime comparators remain distinct.
+Keep one semantic channel/tick result or sparse held interval separately from
+all ordered requests and distinct generations/frame integration boundaries.
+No additional song pass, full-control/PCM copies, per-tick heap storage, callback
+clock or eighth effect authority is proposed; the envelope clock is not universal.
+
+Future enabled composition is **canonical base → ordered effect-output intents
+→ one automatic delta per canonical tick → existing Linear/Amiga conversion →
+each admitted intent or folded birth**. Automatic-only publication on no-writer
+ticks and new causal admission require separately approved policy. Waveform,
+sweep, reset arithmetic and compatibility choices remain unresolved. Depth-off
+coordinates neither recompute closed G30A/B nor implement audible G32.
 
 Automatic metadata/phase/sweep eventually belong to channel semantic ownership,
 not PCM lifetime. A later compact channel sidecar can hold phase/amplitude/ramp;
@@ -142,6 +141,7 @@ or malformed-byte edge. Observed clone behavior is evidence, not approval.
 **C — intentionally omit:** redundant period-refresh flags and period writes to
 inactive mixer slots when state/output equality is preserved. No phantom source
 or redundant C callback work. Meaningful zero-step holds are not classified C.
+Last-only equality alone never proves an existing ordered request redundant.
 Original DOS FT2 bit reduction is separate from the consulted clone's Float32
 output; neither proves the other's PCM policy. GPL source/tables must not enter
 MIT VTX. Tests use independently authored cells, PCM and an arbitrary period
@@ -149,8 +149,9 @@ offset for birth folding, with no autovibrato waveform/sweep implementation.
 
 Parser isolation, MOD/XM read-only loading, exact 96-note/S01...S16 routing,
 ADR 012–014, editable Undo, preview, XM export/reopen and source URL ownership
-remain protected. This proposal changes no document, format, effect, C DSP,
-runtime host, UI or roadmap boundary.
+remain protected. Accepted ADR 012 Policy B and ADR 014 remain authoritative;
+the deployed absent-map discrepancy stays OPEN. This proposal changes no document,
+format, effect, C DSP, runtime host, UI or roadmap boundary.
 
 ## Proof and remaining gates
 
@@ -163,20 +164,21 @@ hold/resume. Product whole/window PCM is also compared with a `1e-7` tolerance.
 The ordinary priority ordering and positive birth folding use actual storage,
 event construction and C cursor observation; they do not execute the runtime host.
 
-This deliberately allocating, post-plan test oracle is not the proposed
-construction algorithm. It proves bounded coalescing algebra, not row-workspace
-cost or installation. **UNPROVEN FUTURE MIGRATION GATES:** shared production
-runtime/offline/source-index consumption; provisional/admitted prefix sharing;
-all cross-family row-edge ties, order/nonzero-start and retirement interactions;
-no-source period reconstruction for the eventual automatic clock; runtime-core
-and actual-host applied frames; optimized layout/allocation/cache measurements.
-Existing tests supply bounded regression evidence, not completion of these gates.
+That allocating oracle establishes only its bounded default-policy cases.
+G32A-1C/1E C14 counterevidence rejects universal coalescing. The separate bounded
+1E Candidate A proof preserves ordered delivery alongside native semantic output
+in selected lifecycle/birth/hold cases; it proves neither a production constructor
+nor complete source-less capture, ordering, storage or enabled composition.
+No full green Xcode suite is claimed for that archived RED evidence branch.
+G32A-1F identifies the clock prerequisite followed by separately approved complete
+capture. Clock-only work cannot label uncaptured pitch unavailable.
 
-The next proposed **single implementation contract**, only after manager approval,
-is a behavior-neutral depth-off publication projection and simultaneous consumer
-switch at the call sites above. No autovibrato, new effect state or G33 work.
-Prove exact current steps, generation/cursor/frame and PCM identity, retain
-diagnostic intermediates and source eligibility, then separately seek G32 approval.
+R02 ordinary replacement-retirement parity remains separate OPEN debt: raw and
+shadow runtime can agree while queued offline restoration differs at N+1…N+30.
+Preserving that baseline neither repairs it nor extends G23 tolerance. No
+cancellation rewrite, generic parity exclusion or relaxed PCM gate is authorized.
+Issue #488 remains OPEN and this document remains proposed. Complete capture,
+enabled behavior and compatibility decisions require their own approvals/proofs.
 
 Measure existing `event_generation`, `fine_pitch_source_history_build`,
 `fine_pitch_source_eligibility`, cold ordering/materialization and runtime queue

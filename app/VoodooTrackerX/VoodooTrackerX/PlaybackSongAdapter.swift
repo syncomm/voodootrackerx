@@ -1,10 +1,48 @@
 import Foundation
 
+/// Partial producer observations: ordinary births (including folded births/E90), declared headers,
+/// refusals, ordinary/delayed carried selection, and shared retained-note restart dispatches.
+/// Pitch is the producer's canonical selection/base period, never a complete effect output.
+/// Array order is capture order; coordinates describe actual occurrences, not a tick reducer.
+struct PlaybackSongSelectionDispatchFacts: Equatable {
+    enum Coverage { case notAdapterProduced, nativeSelectionProducersV1 }
+    enum Domain { case linear, amigaVTX4x }
+    enum Pitch: Equatable { case known(Domain, nativePeriod: Double), unavailable }
+    enum Role { case trigger, emptySelection, refusedDispatch, carriedInstrument, retainedNoteRestart, coldDispatch, unavailableRoute }
+    enum InputOrigin: Equatable {
+        case absent, representedHeader, declaredEmptyHeader, finetuneCommand, refusedRoute, neutralDefault
+        // References the actual earlier setter, independently for each conversion field.
+        case selectionFact(Int)
+    }
+    struct TuningProducers: Equatable { var baseRate = -1, relativeNote = -1, finetune = -1 }
+    struct Fact: Equatable {
+        let source: PlaybackPosition
+        let syntheticRow: Int, tick: Int, channel: Int, absoluteFrame: Int
+        let role: Role
+        // Dispatch provenance, independently of whether that dispatch resets clocks.
+        let noteOnly: Bool
+        let pitch: Pitch
+        let semanticInstrument: Int?, semanticSample: Int?, carriedInstrument: Int?
+        let carriedNote: UInt8
+        let routedInstrument: Int?, mappedSample: Int?
+        let selectionMethod: PlaybackSongSyntheticSampleSelectionMethod?
+        let associatedGeneration: Int?
+        let baseRate: Double?, relativeNote: Int?, finetune: Int?
+        let baseRateOrigin: InputOrigin, relativeNoteOrigin: InputOrigin, finetuneOrigin: InputOrigin
+        let cachedDefaultVolume: Int, cachedDefaultPan: UInt8
+    }
+    let coverage: Coverage
+    let facts: [Fact]
+    // Excludes seven-family outputs, tone targets, E9 clones, release/cut facts and final pitch.
+    static let notAdapterProduced = Self(coverage: .notAdapterProduced, facts: [])
+}
+
 struct PlaybackSongSyntheticPlan: Equatable {
     let timingConfig: SyntheticTrackerTimingConfig
     let pattern: SyntheticPattern
     var diagnostics: PlaybackSongSyntheticDiagnostics
     let canonicalTickClock: PlaybackSongCanonicalTickClock
+    let selectionDispatchFacts: PlaybackSongSelectionDispatchFacts
     var noteOnlyEventIndices: Set<Int> = []
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
@@ -454,6 +492,9 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     struct AdapterRowContext {
+        var selectionFacts = [PlaybackSongSelectionDispatchFacts.Fact]()
+        var selectionTuningProducers = [PlaybackSongSelectionDispatchFacts.TuningProducers]()
+        var selectionFactStorageGrowthCount = 0
         let emptyVolumeColumn = PlaybackSongVolumeColumnDecoder.decode(0)
         var emptyCellFastPathCount = 0
         var fullCellDispatchCount = 0
@@ -493,6 +534,45 @@ enum PlaybackSongSyntheticAdapter {
         var mixerSampleBuffers = [MixerSampleBufferCacheKey: MixerSampleBuffer]()
         var globalVolumeState = GlobalVolumeState()
         var traversalEffectStatuses = [TraversalEffectKey: PlaybackSongSyntheticEffectCommandDiagnostic.Status]()
+    }
+
+    /// Observes existing producer scalars. Provenance cursors never participate in musical decisions.
+    static func captureSelection(source: PlaybackPosition, row: Int, tick: Int, channel: Int, frame: Int,
+        role: PlaybackSongSelectionDispatchFacts.Role, linear: Bool, noteOnly: Bool = false,
+        tuning: PlaybackSongSelectionDispatchFacts.InputOrigin? = nil, finetuneCommand: Bool = false,
+        defaultedBaseRate: Bool = false, defaultedFinetune: Bool = false,
+        routedInstrument: Int? = nil, selection: SampleSelection? = nil,
+        state: borrowing ChannelState, context: inout AdapterRowContext) {
+        typealias Origin = PlaybackSongSelectionDispatchFacts.InputOrigin
+        let index = context.selectionFacts.count
+        var producers = context.selectionTuningProducers[channel]
+        func origin(_ valuePresent: Bool, _ producer: inout Int, update: Origin?) -> Origin {
+            guard valuePresent else { producer = -1; return .absent }
+            if let update { producer = index; return update }
+            precondition(producer >= 0, "Selection input has no captured producer")
+            return .selectionFact(producer)
+        }
+        let base = origin(state.activeSampleBaseSampleRate != nil, &producers.baseRate,
+            update: defaultedBaseRate || tuning == .declaredEmptyHeader ? .neutralDefault : tuning == .refusedRoute ? nil : tuning)
+        let relative = origin(state.activeSampleRelativeNote != nil, &producers.relativeNote, update: tuning)
+        let fine = origin(state.activeSampleFinetune != nil, &producers.finetune,
+            update: defaultedFinetune ? .neutralDefault : tuning == .refusedRoute ? nil : finetuneCommand ? .finetuneCommand : tuning)
+        let period = linear ? state.activeLinearPeriod : state.activeAmigaPeriod
+        let selectedInstrument = tuning == nil ? nil : state.semanticInstrumentIndex
+        let selectedSample = tuning == nil ? nil : state.semanticSampleIndex
+        let capacity = context.selectionFacts.capacity
+        context.selectionFacts.append(.init(source: source, syntheticRow: row, tick: tick, channel: channel,
+            absoluteFrame: frame, role: role, noteOnly: noteOnly,
+            pitch: period.map { .known(linear ? .linear : .amigaVTX4x, nativePeriod: $0) } ?? .unavailable,
+            semanticInstrument: state.semanticInstrumentIndex, semanticSample: state.semanticSampleIndex,
+            carriedInstrument: state.carriedInstrumentIndex, carriedNote: state.carriedNote,
+            routedInstrument: routedInstrument ?? selectedInstrument, mappedSample: selection?.mappedSampleIndex ?? selectedSample,
+            selectionMethod: selection?.method, associatedGeneration: state.activeEventIndex,
+            baseRate: state.activeSampleBaseSampleRate, relativeNote: state.activeSampleRelativeNote, finetune: state.activeSampleFinetune,
+            baseRateOrigin: base, relativeNoteOrigin: relative, finetuneOrigin: fine,
+            cachedDefaultVolume: state.triggeredSampleDefaultVolume, cachedDefaultPan: state.triggeredSampleDefaultPan))
+        if context.selectionFacts.capacity != capacity { context.selectionFactStorageGrowthCount += 1 }
+        context.selectionTuningProducers[channel] = producers
     }
 
     static func adapt(
@@ -680,6 +760,12 @@ enum PlaybackSongSyntheticAdapter {
                 AdapterPlanProfileField("voice_state_update_count", context.voiceStateUpdates.count),
                 AdapterPlanProfileField("empty_cell_bypass_count", context.emptyCellFastPathCount),
                 AdapterPlanProfileField("full_cell_dispatch_count", context.fullCellDispatchCount),
+                AdapterPlanProfileField("selection_fact_count", context.selectionFacts.count),
+                AdapterPlanProfileField("selection_fact_stride", MemoryLayout<PlaybackSongSelectionDispatchFacts.Fact>.stride),
+                AdapterPlanProfileField("selection_fact_capacity", context.selectionFacts.capacity),
+                AdapterPlanProfileField("selection_fact_storage_growth_count", context.selectionFactStorageGrowthCount),
+                AdapterPlanProfileField("selection_provenance_count", context.selectionTuningProducers.count),
+                AdapterPlanProfileField("selection_provenance_stride", MemoryLayout<PlaybackSongSelectionDispatchFacts.TuningProducers>.stride),
             ]
         )
         profileSession?.recordPhase(
@@ -743,7 +829,8 @@ enum PlaybackSongSyntheticAdapter {
                 deferredCellFields: context.deferredCellFields,
                 eventCoverage: context.eventCoverage.summary
             ),
-            canonicalTickClock: canonicalTickClock
+            canonicalTickClock: canonicalTickClock,
+            selectionDispatchFacts: .init(coverage: .nativeSelectionProducersV1, facts: context.selectionFacts)
         )
         plan.noteOnlyEventIndices = context.noteOnlyEventIndices
         plan.coldReleasedEventIndices = context.coldReleasedEventIndices
@@ -926,6 +1013,10 @@ enum PlaybackSongSyntheticAdapter {
                 count: row.cells.count - context.channelStates.count
             ))
         }
+        if context.selectionTuningProducers.count < row.cells.count {
+            context.selectionTuningProducers.append(contentsOf: repeatElement(.init(),
+                count: row.cells.count - context.selectionTuningProducers.count))
+        }
         for channelIndex in row.cells.indices {
             var cell = row.cells[channelIndex]
             if context.eventCoverage.visit(cell) {
@@ -990,6 +1081,9 @@ enum PlaybackSongSyntheticAdapter {
                 // waits for the nonzero-tick pass after all row-entry writers.
                 if song.instrumentsByIndex[Int(cell.instrument)] != nil {
                     channelState.carriedInstrumentIndex = Int(cell.instrument)
+                    captureSelection(source: source, row: syntheticRow, tick: 0, channel: channelIndex,
+                        frame: scheduledStartFrame, role: .carriedInstrument, linear: song.usesLinearFrequencyTable,
+                        state: channelState, context: &context)
                 }
                 context.xmChannelRows.append(.init(source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame,
@@ -1110,7 +1204,7 @@ enum PlaybackSongSyntheticAdapter {
                    $0.sampleIndex == slot && $0.declaredPayloadLength == 0 && $0.decodedPayloadLength == 0
                }) {
                 selectedEmptyPitch = dispatchOrdinaryEmptyHeader(header, cell: cell, source: source,
-                    channelIndex: channelIndex, frame: scheduledStartFrame, song: song,
+                    syntheticRow: syntheticRow, channelIndex: channelIndex, frame: scheduledStartFrame, selection: selection, song: song,
                     timingConfig: timingConfig, state: &channelState, context: &context)
             }
             if isE90, let selection = explicitTriggerSelection, selection.sample == nil,
@@ -1141,6 +1235,10 @@ enum PlaybackSongSyntheticAdapter {
                     }) {
                         selectedEmptyPitch = selectEmptyHeader(header, cell: cell, instrumentIndex: routedInstrumentIndex,
                             initializesDefaults: false, song: song, timingConfig: timingConfig, state: &channelState)
+                        captureSelection(source: source, row: syntheticRow, tick: 0, channel: channelIndex,
+                            frame: scheduledStartFrame, role: .emptySelection, linear: song.usesLinearFrequencyTable,
+                            noteOnly: true, tuning: .declaredEmptyHeader, finetuneCommand: hasSetFinetuneEffect,
+                            routedInstrument: routedInstrumentIndex, selection: selection, state: channelState, context: &context)
                     } else {
                         // An undeclared slot has no header defaults to invent.
                         clearSourceAssociation(&channelState)
@@ -1154,6 +1252,11 @@ enum PlaybackSongSyntheticAdapter {
             }
             if cell.instrument > 0, song.instrumentsByIndex[Int(cell.instrument)] != nil {
                 channelState.carriedInstrumentIndex = Int(cell.instrument)
+                if cell.note == 0 || isNonzeroOrdinaryDelay(cell) || selectedEmptyPitch != nil {
+                    captureSelection(source: source, row: syntheticRow, tick: 0, channel: channelIndex,
+                        frame: scheduledStartFrame, role: .carriedInstrument, linear: song.usesLinearFrequencyTable,
+                        state: channelState, context: &context)
+                }
             }
             let rawK00 = hasKxxKeyOff && cell.effectParam == 0 && !hasVolumeColumnTonePortamento
             let restoresInstrumentOnlyDefaults = (cell.note == 0 || cell.note == 97 || rawK00) && cell.instrument > 0 &&
@@ -1791,6 +1894,11 @@ enum PlaybackSongSyntheticAdapter {
             let sampleSelection = explicitTriggerSelection ?? toneTargetSelection ?? selectSample(forNote: cell.note, from: instrument,
                 missingKeymapPolicy: isNoteOnly || isE90 ? .fail : .firstPlayableSample)
             guard let sample = sampleSelection.sample else {
+                if selectedEmptyPitch == nil && ordinaryEmptyHeader == nil && !(hasNoteDelayEffect && extendedEffectTick(cell) > 0) {
+                    captureSelection(source: source, row: syntheticRow, tick: 0, channel: channelIndex,
+                        frame: scheduledStartFrame, role: .unavailableRoute, linear: song.usesLinearFrequencyTable,
+                        noteOnly: isNoteOnly, routedInstrument: instrumentIndex, selection: sampleSelection, state: channelState, context: &context)
+                }
                 if (hasVibrato || hasVibratoVolumeSlide) && !ordinaryDelayedBx {
                     // Empty routing retires the source, not channel-local effect execution.
                     // The existing instrument gate has already applied the prior E4 reset policy.
@@ -1812,7 +1920,7 @@ enum PlaybackSongSyntheticAdapter {
                             }
                         }
                         selectedEmptyPitch = dispatchOrdinaryEmptyHeader(header, cell: cell, source: source,
-                            channelIndex: channelIndex, frame: delay.delayedFrame!, tick: delay.requestedTick,
+                            syntheticRow: syntheticRow, channelIndex: channelIndex, frame: delay.delayedFrame!, tick: delay.requestedTick, selection: sampleSelection,
                             song: song, timingConfig: timingConfig, state: &channelState, context: &context)
                         resetDelayedInstrument(cell: cell, state: &channelState)
                     }
@@ -1832,6 +1940,10 @@ enum PlaybackSongSyntheticAdapter {
                         }) {
                             selectedEmptyPitch = selectEmptyHeader(header, cell: cell, instrumentIndex: instrumentIndex,
                                 initializesDefaults: false, song: song, timingConfig: timingConfig, state: &channelState)
+                            captureSelection(source: source, row: syntheticRow, tick: delay.requestedTick, channel: channelIndex,
+                                frame: delay.delayedFrame!, role: .emptySelection, linear: song.usesLinearFrequencyTable,
+                                noteOnly: true, tuning: .declaredEmptyHeader, routedInstrument: instrumentIndex,
+                                selection: sampleSelection, state: channelState, context: &context)
                         } else {
                             clearSourceAssociation(&channelState)
                             channelState.semanticInstrumentIndex = instrumentIndex
@@ -2357,6 +2469,10 @@ enum PlaybackSongSyntheticAdapter {
             channelState.activeSampleFinetune = pitchMapping.effectiveFinetune ?? sample.finetune
             channelState.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
             applyActiveVolumeEnvelopeMapping(envelopeMapping, to: &channelState)
+            captureSelection(source: source, row: syntheticRow, tick: scheduledNoteTick, channel: channelIndex,
+                frame: scheduledNoteFrame, role: .trigger, linear: song.usesLinearFrequencyTable,
+                noteOnly: isNoteOnly, tuning: .representedHeader, finetuneCommand: hasSetFinetuneEffect,
+                routedInstrument: instrumentIndex, selection: sampleSelection, state: channelState, context: &context)
             // The latent tone target belongs to the channel, independently of this
             // new source. Only target-setting commands replace it; 300 can reuse it.
             channelState.volumeValueZeroedByAxy = false

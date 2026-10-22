@@ -17,10 +17,17 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 PlaybackSongOfflineRenderer.plan(plan, mutingEventsNotIn: []), plan.extendingEnvelopeTail(throughFrame: 100_000),
                 renderer.render(request).plan, renderer.renderWindowed(request, windowRows: 1).plan,
                 renderer.renderWindowedUsingScanPerWindowSchedulingReference(request, windowRows: 1).plan]
-            for copy in copies { XCTAssertTrue(copy.canonicalTickClock === clock) }
+            for copy in copies {
+                XCTAssertTrue(copy.canonicalTickClock === clock)
+                XCTAssertEqual(copy.selectionDispatchFacts, plan.selectionDispatchFacts)
+                plan.selectionDispatchFacts.facts.withUnsafeBufferPointer { original in
+                    copy.selectionDispatchFacts.facts.withUnsafeBufferPointer { XCTAssertEqual(original.baseAddress, $0.baseAddress) }
+                }
+            }
             for _ in 0..<3 {
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
                 XCTAssertTrue(runtime.plan?.canonicalTickClock === clock)
+                XCTAssertEqual(runtime.plan?.selectionDispatchFacts, plan.selectionDispatchFacts)
                 XCTAssertEqual(clock.coordinate(syntheticRow: 1, tick: 5, channel: 0)?.canonicalTickOrdinal, 11)
             }
             XCTAssertEqual(clock.totalCanonicalTicks, 12); XCTAssertEqual(clock.runs.count, 2)

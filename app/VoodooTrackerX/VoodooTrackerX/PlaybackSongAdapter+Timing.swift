@@ -59,7 +59,8 @@ final class PlaybackSongCanonicalTickClock: Equatable, Sendable {
 extension PlaybackSongSyntheticPlan {
     /// Manually authored synthetic mixer plans have no adapter traversal or canonical clock runs.
     init(timingConfig: SyntheticTrackerTimingConfig, pattern: SyntheticPattern, diagnostics: PlaybackSongSyntheticDiagnostics) {
-        self.init(timingConfig: timingConfig, pattern: pattern, diagnostics: diagnostics, canonicalTickClock: .empty)
+        self.init(timingConfig: timingConfig, pattern: pattern, diagnostics: diagnostics,
+            canonicalTickClock: .empty, selectionDispatchFacts: .notAdapterProduced)
     }
 }
 

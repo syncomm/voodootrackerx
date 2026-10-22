@@ -153,6 +153,7 @@ extension PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig, song: PlaybackSong, delayed: Bool = false,
         state: inout ChannelState, context: inout AdapterRowContext) {
         let instrument = song.instrumentsByIndex[selection.instrumentIndex]!
+        let defaultedBaseRate = state.activeSampleBaseSampleRate == nil, defaultedFinetune = state.activeSampleFinetune == nil
         if cell.instrument > 0 { state.carriedInstrumentIndex = selection.instrumentIndex }
         state.carriedNote = cell.note
         state.semanticInstrumentIndex = selection.instrumentIndex
@@ -199,6 +200,10 @@ extension PlaybackSongSyntheticAdapter {
             hasIgnoredVolumeColumn: false, hasIgnoredEffect: false)
         context.ignoredCells.append(ignored)
         context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+        captureSelection(source: source, row: syntheticRow, tick: delayed ? extendedEffectTick(cell) : 0, channel: channelIndex,
+            frame: scheduledFrame, role: .refusedDispatch, linear: song.usesLinearFrequencyTable,
+            noteOnly: cell.instrument == 0, tuning: .refusedRoute, defaultedBaseRate: defaultedBaseRate, defaultedFinetune: defaultedFinetune,
+            state: state, context: &context)
     }
 
     /// EDx's actual invocation classifies and resets after this tick's ordinary column writer.

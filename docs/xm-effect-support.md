@@ -104,6 +104,15 @@ without a new voice; no retained note creates none. Out-of-row delays keep the
 row-entry owner but perform no delayed reset/start. Instrument-only ED0 retains
 ordinary immediate cached-default/reset behavior without a source restart.
 
+Ordinary explicit notes with an exact present keymap to a declared zero-payload
+header cut the old source generation at dispatch: ED0 at row entry, ED1...EDF
+only at tick x below the effective same-row speed. Header defaults, tuning and
+semantic reset follow that frame without creating PCM or a fallback voice.
+`OrdinaryMappedEmptyDispatchTests` pins both modes/rates and neighboring paths.
+The legacy ordinary adapter's absent-map first-playable policy remains an open
+compatibility discrepancy requiring a separate manager decision before backend
+freeze; preserving it here does not approve its correctness.
+
 ## Note-only routing
 
 Ordinary notes with no instrument field use the carried instrument and resolve

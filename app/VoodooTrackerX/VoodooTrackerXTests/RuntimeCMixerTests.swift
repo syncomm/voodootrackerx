@@ -615,6 +615,65 @@ final class RuntimeCMixerTests: XCTestCase {
         }
     }
 
+    func testOrdinaryMappedEmptyEDDispatchCutsOnlyOldGenerationAtItsExactFrame() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for delay in [0, 1, 3, 5, 6] {
+            func cell(_ note: UInt8 = 0, _ instrument: UInt8 = 0, _ parameter: UInt8 = 0) -> PlaybackCell {
+                .init(note: note, instrument: instrument, volumeColumn: 0, effectType: parameter == 0 ? 0 : 14, effectParam: parameter)
+            }
+            let first = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+                pcm: (0..<32_768).map { Float(($0 % 128 - 64) * 192) / 32_768 },
+                volume: 20.0 / 64, panning: 48, relativeNote: 0, finetune: 0, baseSampleRate: 8363)
+            let next = PlaybackSample(instrumentIndex: 2, sampleIndex: 0, pcm: Array(repeating: -0.1875, count: 512),
+                volume: 28.0 / 64, panning: 80, relativeNote: 0, finetune: 0, baseSampleRate: 8363,
+                loopStart: 0, loopLength: 512, loopType: 1)
+            let cells = [cell(49, 1), cell(49, 2, UInt8(0xD0 | delay)), cell(), cell(61), cell()]
+            let song = PlaybackSong(title: "Original exact empty runtime", orders: [.init(orderIndex: 0, patternIndex: 0)],
+                patternsByIndex: [0: .init(index: 0, rows: cells.enumerated().map { .init(index: $0, cells: [$1]) })],
+                instrumentsByIndex: [1: .init(index: 1, samples: [first], noteSampleMap: Array(repeating: 0, count: 96)),
+                    2: .init(index: 2, samples: [next], noteSampleMap: (0..<96).map { $0 == 60 ? 0 : 2 })],
+                restartOrderIndex: 0, endBehavior: .stopAtEnd, usesLinearFrequencyTable: linear,
+                xmSampleSlotProvenanceByInstrument: [2: [.init(sampleIndex: 2, decodedPayloadLength: 0,
+                    isCanonicalEmptySlotHeader: false, volume: 44, panning: 208, finetune: -17, relativeNote: -5)]])
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), frame = (6 + delay) * Int(rate / 50), later = 18 * Int(rate / 50)
+            let config = MixerRenderConfig(sampleRate: rate), end = later + 2
+            let offline = PlaybackSongOfflineRenderer().render(.init(song: song, config: config, frames: end))
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var cursor = 0, applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            for boundary in [frame - 1, frame, frame + 1, later, later + 1, end] {
+                while cursor < boundary {
+                    let count = min(997, boundary - cursor), pcm = renderRuntimePCM(core, frames: count)
+                    XCTAssertLessThanOrEqual(zip(pcm, offline.block.interleavedPCM[(cursor * 2)..<((cursor + count) * 2)]).map { abs($0 - $1) }.max() ?? 0, 1e-7)
+                    cursor += count; applied += core.drainAppliedAdapterEventDiagnostics()
+                }
+                if boundary <= frame {
+                    XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 0)?.samplePosition,
+                        Double(boundary) * plan.pattern.events[0].playbackStep)
+                    XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 0)?.active, true)
+                } else if boundary == frame + 1 && delay < 6 {
+                    XCTAssertNil(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                    XCTAssertEqual(core.snapshot().activeVoiceCount, 0)
+                    XCTAssertEqual(core.channelSemanticStateForTesting(0)?.instrumentIndex, 2)
+                    XCTAssertEqual(core.channelSemanticStateForTesting(0)?.sampleIndex, 2)
+                    XCTAssertNil(core.channelSemanticStateForTesting(0)?.sourceEventIndex)
+                }
+                if boundary == later + 1 {
+                    XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 1)?.samplePosition, plan.pattern.events[1].playbackStep)
+                    XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 1)?.active, true)
+                }
+            }
+            XCTAssertEqual(applied.map { $0.event.id }, runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end }.map(\.id))
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            let cuts = applied.filter { $0.event.categories.contains("empty_route_source_stop") }
+            XCTAssertEqual(cuts.map { $0.event.scheduledFrame }, delay < 6 ? [frame] : [])
+            XCTAssertEqual(cuts.map { $0.event.activeEventIndex }, delay < 6 ? [0] : [])
+            XCTAssertEqual(core.snapshot().renderedFrameCount, UInt64(end))
+            XCTAssertEqual(applied.filter { $0.event.primaryCategory == "note_trigger" }.count, 2)
+        } } }
+    }
+
     func testAnOlderSilentSelectionCannotOverwriteItsSilentReplacement() throws {
         let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 100, channelCount: 1), maximumRenderFrames: 64)
         let position = PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0)

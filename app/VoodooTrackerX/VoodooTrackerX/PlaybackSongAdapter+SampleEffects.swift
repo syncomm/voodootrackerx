@@ -359,6 +359,32 @@ extension PlaybackSongSyntheticAdapter {
         context.retriggerEffects[index] = diagnostic
     }
 
+    /// Classifies only ordinary explicit ED destinations with an exact map and a declared empty header.
+    static func ordinaryDelayedEmptyHeader(cell: PlaybackCell, song: PlaybackSong) -> XMSourceSampleSlotProvenance? {
+        guard (1...96).contains(cell.note), cell.instrument > 0,
+              cell.effectType == 14, cell.effectParam >> 4 == 13, cell.volumeColumn >> 4 != 15,
+              let instrument = song.instrumentsByIndex[Int(cell.instrument)], instrument.noteSampleMap?.count == 96 else { return nil }
+        let selection = selectSample(forNote: cell.note, from: instrument, missingKeymapPolicy: .fail)
+        guard selection.sample == nil, let slot = selection.mappedSampleIndex,
+              let header = song.xmSampleSlotProvenanceByInstrument[Int(cell.instrument)]?.first(where: {
+                  $0.sampleIndex == slot && $0.declaredPayloadLength == 0 && $0.decodedPayloadLength == 0
+              }), ordinaryPitchAdmission(note: cell.note, relativeNote: header.relativeNote) != .refused else { return nil }
+        return header
+    }
+
+    /// Uses the existing generation cut and immutable header authority at the ordinary dispatch frame.
+    static func dispatchOrdinaryEmptyHeader(_ header: XMSourceSampleSlotProvenance, cell: PlaybackCell,
+        source: PlaybackPosition, channelIndex: Int, frame: Int, tick: Int = 0, song: PlaybackSong,
+        timingConfig: SyntheticTrackerTimingConfig, state: inout ChannelState,
+        context: inout AdapterRowContext) -> PlaybackStepMapping {
+        context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
+            scheduledFrame: frame, instrumentIndex: Int(cell.instrument), sampleIndex: header.sampleIndex,
+            stoppedEventIndex: state.activeEventIndex, tick: tick))
+        state.carriedNote = cell.note
+        return selectEmptyHeader(header, cell: cell, instrumentIndex: Int(cell.instrument),
+            song: song, timingConfig: timingConfig, state: &state)
+    }
+
     /// Resolves the retained note through the selected instrument's exact route; cursor restarts at zero.
     static func restartRetainedSource(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
         syntheticRow: Int, tick: Int, frame: Int, song: PlaybackSong, timingConfig: SyntheticTrackerTimingConfig,

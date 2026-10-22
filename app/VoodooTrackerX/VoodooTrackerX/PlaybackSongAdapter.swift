@@ -480,6 +480,7 @@ enum PlaybackSongSyntheticAdapter {
         var arpeggioEffects = [PlaybackSongSyntheticArpeggioDiagnostic]()
         var vibratoControlEffects = [PlaybackSongSyntheticVibratoControlDiagnostic]()
         var vibratoEffects = [PlaybackSongSyntheticVibratoDiagnostic]()
+        var ordinaryDelayedVibratoIndices = [Int]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
         var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
@@ -740,7 +741,8 @@ enum PlaybackSongSyntheticAdapter {
         plan.xmInstrumentSelections = context.xmInstrumentSelections
         plan.initialHeldPitchEventIndices = context.initialHeldPitchEventIndices
         plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
-        admitFinePitchPublications(in: &plan, profileSession: profileSession, oracle: eligibilityOracle)
+        admitFinePitchPublications(in: &plan, ordinaryDelayedVibratoIndices: context.ordinaryDelayedVibratoIndices,
+            profileSession: profileSession, oracle: eligibilityOracle)
         // Eligibility must see managed envelope/release lifetime. Only completed
         // cold-500 sources require rebuilding targets after gain admission changes.
         if excludeCompletedCold500Publications(from: &plan) {
@@ -754,13 +756,15 @@ enum PlaybackSongSyntheticAdapter {
         return plan
     }
 
-    /// Checks only fine/extra-fine pitch commands against the existing source-lifetime model.
+    /// Admits fine/extra-fine and ordinary delayed Bx writes against the existing source lifetime.
     private static func admitFinePitchPublications(in plan: inout PlaybackSongSyntheticPlan,
+        ordinaryDelayedVibratoIndices: [Int],
         profileSession: AdapterPlanProfileSession?, oracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?) {
         let start = profileSession?.beginPhase(), buildStart = profileSession?.beginPhase()
         let hasQueries = plan.diagnostics.finePortamentoUpEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
             plan.diagnostics.finePortamentoDownEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
-            plan.diagnostics.extraFinePortamentoEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil }
+            plan.diagnostics.extraFinePortamentoEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
+            ordinaryDelayedVibratoIndices.contains { !plan.diagnostics.vibratoEffects[$0].stepUpdates.isEmpty }
         let work = profileSession == nil ? nil : PlaybackSongOfflineRenderer.PitchSourceHistory.Work()
         // Admission only removes writes to an already dead source. Its earlier, eligible
         // positive-step prefix is unchanged, so this immutable projection stays valid.
@@ -812,6 +816,17 @@ enum PlaybackSongSyntheticAdapter {
             if !eligible {
                 plan.diagnostics.extraFinePortamentoEffects[index].stepUpdates = []
                 plan.diagnostics.extraFinePortamentoEffects[index].execution.publicationSuppressionReason = "no_active_source"
+            }
+        }
+        for index in ordinaryDelayedVibratoIndices {
+            let command = plan.diagnostics.vibratoEffects[index]
+            guard let event = command.activeEventIndex else { continue }
+            for update in command.stepUpdates where !eligibleSource(event, update.scheduledFrame, plan) {
+                plan.diagnostics.vibratoEffects[index].inactiveSourceStepUpdates.append(update)
+            }
+            if !plan.diagnostics.vibratoEffects[index].inactiveSourceStepUpdates.isEmpty {
+                let inactive = Set(plan.diagnostics.vibratoEffects[index].inactiveSourceStepUpdates.map(\.scheduledFrame))
+                plan.diagnostics.vibratoEffects[index].stepUpdates.removeAll { inactive.contains($0.scheduledFrame) }
             }
         }
         profileSession?.recordPhase("fine_pitch_source_eligibility", startedAt: start, fields: fields + [
@@ -957,6 +972,7 @@ enum PlaybackSongSyntheticAdapter {
             let delaysOrdinaryEmpty = isNonzeroOrdinaryDelay(cell) && ordinaryEmptyHeader != nil
             let defersOrdinaryTriggerState = retainsDelayedTrigger || delaysOrdinaryEmpty
             let delaysRefusedTrigger = refusedSelection != nil && isNonzeroOrdinaryDelay(cell)
+            let ordinaryDelayedBx = isNonzeroOrdinaryDelay(cell) && cell.volumeColumn >> 4 == 0xB && !delaysRefusedTrigger
             if isDelayedInstrumentOnly(cell) || delaysRefusedTrigger {
                 // ED1...EDF selects the carried owner now; source/default/reset work
                 // waits for the nonzero-tick pass after all row-entry writers.
@@ -970,11 +986,17 @@ enum PlaybackSongSyntheticAdapter {
                 continue
             }
             var instrumentOnlyReset: MixerPlaybackStateChange?
-            var delayedRetainedRowEntry: ChannelState? = defersOrdinaryTriggerState ? channelState : nil
+            var delayedRetainedRowEntry: ChannelState? = defersOrdinaryTriggerState || ordinaryDelayedBx ? channelState : nil
+            var ordinaryBxDiagnosticIndex: Int?
             if cell.instrument > 0, song.instrumentsByIndex[Int(cell.instrument)] != nil {
                 delayedRetainedRowEntry?.carriedInstrumentIndex = Int(cell.instrument)
             }
             defer {
+                if ordinaryDelayedBx, extendedEffectTick(cell) + 1 < timingConfig.speed {
+                    appendOrdinaryDelayedVibrato(cell: cell, source: source, channelIndex: channelIndex,
+                        syntheticRow: syntheticRow, ticks: (extendedEffectTick(cell) + 1)..<timingConfig.speed,
+                        timingConfig: timingConfig, timingPlan: timingPlan, state: &channelState, context: &context)
+                }
                 if isRxyMultiRetriggerEffect(cell) {
                     handleRxyTick(cell: cell, source: source, channelIndex: channelIndex,
                         syntheticRow: syntheticRow, tick: 0, song: song, timingConfig: timingConfig,
@@ -1540,6 +1562,14 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = channelState
                 continue
             }
+            if ordinaryDelayedBx {
+                // Bx belongs to the incoming source through the ED dispatch tick.
+                // Only an admitted trigger below can supersede that tick's write.
+                ordinaryBxDiagnosticIndex = context.vibratoEffects.count
+                appendOrdinaryDelayedVibrato(cell: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, ticks: 1..<min(extendedEffectTick(cell) + 1, timingConfig.speed),
+                    timingConfig: timingConfig, timingPlan: timingPlan, state: &channelState, context: &context)
+            }
             if let noteDelay, noteDelay.outOfRow {
                 context.noteDelayEffects.append(noteDelay)
                 let ignored = ignoredCell(
@@ -1559,7 +1589,7 @@ enum PlaybackSongSyntheticAdapter {
 
             let instrumentIndex = routedInstrumentIndex
             guard instrumentIndex > 0 else {
-                if hasVibrato || hasVibratoVolumeSlide {
+                if (hasVibrato || hasVibratoVolumeSlide) && !ordinaryDelayedBx {
                     // No owning instrument means no sample trigger or fallback.
                     context.vibratoEffects.append(handleVibrato(
                         from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
@@ -1749,7 +1779,7 @@ enum PlaybackSongSyntheticAdapter {
             let sampleSelection = explicitTriggerSelection ?? toneTargetSelection ?? selectSample(forNote: cell.note, from: instrument,
                 missingKeymapPolicy: isNoteOnly || isE90 ? .fail : .firstPlayableSample)
             guard let sample = sampleSelection.sample else {
-                if hasVibrato || hasVibratoVolumeSlide {
+                if (hasVibrato || hasVibratoVolumeSlide) && !ordinaryDelayedBx {
                     // Empty routing retires the source, not channel-local effect execution.
                     // The existing instrument gate has already applied the prior E4 reset policy.
                     context.vibratoEffects.append(handleVibrato(
@@ -1760,6 +1790,7 @@ enum PlaybackSongSyntheticAdapter {
                 }
                 if let header = ordinaryEmptyHeader, var delay = noteDelay {
                     if delay.requestedTick > 0 {
+                        supersedeDelayedVibratoBirth(ordinaryBxDiagnosticIndex, tick: delay.requestedTick, context: &context)
                         if isOrdinaryVolumeColumnSlide(cell.volumeColumn) {
                             for tick in 1...delay.requestedTick {
                                 context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumn,
@@ -1780,6 +1811,7 @@ enum PlaybackSongSyntheticAdapter {
                 }
                 if isNoteOnly, let slot = sampleSelection.mappedSampleIndex {
                     if let delay = noteDelay, delay.applied, delay.requestedTick > 0 {
+                        supersedeDelayedVibratoBirth(ordinaryBxDiagnosticIndex, tick: delay.requestedTick, context: &context)
                         context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
                             scheduledFrame: delay.delayedFrame ?? scheduledStartFrame, instrumentIndex: instrumentIndex,
                             sampleIndex: slot, stoppedEventIndex: channelState.activeEventIndex, tick: delay.requestedTick))
@@ -2141,6 +2173,7 @@ enum PlaybackSongSyntheticAdapter {
             let scheduledNoteFrame = noteDelay?.delayedFrame ?? scheduledStartFrame
             let scheduledNoteTick = noteDelay?.applied == true ? noteDelay?.requestedTick ?? 0 : 0
             if scheduledNoteTick > 0 {
+                supersedeDelayedVibratoBirth(ordinaryBxDiagnosticIndex, tick: scheduledNoteTick, context: &context)
                 // Column writes precede the existing delayed trigger/reset on its tick.
                 if isOrdinaryVolumeColumnSlide(cell.volumeColumn) {
                     for tick in 1...scheduledNoteTick {
@@ -2414,7 +2447,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.portamentoSlideEffects.append(diagnostic)
                 context.channelStates[channelIndex] = channelState
             }
-            if hasVibrato || hasVibratoVolumeSlide {
+            if (hasVibrato || hasVibratoVolumeSlide) && !ordinaryDelayedBx {
                 let diagnostic = handleVibrato(
                     from: cell,
                     source: source,

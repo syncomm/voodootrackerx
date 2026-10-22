@@ -4888,6 +4888,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
             "step_update_count": diagnostic.stepUpdates.count,
             "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
+            "ordinary_delayed_execution": diagnostic.ordinaryDelayedExecution,
+            "superseded_delayed_birth": diagnostic.supersededDelayedBirth.map(tonePortamentoStepUpdateJSON) as Any? ?? NSNull(),
+            "inactive_source_step_updates": diagnostic.inactiveSourceStepUpdates.map(tonePortamentoStepUpdateJSON),
             "policy": diagnostic.policy,
         ]
     }

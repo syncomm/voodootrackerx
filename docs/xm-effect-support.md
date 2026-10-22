@@ -603,6 +603,15 @@ pure Bx holds its output; the established restoration on leaving effect-column
 [VolumeColumnVibratoTests](../tests/vtx_render_bounded_xm/VolumeColumnVibratoTests.swift)
 pin both modes, rates, silent routes, reset policy and whole/window/runtime carry.
 
+Ordinary note-bearing EDx/Bx executes Bx on the incoming channel/source through
+the delay tick, then on the admitted source after the existing trigger reset
+(or prior E4 suppression). The trigger supersedes the raw birth-tick Bx write
+before mixing; its diagnostic remains observable. Out-of-row delays execute Bx
+without a trigger/reset. Inactive generations retain semantic evidence without
+C step delivery. `OrdinaryDelayedVibratoTests` pins this bounded contract;
+G23 instrument-only dispatch, absent-map fallback and represented ED gain debt
+remain separate.
+
 Amiga `4xy` and the vibrato half of `6xy` apply the same signed delta using
 `resultFT2 = (baseFT2 + signedDelta) mod 65536`, then
 `resultVTX = 4 * resultFT2`. C-4 at finetune 0 is FT2 1712 / VTX 6848.

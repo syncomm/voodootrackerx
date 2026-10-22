@@ -33,7 +33,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     var extraFinePortamentoEffects: [PlaybackSongSyntheticExtraFinePortamentoDiagnostic]
     let arpeggioEffects: [PlaybackSongSyntheticArpeggioDiagnostic]
     let vibratoControlEffects: [PlaybackSongSyntheticVibratoControlDiagnostic]
-    let vibratoEffects: [PlaybackSongSyntheticVibratoDiagnostic]
+    var vibratoEffects: [PlaybackSongSyntheticVibratoDiagnostic]
     let keyOffEvents: [PlaybackSongSyntheticKeyOffDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
     let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
@@ -1492,6 +1492,11 @@ struct PlaybackSongSyntheticVibratoDiagnostic: Equatable {
     let rowBPM: Int
     var stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let policy: String
+    var ordinaryDelayedExecution = false
+    /// Raw Bx calculation overridden by an admitted delayed trigger before mixing.
+    var supersededDelayedBirth: PlaybackSongSyntheticTonePortamentoStepUpdate? = nil
+    /// Semantic calculations whose exact source generation has already completed.
+    var inactiveSourceStepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate] = []
 }
 
 struct PlaybackSongSyntheticVibratoControlDiagnostic: Equatable {

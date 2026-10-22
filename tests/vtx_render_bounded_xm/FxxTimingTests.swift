@@ -4,6 +4,238 @@ import CryptoKit
 import XCTest
 
 final class FxxTimingTests: XCTestCase {
+    func testNativeSelectionLiteralPeriodsAndIndependentThreeSampleRouting() throws {
+        typealias F = PlaybackSongSelectionDispatchFacts
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let song = selectionSong(selectionSentinels[0], linear: linear)
+            let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
+            let facts = plan.selectionDispatchFacts.facts
+            XCTAssertEqual(plan.selectionDispatchFacts.coverage, .nativeSelectionProducersV1)
+            XCTAssertEqual(facts.count, 5)
+            let periods: [Double] = linear ? [4608, 3768, 2928, 4608, 4608] : [6848, 3208, 1504, 6848, 6848]
+            for (i, fact) in facts.enumerated() {
+                let slot = [0, 1, 2, 0, 0][i]
+                XCTAssertEqual(fact.role, .trigger); XCTAssertEqual(fact.channel, 0)
+                XCTAssertEqual(fact.noteOnly, (1...3).contains(i))
+                XCTAssertEqual(fact.syntheticRow, i); XCTAssertEqual(fact.tick, 0)
+                XCTAssertEqual(fact.source, .init(orderIndex: 0, patternIndex: 0, rowIndex: i))
+                XCTAssertEqual(fact.absoluteFrame, i * 6 * Int(rate / 50))
+                XCTAssertEqual(fact.pitch, .known(linear ? .linear : .amigaVTX4x, nativePeriod: periods[i]))
+                XCTAssertEqual(fact.semanticInstrument, 1); XCTAssertEqual(fact.semanticSample, slot)
+                XCTAssertEqual(fact.carriedInstrument, 1); XCTAssertEqual(fact.carriedNote, [49, 50, 51, 49, 49][i])
+                XCTAssertEqual(fact.routedInstrument, 1); XCTAssertEqual(fact.mappedSample, slot)
+                XCTAssertEqual(fact.selectionMethod, .sampleMap); XCTAssertEqual(fact.associatedGeneration, i)
+                XCTAssertEqual(fact.baseRate, [8363.0, 16726, 25089][slot])
+                XCTAssertEqual(fact.relativeNote, slot * 12); XCTAssertEqual(fact.finetune, slot * 16)
+                XCTAssertEqual(fact.baseRateOrigin, .representedHeader)
+                XCTAssertEqual(fact.relativeNoteOrigin, .representedHeader); XCTAssertEqual(fact.finetuneOrigin, .representedHeader)
+                XCTAssertEqual(plan.pattern.events[i].initialSourceFrame, 0)
+            }
+            XCTAssertNotEqual(plan.pattern.events[0].sample, plan.pattern.events[1].sample)
+            XCTAssertNotEqual(plan.pattern.events[1].sample, plan.pattern.events[2].sample)
+            XCTAssertEqual(song.instrumentsByIndex[1]?.noteSampleMap?.count, 96)
+            XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticAdapter.ChannelState>.stride, 1152)
+            XCTAssertEqual(MemoryLayout<PlaybackXMChannelRow>.stride, 8)
+            XCTAssertEqual(MemoryLayout<F.TuningProducers>.stride, 24)
+            let laterSong = PlaybackSong(title: song.title, orders: [0, 1].map { .init(orderIndex: $0, patternIndex: 0) },
+                patternsByIndex: song.patternsByIndex, instrumentsByIndex: song.instrumentsByIndex,
+                restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: song.initialTiming, usesLinearFrequencyTable: linear)
+            let later = PlaybackSongSyntheticAdapter.adapt(laterSong, startOrderIndex: 1, orderCount: 1, sampleRate: rate)
+            XCTAssertEqual(later.selectionDispatchFacts.facts.first?.source.orderIndex, 1)
+            XCTAssertEqual(later.selectionDispatchFacts.facts.first?.absoluteFrame, 0)
+            XCTAssertEqual(later.selectionDispatchFacts.facts.first?.associatedGeneration, 0)
+        } }
+    }
+
+    func testNativeSelectionEmptyRefusedAndActualDelayDispatch() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for delay in [0, 3, 6] {
+            let unit = Int(rate / 50)
+            for instrument: UInt8 in [2, 3, 4] {
+                let song = selectionSong([cc(note: 50, instrument: 1),
+                    cc(14, UInt8(0xD0 + delay), note: 49, instrument: instrument, volume: 0xB8), cc(note: 50, instrument: 1)], linear: linear)
+                let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
+                let selected = plan.selectionDispatchFacts.facts.filter { $0.syntheticRow == 1 && $0.role != .carriedInstrument }
+                XCTAssertEqual(selected.count, delay < 6 ? 1 : 0)
+                guard delay < 6 else { continue }
+                let fact = try XCTUnwrap(selected.first)
+                XCTAssertEqual(fact.tick, delay); XCTAssertEqual(fact.absoluteFrame, (6 + delay) * unit)
+                XCTAssertEqual(fact.semanticInstrument, Int(instrument)); XCTAssertEqual(fact.semanticSample, 0)
+                if instrument == 3 {
+                    XCTAssertEqual(fact.role, .emptySelection); XCTAssertNil(fact.associatedGeneration)
+                    XCTAssertEqual(fact.pitch, .known(linear ? .linear : .amigaVTX4x, nativePeriod: linear ? 3828 : 3388))
+                    XCTAssertEqual(fact.relativeNote, 12); XCTAssertEqual(fact.finetune, 24); XCTAssertEqual(fact.baseRate, 8363)
+                    XCTAssertEqual(fact.baseRateOrigin, .neutralDefault); XCTAssertEqual(fact.finetuneOrigin, .declaredEmptyHeader)
+                    XCTAssertEqual(fact.cachedDefaultVolume, 40); XCTAssertEqual(fact.cachedDefaultPan, 128)
+                    XCTAssertEqual(plan.xmEmptyRoutes.first?.scheduledFrame, (6 + delay) * unit)
+                    XCTAssertFalse(PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: 0, at: fact.absoluteFrame, plan: plan))
+                    XCTAssertTrue(PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: 0, at: fact.absoluteFrame - 1, plan: plan))
+                } else if instrument == 4 {
+                    XCTAssertEqual(fact.role, .refusedDispatch); XCTAssertEqual(fact.associatedGeneration, 0)
+                    XCTAssertEqual(fact.pitch, .known(linear ? .linear : .amigaVTX4x, nativePeriod: linear ? 3768 : 3208))
+                    XCTAssertEqual(fact.baseRate, 16726); XCTAssertEqual(fact.relativeNote, 96); XCTAssertEqual(fact.finetune, 16)
+                    XCTAssertEqual(fact.baseRateOrigin, .selectionFact(0)); XCTAssertEqual(fact.finetuneOrigin, .selectionFact(0))
+                    XCTAssertEqual(fact.relativeNoteOrigin, .refusedRoute)
+                } else {
+                    XCTAssertEqual(fact.role, .trigger); XCTAssertEqual(fact.associatedGeneration, 1)
+                    XCTAssertEqual(fact.pitch, .known(linear ? .linear : .amigaVTX4x, nativePeriod: linear ? 4608 : 6848))
+                }
+                XCTAssertEqual(plan.pattern.events.last?.scheduledStartFrame, 12 * unit)
+                XCTAssertEqual(plan.pattern.events.last?.initialSourceFrame, 0)
+                XCTAssertEqual(plan.pattern.events.count, instrument == 2 ? 3 : 2)
+            }
+            for note: UInt8 in [0, 49] {
+                let song = selectionSong([cc(note: 49, instrument: 1, volume: 0xA4),
+                    cc(14, UInt8(0xD0 + delay), note: note, instrument: 2, volume: 0xB8), cc()], linear: linear)
+                let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
+                let dispatch = plan.selectionDispatchFacts.facts.filter { $0.syntheticRow == 1 && $0.role != .carriedInstrument }
+                XCTAssertEqual(dispatch.count, delay < 6 && (note != 0 || delay != 0) ? 1 : 0)
+                if let fact = dispatch.first {
+                    XCTAssertEqual(fact.tick, delay); XCTAssertEqual(fact.associatedGeneration, 1)
+                    XCTAssertEqual(fact.role, note == 0 ? .retainedNoteRestart : .trigger)
+                }
+                if note == 0 {
+                    let carried = try XCTUnwrap(plan.selectionDispatchFacts.facts.first { $0.syntheticRow == 1 && $0.role == .carriedInstrument })
+                    XCTAssertEqual(carried.tick, 0); XCTAssertEqual(carried.carriedInstrument, 2)
+                    XCTAssertEqual(carried.semanticInstrument, 1); XCTAssertEqual(carried.associatedGeneration, 0)
+                }
+                if delay == 3 {
+                    let oldBirthWrites = plan.diagnostics.vibratoEffects.filter { $0.syntheticRow == 1 && $0.activeEventIndex == 0 }
+                        .flatMap(\.stepUpdates).filter { $0.syntheticTick == 3 }
+                    XCTAssertEqual(oldBirthWrites.count, note == 0 ? 1 : 0)
+                    XCTAssertEqual(plan.diagnostics.vibratoEffects.contains { $0.syntheticRow == 1 && $0.supersededDelayedBirth != nil }, note != 0)
+                }
+            }
+        } } }
+    }
+
+    func testNativeSelectionColdUnavailableQuietZeroAndTuningCarry() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            func facts(_ cells: [PlaybackCell]) -> [PlaybackSongSelectionDispatchFacts.Fact] {
+                PlaybackSongSyntheticAdapter.adapt(selectionSong(cells, linear: linear), orderIndex: 0, sampleRate: rate).selectionDispatchFacts.facts
+            }
+            let cold = facts([cc(instrument: 1), cc(14, 0xD3, instrument: 2)])
+            XCTAssertEqual(cold.map(\.role), [.carriedInstrument, .carriedInstrument, .coldDispatch])
+            XCTAssertTrue(cold.allSatisfy { $0.pitch == .unavailable && $0.associatedGeneration == nil && $0.semanticInstrument == nil })
+            XCTAssertEqual(cold.last?.absoluteFrame, 9 * Int(rate / 50)); XCTAssertNil(cold.last?.mappedSample)
+            let absent = facts([cc(instrument: 5), cc(note: 50)])
+            XCTAssertEqual(absent.last?.role, .unavailableRoute); XCTAssertEqual(absent.last?.pitch, .unavailable)
+            XCTAssertNil(absent.last?.mappedSample); XCTAssertNil(absent.last?.associatedGeneration)
+            let legacy = facts([cc(note: 49, instrument: 5), cc(note: 50)])
+            XCTAssertEqual(legacy.first?.selectionMethod, .firstPlayableFallback) // OPEN Policy B deviation only.
+            XCTAssertEqual(legacy.last?.role, .unavailableRoute); XCTAssertEqual(legacy.last?.associatedGeneration, 0)
+            let missing = facts([cc(note: 49, instrument: 8)])
+            XCTAssertEqual(missing.last?.mappedSample, 7); XCTAssertEqual(missing.last?.role, .unavailableRoute)
+            XCTAssertEqual(missing.last?.pitch, .unavailable)
+            let quiet = facts([cc(note: 49, instrument: 6)])
+            XCTAssertEqual(quiet.first?.role, .trigger); XCTAssertEqual(quiet.first?.associatedGeneration, 0)
+            XCTAssertEqual(quiet.first?.cachedDefaultVolume, 0)
+            XCTAssertEqual(quiet.first?.pitch, .known(linear ? .linear : .amigaVTX4x, nativePeriod: linear ? 4608 : 6848))
+            let zero = facts([cc(note: 49, instrument: 7)])
+            XCTAssertEqual(zero.first?.pitch, .known(linear ? .linear : .amigaVTX4x, nativePeriod: 0))
+            let tuned = facts([cc(14, 0x5C, note: 49, instrument: 1), cc(note: 49, instrument: 4), cc(note: 49)])
+            XCTAssertEqual(tuned.first?.finetune, 64); XCTAssertEqual(tuned.first?.finetuneOrigin, .finetuneCommand)
+            XCTAssertEqual(tuned.last?.finetune, 64); XCTAssertEqual(tuned.last?.finetuneOrigin, .selectionFact(0))
+            XCTAssertEqual(tuned.last?.noteOnly, true); XCTAssertEqual(tuned.last?.associatedGeneration, 0)
+            let refusedCold = facts([cc(note: 49, instrument: 4)])
+            XCTAssertEqual(refusedCold.first?.pitch, .unavailable); XCTAssertEqual(refusedCold.first?.semanticInstrument, 4)
+            XCTAssertEqual(refusedCold.first?.baseRateOrigin, .neutralDefault); XCTAssertEqual(refusedCold.first?.finetuneOrigin, .neutralDefault)
+        } }
+    }
+
+    func testNativeSelectionSparseWorkDoesNotGrowWithVirtualBlankTicks() throws {
+        for speed: UInt8 in [1, 6, 31] { for padding in [1, 64] {
+            let sink = ClockProfileSink(), session = AdapterPlanProfileRecorder(isEnabled: true, sink: sink).beginLifecycle("selection_work")
+            let song = clockSong([cc(note: 49, instrument: 1), cc(15, speed)] + Array(repeating: cc(), count: padding), linear: true)
+            let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100, profileSession: session)
+            let facts = plan.selectionDispatchFacts.facts
+            XCTAssertEqual(facts.count, 1); XCTAssertEqual(plan.canonicalTickClock.totalCanonicalTicks, 6 + (padding + 1) * Int(speed))
+            XCTAssertTrue(sink.lines.contains { $0.contains("selection_fact_count=1") && $0.contains("selection_fact_storage_growth_count=1") &&
+                $0.contains("empty_cell_bypass_count=\(padding)") && $0.contains("full_cell_dispatch_count=2") })
+            print("SELECTION_LAYOUT facts=\(facts.count) stride=\(MemoryLayout<PlaybackSongSelectionDispatchFacts.Fact>.stride) logical_bytes=\(facts.count * MemoryLayout<PlaybackSongSelectionDispatchFacts.Fact>.stride) capacity=\(facts.capacity) growth_allocations=1 provenance_stride=24 extra_song_passes=0 extra_cell_dispatches=0 per_tick_objects=0")
+            let blank = PlaybackSongSyntheticAdapter.adapt(clockSong(Array(repeating: cc(), count: padding), linear: true), orderIndex: 0, sampleRate: 100)
+            XCTAssertTrue(blank.selectionDispatchFacts.facts.isEmpty)
+        } }
+    }
+
+    func testNativeSelectionPhysicalBaseline() throws {
+        // Frozen on unmodified 00fea60 production sources, before selection capture.
+        let expected = ["true-44100": "7381326c3f79ac23a90fe1a557a019a552b0c15b0926362a7d9a14d5098972e6",
+            "true-48000": "9563eb88aabeaab43f51c2bcc61de381178c5a8c325e047e98cb0c890ccff01f",
+            "false-44100": "e0b10bdf6a551bd42d73e4ee4f81fbbe830712a7966cc1bb9d4fc1c6ea765924",
+            "false-48000": "c11607f1744eed960462b3534632e8a62b1f4eeac5a6b84809c861d67f415e27"]
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            var evidence = Data()
+            for cells in clockSentinels + selectionSentinels {
+                let song = selectionSong(cells, linear: linear)
+                let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
+                for value: Any in [runtime.events, runtime.eventStorage.ordering, plan.pattern, plan.diagnostics,
+                    plan.xmChannelRows, plan.xmEmptyRoutes, plan.xmInstrumentSelections, plan.playbackStateEvents,
+                    plan.noteOnlyEventIndices, plan.coldReleasedEventIndices, plan.initialHeldPitchEventIndices] {
+                    evidence.append(Data(clockSnapshot(value).utf8))
+                }
+                let request = PlaybackSongOfflineRenderRequest(song: song, config: .init(sampleRate: rate), rows: cells.count)
+                let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
+                for pcm in [renderer.render(request).block.interleavedPCM,
+                            renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM] {
+                    pcm.withUnsafeBytes { evidence.append(contentsOf: $0) }
+                }
+                let windows = renderer.makeWindowedRenderScheduleIndex(for: plan, totalFrames: request.requestedFrameCount,
+                    windowRows: 1, includedEventIndices: nil, config: request.config).windows
+                evidence.append(Data(clockSnapshot(windows).utf8))
+                let history = PlaybackSongOfflineRenderer.PitchSourceHistory(plan: plan)
+                for i in plan.pattern.events.indices { for row in cells.indices { for delta in [-1, 0, 1] {
+                    let frame = row * 6 * Int(rate / 50) + delta
+                    evidence.append(Data(clockSnapshot([history.advancedPosition(for: i, at: frame) as Any,
+                        history.cutFrame(for: i) as Any,
+                        PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: i, at: frame, plan: plan),
+                        PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: i, at: frame, plan: plan, pitchHistory: history)]).utf8))
+                } } }
+                #if DEBUG
+                XCTAssertEqual(renderer.renderWindowedUsingScanPerWindowSchedulingReference(request, windowRows: 1).block.interleavedPCM,
+                    renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM)
+                #endif
+            }
+            let key = "\(linear)-\(Int(rate))"
+            let digest = SHA256.hash(data: evidence).map { String(format: "%02x", $0) }.joined()
+            print("NATIVE_SELECTION_BASELINE \(key) \(digest) bytes=\(evidence.count)")
+            if let directory = ProcessInfo.processInfo.environment["VTX_SELECTION_EVIDENCE_DIR"] {
+                try evidence.write(to: URL(fileURLWithPath: directory).appendingPathComponent("physical-\(key).bin"))
+            }
+            XCTAssertEqual(digest, expected[key])
+        } }
+    }
+
+    private var selectionSentinels: [[PlaybackCell]] {
+        let birth = cc(note: 49, instrument: 1)
+        return [[birth, cc(note: 50), cc(note: 51), cc(note: 49), cc(note: 49, instrument: 1)],
+            [cc(instrument: 1), cc(14, 0xD3, instrument: 2), cc(note: 49, instrument: 3), cc(instrument: 2), cc(note: 49)],
+            [cc(note: 49, instrument: 5), cc(note: 50), cc(note: 49, instrument: 6), cc(12, 64)],
+            [birth, cc(note: 49, instrument: 8), cc(14, 0xD3, note: 49, instrument: 8), cc(note: 50)],
+            [cc(note: 49, instrument: 7), cc(note: 49, instrument: 4)],
+            [birth, cc(note: 49, instrument: 3), cc(note: 50, instrument: 1)]]
+            + [0xD0, 0xD3, 0xD6].flatMap { delay in
+                [2, 3, 4].map { [birth, cc(14, UInt8(delay), note: 49, instrument: UInt8($0), volume: 0xB8), cc(note: 50, instrument: 1)] }
+            }
+    }
+
+    private func selectionSong(_ cells: [PlaybackCell], linear: Bool) -> PlaybackSong {
+        let seed = clockSong(cells, linear: linear)
+        var instruments = seed.instrumentsByIndex
+        let samples = (0..<3).map { slot in
+            PlaybackSample(instrumentIndex: 1, sampleIndex: slot,
+                pcm: (0..<32_768).map { Float(($0 * (137 + slot * 26) + 731) % 16_384 - 8_192) / 32_768 },
+                volume: 0.5, relativeNote: slot * 12, finetune: slot * 16, baseSampleRate: 8363 * Double(slot + 1))
+        }
+        var map = Array(repeating: 0, count: 96); map[49] = 1; map[50] = 2
+        instruments[1] = .init(index: 1, samples: samples, noteSampleMap: map)
+        instruments[8] = .init(index: 8, samples: [], noteSampleMap: Array(repeating: 7, count: 96))
+        return .init(title: "Public selection controls", orders: seed.orders, patternsByIndex: seed.patternsByIndex,
+            instrumentsByIndex: instruments, restartOrderIndex: 0, endBehavior: .stopAtEnd,
+            initialTiming: seed.initialTiming, usesLinearFrequencyTable: linear,
+            xmSampleSlotProvenanceByInstrument: seed.xmSampleSlotProvenanceByInstrument)
+    }
+
     func testCanonicalClockPhysicalBaseline() throws {
         // Captured twice on clean production ad359d2, before installing the clock (64 public cases).
         let expected = ["true44100": "0e8e52cd019c120059b5f840cfe0d418559ade5d3279e500106c9dc123494a94",

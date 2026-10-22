@@ -374,15 +374,21 @@ extension PlaybackSongSyntheticAdapter {
 
     /// Uses the existing generation cut and immutable header authority at the ordinary dispatch frame.
     static func dispatchOrdinaryEmptyHeader(_ header: XMSourceSampleSlotProvenance, cell: PlaybackCell,
-        source: PlaybackPosition, channelIndex: Int, frame: Int, tick: Int = 0, song: PlaybackSong,
+        source: PlaybackPosition, syntheticRow: Int, channelIndex: Int, frame: Int, tick: Int = 0,
+        selection: SampleSelection, song: PlaybackSong,
         timingConfig: SyntheticTrackerTimingConfig, state: inout ChannelState,
         context: inout AdapterRowContext) -> PlaybackStepMapping {
         context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
             scheduledFrame: frame, instrumentIndex: Int(cell.instrument), sampleIndex: header.sampleIndex,
             stoppedEventIndex: state.activeEventIndex, tick: tick))
         state.carriedNote = cell.note
-        return selectEmptyHeader(header, cell: cell, instrumentIndex: Int(cell.instrument),
+        let pitch = selectEmptyHeader(header, cell: cell, instrumentIndex: Int(cell.instrument),
             song: song, timingConfig: timingConfig, state: &state)
+        captureSelection(source: source, row: syntheticRow, tick: tick, channel: channelIndex,
+            frame: frame, role: .emptySelection, linear: song.usesLinearFrequencyTable,
+            tuning: .declaredEmptyHeader, finetuneCommand: cell.effectType == 14 && cell.effectParam >> 4 == 5,
+            routedInstrument: Int(cell.instrument), selection: selection, state: state, context: &context)
+        return pitch
     }
 
     /// Resolves the retained note through the selected instrument's exact route; cursor restarts at zero.
@@ -393,6 +399,7 @@ extension PlaybackSongSyntheticAdapter {
               let instrument = song.instrumentsByIndex[instrumentIndex] else { return (false, false) }
         let selection = selectSample(forNote: state.carriedNote, from: instrument, missingKeymapPolicy: .fail)
         guard let sample = selection.sample else {
+            var selectedHeader = false
             context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
                 scheduledFrame: frame, instrumentIndex: instrumentIndex, sampleIndex: selection.mappedSampleIndex,
                 stoppedEventIndex: state.activeEventIndex, preservesChannelState: !resetsInstrument,
@@ -403,6 +410,7 @@ extension PlaybackSongSyntheticAdapter {
                 _ = selectEmptyHeader(header, cell: .init(note: state.carriedNote, instrument: 0,
                     volumeColumn: 0, effectType: cell.effectType, effectParam: cell.effectParam), instrumentIndex: instrumentIndex,
                     initializesDefaults: false, song: song, timingConfig: timingConfig, state: &state)
+                selectedHeader = true
             } else {
                 clearSourceAssociation(&state)
                 if resetsInstrument {
@@ -420,6 +428,10 @@ extension PlaybackSongSyntheticAdapter {
                     timingConfig: timingConfig), to: &state)
                 resetDelayedInstrument(cell: cell, state: &state)
             }
+            captureSelection(source: source, row: syntheticRow, tick: tick, channel: channelIndex,
+                frame: frame, role: selectedHeader ? .emptySelection : .unavailableRoute, linear: song.usesLinearFrequencyTable,
+                noteOnly: cell.instrument == 0, tuning: selectedHeader ? .declaredEmptyHeader : nil, routedInstrument: instrumentIndex,
+                selection: selection, state: state, context: &context)
             return (false, false)
         }
         if resetsInstrument {
@@ -496,6 +508,9 @@ extension PlaybackSongSyntheticAdapter {
         state.activeSampleRelativeNote = sample.relativeNote; state.activeSampleFinetune = sample.finetune
         state.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
         applyActiveVolumeEnvelopeMapping(envelope, to: &state)
+        captureSelection(source: source, row: syntheticRow, tick: tick, channel: channelIndex,
+            frame: frame, role: .retainedNoteRestart, linear: song.usesLinearFrequencyTable,
+            noteOnly: cell.instrument == 0, tuning: .representedHeader, routedInstrument: instrumentIndex, selection: selection, state: state, context: &context)
         return (true, existing != nil)
     }
 
@@ -908,6 +923,8 @@ extension PlaybackSongSyntheticAdapter {
             } else {
                 // No retained note means no resolver invocation or fabricated route.
                 resetDelayedInstrument(cell: cell, state: &state)
+                captureSelection(source: source, row: syntheticRow, tick: tick, channel: channelIndex,
+                    frame: frame, role: .coldDispatch, linear: song.usesLinearFrequencyTable, state: state, context: &context)
             }
             defaultVolume = state.triggeredSampleDefaultVolume
             defaultPan = state.triggeredSampleDefaultPan

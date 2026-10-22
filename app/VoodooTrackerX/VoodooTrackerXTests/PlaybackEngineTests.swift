@@ -293,6 +293,7 @@ final class PlaybackEngineTests: XCTestCase {
 
         engine.load(song: firstSong)
         engine.play(from: PlaybackStartContext(moduleTitle: "first", songPosition: 0, patternIndex: 2, row: 0))
+        let firstFacts = try XCTUnwrap(audioOutput.configuredPlans.last?.plan).selectionDispatchFacts
         engine.load(song: secondSong)
 
         XCTAssertFalse(audioOutput.hasRuntimeAdapterEventPlan)
@@ -305,6 +306,12 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 2)
         let lastContext = try XCTUnwrap(audioOutput.consumedContexts.last ?? nil)
         XCTAssertEqual(lastContext.patternIndex, 7)
+        let nextFacts = try XCTUnwrap(audioOutput.configuredPlans.last?.plan).selectionDispatchFacts
+        XCTAssertEqual(firstFacts.facts.first?.source.patternIndex, 2)
+        XCTAssertEqual(nextFacts.facts.first?.source.patternIndex, 7)
+        firstFacts.facts.withUnsafeBufferPointer { first in nextFacts.facts.withUnsafeBufferPointer {
+            XCTAssertNotEqual(first.baseAddress, $0.baseAddress)
+        } }
     }
 
     @MainActor
@@ -559,6 +566,7 @@ final class PlaybackEngineTests: XCTestCase {
         engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
         prewarmScheduler.complete()
         await Task.yield()
+        let facts = try XCTUnwrap(audioOutput.configuredPlans.last?.plan).selectionDispatchFacts
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
         engine.stop()
 
@@ -573,6 +581,11 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(audioOutput.consumedContexts.count, 2)
         XCTAssertEqual(timingField(in: secondPlayLines, lifecycle: "play", phase: "runtime_adapter_event_plan_ready_for_play", key: "play_adapter_plan_mode"), "cached_reuse")
         XCTAssertFalse(timingPhases(in: secondPlayLines, lifecycle: "play").contains("runtime_adapter_event_plan_make"))
+        let reused = try XCTUnwrap(audioOutput.configuredPlans.last?.plan).selectionDispatchFacts
+        XCTAssertEqual(reused, facts)
+        facts.facts.withUnsafeBufferPointer { original in reused.facts.withUnsafeBufferPointer {
+            XCTAssertEqual(original.baseAddress, $0.baseAddress)
+        } }
     }
 
     @MainActor

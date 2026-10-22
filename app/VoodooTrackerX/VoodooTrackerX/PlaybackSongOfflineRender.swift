@@ -872,6 +872,7 @@ final class PlaybackSongOfflineRenderer {
             pattern: SyntheticPattern(rowCount: plan.pattern.rowCount, events: events),
             diagnostics: plan.diagnostics,
             canonicalTickClock: plan.canonicalTickClock,
+            selectionDispatchFacts: plan.selectionDispatchFacts,
             noteOnlyEventIndices: plan.noteOnlyEventIndices, coldReleasedEventIndices: plan.coldReleasedEventIndices,
             playbackStateEvents: plan.playbackStateEvents,
             xmEnvelopeTimeline: plan.xmEnvelopeTimeline,

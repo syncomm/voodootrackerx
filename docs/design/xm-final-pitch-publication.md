@@ -173,10 +173,15 @@ No full green Xcode suite is claimed for that archived RED evidence branch.
 G32A-1F identifies the clock prerequisite followed by separately approved complete
 capture. Clock-only work cannot label uncaptured pitch unavailable.
 
-R02 ordinary replacement-retirement parity remains separate OPEN debt: raw and
-shadow runtime can agree while queued offline restoration differs at N+1…N+30.
-Preserving that baseline neither repairs it nor extends G23 tolerance. No
-cancellation rewrite, generic parity exclusion or relaxed PCM gate is authorized.
+R02 ordinary replacement-retirement pitch parity is closed for the public
+Linear/Amiga, 44.1/48 kHz controls in `OrdinaryReplacementOfflineParityTests`
+and `R02ReplacementParityTests`. Offline scheduling and continuation histories
+now preserve runtime's cancellation of old-generation pitch writes at replacement
+frame N, holding the pre-N physical step while advancing the retiring cursor.
+Whole/window/indexed/scan, loop direction, zero hold/resume and completed-source
+controls retain the existing 32-frame policy. G21/Rxy retirement debt, G03's FT2
+overlap policy and broader epsilon-policy parity remain separate; G23 tolerance
+is unchanged. No generic parity exclusion or relaxed PCM gate is authorized.
 Issue #488 remains OPEN and this document remains proposed. Complete capture,
 enabled behavior and compatibility decisions require their own approvals/proofs.
 

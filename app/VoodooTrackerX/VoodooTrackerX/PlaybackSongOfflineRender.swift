@@ -490,10 +490,13 @@ struct PlaybackSongSameChannelVoiceLifetimeDiagnostics: Equatable {
     }
 
     func firstReplacementFrame(forOldEventIndex eventIndex: Int) -> Int? {
-        replacementEvents
-            .filter { $0.oldEventIndex == eventIndex }
-            .map(\.replacementFrame)
-            .min()
+        // Construction appends each generation's replacements in chronological order.
+        replacementEventsByOldEventIndex[eventIndex]?.first?.replacementFrame
+    }
+
+    /// Runtime retirement removes queued writes before the replacement frame is mixed.
+    func permitsPitchUpdate(eventIndex: Int, at frame: Int) -> Bool {
+        firstReplacementFrame(forOldEventIndex: eventIndex).map { frame < $0 } ?? true
     }
 }
 
@@ -701,6 +704,10 @@ final class PlaybackSongOfflineRenderSession {
             fullPlan,
             mutingEventsNotIn: includedEventIndices
         ).extendingEnvelopeTail(throughFrame: request.boundedFrameCount)
+        sameChannelVoiceLifetime = PlaybackSongOfflineRenderer.sameChannelVoiceLifetimeDiagnostics(
+            for: adaptedPlan,
+            renderedFrameCount: request.boundedFrameCount
+        )
         let preparedMixer = CSoftwareMixer(config: request.config)
         let scheduledResults = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).scheduleWithResults(adaptedPlan.pattern, on: preparedMixer)
         let voiceIndices = scheduledResults.map(\.voiceIndex)
@@ -723,43 +730,50 @@ final class PlaybackSongOfflineRenderSession {
             adaptedPlan.diagnostics.tonePortamentoEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer,
-            includedEventIndices: includedEventIndices
+            includedEventIndices: includedEventIndices,
+            sameChannelLifetime: sameChannelVoiceLifetime
         )
         PlaybackSongOfflineRenderer.schedulePortamentoSlideStepUpdates(
             adaptedPlan.diagnostics.portamentoSlideEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer,
-            includedEventIndices: includedEventIndices
+            includedEventIndices: includedEventIndices,
+            sameChannelLifetime: sameChannelVoiceLifetime
         )
         PlaybackSongOfflineRenderer.scheduleFinePortamentoUpStepUpdates(
             adaptedPlan.diagnostics.finePortamentoUpEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer,
-            includedEventIndices: includedEventIndices
+            includedEventIndices: includedEventIndices,
+            sameChannelLifetime: sameChannelVoiceLifetime
         )
         PlaybackSongOfflineRenderer.scheduleFinePortamentoDownStepUpdates(
             adaptedPlan.diagnostics.finePortamentoDownEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer,
-            includedEventIndices: includedEventIndices
+            includedEventIndices: includedEventIndices,
+            sameChannelLifetime: sameChannelVoiceLifetime
         )
         PlaybackSongOfflineRenderer.scheduleExtraFinePortamentoStepUpdates(
             adaptedPlan.diagnostics.extraFinePortamentoEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer,
-            includedEventIndices: includedEventIndices
+            includedEventIndices: includedEventIndices,
+            sameChannelLifetime: sameChannelVoiceLifetime
         )
         PlaybackSongOfflineRenderer.scheduleArpeggioStepUpdates(
             adaptedPlan.diagnostics.arpeggioEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer,
-            includedEventIndices: includedEventIndices
+            includedEventIndices: includedEventIndices,
+            sameChannelLifetime: sameChannelVoiceLifetime
         )
         PlaybackSongOfflineRenderer.scheduleVibratoStepUpdates(
             adaptedPlan.diagnostics.vibratoEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer,
-            includedEventIndices: includedEventIndices
+            includedEventIndices: includedEventIndices,
+            sameChannelLifetime: sameChannelVoiceLifetime
         )
         PlaybackSongOfflineRenderer.scheduleNoteCuts(
             adaptedPlan.diagnostics.noteCutEffects,
@@ -772,10 +786,6 @@ final class PlaybackSongOfflineRenderSession {
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer,
             includedEventIndices: includedEventIndices
-        )
-        sameChannelVoiceLifetime = PlaybackSongOfflineRenderer.sameChannelVoiceLifetimeDiagnostics(
-            for: adaptedPlan,
-            renderedFrameCount: request.boundedFrameCount
         )
         PlaybackSongOfflineRenderer.scheduleSameChannelReplacementRamps(
             sameChannelVoiceLifetime.replacementEvents,
@@ -827,6 +837,16 @@ final class PlaybackSongOfflineRenderer {
     private let preparedPlan: PlaybackSongSyntheticPlan?
 #if DEBUG
     private var verificationFrameBoundaries: [Int]?
+
+    /// Exposes the same continuation reconstruction at exact retirement frames.
+    func continuationsForTesting(_ plan: PlaybackSongSyntheticPlan, at frame: Int,
+                                 config: MixerRenderConfig) -> [PlaybackSongWindowContinuation] {
+        Self.continuations(for: .init(index: 0, startRow: 0, endRowExclusive: plan.pattern.rowCount,
+            startFrame: frame, endFrame: frame + 1), plan: plan,
+            scheduler: SyntheticTrackerScheduler(config: plan.timingConfig),
+            sameChannelLifetime: Self.sameChannelVoiceLifetimeDiagnostics(for: plan, renderedFrameCount: frame),
+            config: config)
+    }
 
     /// Exercises the existing scan-reference continuation path at exact frame splits.
     func renderWindowedAtFrameBoundariesForTesting(_ request: PlaybackSongOfflineRenderRequest,
@@ -1400,7 +1420,8 @@ final class PlaybackSongOfflineRenderer {
                 on: mixer,
                 windowStartFrame: spec.startFrame,
                 windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
+                includedEventIndices: includedEventIndices,
+                sameChannelLifetime: sameChannelLifetime
             )
             Self.schedulePortamentoSlideStepUpdates(
                 usesScanReference ? adaptedPlan.diagnostics.portamentoSlideEffects : [],
@@ -1408,7 +1429,8 @@ final class PlaybackSongOfflineRenderer {
                 on: mixer,
                 windowStartFrame: spec.startFrame,
                 windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
+                includedEventIndices: includedEventIndices,
+                sameChannelLifetime: sameChannelLifetime
             )
             Self.scheduleFinePortamentoUpStepUpdates(
                 usesScanReference ? adaptedPlan.diagnostics.finePortamentoUpEffects : [],
@@ -1416,7 +1438,8 @@ final class PlaybackSongOfflineRenderer {
                 on: mixer,
                 windowStartFrame: spec.startFrame,
                 windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
+                includedEventIndices: includedEventIndices,
+                sameChannelLifetime: sameChannelLifetime
             )
             Self.scheduleFinePortamentoDownStepUpdates(
                 usesScanReference ? adaptedPlan.diagnostics.finePortamentoDownEffects : [],
@@ -1424,7 +1447,8 @@ final class PlaybackSongOfflineRenderer {
                 on: mixer,
                 windowStartFrame: spec.startFrame,
                 windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
+                includedEventIndices: includedEventIndices,
+                sameChannelLifetime: sameChannelLifetime
             )
             Self.scheduleExtraFinePortamentoStepUpdates(
                 usesScanReference ? adaptedPlan.diagnostics.extraFinePortamentoEffects : [],
@@ -1432,7 +1456,8 @@ final class PlaybackSongOfflineRenderer {
                 on: mixer,
                 windowStartFrame: spec.startFrame,
                 windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
+                includedEventIndices: includedEventIndices,
+                sameChannelLifetime: sameChannelLifetime
             )
             Self.scheduleArpeggioStepUpdates(
                 usesScanReference ? adaptedPlan.diagnostics.arpeggioEffects : [],
@@ -1440,7 +1465,8 @@ final class PlaybackSongOfflineRenderer {
                 on: mixer,
                 windowStartFrame: spec.startFrame,
                 windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
+                includedEventIndices: includedEventIndices,
+                sameChannelLifetime: sameChannelLifetime
             )
             Self.scheduleVibratoStepUpdates(
                 usesScanReference ? adaptedPlan.diagnostics.vibratoEffects : [],
@@ -1448,7 +1474,8 @@ final class PlaybackSongOfflineRenderer {
                 on: mixer,
                 windowStartFrame: spec.startFrame,
                 windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
+                includedEventIndices: includedEventIndices,
+                sameChannelLifetime: sameChannelLifetime
             )
             Self.scheduleNoteCuts(
                 usesScanReference ? adaptedPlan.diagnostics.noteCutEffects : [],
@@ -1816,6 +1843,7 @@ final class PlaybackSongOfflineRenderer {
                  .extraFinePortamentoStep,
                  .arpeggioStep,
                  .vibratoStep:
+                guard sameChannelLifetime.permitsPitchUpdate(eventIndex: candidate.activeEventIndex, at: candidate.scheduledFrame) else { continue }
                 let update = preindexedStepUpdate(candidate, diagnostics: plan.diagnostics)
                 _ = mixer.scheduleVoicePlaybackStepUpdate(
                     voiceIndex: voiceIndex,
@@ -2063,7 +2091,8 @@ final class PlaybackSongOfflineRenderer {
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
         windowEndFrame: Int? = nil,
-        includedEventIndices: Set<Int>? = nil
+        includedEventIndices: Set<Int>? = nil,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
@@ -2072,7 +2101,8 @@ final class PlaybackSongOfflineRenderer {
                 continue
             }
             for update in diagnostic.stepUpdates {
-                guard update.scheduledFrame >= windowStartFrame else {
+                guard update.scheduledFrame >= windowStartFrame,
+                      sameChannelLifetime?.permitsPitchUpdate(eventIndex: activeEventIndex, at: update.scheduledFrame) != false else {
                     continue
                 }
                 if let windowEndFrame,
@@ -2094,7 +2124,8 @@ final class PlaybackSongOfflineRenderer {
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
         windowEndFrame: Int? = nil,
-        includedEventIndices: Set<Int>? = nil
+        includedEventIndices: Set<Int>? = nil,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
@@ -2103,7 +2134,8 @@ final class PlaybackSongOfflineRenderer {
                 continue
             }
             for update in diagnostic.stepUpdates {
-                guard update.scheduledFrame >= windowStartFrame else {
+                guard update.scheduledFrame >= windowStartFrame,
+                      sameChannelLifetime?.permitsPitchUpdate(eventIndex: activeEventIndex, at: update.scheduledFrame) != false else {
                     continue
                 }
                 if let windowEndFrame,
@@ -2125,7 +2157,8 @@ final class PlaybackSongOfflineRenderer {
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
         windowEndFrame: Int? = nil,
-        includedEventIndices: Set<Int>? = nil
+        includedEventIndices: Set<Int>? = nil,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
@@ -2134,7 +2167,8 @@ final class PlaybackSongOfflineRenderer {
                 continue
             }
             for update in diagnostic.stepUpdates {
-                guard update.scheduledFrame >= windowStartFrame else {
+                guard update.scheduledFrame >= windowStartFrame,
+                      sameChannelLifetime?.permitsPitchUpdate(eventIndex: activeEventIndex, at: update.scheduledFrame) != false else {
                     continue
                 }
                 if let windowEndFrame,
@@ -2156,7 +2190,8 @@ final class PlaybackSongOfflineRenderer {
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
         windowEndFrame: Int? = nil,
-        includedEventIndices: Set<Int>? = nil
+        includedEventIndices: Set<Int>? = nil,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
@@ -2165,7 +2200,8 @@ final class PlaybackSongOfflineRenderer {
                 continue
             }
             for update in diagnostic.stepUpdates {
-                guard update.scheduledFrame >= windowStartFrame else {
+                guard update.scheduledFrame >= windowStartFrame,
+                      sameChannelLifetime?.permitsPitchUpdate(eventIndex: activeEventIndex, at: update.scheduledFrame) != false else {
                     continue
                 }
                 if let windowEndFrame,
@@ -2187,7 +2223,8 @@ final class PlaybackSongOfflineRenderer {
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
         windowEndFrame: Int? = nil,
-        includedEventIndices: Set<Int>? = nil
+        includedEventIndices: Set<Int>? = nil,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
@@ -2196,7 +2233,8 @@ final class PlaybackSongOfflineRenderer {
                 continue
             }
             for update in diagnostic.stepUpdates {
-                guard update.scheduledFrame >= windowStartFrame else {
+                guard update.scheduledFrame >= windowStartFrame,
+                      sameChannelLifetime?.permitsPitchUpdate(eventIndex: activeEventIndex, at: update.scheduledFrame) != false else {
                     continue
                 }
                 if let windowEndFrame,
@@ -2218,7 +2256,8 @@ final class PlaybackSongOfflineRenderer {
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
         windowEndFrame: Int? = nil,
-        includedEventIndices: Set<Int>? = nil
+        includedEventIndices: Set<Int>? = nil,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
@@ -2227,7 +2266,8 @@ final class PlaybackSongOfflineRenderer {
                 continue
             }
             for update in diagnostic.stepUpdates {
-                guard update.scheduledFrame >= windowStartFrame else {
+                guard update.scheduledFrame >= windowStartFrame,
+                      sameChannelLifetime?.permitsPitchUpdate(eventIndex: activeEventIndex, at: update.scheduledFrame) != false else {
                     continue
                 }
                 if let windowEndFrame,
@@ -2249,7 +2289,8 @@ final class PlaybackSongOfflineRenderer {
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
         windowEndFrame: Int? = nil,
-        includedEventIndices: Set<Int>? = nil
+        includedEventIndices: Set<Int>? = nil,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
@@ -2258,7 +2299,8 @@ final class PlaybackSongOfflineRenderer {
                 continue
             }
             for update in diagnostic.stepUpdates {
-                guard update.scheduledFrame >= windowStartFrame else {
+                guard update.scheduledFrame >= windowStartFrame,
+                      sameChannelLifetime?.permitsPitchUpdate(eventIndex: activeEventIndex, at: update.scheduledFrame) != false else {
                     continue
                 }
                 if let windowEndFrame,
@@ -2485,6 +2527,7 @@ final class PlaybackSongOfflineRenderer {
     private struct SameChannelActiveVoice: Equatable {
         let eventIndex: Int
         var rampCompletionFrame: Int?
+        var pitchUpdateEndFrame: Int? = nil
     }
 
     private static func windowSpecs(
@@ -2610,11 +2653,13 @@ final class PlaybackSongOfflineRenderer {
                 ),
                 at: windowStartFrame
             )
+            let pitchUpdateEndFrame = sameChannelLifetime.firstReplacementFrame(forOldEventIndex: eventIndex)
             let stepState = stepStateAtBoundary(
                 for: event,
                 eventIndex: eventIndex,
                 plan: plan,
-                before: windowStartFrame
+                before: windowStartFrame,
+                pitchUpdateEndFrame: pitchUpdateEndFrame
             )
             let carriedEvent = event
                 .withGainPan(gain: gainPanState.gain, pan: gainPanState.pan)
@@ -2623,6 +2668,7 @@ final class PlaybackSongOfflineRenderer {
                 event: carriedEvent,
                 sourceEvent: event,
                 playbackStep: stepState.playbackStep,
+                pitchUpdateEndFrame: pitchUpdateEndFrame,
                 eventStartFrame: eventStartFrame,
                 boundaryFrame: windowStartFrame,
                 plan: plan,
@@ -2719,12 +2765,14 @@ final class PlaybackSongOfflineRenderer {
         for event: SyntheticTrackerEvent,
         eventIndex: Int,
         plan: PlaybackSongSyntheticPlan,
-        before boundaryFrame: Int
+        before boundaryFrame: Int,
+        pitchUpdateEndFrame: Int? = nil
     ) -> StepStateAtBoundary {
         var playbackStep = plan.initialHeldPitchEventIndices.contains(eventIndex) ? 0 : event.playbackStep
         var sawPriorUpdate = false
         var hasFutureUpdate = false
         for update in sampleStepUpdates(for: eventIndex, plan: plan) {
+            guard pitchUpdateEndFrame.map({ update.scheduledFrame < $0 }) ?? true else { continue }
             if update.scheduledFrame < boundaryFrame {
                 playbackStep = update.playbackStepAfter
                 sawPriorUpdate = true
@@ -2947,6 +2995,10 @@ final class PlaybackSongOfflineRenderer {
                     oldVoiceRampDurationFrames: rampFrames
                 ))
                 activeVoices[index].rampCompletionFrame = completionFrame
+                // Repeated replacements restart retirement, but never reopen the old pitch stream.
+                if activeVoices[index].pitchUpdateEndFrame == nil {
+                    activeVoices[index].pitchUpdateEndFrame = info.frame
+                }
             }
             activeVoices.append(SameChannelActiveVoice(eventIndex: info.eventIndex, rampCompletionFrame: nil))
             activeByChannel[info.channelIndex] = activeVoices
@@ -3154,14 +3206,15 @@ final class PlaybackSongOfflineRenderer {
             plan: plan,
             eventStartFrame: eventStartFrame,
             boundaryFrame: frame,
-            pitchHistory: pitchHistory
+            pitchHistory: pitchHistory,
+            pitchUpdateEndFrame: voice.pitchUpdateEndFrame
         ) != nil else {
             return false
         }
         if plan.xmEnvelopeTimeline?.updatesByEvent[voice.eventIndex] != nil { return true }
         if let state = reconstructedPlaybackState(for: event, eventIndex: voice.eventIndex, plan: plan,
                                                   eventStartFrame: eventStartFrame, boundaryFrame: frame,
-                                                  pitchHistory: pitchHistory) {
+                                                  pitchHistory: pitchHistory, pitchUpdateEndFrame: voice.pitchUpdateEndFrame) {
             return state.fadeout > 0
         }
         let releasedFrames = releasedFrameCount(
@@ -3186,7 +3239,8 @@ final class PlaybackSongOfflineRenderer {
     /// The legacy path is retained when no new transitions exist, preserving existing render output.
     private static func reconstructedPlaybackState(
         for event: SyntheticTrackerEvent, eventIndex: Int, plan: PlaybackSongSyntheticPlan,
-        eventStartFrame: Int, boundaryFrame: Int, pitchHistory: PitchSourceHistory? = nil
+        eventStartFrame: Int, boundaryFrame: Int, pitchHistory: PitchSourceHistory? = nil,
+        pitchUpdateEndFrame: Int? = nil
     ) -> ReconstructedPlaybackState? {
         let changes = carriedPlaybackStateEvents(for: plan).filter { $0.activeEventIndex == eventIndex }
         guard !changes.isEmpty else { return nil }
@@ -3223,7 +3277,8 @@ final class PlaybackSongOfflineRenderer {
             }
             cursor = item.frame
             guard state.fadeout > 0, sourcePositionState(for: event, eventIndex: eventIndex, plan: plan,
-                eventStartFrame: eventStartFrame, boundaryFrame: item.frame, pitchHistory: pitchHistory) != nil else {
+                eventStartFrame: eventStartFrame, boundaryFrame: item.frame, pitchHistory: pitchHistory,
+                pitchUpdateEndFrame: pitchUpdateEndFrame) != nil else {
                 state.fadeout = 0
                 return state
             }
@@ -3249,6 +3304,7 @@ final class PlaybackSongOfflineRenderer {
         event: SyntheticTrackerEvent,
         sourceEvent: SyntheticTrackerEvent,
         playbackStep: Double,
+        pitchUpdateEndFrame: Int? = nil,
         eventStartFrame: Int,
         boundaryFrame: Int,
         plan: PlaybackSongSyntheticPlan,
@@ -3264,14 +3320,16 @@ final class PlaybackSongOfflineRenderer {
                   eventIndex: eventIndex,
                   plan: plan,
                   eventStartFrame: eventStartFrame,
-                  boundaryFrame: boundaryFrame
+                  boundaryFrame: boundaryFrame,
+                  pitchUpdateEndFrame: pitchUpdateEndFrame
               ) else {
             return nil
         }
         let keyOffFrame = event.keyOffFrame
         let semanticState = plan.xmEnvelopeTimeline?.state(eventIndex: eventIndex, before: boundaryFrame)
         let resetState = semanticState == nil ? reconstructedPlaybackState(for: sourceEvent, eventIndex: eventIndex, plan: plan,
-                                                    eventStartFrame: eventStartFrame, boundaryFrame: boundaryFrame) : nil
+                                                    eventStartFrame: eventStartFrame, boundaryFrame: boundaryFrame,
+                                                    pitchUpdateEndFrame: pitchUpdateEndFrame) : nil
         let keyOn = semanticState?.keyOn ?? resetState?.keyOn ?? (keyOffFrame.map { boundaryFrame <= $0 } ?? true)
         let keyedFrames = keyedFrameCount(
             elapsedFrames: elapsedFrames,
@@ -3372,7 +3430,8 @@ final class PlaybackSongOfflineRenderer {
         plan: PlaybackSongSyntheticPlan,
         eventStartFrame: Int,
         boundaryFrame: Int,
-        pitchHistory: PitchSourceHistory? = nil
+        pitchHistory: PitchSourceHistory? = nil,
+        pitchUpdateEndFrame: Int? = nil
     ) -> SourcePositionState? {
         let sampleFrameCount = event.sample.frameCount
         guard sampleFrameCount > 0,
@@ -3388,18 +3447,20 @@ final class PlaybackSongOfflineRenderer {
         var advancedPosition = initialPosition
         var cursorFrame = eventStartFrame
         var currentStep = plan.initialHeldPitchEventIndices.contains(eventIndex) ? 0 : event.playbackStep
-        if let pitchHistory {
+        if let pitchHistory, pitchUpdateEndFrame == nil {
             guard let position = pitchHistory.advancedPosition(for: eventIndex, at: boundaryFrame) else { return nil }
             advancedPosition = position
         } else {
             for update in sampleStepUpdates(for: eventIndex, plan: plan) {
                 guard update.scheduledFrame > eventStartFrame,
-                      update.scheduledFrame < boundaryFrame else { continue }
+                      update.scheduledFrame < boundaryFrame,
+                      pitchUpdateEndFrame.map({ update.scheduledFrame < $0 }) ?? true else { continue }
                 let segmentFrames = max(0, update.scheduledFrame - cursorFrame)
                 advancedPosition += Double(segmentFrames) * currentStep
                 cursorFrame = update.scheduledFrame
                 currentStep = update.playbackStepAfter
             }
+            // Retirement freezes the last executed step, while its cursor keeps advancing.
             advancedPosition += Double(max(0, boundaryFrame - cursorFrame)) * currentStep
         }
         guard advancedPosition.isFinite,

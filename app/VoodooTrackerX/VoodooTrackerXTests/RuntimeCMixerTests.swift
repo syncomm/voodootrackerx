@@ -2,6 +2,87 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+/// Public, nonconstant PCM controls for ordinary replacement under the current 32-frame policy.
+final class R02ReplacementParityTests: XCTestCase {
+    func testOrdinaryReplacementRetainsPhysicalPitchAcrossOfflinePaths() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for modulated in [false, true] {
+          for tailEnd in (modulated ? [false, true] : [false]) {
+            let instruments = Dictionary(uniqueKeysWithValues: (1...2).map { i in
+                (i, PlaybackInstrument(index: i, samples: [.init(instrumentIndex: i, sampleIndex: 0,
+                    pcm: (0..<(tailEnd && i == 1 ? (linear ? 1981 : 1991) : 4096))
+                        .map { Float(($0 * (i == 1 ? 79 : 113) + i * 293) % 2048 - 1024) / 4096 },
+                    volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: 8363,
+                    loopStart: 17, loopLength: 2031, loopType: tailEnd && i == 1 ? 0 : 1)], noteSampleMap: Array(repeating: 0, count: 96)))
+            })
+            let cells: [PlaybackCell] = [
+                .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                .init(note: 0, instrument: 0, volumeColumn: 0, effectType: modulated ? 4 : 0, effectParam: modulated ? 0x48 : 0),
+                .init(note: 61, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0),
+                .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]
+            let song = PlaybackSong(title: "Public R02 replacement", orders: [.init(orderIndex: 0, patternIndex: 0)],
+                patternsByIndex: [0: .init(index: 0, rows: cells.enumerated().map { .init(index: $0.offset, cells: [$0.element]) })],
+                instrumentsByIndex: instruments, restartOrderIndex: 0, endBehavior: .stopAtEnd,
+                initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), n = 12 * Int(rate / 50), end = n + 64
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: end)
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            let ordered = runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }
+            if modulated {
+                XCTAssertEqual(ordered.filter { $0.scheduledFrame == n }.map(\.id), [7, 1])
+                XCTAssertEqual(ordered.filter { $0.scheduledFrame == n }.map(\.activeEventIndex), [0, 1])
+            }
+            let q16 = modulated ? (rate == 48_000 ? (linear ? 10787 : 11013) : (linear ? 11741 : 11986))
+                : (rate == 48_000 ? 11418 : 12428)
+            var pcm = [Float](), frame = 0
+            for boundary in [n, n+1, n+15, n+30, n+31, n+32, end] {
+                while frame < boundary {
+                    let count = min(4093, boundary-frame)
+                    pcm += renderRuntimePCM(core, frames: count); frame += count
+                }
+                if frame == n {
+                    let old = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                    XCTAssertTrue(old.active)
+                    XCTAssertEqual(old.sampleStep, Double(q16) / 65536)
+                }
+                if frame == n + 15 && tailEnd {
+                    XCTAssertFalse(renderer.continuationsForTesting(plan, at: frame, config: config).contains { $0.eventIndex == 0 })
+                }
+                if frame == n + 1 {
+                    let new = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 1))
+                    XCTAssertEqual(new.samplePosition, plan.pattern.events[1].playbackStep)
+                    XCTAssertEqual(new.sampleStep, plan.pattern.events[1].playbackStep)
+                }
+            }
+            let applied = core.drainAppliedAdapterEventDiagnostics()
+            XCTAssertEqual(applied.map(\.event.id), ordered.filter { $0.scheduledFrame < end }.map(\.id))
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            let birth = try XCTUnwrap(applied.first { $0.event.activeEventIndex == 1 })
+            guard case let .noteTrigger(result) = birth.result else { return XCTFail("Missing replacement trigger") }
+            let ramp = try XCTUnwrap(result.channelStopBeforeAdd)
+            XCTAssertEqual(ramp.replacementRampStartState?.sampleStep, Double(q16) / 65536)
+            XCTAssertEqual(ramp.replacementRampStartState?.gainRampStart, 0.5)
+            XCTAssertEqual(ramp.replacementRampTargetGain, 0)
+            XCTAssertEqual(ramp.replacementRampFrames, 32)
+            let paths = [("whole", renderer.render(request).block.interleavedPCM),
+                ("indexed", renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM),
+                ("scan", renderer.renderWindowedUsingScanPerWindowSchedulingReference(request, windowRows: 1).block.interleavedPCM),
+                ("split", renderer.renderWindowedAtFrameBoundariesForTesting(request, boundaries: [n,n+1,n+15,n+30,n+31,n+32]).block.interleavedPCM)]
+            for (name, other) in paths {
+                let differences = zip(pcm, other).enumerated().filter { abs($0.element.0 - $0.element.1) > 1e-7 }
+                let maxError = zip(pcm, other).map { abs($0-$1) }.max() ?? 0
+                print("R02 diff path=\(name) linear=\(linear) rate=\(rate) mod=\(modulated) tailEnd=\(tailEnd) N=\(n) first=\(differences.first?.offset as Any) last=\(differences.last?.offset as Any) max=\(maxError)")
+                XCTAssertEqual(pcm.count, other.count)
+                XCTAssertLessThanOrEqual(maxError, 1e-7, "\(name) linear=\(linear) rate=\(rate) mod=\(modulated)")
+            }
+        } } } }
+    }
+}
+
 final class RuntimeCMixerColdPlanAssemblyTests: XCTestCase {
     func testTriggerPayloadRemainsCompactAndSharesPCMThroughPermutation() {
         let original = event(4, 2, action: trigger())
@@ -8955,5 +9036,74 @@ final class RuntimeCMixerTests: XCTestCase {
             throw XCTSkip("Missing reference XM fixture \(relativePath)")
         }
         return url
+    }
+}
+
+/// C14 keeps ordered physical requests distinct from the C voice's epsilon-filtered state.
+final class R02C14OrderedPitchPolicyTests: XCTestCase {
+    func testC14OrderedRequestsPreserveSupportedEpsilonAndExactCursor() throws {
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+            pcm: (0..<32768).map { Float(($0 * 137 + 731) % 16384 - 8192) / 32768 },
+            volume: 0.5, panning: 128, relativeNote: 0, finetune: 0, baseSampleRate: 8363)
+        let cells: [PlaybackCell] = [
+            .init(note: 49, instrument: 1, volumeColumn: 0xA4, effectType: 0, effectParam: 0),
+            .init(note: 0, instrument: 0, volumeColumn: 0xB8, effectType: 4, effectParam: 0x48),
+            .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]
+        let song = PlaybackSong(title: "Public C14 ordered pitch control",
+            orders: [.init(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [0: .init(index: 0, rows: cells.enumerated().map {
+                .init(index: $0.offset, cells: [$0.element])
+            })], instrumentsByIndex: [1: .init(index: 1, samples: [sample],
+                noteSampleMap: Array(repeating: 0, count: 96))], restartOrderIndex: 0,
+            endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125),
+            usesLinearFrequencyTable: true)
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        let ordered = runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }
+        let n = 7680, requests = ordered.filter { $0.scheduledFrame == n }
+        XCTAssertEqual(requests.map(\.id), [3, 4])
+        XCTAssertEqual(requests.map(\.activeEventIndex), [0, 0])
+        XCTAssertEqual(requests.compactMap { event -> Double? in
+            if case let .stepUpdate(_, step) = event.action { return step }; return nil
+        }, [10963.0 / 65536, 10835.0 / 65536])
+        XCTAssertEqual(ordered.count, runtime.events.count)
+        for (epsilonText, held, prior): (String?, Int, Int) in [
+            ("0", 10835, 11173), (nil, 10835, 11173),
+            ("0.003", 10963, 11173), ("0.01", 11418, 11418)] {
+            let environment = epsilonText.map { [RuntimeCMixerUpdatePolicy.epsilonEnvironmentKey: $0] } ?? [:]
+            let policy = RuntimeCMixerUpdatePolicy.resolve(environment: environment)
+            XCTAssertNil(policy.configurationWarning)
+            var outputs = [[Float]]()
+            // Replay every physical event, with independent callback splits and no coalescing.
+            for (events, chunk) in [(runtime.events, 997), (ordered, 509)] {
+                let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 48_000, channelCount: 1),
+                    maximumRenderFrames: 1024,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]),
+                    updatePolicy: policy)
+                core.configureAdapterEventScheduleForTesting(events, runtimeFrameOffset: 0)
+                var frame = 0, pcm = [Float]()
+                for boundary in [n, n + 1, n + 33] {
+                    while frame < boundary {
+                        let count = min(chunk, boundary - frame)
+                        pcm += renderRuntimePCM(core, frames: count); frame += count
+                    }
+                    let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                    XCTAssertTrue(voice.active)
+                    let elapsed = boundary - n
+                    XCTAssertEqual(voice.sampleStep, Double(elapsed == 0 ? prior : held) / 65536)
+                    XCTAssertEqual(voice.samplePosition,
+                        Double(6720 * 11418 + 960 * prior + elapsed * held) / 65536)
+                }
+                let applied = core.drainAppliedAdapterEventDiagnostics()
+                XCTAssertEqual(applied.map(\.event.id), ordered.filter { $0.scheduledFrame < n + 33 }.map(\.id))
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+                let accepted = applied.filter { $0.event.scheduledFrame == n }.compactMap { item -> Bool? in
+                    if case let .stepUpdate(result) = item.result { return result.stepApplied }; return nil
+                }
+                XCTAssertEqual(accepted, epsilonText == "0.01" ? [false, false]
+                    : epsilonText == "0.003" ? [true, false] : [true, true])
+                outputs.append(pcm)
+            }
+            XCTAssertEqual(outputs[0], outputs[1])
+        }
     }
 }

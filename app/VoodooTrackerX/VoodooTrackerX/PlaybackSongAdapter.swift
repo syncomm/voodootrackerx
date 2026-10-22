@@ -4,6 +4,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
     let timingConfig: SyntheticTrackerTimingConfig
     let pattern: SyntheticPattern
     var diagnostics: PlaybackSongSyntheticDiagnostics
+    let canonicalTickClock: PlaybackSongCanonicalTickClock
     var noteOnlyEventIndices: Set<Int> = []
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
@@ -601,6 +602,9 @@ enum PlaybackSongSyntheticAdapter {
         var rowMappings = [PlaybackSongSyntheticRowMapping]()
         var context = AdapterRowContext()
         let estimatedRows = timingPlan.rowTimings.count
+        var clockRuns = [PlaybackSongCanonicalTickClock.ClockRun]()
+        clockRuns.reserveCapacity(estimatedRows)
+        var canonicalTickCount = 0
 
         rowMappings.reserveCapacity(estimatedRows)
         context.rowDiagnostics.reserveCapacity(estimatedRows)
@@ -641,6 +645,10 @@ enum PlaybackSongSyntheticAdapter {
                     sampleRate: timingPlan.sampleRate
                 )
             } ?? timingPlan.timingConfig(forSyntheticRow: traversalRow.syntheticRow)
+            let nextOrdinal = canonicalTickCount.addingReportingOverflow(rowTimingConfig.speed)
+            precondition(!nextOrdinal.overflow, "Canonical tick ordinal overflow")
+            clockRuns.append(.init(timingRowIndex: traversalRow.syntheticRow, firstCanonicalTickOrdinal: canonicalTickCount))
+            canonicalTickCount = nextOrdinal.partialValue
             let eventGenerationStart = profileSession == nil ? nil : DispatchTime.now().uptimeNanoseconds
             let rowDiagnostic = appendEvents(
                 from: traversalRow.row,
@@ -689,6 +697,9 @@ enum PlaybackSongSyntheticAdapter {
         } else {
             planGlobalVolumeChannelTargets(timingPlan: timingPlan, context: &context, profileSession: profileSession)
         }
+        let rowTimingDiagnostics = timingPlan.rowTimingDiagnostics
+        let canonicalTickClock = PlaybackSongCanonicalTickClock(runs: clockRuns, totalCanonicalTicks: canonicalTickCount,
+            sampleRate: timingConfig.sampleRate, rowTiming: rowTimingDiagnostics, rowDiagnostics: context.rowDiagnostics)
         var plan = PlaybackSongSyntheticPlan(
             timingConfig: timingConfig,
             pattern: SyntheticPattern(rowCount: traversalPlan.pathLength, events: context.events),
@@ -702,7 +713,7 @@ enum PlaybackSongSyntheticAdapter {
                 syntheticRowCount: traversalPlan.pathLength,
                 adaptedOrders: traversalPlan.adaptedOrders,
                 rowMappings: rowMappings,
-                rowTiming: timingPlan.rowTimingDiagnostics,
+                rowTiming: rowTimingDiagnostics,
                 timingChanges: timingPlan.timingChanges,
                 traversalDiagnostics: traversalPlan.traversalDiagnostics,
                 traversalPathLength: traversalPlan.pathLength,
@@ -731,7 +742,8 @@ enum PlaybackSongSyntheticAdapter {
                 ignoredCells: context.ignoredCells,
                 deferredCellFields: context.deferredCellFields,
                 eventCoverage: context.eventCoverage.summary
-            )
+            ),
+            canonicalTickClock: canonicalTickClock
         )
         plan.noteOnlyEventIndices = context.noteOnlyEventIndices
         plan.coldReleasedEventIndices = context.coldReleasedEventIndices

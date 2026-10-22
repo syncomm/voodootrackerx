@@ -1,8 +1,73 @@
 import AppKit
 import AudioToolbox
+import Darwin
 import XCTest
 
 final class PlaybackSongAdapterTests: XCTestCase {
+    func testCanonicalTickClockSurvivesDerivedAndRepeatedPreparedPlans() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1), makePlaybackRow(index: 1)]],
+                instrumentsByIndex: [1: .init(index: 1, samples: [makePlaybackSample(baseSampleRate: 8363)],
+                    noteSampleMap: Array(repeating: 0, count: 96))], usesLinearFrequencyTable: linear)
+            let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate), clock = plan.canonicalTickClock
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: .init(sampleRate: rate), rows: 4)
+            let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
+            let copies = [plan.replacingEventCoverage(plan.diagnostics.eventCoverage),
+                PlaybackSongOfflineRenderer.plan(plan, mutingEventsNotIn: []), plan.extendingEnvelopeTail(throughFrame: 100_000),
+                renderer.render(request).plan, renderer.renderWindowed(request, windowRows: 1).plan,
+                renderer.renderWindowedUsingScanPerWindowSchedulingReference(request, windowRows: 1).plan]
+            for copy in copies { XCTAssertTrue(copy.canonicalTickClock === clock) }
+            for _ in 0..<3 {
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
+                XCTAssertTrue(runtime.plan?.canonicalTickClock === clock)
+                XCTAssertEqual(clock.coordinate(syntheticRow: 1, tick: 5, channel: 0)?.canonicalTickOrdinal, 11)
+            }
+            XCTAssertEqual(clock.totalCanonicalTicks, 12); XCTAssertEqual(clock.runs.count, 2)
+            XCTAssertNil(clock.coordinate(syntheticRow: 2, tick: 0, channel: 0))
+            clock.rowTiming.withUnsafeBufferPointer { shared in plan.diagnostics.rowTiming.withUnsafeBufferPointer {
+                XCTAssertEqual(shared.baseAddress, $0.baseAddress)
+            } }
+            clock.rowDiagnostics.withUnsafeBufferPointer { shared in plan.diagnostics.rowDiagnostics.withUnsafeBufferPointer {
+                XCTAssertEqual(shared.baseAddress, $0.baseAddress)
+            } }
+            XCTAssertEqual(MemoryLayout<PlaybackSongCanonicalTickClock.ClockRun>.stride, 16)
+            XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticAdapter.ChannelState>.stride, 1152)
+            XCTAssertEqual(MemoryLayout<PlaybackXMChannelRow>.stride, 8)
+            print("CLOCK_LAYOUT runs=\(clock.runs.count) ticks=\(clock.totalCanonicalTicks) virtual_channel_ticks=12 row_visits=2 run_capacity=\(clock.runs.capacity) companion_allocation_bytes=\(malloc_size(Unmanaged.passUnretained(clock).toOpaque()))")
+        } }
+    }
+
+    func testCanonicalTickClockPreservesC14OrderedEpsilonCounterevidence() throws {
+        let sample = makePlaybackSample(pcm: (0..<32_768).map { Float(($0 * 137 + 731) % 16_384 - 8_192) / 32_768 },
+            volume: 0.5, baseSampleRate: 8363)
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xA4),
+            makePlaybackRow(index: 1, volumeColumn: 0xB8, effectType: 4, effectParam: 0x48), makePlaybackRow(index: 2)]],
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))])
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        let requests = runtime.events.filter { $0.scheduledFrame == 7680 }
+        XCTAssertEqual(requests.map(\.id), [3,4]); XCTAssertEqual(requests.map(\.activeEventIndex), [0,0])
+        XCTAssertEqual(requests.compactMap { if case let .stepUpdate(_, step) = $0.action { return step }; return nil },
+            [10963.0 / 65536, 10835.0 / 65536])
+        XCTAssertEqual(runtime.plan?.canonicalTickClock.coordinate(syntheticRow: 1, tick: 2, channel: 0)?.absoluteFrame, 7680)
+        func held(_ events: [RuntimeCMixerAdapterEvent], epsilon: Double) throws -> CSoftwareMixerVoiceDiagnostic {
+            let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 48_000, channelCount: 1), maximumRenderFrames: 1024,
+                updatePolicy: .resolve(environment: [RuntimeCMixerUpdatePolicy.epsilonEnvironmentKey: String(epsilon)]))
+            core.configureAdapterEventScheduleForTesting(events, runtimeFrameOffset: 0)
+            var frames = 0
+            while frames < 7713 { let count = min(997, 7713 - frames); _ = renderRuntimePCM(core, frames: count); frames += count }
+            return try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+        }
+        for (epsilon, expected) in [(0.0,10835.0), (0.00001,10835), (0.003,10963), (0.01,11418)] {
+            let ordered = try held(runtime.events, epsilon: epsilon)
+            XCTAssertEqual(ordered.sampleStep, expected / 65536)
+            XCTAssertEqual(ordered.samplePosition, (6720 * 11418.0 + 960 * (epsilon == 0.01 ? 11418 : 11173) + 33 * expected) / 65536)
+            let lastOnly = try held(runtime.events.filter { $0.id != 3 }, epsilon: epsilon)
+            if epsilon == 0.003 { XCTAssertEqual(lastOnly.sampleStep, 10835.0 / 65536); XCTAssertNotEqual(ordered.samplePosition, lastOnly.samplePosition) }
+        }
+    }
+
     func testPlaybackSongSyntheticAdapterEmptyAndInvalidOrdersAreSafe() {
         let emptySong = makePlaybackSong(orderPatternIndices: [], patternRowCounts: [:])
         let emptySelection = PlaybackSongSyntheticAdapter.adapt(emptySong, startOrderIndex: 0, orderCount: 0, sampleRate: 100)

@@ -40,9 +40,13 @@ struct PlaybackSongSelectionDispatchFacts: Equatable {
 struct PlaybackSongSyntheticPlan: Equatable {
     let timingConfig: SyntheticTrackerTimingConfig
     let pattern: SyntheticPattern
-    var diagnostics: PlaybackSongSyntheticDiagnostics
+    var diagnostics: PlaybackSongSyntheticDiagnostics {
+        // Arbitrary diagnostic replacement must not leave producer references attached to new storage.
+        didSet { heldPitchProvenance = .notAdapterProduced }
+    }
     let canonicalTickClock: PlaybackSongCanonicalTickClock
     let selectionDispatchFacts: PlaybackSongSelectionDispatchFacts
+    var heldPitchProvenance: PlaybackSongHeldPitchProvenance = .notAdapterProduced
     var noteOnlyEventIndices: Set<Int> = []
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
@@ -492,6 +496,7 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     struct AdapterRowContext {
+        var heldPitchObserver = PlaybackSongHeldPitchProvenance.Observer()
         var selectionFacts = [PlaybackSongSelectionDispatchFacts.Fact]()
         var selectionTuningProducers = [PlaybackSongSelectionDispatchFacts.TuningProducers]()
         var selectionFactStorageGrowthCount = 0
@@ -764,6 +769,13 @@ enum PlaybackSongSyntheticAdapter {
                 AdapterPlanProfileField("selection_fact_stride", MemoryLayout<PlaybackSongSelectionDispatchFacts.Fact>.stride),
                 AdapterPlanProfileField("selection_fact_capacity", context.selectionFacts.capacity),
                 AdapterPlanProfileField("selection_fact_storage_growth_count", context.selectionFactStorageGrowthCount),
+                AdapterPlanProfileField("held_pitch_row_hold_count", context.heldPitchObserver.rowHolds.count),
+                AdapterPlanProfileField("held_pitch_row_hold_stride", MemoryLayout<PlaybackSongHeldPitchProvenance.RowHold>.stride),
+                AdapterPlanProfileField("held_pitch_row_hold_capacity", context.heldPitchObserver.rowHolds.capacity),
+                AdapterPlanProfileField("held_pitch_storage_growth_count", context.heldPitchObserver.storageGrowthCount),
+                AdapterPlanProfileField("held_pitch_channel_capacity", context.heldPitchObserver.channels.capacity),
+                AdapterPlanProfileField("held_pitch_channel_stride", MemoryLayout<PlaybackSongHeldPitchProvenance.Held>.stride),
+                AdapterPlanProfileField("held_pitch_channel_growth_count", context.heldPitchObserver.channelStorageGrowthCount),
                 AdapterPlanProfileField("selection_provenance_count", context.selectionTuningProducers.count),
                 AdapterPlanProfileField("selection_provenance_stride", MemoryLayout<PlaybackSongSelectionDispatchFacts.TuningProducers>.stride),
             ]
@@ -847,6 +859,8 @@ enum PlaybackSongSyntheticAdapter {
         if excludeCompletedCold500Publications(from: &plan) {
             plan.xmAudibleTimeline = PlaybackXMAudibleTimeline(plan: plan)
         }
+        // Install only after existing diagnostic/admission mutations have completed.
+        plan.heldPitchProvenance = context.heldPitchObserver.evidence
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
             startedAt: totalStart,
@@ -1017,8 +1031,13 @@ enum PlaybackSongSyntheticAdapter {
             context.selectionTuningProducers.append(contentsOf: repeatElement(.init(),
                 count: row.cells.count - context.selectionTuningProducers.count))
         }
+        context.heldPitchObserver.ensureChannels(row.cells.count)
         for channelIndex in row.cells.indices {
             var cell = row.cells[channelIndex]
+            let heldPitchRow = context.heldPitchObserver.begin(cell, channel: channelIndex,
+                firstFact: context.selectionFacts.count, vibratoCount: context.vibratoEffects.count,
+                slideCount: context.portamentoSlideEffects.count, toneCount: context.tonePortamentoEffects.count)
+            defer { captureHeldPitchRow(heldPitchRow, channel: channelIndex, context: &context) }
             if context.eventCoverage.visit(cell) {
                 // Empty cells have no row writers. Capture the unchanged controls once,
                 // retaining every occurrence and diagnostic without copying a working

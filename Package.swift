@@ -140,6 +140,7 @@ let package = Package(
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+VolumeEffects.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongBuilder.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongDiagnostics.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongHeldPitchProvenance.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongOfflineRender.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackTiming.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackVolumeColumnDecoder.swift",

@@ -873,6 +873,7 @@ final class PlaybackSongOfflineRenderer {
             diagnostics: plan.diagnostics,
             canonicalTickClock: plan.canonicalTickClock,
             selectionDispatchFacts: plan.selectionDispatchFacts,
+            heldPitchProvenance: plan.heldPitchProvenance,
             noteOnlyEventIndices: plan.noteOnlyEventIndices, coldReleasedEventIndices: plan.coldReleasedEventIndices,
             playbackStateEvents: plan.playbackStateEvents,
             xmEnvelopeTimeline: plan.xmEnvelopeTimeline,

@@ -1923,16 +1923,59 @@ final class PlaybackSongOfflineRenderer {
         }
     }
 
+    /// Opt-in planning/test counters; ordinary playback allocates no work recorder.
+    final class CarriedPlaybackStateWork {
+        var indexBuildCount = 0
+        var mappingsVisited = 0
+        var entriesIndexed = 0
+        var sortComparisons = 0
+        var lookupCount = 0
+        var entriesVisited = 0
+    }
+
     /// Filters stale channel generations before either runtime or offline scheduling.
-    static func carriedPlaybackStateEvents(for plan: PlaybackSongSyntheticPlan) -> [PlaybackVoiceStateEvent] {
-        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
-        return plan.playbackStateEvents.enumerated().filter { _, update in
+    /// The scalar index belongs to this invocation, so manually mutated and derived plans
+    /// always use their current sources, mappings and inclusive cut diagnostics.
+    static func carriedPlaybackStateEvents(
+        for plan: PlaybackSongSyntheticPlan, work: CarriedPlaybackStateWork? = nil
+    ) -> [PlaybackVoiceStateEvent] {
+        let qualifying = plan.playbackStateEvents.enumerated().filter { _, update in
             switch update.change {
             case let .reset(reset): guard reset.dimensions != 0 else { return false }
             case let .keyOff(decrement): guard decrement.isFinite, decrement >= 0 else { return false }
             }
-            guard plan.pattern.events.indices.contains(update.activeEventIndex),
-                  latestEventIndicesByChannel(atOrBefore: update.scheduledFrame, plan: plan, scheduler: scheduler)[update.channelIndex] == update.activeEventIndex else { return false }
+            return plan.pattern.events.indices.contains(update.activeEventIndex)
+        }
+        guard !qualifying.isEmpty else { return [] }
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        var sourcesByChannel = [Int: [(frame: Int, eventIndex: Int)]]()
+        work?.indexBuildCount += 1
+        for mapping in plan.diagnostics.eventMappings {
+            work?.mappingsVisited += 1
+            guard plan.pattern.events.indices.contains(mapping.eventIndex) else { continue }
+            sourcesByChannel[mapping.channelIndex, default: []].append(
+                (scheduler.frame(for: plan.pattern.events[mapping.eventIndex]), mapping.eventIndex))
+            work?.entriesIndexed += 1
+        }
+        for channel in Array(sourcesByChannel.keys) {
+            sourcesByChannel[channel]?.sort {
+                work?.sortComparisons += 1
+                return $0.frame == $1.frame ? $0.eventIndex < $1.eventIndex : $0.frame < $1.frame
+            }
+        }
+        return qualifying.filter { _, update in
+            work?.lookupCount += 1
+            guard let sources = sourcesByChannel[update.channelIndex] else { return false }
+            var lower = 0, upper = sources.count
+            // Upper bound includes the boundary and leaves the greatest event index
+            // last on equal source frames, regardless of mapping enumeration order.
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                work?.entriesVisited += 1
+                if sources[middle].frame <= update.scheduledFrame { lower = middle + 1 }
+                else { upper = middle }
+            }
+            guard lower > 0, sources[lower - 1].eventIndex == update.activeEventIndex else { return false }
             return !hasAppliedNoteCut(eventIndex: update.activeEventIndex, atOrBefore: update.scheduledFrame, plan: plan) &&
                 !hasAppliedRetriggerCut(eventIndex: update.activeEventIndex, atOrBefore: update.scheduledFrame, plan: plan)
         }.sorted {

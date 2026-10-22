@@ -239,6 +239,12 @@ final class NonretriggeringResetTests: XCTestCase {
             .init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 7, change: .reset(.init())),
             .init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 7, change: .keyOff(fadeoutDecrement: .nan))]
         XCTAssertTrue(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan).isEmpty)
+        var invalidPayloads = plan
+        invalidPayloads.playbackStateEvents = Array(plan.playbackStateEvents.suffix(2))
+        let work = PlaybackSongOfflineRenderer.CarriedPlaybackStateWork()
+        XCTAssertTrue(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: invalidPayloads, work: work).isEmpty)
+        XCTAssertEqual(work.indexBuildCount, 0)
+        XCTAssertEqual(work.mappingsVisited, 0)
         let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100, preparedPlan: plan)
         XCTAssertEqual(runtime.events.count, 1)
         XCTAssertEqual(runtime.events[0].primaryCategory, "note_trigger")
@@ -312,5 +318,332 @@ private final class ResetProbe {
         var pcm = Array(repeating: Float(0), count: frames)
         pcm.withUnsafeMutableBufferPointer { XCTAssertEqual(vtx_c_mixer_render(&state, $0.baseAddress, UInt32(frames)), VTX_C_MIXER_STATUS_OK) }
         return pcm
+    }
+}
+
+extension NonretriggeringResetTests {
+    func testCarriedStateReferencePinsFrameIndexTiesAndInputOrder() {
+        let seed = PlaybackSongSyntheticAdapter.adapt(CarriedStatePublicControl.song(), orderIndex: 0, sampleRate: 48_000)
+        let template = seed.diagnostics.eventMappings[0]
+        let events = [8, 0, 8, 4, 12, 3].enumerated().map { index, frame in
+            SyntheticTrackerEvent(row: 30 - index, scheduledStartFrame: frame, sample: seed.pattern.events[0].sample)
+        }
+        let mappings = [(0, 0), (1, 1), (2, 0), (3, 1), (4, 0), (-1, 0), (99, 1)].map {
+            CarriedStateEligibilityReference.mapping(template, eventIndex: $0.0, channelIndex: $0.1)
+        }
+        var plan = PlaybackSongSyntheticPlan(timingConfig: seed.timingConfig, pattern: .init(rowCount: 64, events: events),
+            diagnostics: CarriedStateEligibilityReference.diagnostics(seed.diagnostics, mappings: mappings))
+        func state(_ source: Int, _ channel: Int, _ frame: Int, _ change: MixerPlaybackStateChange) -> PlaybackVoiceStateEvent {
+            .init(activeEventIndex: source, channelIndex: channel, scheduledFrame: frame, change: change)
+        }
+        let reset = MixerPlaybackStateChange.reset(all)
+        plan.playbackStateEvents = [state(4, 0, 12, reset), state(0, 0, 8, reset), state(2, 0, 8, reset),
+            state(2, 0, 8, .keyOff(fadeoutDecrement: 0)), state(1, 1, 3, reset), state(3, 1, 4, reset),
+            state(1, 1, 4, reset), state(5, 0, 7, reset), state(2, 1, 8, reset), state(2, 2, 8, reset),
+            state(-1, 0, 8, reset), state(99, 0, 8, reset), state(1, 1, -1, reset),
+            state(2, 0, 9, .reset(.init()))]
+        for mask in 1...15 {
+            plan.playbackStateEvents.append(state(2, 0, 9, .reset(.init(volumeEnvelope: mask & 1 != 0,
+                panEnvelope: mask & 2 != 0, keyOn: mask & 4 != 0, fadeout: mask & 8 != 0))))
+        }
+        for decrement: Float in [0.125, 0, -1, .nan, .infinity, -.infinity] {
+            plan.playbackStateEvents.append(state(2, 0, 9, .keyOff(fadeoutDecrement: decrement)))
+        }
+        let expected = CarriedStateEligibilityReference.events(plan)
+        XCTAssertEqual(expected.count, 22)
+        XCTAssertEqual(Array(expected.prefix(4)), [plan.playbackStateEvents[4], plan.playbackStateEvents[5],
+            plan.playbackStateEvents[2], plan.playbackStateEvents[3]])
+        XCTAssertEqual(expected.last, plan.playbackStateEvents[0])
+        XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan), expected)
+        plan.diagnostics = CarriedStateEligibilityReference.diagnostics(plan.diagnostics, mappings: mappings.reversed())
+        XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan), expected)
+    }
+
+    func testCarriedReferenceAcrossPublicCutsReplacementsAndMutableCopies() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        for name in ["empty-slot-playback-state", "delayed-instrument-only-edx", "note-only-routing",
+                     "e90-row-entry-retrigger", "tone-portamento-retained-source-reset", "envelope-release-fadeout-timing"] {
+            let path = root.appendingPathComponent("reference-xm/generated/\(name).xm").path
+            let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: path), modulePath: path)
+            for rate in [44_100.0, 48_000] {
+                var plan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 0, orderCount: song.orders.count, sampleRate: rate)
+                // Keep the independently planned diagnostics but avoid rebuilding semantic timelines
+                // while injecting deliberately stale probes around inclusive lifetime boundaries.
+                plan.xmEnvelopeTimeline = nil
+                let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+                var probes = plan.playbackStateEvents
+                for mapping in plan.diagnostics.eventMappings {
+                    let start = scheduler.frame(for: plan.pattern.events[mapping.eventIndex])
+                    var frames = [start - 1, start, start + 1, Int.max]
+                    frames += plan.xmEmptyRoutes.filter { $0.stoppedEventIndex == mapping.eventIndex }.map(\.scheduledFrame)
+                    frames += plan.diagnostics.noteCutEffects.filter { $0.activeEventIndex == mapping.eventIndex }.compactMap(\.scheduledFrame)
+                    for retrigger in plan.diagnostics.retriggerEffects {
+                        frames += zip(retrigger.replacedEventIndices, retrigger.replacementFrames ?? retrigger.retriggerFrames)
+                            .filter { $0.0 == mapping.eventIndex }.map { $0.1 }
+                    }
+                    for frame in frames {
+                        for boundary in [frame == Int.min ? frame : frame - 1, frame] {
+                            probes.append(.init(activeEventIndex: mapping.eventIndex, channelIndex: mapping.channelIndex,
+                                scheduledFrame: boundary, change: .reset(all)))
+                        }
+                    }
+                }
+                plan.playbackStateEvents = probes.reversed()
+                XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan), CarriedStateEligibilityReference.events(plan), name)
+                let original = plan
+                plan.playbackStateEvents = []
+                XCTAssertTrue(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan).isEmpty)
+                plan = original
+                plan.xmEmptyRoutes = []
+                plan.diagnostics = CarriedStateEligibilityReference.diagnostics(plan.diagnostics, mappings: [])
+                XCTAssertTrue(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan).isEmpty)
+                XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: original), CarriedStateEligibilityReference.events(original))
+            }
+        }
+    }
+
+    func testPublicCarriedControlBothModesRatesAndWindowReferences() {
+        for linear in [true, false] {
+            for rate in [44_100.0, 48_000] {
+                let song = CarriedStatePublicControl.song(linear: linear)
+                let plan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 1, orderCount: 1, sampleRate: rate)
+                XCTAssertFalse(plan.playbackStateEvents.isEmpty)
+                XCTAssertTrue(plan.diagnostics.eventMappings.allSatisfy { $0.source.orderIndex == 1 })
+                XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan), CarriedStateEligibilityReference.events(plan))
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
+                XCTAssertEqual(runtime.plan, plan)
+                let states = runtime.events.compactMap { event -> PlaybackVoiceStateEvent? in
+                    if case let .playbackStateChange(index, change) = event.action {
+                        return .init(activeEventIndex: index, channelIndex: event.channelIndex,
+                            scheduledFrame: event.scheduledFrame, change: change)
+                    }; return nil
+                }
+                XCTAssertEqual(states, CarriedStateEligibilityReference.events(plan).filter {
+                    plan.xmEnvelopeTimeline?.updatesByEvent[$0.activeEventIndex] == nil
+                })
+                let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
+                let request = PlaybackSongOfflineRenderRequest(song: song, config: .init(sampleRate: rate), rows: 8)
+                let whole = renderer.render(request)
+                let indexed = renderer.renderWindowed(request, windowRows: 2)
+                let scan = renderer.renderWindowedUsingScanPerWindowSchedulingReference(request, windowRows: 2)
+                XCTAssertEqual(indexed.block.interleavedPCM, scan.block.interleavedPCM)
+                XCTAssertEqual(indexed.plan.xmEnvelopeTimeline, whole.plan.xmEnvelopeTimeline)
+                XCTAssertEqual(indexed.plan.xmAudibleTimeline, whole.plan.xmAudibleTimeline)
+                XCTAssertLessThanOrEqual(zip(whole.block.interleavedPCM, indexed.block.interleavedPCM).map { abs($0 - $1) }.max() ?? 0, 1e-7)
+            }
+        }
+    }
+
+    func testCarriedCutsAreInclusiveAndKeepDiagnosticAssociationAndOptionalFrameRules() {
+        let (_, seed) = makePlan(mode: .forward)
+        let source = seed.diagnostics.eventMappings[0].source
+        var plan = seed
+        plan.playbackStateEvents = [6, 7, 8, 9, Int.max - 1, Int.max].map {
+            .init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: $0, change: .reset(all))
+        }
+        func check(_ frames: [Int]) {
+            XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan).map(\.scheduledFrame), frames)
+            XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan), CarriedStateEligibilityReference.events(plan))
+        }
+        func cut(_ frame: Int?, _ applied: Bool = true, _ event: Int = 0) -> PlaybackSongSyntheticNoteCutDiagnostic {
+            .init(source: source, channelIndex: 0, syntheticRow: 1, syntheticTick: 1, effectType: 14, effectParam: 0xC1,
+                status: .applied, detected: true, applied: applied, deferred: false, ignoredAsNoOp: false, outOfRow: false,
+                requestedTick: 1, rowSpeed: 6, rowBPM: 125, scheduledFrame: frame, activeEventIndex: event)
+        }
+        func diagnostics(_ cuts: [PlaybackSongSyntheticNoteCutDiagnostic] = [], _ retriggers: [PlaybackSongSyntheticRetriggerDiagnostic] = []) {
+            plan.diagnostics = CarriedStateEligibilityReference.diagnostics(seed.diagnostics,
+                mappings: seed.diagnostics.eventMappings, cuts: cuts, retriggers: retriggers)
+        }
+        let allFrames = plan.playbackStateEvents.map(\.scheduledFrame)
+        diagnostics([cut(7)]); check([6])
+        diagnostics([cut(nil)]); check(Array(allFrames.dropLast()))
+        diagnostics([cut(0, false), cut(0, true, 99)]); check(allFrames)
+        var retrigger = PlaybackSongSyntheticRetriggerDiagnostic(source: source, channelIndex: 0,
+            syntheticRow: 1, syntheticTick: 2, effectType: 14, effectParam: 0x92, status: .applied,
+            detected: true, applied: true, deferred: false, ignoredAsNoOp: false, outOfRow: false, activeVoiceFound: true,
+            retriggerIntervalTicks: 2, rowSpeed: 6, rowBPM: 125, retriggerTicks: [2], retriggerFrames: [9],
+            retriggerEventIndices: [1], replacedEventIndices: [0, 99], volumeModeNibble: 0, intervalNibble: 2,
+            volumeChangePolicy: nil, volumeChangeCount: 0, volumeValuesBefore: [], volumeValuesAfter: [], retriggerGains: [],
+            activeEventIndexBefore: 0, selectedSampleIndex: 0, selectedSampleLength: 64, initialSourceFrame: 0,
+            playbackStep: 1, gain: 1, pan: 0, envelopePolicy: "carried")
+        retrigger.replacementFrames = [7]
+        diagnostics([], [retrigger]); check([6])
+        retrigger.replacementFrames = []
+        diagnostics([], [retrigger]); check(allFrames)
+        retrigger.replacementFrames = nil
+        diagnostics([], [retrigger]); check([6, 7, 8])
+        retrigger.applied = false
+        diagnostics([], [retrigger]); check(allFrames)
+        diagnostics()
+        plan.xmEmptyRoutes = [.init(source: source, channelIndex: 0, scheduledFrame: 7,
+            instrumentIndex: 1, sampleIndex: 2, stoppedEventIndex: 0)]
+        check([6])
+        plan.xmEmptyRoutes = []
+        check(allFrames)
+    }
+
+    func testCarriedReferenceKeepsDistinctLoopOccurrencesAtANonzeroOrderStart() {
+        for linear in [true, false] {
+            for rate in [44_100.0, 48_000] {
+                let song = CarriedStatePublicControl.song(linear: linear, patternLoop: true)
+                let plan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 1, orderCount: 1, sampleRate: rate)
+                XCTAssertGreaterThan(plan.diagnostics.rowMappings.filter { $0.source.rowIndex == 1 }.count, 1)
+                XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan), CarriedStateEligibilityReference.events(plan))
+            }
+        }
+    }
+
+    func testPublicCarriedScalingVariesMappingsAndQueriesIndependently() {
+        for orders in [1, 2, 4, 8, 16] {
+            for density in [1, 3] {
+                let song = CarriedStatePublicControl.song(orders: orders, resetDensity: density)
+                var plan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 0, orderCount: orders, sampleRate: 48_000)
+                plan.xmEnvelopeTimeline = nil
+                let expected = CarriedStateEligibilityReference.events(plan)
+                XCTAssertGreaterThan(expected.count, 0)
+                XCTAssertEqual(plan.diagnostics.eventMappings.count, orders * 64)
+                XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan), expected)
+                for repetitions in [1, 3] {
+                    plan.playbackStateEvents = Array(repeating: expected, count: repetitions).flatMap { $0 }
+                    let work = PlaybackSongOfflineRenderer.CarriedPlaybackStateWork()
+                    XCTAssertEqual(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan, work: work), CarriedStateEligibilityReference.events(plan))
+                    let queries = plan.playbackStateEvents.count, mappings = plan.diagnostics.eventMappings.count
+                    XCTAssertEqual(work.indexBuildCount, 1)
+                    XCTAssertEqual(work.mappingsVisited, mappings)
+                    XCTAssertEqual(work.entriesIndexed, mappings)
+                    XCTAssertEqual(work.lookupCount, queries)
+                    // Four independent channels, at most log2(M/4)+1 frame comparisons per query.
+                    XCTAssertLessThanOrEqual(work.entriesVisited, queries * (Int(log2(Double(mappings / 4))) + 1))
+                    XCTAssertLessThan(work.mappingsVisited + work.entriesVisited, queries * mappings)
+                }
+                plan.playbackStateEvents = []
+                let emptyWork = PlaybackSongOfflineRenderer.CarriedPlaybackStateWork()
+                XCTAssertTrue(PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan, work: emptyWork).isEmpty)
+                XCTAssertEqual(emptyWork.indexBuildCount, 0)
+                XCTAssertEqual(emptyWork.mappingsVisited, 0)
+                XCTAssertEqual(emptyWork.entriesVisited, 0)
+            }
+        }
+    }
+}
+
+// Test-only controls shared verbatim with the external ordinary-optimized observer.
+enum CarriedStatePublicControl {
+    static func song(orders: Int = 2, resetDensity: Int = 3, linear: Bool = true, patternLoop: Bool = false) -> PlaybackSong {
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+            pcm: (0..<64).map { Float(($0 % 16) - 8) / 16 }, volume: 0.75,
+            relativeNote: 0, finetune: 0, baseSampleRate: 8_363, loopStart: 0, loopLength: 64, loopType: 1)
+        let rows = (0..<64).map { row in
+            PlaybackRow(index: row, cells: (0..<4).map { channel in
+                let phase = row % 8
+                return PlaybackCell(note: phase == 0 || phase == 4 ? UInt8(37 + channel * 3) : (phase == 7 ? 97 : 0),
+                    instrument: phase == 0 || (1...resetDensity).contains(phase) || phase == 5 ? 1 : 0,
+                    volumeColumn: 0, effectType: patternLoop && channel == 0 && [0, 2].contains(row) ? 14 : 0,
+                    effectParam: patternLoop && channel == 0 && [0, 2].contains(row) ? (row == 0 ? 0x60 : 0x62) : 0)
+            })
+        }
+        return PlaybackSong(title: "Public carried state control", orders: (0..<orders).map { .init(orderIndex: $0, patternIndex: 0) },
+            patternsByIndex: [0: .init(index: 0, rows: rows)],
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 3, bpm: 250), usesLinearFrequencyTable: linear)
+    }
+}
+
+enum CarriedStateEligibilityReference {
+    /// Independent scan oracle: collect this channel's eligible source candidates, select
+    /// the lexicographic maximum (source frame, event index), then apply inclusive cuts.
+    static func events(_ plan: PlaybackSongSyntheticPlan) -> [PlaybackVoiceStateEvent] {
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        var admitted: [(Int, PlaybackVoiceStateEvent)] = []
+        for (offset, update) in plan.playbackStateEvents.enumerated() {
+            switch update.change {
+            case let .reset(reset): if reset.dimensions == 0 { continue }
+            case let .keyOff(value): if !value.isFinite || value < 0 { continue }
+            }
+            guard plan.pattern.events.indices.contains(update.activeEventIndex) else { continue }
+            var winner: (frame: Int, index: Int)?
+            for mapping in plan.diagnostics.eventMappings {
+                guard mapping.channelIndex == update.channelIndex,
+                      plan.pattern.events.indices.contains(mapping.eventIndex) else { continue }
+                let frame = scheduler.frame(for: plan.pattern.events[mapping.eventIndex])
+                guard frame <= update.scheduledFrame else { continue }
+                if winner == nil || frame > winner!.frame || (frame == winner!.frame && mapping.eventIndex > winner!.index) {
+                    winner = (frame, mapping.eventIndex)
+                }
+            }
+            guard winner?.index == update.activeEventIndex else { continue }
+            let empty = plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == update.activeEventIndex && $0.scheduledFrame <= update.scheduledFrame }
+            let cut = plan.diagnostics.noteCutEffects.contains {
+                $0.applied && $0.activeEventIndex == update.activeEventIndex && ($0.scheduledFrame ?? Int.max) <= update.scheduledFrame
+            }
+            let replaced = plan.diagnostics.retriggerEffects.contains { effect in
+                effect.applied && zip(effect.replacedEventIndices, effect.replacementFrames ?? effect.retriggerFrames).contains {
+                    $0.0 == update.activeEventIndex && $0.1 <= update.scheduledFrame
+                }
+            }
+            if !empty && !cut && !replaced { admitted.append((offset, update)) }
+        }
+        return admitted.sorted {
+            $0.1.scheduledFrame == $1.1.scheduledFrame ? $0.0 < $1.0 : $0.1.scheduledFrame < $1.1.scheduledFrame
+        }.map { $0.1 }
+    }
+
+    static func mapping(_ base: PlaybackSongSyntheticEventMapping, eventIndex: Int, channelIndex: Int) -> PlaybackSongSyntheticEventMapping {
+        .init(
+            source: base.source, channelIndex: channelIndex,
+            note: base.note, instrumentIndex: base.instrumentIndex,
+            sampleIndex: base.sampleIndex, sampleVolume: base.sampleVolume,
+            sampleVolumeRawEstimate: base.sampleVolumeRawEstimate, selectedSampleLength: base.selectedSampleLength,
+            sampleMapKeymapPresent: base.sampleMapKeymapPresent, mappedSampleIndex: base.mappedSampleIndex,
+            mappedSampleValid: base.mappedSampleValid, sampleSelectionMethod: base.sampleSelectionMethod,
+            sampleSelectionStrategy: base.sampleSelectionStrategy, firstPlayableSampleFallbackUsed: base.firstPlayableSampleFallbackUsed,
+            sampleMapKeymapBehaviorDeferred: base.sampleMapKeymapBehaviorDeferred, sampleMapKeymapMissingOrDeferred: base.sampleMapKeymapMissingOrDeferred,
+            effectType: base.effectType, effectParam: base.effectParam,
+            syntheticRow: base.syntheticRow, syntheticTick: base.syntheticTick,
+            eventIndex: eventIndex, loopMode: base.loopMode,
+            volumeColumn: base.volumeColumn, sampleOffset: base.sampleOffset,
+            hasIgnoredVolumeColumn: base.hasIgnoredVolumeColumn, hasIgnoredEffect: base.hasIgnoredEffect,
+            effectiveVolumeValue: base.effectiveVolumeValue, effectiveGlobalVolumeValue: base.effectiveGlobalVolumeValue,
+            effectiveGlobalVolumeMultiplier: base.effectiveGlobalVolumeMultiplier, effectivePan: base.effectivePan,
+            volumeEnvelopeStatus: base.volumeEnvelopeStatus, sourceVolumeEnvelopePointCount: base.sourceVolumeEnvelopePointCount,
+            mappedVolumeEnvelopePointCount: base.mappedVolumeEnvelopePointCount, hasDeferredVolumeEnvelopeSustain: base.hasDeferredVolumeEnvelopeSustain,
+            hasDeferredVolumeEnvelopeLoop: base.hasDeferredVolumeEnvelopeLoop, hasDeferredVolumeEnvelopeFadeout: base.hasDeferredVolumeEnvelopeFadeout,
+            volumeEnvelopeSemantics: base.volumeEnvelopeSemantics, sampleBaseSampleRate: base.sampleBaseSampleRate,
+            sampleRelativeNote: base.sampleRelativeNote, sampleFinetune: base.sampleFinetune,
+            outputSampleRate: base.outputSampleRate, effectiveNoteValue: base.effectiveNoteValue,
+            effectiveNoteIndex: base.effectiveNoteIndex, effectiveFinetune: base.effectiveFinetune,
+            linearPeriod: base.linearPeriod, linearFrequency: base.linearFrequency,
+            amigaPeriod: base.amigaPeriod, amigaFrequency: base.amigaFrequency,
+            finetuneStatus: base.finetuneStatus, usesLinearFrequencyTable: base.usesLinearFrequencyTable,
+            frequencyTableStatus: base.frequencyTableStatus, linearFrequencyApplied: base.linearFrequencyApplied,
+            amigaFrequencyApplied: base.amigaFrequencyApplied, amigaFrequencyDeferred: base.amigaFrequencyDeferred,
+            playbackStep: base.playbackStep, pitchMappingApplied: base.pitchMappingApplied,
+            pitchMappingUsedNeutralStep: base.pitchMappingUsedNeutralStep
+        )
+    }
+
+    static func diagnostics(_ base: PlaybackSongSyntheticDiagnostics, mappings: [PlaybackSongSyntheticEventMapping],
+        cuts: [PlaybackSongSyntheticNoteCutDiagnostic]? = nil, retriggers: [PlaybackSongSyntheticRetriggerDiagnostic]? = nil) -> PlaybackSongSyntheticDiagnostics {
+        .init(
+            requestedStartOrderIndex: base.requestedStartOrderIndex, requestedOrderCount: base.requestedOrderCount,
+            sampleRate: base.sampleRate, initialSpeed: base.initialSpeed,
+            initialBPM: base.initialBPM, usesLinearFrequencyTable: base.usesLinearFrequencyTable,
+            syntheticRowCount: base.syntheticRowCount, adaptedOrders: base.adaptedOrders,
+            rowMappings: base.rowMappings, rowTiming: base.rowTiming,
+            timingChanges: base.timingChanges, traversalDiagnostics: base.traversalDiagnostics,
+            traversalPathLength: base.traversalPathLength, traversalStopReason: base.traversalStopReason,
+            traversalGuardHit: base.traversalGuardHit, effectCommandDiagnostics: base.effectCommandDiagnostics,
+            rowDiagnostics: base.rowDiagnostics, volumeColumnMappings: base.volumeColumnMappings,
+            voiceStateUpdates: base.voiceStateUpdates, sampleOffsetEffects: base.sampleOffsetEffects,
+            setFinetuneEffects: base.setFinetuneEffects, envelopePositionEffects: base.envelopePositionEffects,
+            noteCutEffects: cuts ?? base.noteCutEffects, noteDelayEffects: base.noteDelayEffects,
+            retriggerEffects: retriggers ?? base.retriggerEffects, tonePortamentoEffects: base.tonePortamentoEffects,
+            portamentoSlideEffects: base.portamentoSlideEffects, finePortamentoUpEffects: base.finePortamentoUpEffects,
+            finePortamentoDownEffects: base.finePortamentoDownEffects, extraFinePortamentoEffects: base.extraFinePortamentoEffects,
+            arpeggioEffects: base.arpeggioEffects, vibratoControlEffects: base.vibratoControlEffects,
+            vibratoEffects: base.vibratoEffects, keyOffEvents: base.keyOffEvents,
+            eventMappings: mappings, ignoredCells: base.ignoredCells,
+            deferredCellFields: base.deferredCellFields, eventCoverage: base.eventCoverage
+        )
     }
 }

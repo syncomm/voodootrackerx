@@ -107,6 +107,8 @@ bounded contracts; they do not establish full command or audible parity.
   onset/replacement/cut behavior,
   and remaining envelope/pitch arithmetic must be resolved or explicitly
   justified within that same compatibility target.
+- Reconcile absent-keymap implementation/compatibility with [accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
+  before backend freeze, with bridge/writer admission decisions separately owned.
 - Deliver live Speed/BPM readouts and stopped-editable timing controls using
   the shared timing authority.
 - Reconcile live pattern-entry mutation and Undo authority with the canonical

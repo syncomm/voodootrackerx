@@ -21,6 +21,19 @@ module-rendering CLI.
 
 ## Implementation Status
 
+**Routing supersession note:** the first-pass sample-selection fallback bullets,
+tables, diagnostic categories and test-plan assertions below are historical.
+Their invalid/empty mapped-target fallback descriptions are superseded by exact
+identity resolution: a present map never redirects an unavailable destination.
+Declared empty-header source/cut/reset semantics follow [current effect support](../xm-effect-support.md#instrument-only-cells).
+Surviving nil-map fallback in ordinary explicit-note paths and some tone targets
+is legacy implementation behavior, not an approved compatibility exception.
+[Accepted Policy B](../decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
+controls current architecture; surviving fallback is an implementation gap, and
+[current absent-map status](../xm-effect-support.md#absent-keymap-compatibility-gap)
+does not establish FT2 parity. Historical descriptions below are retained, not
+restated as current policy; no source-selection behavior changes with this note.
+
 G25 supersedes historical base/x/y-cycle and deferred-arpeggio-memory wording
 below. Linear `0xy` uses base pitch at tick zero, then
 `[base,x,y][(effectiveSpeed - tick) % 3]`; `000` is inert without memory.

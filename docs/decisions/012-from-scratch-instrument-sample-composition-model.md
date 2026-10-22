@@ -362,6 +362,10 @@ global resolution deliberately falls back to the first playable sample when the 
 represented samples while preserving that absence can therefore change audible content. The reference-sensitive
 sample-slot transaction rejects that row before mutation and creates no revision or history.
 
+The global-fallback statement above is historical legacy-implementation description,
+not active routing policy. The [accepted Policy B clarification](#accepted-superseding-routing-clarification-policy-b)
+explicitly supersedes it as routing authority; the lifecycle matrix remains in force.
+
 XM persistence remains document-semantic rather than selection-semantic. A cleared interior identity survives when
 a later represented sample or map reference requires its span; a mapped cleared route remains unavailable with no
 fallback. If the highest cleared identity is neither mapped nor followed by a represented sample, the current
@@ -400,6 +404,51 @@ represented source and an empty destination. The transaction remaps the keymap a
 sounds and unavailable routes retain their meaning and selection follows the original source content. Cancel,
 same-slot, out-of-range, stale, read-only, playing, state-D, malformed, and conflicting-lifecycle paths create no edit
 or history. No Move Up or Move Down UI is included.
+
+### Accepted Superseding Routing Clarification (Policy B)
+
+**Status: accepted by explicit maintainer ratification.** The strict
+canonical/editable routing rule explicitly supersedes the older global
+first-playable fallback description as supported routing policy. That passage
+remains a historical/legacy-implementation account, not coequal active authority;
+the accepted lifecycle matrix remains intact. This documentation contract neither
+approves nor executes a production change, loaded-XM exception, writer
+normalization or Clear Song Data bridge repair.
+
+The canonical and editable contract requires an exact 96-entry map for
+instrument + note routing. Nil is routing absence, not S01 or first-playable
+selection. Empty instruments with nil maps remain valid neutral state; only
+neutral first-S01 population may bootstrap the explicit map. Represented PCM
+with nil routing remains noncanonical for routing-sensitive work, even when
+legacy playback can produce sound. A missing/empty mapped identity never selects
+another sample.
+
+Loaded sampled XM with a present exact map retains that source identity.
+Represented PCM at header volume zero remains eligible for song playback;
+declared zero-payload header state and unavailable/refused pitch remain distinct.
+Any future read-only exception for noncanonical input requires independent
+reference evidence, explicit approval, verified provenance scope and observable
+diagnostics. No such exception is established or authorized. Editable S01...S16
+limits do not automatically impose a new loaded-module parser or playback cap.
+
+Current implementation is narrower than the preceding global description:
+ordinary explicit-note adapter paths and some tone targets still request
+`.firstPlayableSample` for nil maps. Note-only, E90 and retained-source restart
+use `.fail`; ordinary instrument-only cells restore cached state without selecting
+a sample. This legacy behavior is an implementation deviation from accepted
+Policy B, not an approved FT2 rule or a passed no-fallback gate. Short/partial
+loaded headers can yield nil with PCM; observed loader reachability establishes
+no reference compatibility. Pinned ft2-clone LUT
+source suggests direct-slot behavior rather than scanning, an inference without
+actual reference playback of those abnormal files.
+
+The known `VTX-J-002` Clear Song Data bridge can carry nil-plus-PCM into an
+editable palette, and the writer currently serializes that state as all-S01,
+which can change sparse routing on reopen. These remain separate admission and
+writer decisions under the [save/export boundary](../design/editable-document-save-export-model.md#export-xm),
+not approved repairs. ADR 014's `exact`/`normalized`/`unavailable` planner, loaded
+source ownership/provenance, direct Sample Editor preview, and existing
+source/cut/reset contracts remain unchanged. See [current routing status](../xm-effect-support.md#absent-keymap-compatibility-gap).
 
 ## Product Surface And Content Policy
 

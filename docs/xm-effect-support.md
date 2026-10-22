@@ -109,9 +109,32 @@ header cut the old source generation at dispatch: ED0 at row entry, ED1...EDF
 only at tick x below the effective same-row speed. Header defaults, tuning and
 semantic reset follow that frame without creating PCM or a fallback voice.
 `OrdinaryMappedEmptyDispatchTests` pins both modes/rates and neighboring paths.
-The legacy ordinary adapter's absent-map first-playable policy remains an open
-compatibility discrepancy requiring a separate manager decision before backend
-freeze; preserving it here does not approve its correctness.
+
+### Absent-keymap compatibility gap
+
+Ordinary explicit-note adapter paths and some tone targets still request
+`.firstPlayableSample` when the map is nil. Successful selection is diagnosed as
+`firstPlayableFallback`; preservation controls do not approve an FT2 rule or pass
+a no-fallback gate. Note-only, E90, retained-source restart and the exact empty-ED
+classifier use `.fail`. Ordinary instrument-only cells restore cached state
+without selecting a sample; G23 nonzero instrument-only EDx resolves the retained
+note strictly at dispatch.
+
+Noncanonical short/partial loaded headers can produce nil maps with represented
+PCM. Loader reachability is observed, but no read-only compatibility exception is
+verified or authorized. Pinned ft2-clone LUT source suggests direct-slot selection
+rather than first-playable scanning; this is inference, not actual FT2 execution
+of those abnormal files. [Accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
+is binding routing authority; legacy absent-map fallback remains an OPEN
+implementation gap. Production selection is unchanged and requires a separate
+approved, tested correction before backend freeze.
+
+Absent routing, a missing mapped identity, declared zero-payload header metadata,
+represented volume-zero PCM and refused pitch are distinct. This open gap changes
+neither their source/cut/reset contracts nor G23/G30/G31 closure. Represented ED
+zero-volume gain carry remains a separate open discrepancy. The [Clear Song Data
+and writer admission concerns](design/editable-document-save-export-model.md#export-xm)
+also remain separate decisions before claiming a coherent routing release boundary.
 
 ## Note-only routing
 

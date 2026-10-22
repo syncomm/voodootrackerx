@@ -206,6 +206,14 @@ round-trip as the same canonical editable value. No supported File New/sample mu
 Make Editable Copy workflow produces it. Runtime nil-map fallback, writer behavior, and loaded/read-only semantics are
 unchanged; the reference-sensitive sample reorder transaction and Move UI reject the state before mutation.
 
+The known `VTX-J-002` [Clear Song Data bridge](#clear-song-data-safety-boundary)
+can also carry a loaded nil-map/PCM palette into editable state despite refusal
+by File > Make Editable Copy. Current nil-to-S01 serialization can therefore
+change sparse source routing on reopen. [Accepted Policy B](../decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
+does not approve fallback, fix or authorize changes to either boundary: bridge
+admission and writer policy remain separate open decisions, preserving the
+existing bridge, writer contract and ADR 014 separation.
+
 ### Represented-sample Clear and Export XM boundary
 
 Represented-sample Clear is non-compacting, and Export XM preserves that

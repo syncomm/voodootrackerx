@@ -191,6 +191,21 @@ The canonical maintainer Debug executable is:
   to all S01. Later population, replacement, clearing, and duplication preserve
   the exact existing map; Move and Swap remap it atomically with sample identity.
 
+**Routing authority (Policy B):** the [accepted ADR 012 clarification](docs/decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
+governs canonical/editable routing and the read-only compatibility boundary.
+
+- Canonical and editable instrument + note routing requires an exact 96-entry map.
+  Nil grants neither an S01 route nor first-playable selection; an explicitly
+  mapped missing/empty destination retains its identity without substitution.
+- Any read-only compatibility exception requires independent reference evidence,
+  explicit approval, verified input-provenance scope, and observable diagnostics.
+  No such exception is approved; legacy fallback grants no permission to
+  normalize a loaded map or extend fallback as an assumed policy.
+- Deployed absent-map fallback is an implementation gap, not compliance with
+  this authority. Correct it only through a separately approved, tested change.
+- Editable S01...S16 capacity does not establish a new parser or playback limit
+  for loaded read-only modules.
+
 ### Loaded-XM editable-copy planning
 
 - [ADR 014](docs/decisions/014-loaded-xm-editable-copy-planning.md) owns the

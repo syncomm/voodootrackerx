@@ -42,11 +42,15 @@ struct PlaybackSongSyntheticPlan: Equatable {
     let pattern: SyntheticPattern
     var diagnostics: PlaybackSongSyntheticDiagnostics {
         // Arbitrary diagnostic replacement must not leave producer references attached to new storage.
-        didSet { heldPitchProvenance = .notAdapterProduced }
+        didSet {
+            heldPitchProvenance = .notAdapterProduced
+            nativePitchWriterSpans = .notAdapterProduced
+        }
     }
     let canonicalTickClock: PlaybackSongCanonicalTickClock
     let selectionDispatchFacts: PlaybackSongSelectionDispatchFacts
     var heldPitchProvenance: PlaybackSongHeldPitchProvenance = .notAdapterProduced
+    var nativePitchWriterSpans: PlaybackSongNativePitchWriterSpans = .notAdapterProduced
     var noteOnlyEventIndices: Set<Int> = []
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
@@ -497,6 +501,7 @@ enum PlaybackSongSyntheticAdapter {
 
     struct AdapterRowContext {
         var heldPitchObserver = PlaybackSongHeldPitchProvenance.Observer()
+        var nativePitchWriterObserver = PlaybackSongNativePitchWriterSpans.Observer()
         var selectionFacts = [PlaybackSongSelectionDispatchFacts.Fact]()
         var selectionTuningProducers = [PlaybackSongSelectionDispatchFacts.TuningProducers]()
         var selectionFactStorageGrowthCount = 0
@@ -769,6 +774,15 @@ enum PlaybackSongSyntheticAdapter {
                 AdapterPlanProfileField("selection_fact_stride", MemoryLayout<PlaybackSongSelectionDispatchFacts.Fact>.stride),
                 AdapterPlanProfileField("selection_fact_capacity", context.selectionFacts.capacity),
                 AdapterPlanProfileField("selection_fact_storage_growth_count", context.selectionFactStorageGrowthCount),
+                AdapterPlanProfileField("native_writer_span_count", context.nativePitchWriterObserver.spans.count),
+                AdapterPlanProfileField("native_writer_span_stride", MemoryLayout<PlaybackSongNativePitchWriterSpans.Span>.stride),
+                AdapterPlanProfileField("native_writer_span_capacity", context.nativePitchWriterObserver.spans.capacity),
+                AdapterPlanProfileField("native_writer_span_growth_count", context.nativePitchWriterObserver.storageGrowthCount),
+                AdapterPlanProfileField("native_writer_child_count", context.nativePitchWriterObserver.capturedChildCount),
+                AdapterPlanProfileField("native_writer_referenced_child_count", context.nativePitchWriterObserver.referencedChildCount),
+                AdapterPlanProfileField("native_writer_referenced_child_capacity", context.nativePitchWriterObserver.referencedChildCapacity),
+                AdapterPlanProfileField("native_writer_observer_stride", MemoryLayout<PlaybackSongNativePitchWriterSpans.Observer>.stride),
+                AdapterPlanProfileField("synthetic_plan_stride", MemoryLayout<PlaybackSongSyntheticPlan>.stride),
                 AdapterPlanProfileField("held_pitch_row_hold_count", context.heldPitchObserver.rowHolds.count),
                 AdapterPlanProfileField("held_pitch_row_hold_stride", MemoryLayout<PlaybackSongHeldPitchProvenance.RowHold>.stride),
                 AdapterPlanProfileField("held_pitch_row_hold_capacity", context.heldPitchObserver.rowHolds.capacity),
@@ -861,6 +875,8 @@ enum PlaybackSongSyntheticAdapter {
         }
         // Install only after existing diagnostic/admission mutations have completed.
         plan.heldPitchProvenance = context.heldPitchObserver.evidence
+        plan.nativePitchWriterSpans = context.nativePitchWriterObserver.evidence(
+            domain: song.usesLinearFrequencyTable ? .linear : .amigaVTX4x)
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
             startedAt: totalStart,
@@ -1460,7 +1476,7 @@ enum PlaybackSongSyntheticAdapter {
                     usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &channelState
                 )
-                context.portamentoSlideEffects.append(diagnostic)
+                appendPitchWriter(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
             if hasFinePortamentoUpEffect, !(1...96).contains(cell.note) {
@@ -1516,7 +1532,7 @@ enum PlaybackSongSyntheticAdapter {
                     restoreAtRowEnd: restoreVibratoAtRowEnd,
                     channelState: &channelState
                 )
-                context.vibratoEffects.append(diagnostic)
+                appendPitchWriter(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
             if handlesTonePortamento, cell.note != 97, !delaysInstrumentVolumeState {
@@ -1539,7 +1555,7 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil,
                     executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil
                 )
-                context.tonePortamentoEffects.append(diagnostic)
+                appendPitchWriter(diagnostic, to: &context)
                 if let noteDelay {
                     context.noteDelayEffects.append(noteDelay)
                 }
@@ -1731,11 +1747,11 @@ enum PlaybackSongSyntheticAdapter {
             guard instrumentIndex > 0 else {
                 if (hasVibrato || hasVibratoVolumeSlide) && !ordinaryDelayedBx {
                     // No owning instrument means no sample trigger or fallback.
-                    context.vibratoEffects.append(handleVibrato(
+                    appendPitchWriter(handleVibrato(
                         from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
                         timingConfig: timingConfig, timingPlan: timingPlan,
                         restoreAtRowEnd: restoreVibratoAtRowEnd, channelState: &channelState
-                    ))
+                    ), to: &context)
                 }
                 if hasNoteCutEffect {
                     handleNoteCut(
@@ -1927,11 +1943,11 @@ enum PlaybackSongSyntheticAdapter {
                 if (hasVibrato || hasVibratoVolumeSlide) && !ordinaryDelayedBx {
                     // Empty routing retires the source, not channel-local effect execution.
                     // The existing instrument gate has already applied the prior E4 reset policy.
-                    context.vibratoEffects.append(handleVibrato(
+                    appendPitchWriter(handleVibrato(
                         from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
                         timingConfig: timingConfig, timingPlan: timingPlan,
                         restoreAtRowEnd: restoreVibratoAtRowEnd, channelState: &channelState
-                    ))
+                    ), to: &context)
                 }
                 if let header = ordinaryEmptyHeader, var delay = noteDelay {
                     if delay.requestedTick > 0 {
@@ -2283,7 +2299,7 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil,
                     executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil
                 )
-                context.tonePortamentoEffects.append(diagnostic)
+                appendPitchWriter(diagnostic, to: &context)
                 if let noteDelay {
                     context.noteDelayEffects.append(noteDelay)
                 }
@@ -2597,7 +2613,7 @@ enum PlaybackSongSyntheticAdapter {
                     usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &channelState
                 )
-                context.portamentoSlideEffects.append(diagnostic)
+                appendPitchWriter(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
             if (hasVibrato || hasVibratoVolumeSlide) && !ordinaryDelayedBx {
@@ -2611,7 +2627,7 @@ enum PlaybackSongSyntheticAdapter {
                     restoreAtRowEnd: restoreVibratoAtRowEnd,
                     channelState: &channelState
                 )
-                context.vibratoEffects.append(diagnostic)
+                appendPitchWriter(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
             if let noteDelay, noteDelay.applied {
@@ -2737,18 +2753,18 @@ enum PlaybackSongSyntheticAdapter {
                         rowSpeed: timingConfig.speed, timingPlan: timingPlan, state: &state,
                         globalVolume: context.globalVolumeState.volumeValue))
                     if (0xB0...0xBF).contains(cell.volumeColumn) {
-                        context.vibratoEffects.append(handleVibrato(from: cell, source: source, channelIndex: channelIndex,
+                        appendPitchWriter(handleVibrato(from: cell, source: source, channelIndex: channelIndex,
                             syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
-                            channelState: &state, executionTicks: tick..<(tick + 1)))
+                            channelState: &state, executionTicks: tick..<(tick + 1)), to: &context)
                     }
                     if cell.volumeColumn >> 4 == 0x0F {
                         let continuation = PlaybackCell(note: 0, instrument: 0, volumeColumn: cell.volumeColumn,
                             effectType: cell.effectType, effectParam: cell.effectParam)
-                        context.tonePortamentoEffects.append(handleTonePortamento(from: continuation, source: source,
+                        appendPitchWriter(handleTonePortamento(from: continuation, source: source,
                             channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,
                             timingPlan: timingPlan, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                             channelState: &state, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
-                            executionTicks: tick..<(tick + 1)))
+                            executionTicks: tick..<(tick + 1)), to: &context)
                     }
                     handleRxyTick(cell: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
                         tick: tick, song: song, timingConfig: timingConfig, timingPlan: timingPlan,

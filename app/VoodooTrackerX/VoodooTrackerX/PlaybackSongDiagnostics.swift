@@ -295,6 +295,7 @@ extension PlaybackSongSyntheticPlan {
             canonicalTickClock: canonicalTickClock,
             selectionDispatchFacts: selectionDispatchFacts,
             heldPitchProvenance: heldPitchProvenance,
+            nativePitchWriterSpans: nativePitchWriterSpans,
             noteOnlyEventIndices: noteOnlyEventIndices, coldReleasedEventIndices: coldReleasedEventIndices,
             playbackStateEvents: playbackStateEvents,
             xmEnvelopeTimeline: xmEnvelopeTimeline,

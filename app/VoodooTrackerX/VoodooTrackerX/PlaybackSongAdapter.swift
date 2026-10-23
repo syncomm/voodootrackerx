@@ -45,12 +45,14 @@ struct PlaybackSongSyntheticPlan: Equatable {
         didSet {
             heldPitchProvenance = .notAdapterProduced
             nativePitchWriterSpans = .notAdapterProduced
+            g23ChildlessPitchInvocations = .notAdapterProduced
         }
     }
     let canonicalTickClock: PlaybackSongCanonicalTickClock
     let selectionDispatchFacts: PlaybackSongSelectionDispatchFacts
     var heldPitchProvenance: PlaybackSongHeldPitchProvenance = .notAdapterProduced
     var nativePitchWriterSpans: PlaybackSongNativePitchWriterSpans = .notAdapterProduced
+    var g23ChildlessPitchInvocations: PlaybackSongG23ChildlessPitchInvocations = .notAdapterProduced
     var noteOnlyEventIndices: Set<Int> = []
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
@@ -502,6 +504,7 @@ enum PlaybackSongSyntheticAdapter {
     struct AdapterRowContext {
         var heldPitchObserver = PlaybackSongHeldPitchProvenance.Observer()
         var nativePitchWriterObserver = PlaybackSongNativePitchWriterSpans.Observer()
+        var g23ChildlessPitchInvocationObserver = PlaybackSongG23ChildlessPitchInvocations.Observer()
         var selectionFacts = [PlaybackSongSelectionDispatchFacts.Fact]()
         var selectionTuningProducers = [PlaybackSongSelectionDispatchFacts.TuningProducers]()
         var selectionFactStorageGrowthCount = 0
@@ -782,6 +785,10 @@ enum PlaybackSongSyntheticAdapter {
                 AdapterPlanProfileField("native_writer_referenced_child_count", context.nativePitchWriterObserver.referencedChildCount),
                 AdapterPlanProfileField("native_writer_referenced_child_capacity", context.nativePitchWriterObserver.referencedChildCapacity),
                 AdapterPlanProfileField("native_writer_observer_stride", MemoryLayout<PlaybackSongNativePitchWriterSpans.Observer>.stride),
+                AdapterPlanProfileField("g23_childless_run_count", context.g23ChildlessPitchInvocationObserver.runs.count),
+                AdapterPlanProfileField("g23_childless_run_stride", MemoryLayout<PlaybackSongG23ChildlessPitchInvocations.Run>.stride),
+                AdapterPlanProfileField("g23_childless_run_capacity", context.g23ChildlessPitchInvocationObserver.runs.capacity),
+                AdapterPlanProfileField("g23_childless_run_growth_count", context.g23ChildlessPitchInvocationObserver.storageGrowthCount),
                 AdapterPlanProfileField("synthetic_plan_stride", MemoryLayout<PlaybackSongSyntheticPlan>.stride),
                 AdapterPlanProfileField("held_pitch_row_hold_count", context.heldPitchObserver.rowHolds.count),
                 AdapterPlanProfileField("held_pitch_row_hold_stride", MemoryLayout<PlaybackSongHeldPitchProvenance.RowHold>.stride),
@@ -877,6 +884,7 @@ enum PlaybackSongSyntheticAdapter {
         plan.heldPitchProvenance = context.heldPitchObserver.evidence
         plan.nativePitchWriterSpans = context.nativePitchWriterObserver.evidence(
             domain: song.usesLinearFrequencyTable ? .linear : .amigaVTX4x)
+        plan.g23ChildlessPitchInvocations = context.g23ChildlessPitchInvocationObserver.evidence
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
             startedAt: totalStart,

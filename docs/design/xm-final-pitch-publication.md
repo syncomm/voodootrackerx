@@ -70,6 +70,14 @@ No row-exit or terminal tick is added. Coverage/isolation copies and cached Play
 preserve the companion; envelope-tail extension does not extend this clock.
 There is no native period/owner/reset query, hidden oscillator or phase advance.
 
+The separately authorized G23 childless-invocation companion observes only actual
+instrument-only nonzero EDx/F0 tone-handler calls with no numeric children. Compact
+runs retain original row commands and existing diagnostic indices; queries project
+real invocation ticks through the canonical clock and preserve each diagnostic's
+status, policy and generation association. Legacy row-scope diagnostic coordinates
+remain unchanged. This partial evidence supplies no pitch, ownership, lifecycle,
+source-eligibility or physical-delivery authority and does not accept this proposal.
+
 G32A-2B requires separate approval for native period, ownership/conversion and
 actual dispatch/reset capture before physical admission. Use incoming scalar seeds,
 not end-of-row snapshots as tick-zero state, and never invert Q16 or filtered C

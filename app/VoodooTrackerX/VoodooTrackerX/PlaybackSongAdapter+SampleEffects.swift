@@ -923,11 +923,15 @@ extension PlaybackSongSyntheticAdapter {
                 // Tick zero was skipped, so Fx cannot seed a new portamento speed.
                 let continuation = PlaybackCell(note: 0, instrument: 0, volumeColumn: 0xF0,
                     effectType: cell.effectType, effectParam: cell.effectParam)
-                appendPitchWriter(handleTonePortamento(from: continuation, source: source,
+                let diagnostic = handleTonePortamento(from: continuation, source: source,
                     channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,
                     timingPlan: timingPlan, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &state, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(0xF0),
-                    executionTicks: tick..<(tick + 1)), to: &context)
+                    executionTicks: tick..<(tick + 1))
+                let diagnosticIndex = context.tonePortamentoEffects.count
+                appendPitchWriter(diagnostic, to: &context)
+                context.g23ChildlessPitchInvocationObserver.record(rowCell: cell, tick: tick,
+                    diagnosticIndex: diagnosticIndex, diagnostics: context.tonePortamentoEffects)
             }
             guard selected, tick == requested else { continue }
             let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)

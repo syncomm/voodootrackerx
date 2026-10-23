@@ -1,6 +1,25 @@
 import Foundation
 
 extension PlaybackSongSyntheticAdapter {
+    /// Observes only an already-produced child list, in diagnostic append order.
+    static func appendPitchWriter(_ command: PlaybackSongSyntheticTonePortamentoDiagnostic, to context: inout AdapterRowContext) {
+        context.nativePitchWriterObserver.record(family: .tonePortamento, diagnosticIndex: context.tonePortamentoEffects.count,
+            rowSpeed: command.rowSpeed, children: command.stepUpdates)
+        context.tonePortamentoEffects.append(command)
+    }
+
+    static func appendPitchWriter(_ command: PlaybackSongSyntheticPortamentoSlideDiagnostic, to context: inout AdapterRowContext) {
+        context.nativePitchWriterObserver.record(family: .portamentoSlide, diagnosticIndex: context.portamentoSlideEffects.count,
+            rowSpeed: command.rowSpeed, children: command.stepUpdates)
+        context.portamentoSlideEffects.append(command)
+    }
+
+    static func appendPitchWriter(_ command: PlaybackSongSyntheticVibratoDiagnostic, to context: inout AdapterRowContext) {
+        context.nativePitchWriterObserver.record(family: .vibrato, diagnosticIndex: context.vibratoEffects.count,
+            rowSpeed: command.rowSpeed, children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates)
+        context.vibratoEffects.append(command)
+    }
+
     static func handlePortamentoSlide(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -421,6 +440,8 @@ extension PlaybackSongSyntheticAdapter {
     static func appendArpeggio(_ command: PlaybackSongSyntheticArpeggioDiagnostic, to context: inout AdapterRowContext) {
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
             syntheticRow: command.syntheticRow, context: &context)
+        context.nativePitchWriterObserver.record(family: .arpeggio, diagnosticIndex: context.arpeggioEffects.count,
+            rowSpeed: command.rowSpeed, children: command.stepUpdates)
         context.arpeggioEffects.append(command)
     }
 
@@ -430,6 +451,8 @@ extension PlaybackSongSyntheticAdapter {
             eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
             syntheticRow: command.syntheticRow, context: &context)
+        context.nativePitchWriterObserver.record(family: .finePortamentoUp, diagnosticIndex: context.finePortamentoUpEffects.count,
+            rowSpeed: command.rowSpeed, children: command.stepUpdates)
         context.finePortamentoUpEffects.append(command)
     }
 
@@ -439,6 +462,8 @@ extension PlaybackSongSyntheticAdapter {
             eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
             syntheticRow: command.syntheticRow, context: &context)
+        context.nativePitchWriterObserver.record(family: .finePortamentoDown, diagnosticIndex: context.finePortamentoDownEffects.count,
+            rowSpeed: command.rowSpeed, children: command.stepUpdates)
         context.finePortamentoDownEffects.append(command)
     }
 
@@ -448,6 +473,8 @@ extension PlaybackSongSyntheticAdapter {
             eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
             syntheticRow: command.syntheticRow, context: &context)
+        context.nativePitchWriterObserver.record(family: .extraFinePortamento, diagnosticIndex: context.extraFinePortamentoEffects.count,
+            rowSpeed: command.rowSpeed, children: command.stepUpdates)
         context.extraFinePortamentoEffects.append(command)
     }
 
@@ -2004,7 +2031,7 @@ extension PlaybackSongSyntheticAdapter {
             diagnostic.stepUpdates = []
         }
         context.ordinaryDelayedVibratoIndices.append(context.vibratoEffects.count)
-        context.vibratoEffects.append(diagnostic)
+        appendPitchWriter(diagnostic, to: &context)
     }
 
     /// The real trigger owns this mixed frame; retain the raw calculation as evidence.

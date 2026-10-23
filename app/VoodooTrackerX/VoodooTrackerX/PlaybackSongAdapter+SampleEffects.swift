@@ -915,19 +915,19 @@ extension PlaybackSongSyntheticAdapter {
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
                 timingPlan: timingPlan, state: &state, globalVolume: context.globalVolumeState.volumeValue))
             if (0xB0...0xBF).contains(cell.volumeColumn) {
-                context.vibratoEffects.append(handleVibrato(from: cell, source: source, channelIndex: channelIndex,
+                appendPitchWriter(handleVibrato(from: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
-                    channelState: &state, executionTicks: tick..<(tick + 1)))
+                    channelState: &state, executionTicks: tick..<(tick + 1)), to: &context)
             }
             if cell.volumeColumn >> 4 == 0x0F {
                 // Tick zero was skipped, so Fx cannot seed a new portamento speed.
                 let continuation = PlaybackCell(note: 0, instrument: 0, volumeColumn: 0xF0,
                     effectType: cell.effectType, effectParam: cell.effectParam)
-                context.tonePortamentoEffects.append(handleTonePortamento(from: continuation, source: source,
+                appendPitchWriter(handleTonePortamento(from: continuation, source: source,
                     channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,
                     timingPlan: timingPlan, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &state, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(0xF0),
-                    executionTicks: tick..<(tick + 1)))
+                    executionTicks: tick..<(tick + 1)), to: &context)
             }
             guard selected, tick == requested else { continue }
             let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)

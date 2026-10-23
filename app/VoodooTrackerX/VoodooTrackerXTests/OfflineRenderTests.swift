@@ -1230,7 +1230,7 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(normal.block.interleavedPCM, [1, 0, 0])
         XCTAssertEqual(windowed.block, normal.block)
         XCTAssertEqual(windowed.diagnostics.noteCutEffects.first?.scheduledFrame, 1)
-        XCTAssertEqual(windowed.windowedRenderSummary?.totalBoundaryContinuations, 1)
+        XCTAssertEqual(windowed.windowedRenderSummary?.totalBoundaryContinuations, 2)
         XCTAssertEqual(windowed.windowedRenderSummary?.totalDroppedAtWindowBoundaries, 0)
     }
 

@@ -794,7 +794,24 @@ extension PlaybackSongSyntheticAdapter {
         guard diagnostic.applied else {
             return
         }
-        clearActiveVoiceState(&channelState)
+        // ECx is an output writer. Its actual tick executes in the row's volume pass;
+        // retaining this association also retains pitch, key and source identity.
+    }
+
+    static func applyNoteCutVolume(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        syntheticRow: Int, tick: Int, timingPlan: PlaybackSongFxxTimingPlan, globalVolume: Int,
+        state: inout ChannelState, updates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]) {
+        let before = state
+        state.baseChannelVolume = 0
+        updates.append(voiceStateUpdateDiagnostic(source: source, channelIndex: channelIndex,
+            syntheticRow: syntheticRow, syntheticTick: tick,
+            scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick), cell: cell,
+            commandSource: .effectColumn, command: .ecxNoteCut, rawVolumeColumn: nil,
+            effectType: cell.effectType, effectParam: cell.effectParam, status: .applied,
+            behavior: tick == 0 ? .rowLevelApproximation : .tickLevelAfterTick0,
+            channelStateBefore: before, channelStateAfter: state,
+            globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
+            activeVoiceUpdatedOverride: state.activeEventIndex != nil))
     }
 
     static func noteCutDiagnostic(

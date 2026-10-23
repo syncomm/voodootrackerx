@@ -1,7 +1,7 @@
 # XM Non-retriggering Reset Output Contract
 
 This note owns the implemented XM semantic tick, ordinary audible final-L/R,
-and non-retriggering 5 ms reset contracts.
+non-retriggering 5 ms reset, and bounded G04 ECx retained-source contracts.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
 [XM volume ownership](xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
 Instrument-only dispatch reuses these contracts. Ordinary note-only carries
@@ -219,7 +219,8 @@ Replacement snapshots current final output and uses the existing `(k + 1) / 32`
 retirement convention, identity and lifetime. Its old scalar timer still owns
 retirement, while only the final-output state supplies managed PCM. This avoids
 double multiplication. New note onset is unchanged; neither path claims FT2
-onset/replacement parity. Hard ECx zero remains immediate and separate.
+onset/replacement parity. ECx uses the retained-source contract below; internal
+hard stop remains immediate and separate.
 
 Constant-PCM tests pin rising/falling stereo interiors, unchanged-target holds,
 quiet headers, global volume, same-frame volume/pan, replacement windows, and
@@ -568,3 +569,49 @@ retain their contracts. Managed XM factor updates use the single final-output
 state described above for ordinary and reset transitions, including instrument-only
 restoration and note-only carry. G06 uses the same output state. Pan-clock/Q8
 quirks, G40 and full FT2 mixer parity remain open; bounded G07 positioning is closed.
+
+
+## G04 ECx retained source and quick output
+
+At the actual in-row ECx tick, the existing channel-volume pass assigns base
+and output volume zero. EC0 runs after row-entry writers; nonzero ECx runs
+following that tick's volume-column slide. Row snapshots therefore never expose
+EC3's future zero at tick zero. Effective same-row Fxx speed owns admission:
+x at or beyond speed does nothing. A valid source-less cut may zero channel
+controls, but its command diagnostic retains `noActiveVoice` and creates no PCM.
+
+The typed `ecxNoteCut` volume diagnostic joins the existing final-output timeline.
+For an existing source, it publishes one quick zero target over
+`floor(sampleRate * 0.005)` frames: 220 at 44.1 kHz, 240 at 48 kHz. Quick volume
+keeps the established previous-target interpolation; reset alone rebases from
+current audible output. Plain voices enter managed output once using their
+prior generic audible seed. A same-frame newborn EC0 starts silent and never
+seeds a fabricated fade from header gain. Identical targets retain C deduplication.
+Scalar metadata creates no additional generic 32-frame audible ramp.
+
+ECx neither releases the key nor retires a generation. Envelope clocks, pitch
+eligibility, source reconstruction and indexed/scan window continuations keep
+the exact sample identity, cursor/direction and step history. Later Cxx can
+reveal progressed PCM without another trigger or header multiplier. Natural
+sample completion, exact empty-route source stops, retrigger retirement,
+ordinary replacement and internal hard stop retain their existing boundaries.
+The runtime `note_cut` category remains a dispatch/association observation;
+`xm_audible_output_target` owns its C output publication. The indexed `noteCut`
+entry likewise remains diagnostic and performs no separate gain write.
+
+Original synthetic tests cover both frequency modes and rates, fade interiors
+and endpoints, blank-row/Cxx recovery, source/cursor/key continuity, ping-pong
+motion, effective speeds/channel order, column slides and later pitch writes,
+newborn cuts, natural completion, replacement, and cold/empty/unavailable routes.
+Whole, indexed, scan and explicit frame-split PCM agree exactly on these controls.
+Runtime tests also preserve explicit hard stop and exact application frames.
+
+External replay of the same original XMs through pinned ft2-clone
+`87be42543dac82cf802b5bddad917bda62ace131` confirms ordinary EC0/EC3 timing,
+5 ms shape, retained source/recovery and cold/newborn EC0 silence in both modes
+at both rates. The matching CoreAudio 48 kHz PCM16 capture agrees exactly with
+offline. These are bounded controls, not general reference-audio bit parity:
+reference Float32 accumulation/interpolation residuals remain, and exhaustive
+envelope/global/pan/other-writer combinations are not source-confirmed here.
+G02 onset, G03 replacement overlap, G05 generic ramps, G40 pan law, autovibrato
+and callback real-time safety retain their separate open boundaries.

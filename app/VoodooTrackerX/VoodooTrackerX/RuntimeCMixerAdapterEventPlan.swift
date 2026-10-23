@@ -17,6 +17,7 @@ enum RuntimeCMixerAdapterEventAction: Equatable {
     case channelSemanticUpdate(PlaybackXMChannelUpdate)
     case sourceStop(activeEventIndex: Int)
     case audibleTargetUpdate(PlaybackXMAudibleUpdate)
+    // Compatibility observation: ECx's audibleTargetUpdate owns the volume transition.
     case noteCut(activeEventIndex: Int?)
 }
 

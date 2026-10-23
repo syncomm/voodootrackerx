@@ -158,11 +158,12 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testNativeSelectionPhysicalBaseline() throws {
-        // Frozen on unmodified 00fea60 production sources, before selection capture.
-        let expected = ["true-44100": "7381326c3f79ac23a90fe1a557a019a552b0c15b0926362a7d9a14d5098972e6",
-            "true-48000": "9563eb88aabeaab43f51c2bcc61de381178c5a8c325e047e98cb0c890ccff01f",
-            "false-44100": "e0b10bdf6a551bd42d73e4ee4f81fbbe830712a7966cc1bb9d4fc1c6ea765924",
-            "false-48000": "c11607f1744eed960462b3534632e8a62b1f4eeac5a6b84809c861d67f415e27"]
+        // Frozen on unmodified 00fea60 before selection capture; R02 changes only retirement PCM.
+        // Component audit pins every other byte; affected tails are N+1...N+30 in sentinels 2/7.
+        let expected = ["true-44100": "109f28b74601884e209f477942ecb6572b501110c62aca97f1ea84f10a2dc6a3",
+            "true-48000": "b8a5ca5a0fb75818a9c22837991c367a9f7d05fdcfc4795eca8fcc97d7b6fcf7",
+            "false-44100": "3b75906f32dfcb746518b5edb5f503f8560f175f4d134b88a36dafb5d4f95046",
+            "false-48000": "f0245e9842ff3acfd0044379830021116e86576f91d9b3b3bf18f603b4b5a4ed"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data()
             for cells in clockSentinels + selectionSentinels {
@@ -237,11 +238,12 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testCanonicalClockPhysicalBaseline() throws {
-        // Captured twice on clean production ad359d2, before installing the clock (64 public cases).
-        let expected = ["true44100": "0e8e52cd019c120059b5f840cfe0d418559ade5d3279e500106c9dc123494a94",
-            "true48000": "c54829c314948f96b3d64faef83fb0d5880aa27b0a518ac5828d215350e4aad4",
-            "false44100": "eddc7793bc9c39e03f3306fef5e95625eba24d81c395ba3bcf5001e355c88d7b",
-            "false48000": "cfafb7ec2f77ed6e09112f6876fb99a6c4b888745b66c2ebd909d741b150c97b"]
+        // Captured twice on clean ad359d2 before the clock; R02 updates only retirement PCM.
+        // Runtime events/order/diagnostics stay byte-identical; changed samples are N+1...N+30.
+        let expected = ["true44100": "06f33c35097f0292fc5baed34961adf9a8ffa3162b700f2934b32b6516b9aa3d",
+            "true48000": "d765d237f5b82023bd846c8479b96d7eac612170d374152f3b15429273794131",
+            "false44100": "c6eecba653c7aa4a437cf730c092b4dfa56ecfafdd3863ef70cfbd787677a537",
+            "false48000": "e2998f04dd4b0437b27a47280a71a73e17f7a18aa44f8596593bd7fd74c354b3"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data()
             for cells in clockSentinels {

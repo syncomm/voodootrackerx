@@ -1145,7 +1145,6 @@ extension PlaybackSongSyntheticAdapter {
         let sampleVolumes = Dictionary(uniqueKeysWithValues: context.eventMappings.map { ($0.eventIndex, $0.sampleVolume) })
         let resets = Dictionary(grouping: context.playbackStateEvents, by: \.scheduledFrame)
         let releases = Dictionary(grouping: context.keyOffEvents.filter(\.applied), by: { $0.scheduledFrame ?? -1 })
-        let cuts = Dictionary(grouping: context.noteCutEffects.filter(\.applied), by: { $0.scheduledFrame ?? -1 })
         var active = [Int: Int](), heldGains = [Int: Float](), affected = Set<Int>(), released = Set<Int>()
         var gxxAffected = Set<Int>()
         var routeCursor = 0
@@ -1178,9 +1177,6 @@ extension PlaybackSongSyntheticAdapter {
                 }
                 for release in releases[frame] ?? [] {
                     if let event = release.activeEventIndex { released.insert(event) }
-                }
-                for cut in cuts[frame] ?? [] {
-                    if active[cut.channelIndex] == cut.activeEventIndex { active[cut.channelIndex] = nil }
                 }
                 let indices = byTick[tick] ?? []
                 let turns = Dictionary(grouping: indices, by: { original[$0].channelIndex })
@@ -1258,7 +1254,7 @@ extension PlaybackSongSyntheticAdapter {
 
     private static func isVolumePublicationWriter(_ command: PlaybackSongSyntheticVoiceStateUpdateCommand) -> Bool {
         switch command {
-        case .instrumentDefaultVolume, .cxxSetVolume, .keyOffWithoutEnvelope, .axyVolumeSlide,
+        case .instrumentDefaultVolume, .cxxSetVolume, .keyOffWithoutEnvelope, .ecxNoteCut, .axyVolumeSlide,
              .eaxFineVolumeSlideUp, .ebxFineVolumeSlideDown, .effect5xyVolumeSlide, .effect6xyVolumeSlide, .tremolo:
             return true
         case let .volumeColumn(column):

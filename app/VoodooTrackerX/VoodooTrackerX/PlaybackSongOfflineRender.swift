@@ -775,12 +775,6 @@ final class PlaybackSongOfflineRenderSession {
             includedEventIndices: includedEventIndices,
             sameChannelLifetime: sameChannelVoiceLifetime
         )
-        PlaybackSongOfflineRenderer.scheduleNoteCuts(
-            adaptedPlan.diagnostics.noteCutEffects,
-            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer,
-            includedEventIndices: includedEventIndices
-        )
         PlaybackSongOfflineRenderer.scheduleRetriggerCuts(
             adaptedPlan.diagnostics.retriggerEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
@@ -1477,14 +1471,6 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices,
                 sameChannelLifetime: sameChannelLifetime
             )
-            Self.scheduleNoteCuts(
-                usesScanReference ? adaptedPlan.diagnostics.noteCutEffects : [],
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
             Self.scheduleRetriggerCuts(
                 usesScanReference ? adaptedPlan.diagnostics.retriggerEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
@@ -1850,7 +1836,9 @@ final class PlaybackSongOfflineRenderer {
                     scheduledFrame: localFrame,
                     playbackStep: update.playbackStepAfter
                 )
-            case .noteCut, .retriggerCut:
+            case .noteCut:
+                break // The audible timeline owns ECx; this index entry is diagnostic only.
+            case .retriggerCut:
                 _ = mixer.scheduleVoiceGainPanImmediateUpdate(
                     voiceIndex: voiceIndex,
                     scheduledFrame: localFrame,
@@ -2006,7 +1994,7 @@ final class PlaybackSongOfflineRenderer {
                 else { upper = middle }
             }
             guard lower > 0, sources[lower - 1].eventIndex == update.activeEventIndex else { return false }
-            return !hasAppliedNoteCut(eventIndex: update.activeEventIndex, atOrBefore: update.scheduledFrame, plan: plan) &&
+            return !hasAppliedSourceStop(eventIndex: update.activeEventIndex, atOrBefore: update.scheduledFrame, plan: plan) &&
                 !hasAppliedRetriggerCut(eventIndex: update.activeEventIndex, atOrBefore: update.scheduledFrame, plan: plan)
         }.sorted {
             $0.element.scheduledFrame == $1.element.scheduledFrame ? $0.offset < $1.offset : $0.element.scheduledFrame < $1.element.scheduledFrame
@@ -2316,37 +2304,6 @@ final class PlaybackSongOfflineRenderer {
         }
     }
 
-    fileprivate static func scheduleNoteCuts(
-        _ cuts: [PlaybackSongSyntheticNoteCutDiagnostic],
-        voiceIndexByEventIndex: [Int: Int],
-        on mixer: CSoftwareMixer,
-        windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil,
-        includedEventIndices: Set<Int>? = nil
-    ) {
-        for cut in cuts where cut.applied {
-            guard let activeEventIndex = cut.activeEventIndex,
-                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
-                  let voiceIndex = voiceIndexByEventIndex[activeEventIndex],
-                  let scheduledFrame = cut.scheduledFrame else {
-                continue
-            }
-            guard scheduledFrame >= windowStartFrame else {
-                continue
-            }
-            if let windowEndFrame,
-               scheduledFrame >= windowEndFrame {
-                continue
-            }
-            _ = mixer.scheduleVoiceGainPanImmediateUpdate(
-                voiceIndex: voiceIndex,
-                scheduledFrame: scheduledFrame - windowStartFrame,
-                gain: 0,
-                pan: nil
-            )
-        }
-    }
-
     fileprivate static func scheduleRetriggerCuts(
         _ retriggers: [PlaybackSongSyntheticRetriggerDiagnostic],
         voiceIndexByEventIndex: [Int: Int],
@@ -2627,7 +2584,7 @@ final class PlaybackSongOfflineRenderer {
                     return nil
                 }
             }
-            if hasAppliedNoteCut(
+            if hasAppliedSourceStop(
                 eventIndex: eventIndex,
                 before: windowStartFrame,
                 plan: plan
@@ -2852,30 +2809,20 @@ final class PlaybackSongOfflineRenderer {
         return ramp.value(at: frame)
     }
 
-    private static func hasAppliedNoteCut(
+    private static func hasAppliedSourceStop(
         eventIndex: Int,
         before boundaryFrame: Int,
         plan: PlaybackSongSyntheticPlan
     ) -> Bool {
-        plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == eventIndex && $0.scheduledFrame < boundaryFrame } ||
-        plan.diagnostics.noteCutEffects.contains { cut in
-            cut.applied &&
-                cut.activeEventIndex == eventIndex &&
-                (cut.scheduledFrame ?? Int.max) < boundaryFrame
-        }
+        plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == eventIndex && $0.scheduledFrame < boundaryFrame }
     }
 
-    private static func hasAppliedNoteCut(
+    private static func hasAppliedSourceStop(
         eventIndex: Int,
         atOrBefore boundaryFrame: Int,
         plan: PlaybackSongSyntheticPlan
     ) -> Bool {
-        plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == eventIndex && $0.scheduledFrame <= boundaryFrame } ||
-        plan.diagnostics.noteCutEffects.contains { cut in
-            cut.applied &&
-                cut.activeEventIndex == eventIndex &&
-                (cut.scheduledFrame ?? Int.max) <= boundaryFrame
-        }
+        plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == eventIndex && $0.scheduledFrame <= boundaryFrame }
     }
 
     private static func hasAppliedRetriggerCut(
@@ -3112,7 +3059,6 @@ final class PlaybackSongOfflineRenderer {
                 cuts[source] = min(cuts[source] ?? frame, frame)
             }
             for route in plan.xmEmptyRoutes { cut(route.stoppedEventIndex, at: route.scheduledFrame) }
-            for x in d.noteCutEffects where x.applied { cut(x.activeEventIndex, at: x.scheduledFrame ?? Int.max) }
             for x in d.retriggerEffects where x.applied {
                 for (source, frame) in zip(x.replacedEventIndices, x.replacementFrames ?? x.retriggerFrames) { cut(source, at: frame) }
             }
@@ -3189,7 +3135,7 @@ final class PlaybackSongOfflineRenderer {
         }
         if let pitchHistory {
             if let cut = pitchHistory.cutFrame(for: voice.eventIndex), cut <= frame { return false }
-        } else if hasAppliedNoteCut(
+        } else if hasAppliedSourceStop(
             eventIndex: voice.eventIndex,
             atOrBefore: frame,
             plan: plan

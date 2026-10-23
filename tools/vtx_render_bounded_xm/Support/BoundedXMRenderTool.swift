@@ -5022,6 +5022,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         switch command {
         case .keyOffWithoutEnvelope:
             return ["name": "key_off_without_envelope", "label": command.label]
+        case .ecxNoteCut:
+            return ["name": "ecxNoteCut", "label": command.label, "value": 0]
         case let .tremolo(tick):
             return [
                 "name": "tremolo", "label": command.label,
@@ -5101,6 +5103,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return command.name
         case .keyOffWithoutEnvelope:
             return "key_off_without_envelope"
+        case .ecxNoteCut:
+            return "ecxNoteCut"
         case .instrumentDefaultVolume:
             return "instrumentDefaultVolume"
         case .cxxSetVolume:

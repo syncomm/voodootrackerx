@@ -2630,26 +2630,16 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 reason: "runtime_c_mixer_adapter_plan_note_cut_unmatched_active_voice"
             )
         }
-        let updateResult = mixer.scheduleVoiceGainPanImmediateUpdate(
-            voiceIndex: voiceState.voiceIndex,
-            scheduledFrame: Int(mixer.currentFrame),
-            gain: 0,
-            pan: nil
-        )
-        adapterVoiceStateByEventIndex.removeValue(forKey: activeEventIndex)
-        if adapterEventIndexByChannel[channel] == activeEventIndex {
-            adapterEventIndexByChannel.removeValue(forKey: channel)
-        }
-        return RuntimeCMixerPlannedCutResult(
-            channel: channel,
-            targetVoiceIndex: voiceState.voiceIndex,
-            snapshotBefore: snapshotBefore,
-            snapshotAfter: snapshotLocked(),
-            succeeded: updateResult.wasAccepted,
-            reason: updateResult.wasAccepted
-                ? "runtime_c_mixer_adapter_plan_note_cut_applied"
-                : updateResult.rejectionReason?.rawValue ?? "runtime_c_mixer_adapter_plan_note_cut_rejected"
-        )
+        let current = adapterEventIndexByChannel[channel] == activeEventIndex &&
+            voiceState.channel == channel &&
+            mixer.voiceDiagnostic(forVoiceAt: voiceState.voiceIndex)?.channelTag == channel
+        // The coalesced audibleTargetUpdate owns ECx's physical quick transition.
+        // Keep the trace category and generation association; explicit sourceStop
+        // and stopVoice remain the separate retiring operations.
+        return RuntimeCMixerPlannedCutResult(channel: channel, targetVoiceIndex: voiceState.voiceIndex,
+            snapshotBefore: snapshotBefore, snapshotAfter: snapshotBefore,
+            succeeded: current, reason: current ? "runtime_c_mixer_adapter_plan_note_cut_applied" :
+                "runtime_c_mixer_adapter_plan_note_cut_unmatched_active_voice")
     }
 
     private func noActiveVoiceClassification(

@@ -359,7 +359,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         guard !plan.xmEmptyRoutes.isEmpty || !plan.xmInstrumentSelections.isEmpty ||
                 plan.pattern.events.contains(where: { $0.volumeEnvelope != nil || $0.panEnvelope != nil }) ||
                 plan.diagnostics.keyOffEvents.contains(where: \.applied) || !plan.playbackStateEvents.isEmpty ||
-                !plan.noteOnlyEventIndices.isEmpty else { return }
+                !plan.noteOnlyEventIndices.isEmpty || plan.diagnostics.noteCutEffects.contains(where: \.applied) else { return }
         let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
         let mappings = plan.diagnostics.eventMappings.sorted { $0.eventIndex < $1.eventIndex }
         struct Tick {
@@ -432,7 +432,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             $0.applied || $0.reason == .noActiveVoice
         }, by: \.channelIndex)
         let positionsByChannel = Dictionary(grouping: plan.diagnostics.envelopePositionEffects, by: \.channelIndex)
-        let cutsByChannel = Dictionary(grouping: plan.diagnostics.noteCutEffects.filter(\.applied), by: \.channelIndex)
+        let cutsBySource = Dictionary(grouping: plan.diagnostics.noteCutEffects.filter(\.applied), by: { $0.activeEventIndex ?? -1 })
         let panSlidesByChannel = Dictionary(grouping: plan.diagnostics.voiceStateUpdates.filter {
             $0.applied && (0xD0...0xEF).contains($0.rawVolumeColumn ?? 0)
         }, by: \.channelIndex)
@@ -461,9 +461,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                 let index = route.eventIndex
                 let start = route.frame
                 let stop = routeIndex + 1 < channelRoutes.count ? channelRoutes[routeIndex + 1].frame : Int.max
-                let cuts = (cutsByChannel[channel] ?? []).filter {
-                    $0.activeEventIndex == index }.compactMap(\.scheduledFrame).filter { $0 >= start }
-                let sourceEnd = cuts.min() ?? Int.max
+                let hasAudibleCut = index.map { !(cutsBySource[$0] ?? []).isEmpty } ?? false
                 let rxyParent = route.isRxy && route.preservesChannelState && routeIndex > 0
                     ? channelRoutes[routeIndex - 1].eventIndex : nil
                 let releases = Set((releasesByChannel[channel] ?? []).filter {
@@ -500,8 +498,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     ?? (instrument.volume.enabled && !instrument.volume.points.isEmpty)
                 var panEnabled = index.map { plan.pattern.events[$0].panEnvelope != nil }
                     ?? (instrument.pan.enabled && !instrument.pan.points.isEmpty)
-                let publishesToVoice = volumeEnabled || panEnabled || releases.contains { $0 < sourceEnd } ||
-                    resets.contains { $0.scheduledFrame < sourceEnd } || !plan.noteOnlyEventIndices.isEmpty
+                let publishesToVoice = volumeEnabled || panEnabled || !releases.isEmpty ||
+                    !resets.isEmpty || hasAudibleCut || !plan.noteOnlyEventIndices.isEmpty
                 guard publishesToVoice || !selections.isEmpty || plan.xmEmptyRoutes.contains(where: { $0.channelIndex == channel }) else { continue }
                 let routeControls = routeRow?.controls
                 let delayedSelection = delayedSelections[start]
@@ -647,7 +645,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     if !state.keyOn && tick.advances {
                         state.fadeoutAccumulator = max(0, state.fadeoutAccumulator - max(0, carried.fadeoutDecrement))
                     }
-                    let sourceIndex = frame < sourceEnd ? index : nil
+                    let sourceIndex = index
                     channelUpdates.append(.init(channelIndex: channel, instrumentIndex: semanticInstrumentIndex,
                         sampleIndex: semanticSampleIndex.flatMap(UInt8.init(exactly:)), sourceEventIndex: sourceIndex, source: tick.source,
                         tick: tick.tick, scheduledFrame: frame, bpm: tick.bpm, speed: tick.speed, state: state,

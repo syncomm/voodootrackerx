@@ -434,7 +434,7 @@ extension NonretriggeringResetTests {
         }
     }
 
-    func testCarriedCutsAreInclusiveAndKeepDiagnosticAssociationAndOptionalFrameRules() {
+    func testAudibleCutsRetainCarriedStateWhileSourceRetirementsRemainInclusive() {
         let (_, seed) = makePlan(mode: .forward)
         let source = seed.diagnostics.eventMappings[0].source
         var plan = seed
@@ -455,8 +455,8 @@ extension NonretriggeringResetTests {
                 mappings: seed.diagnostics.eventMappings, cuts: cuts, retriggers: retriggers)
         }
         let allFrames = plan.playbackStateEvents.map(\.scheduledFrame)
-        diagnostics([cut(7)]); check([6])
-        diagnostics([cut(nil)]); check(Array(allFrames.dropLast()))
+        diagnostics([cut(7)]); check(allFrames)
+        diagnostics([cut(nil)]); check(allFrames)
         diagnostics([cut(0, false), cut(0, true, 99)]); check(allFrames)
         var retrigger = PlaybackSongSyntheticRetriggerDiagnostic(source: source, channelIndex: 0,
             syntheticRow: 1, syntheticTick: 2, effectType: 14, effectParam: 0x92, status: .applied,
@@ -573,15 +573,12 @@ enum CarriedStateEligibilityReference {
             }
             guard winner?.index == update.activeEventIndex else { continue }
             let empty = plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == update.activeEventIndex && $0.scheduledFrame <= update.scheduledFrame }
-            let cut = plan.diagnostics.noteCutEffects.contains {
-                $0.applied && $0.activeEventIndex == update.activeEventIndex && ($0.scheduledFrame ?? Int.max) <= update.scheduledFrame
-            }
             let replaced = plan.diagnostics.retriggerEffects.contains { effect in
                 effect.applied && zip(effect.replacedEventIndices, effect.replacementFrames ?? effect.retriggerFrames).contains {
                     $0.0 == update.activeEventIndex && $0.1 <= update.scheduledFrame
                 }
             }
-            if !empty && !cut && !replaced { admitted.append((offset, update)) }
+            if !empty && !replaced { admitted.append((offset, update)) }
         }
         return admitted.sorted {
             $0.1.scheduledFrame == $1.1.scheduledFrame ? $0.0 < $1.0 : $0.1.scheduledFrame < $1.1.scheduledFrame

@@ -1132,6 +1132,12 @@ enum PlaybackSongSyntheticAdapter {
                         channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,
                         previousEventIndex: e90PreviousEvent, firstRowEvent: firstRowEvent, context: context))
                 }
+                if isNoteCutEffect(cell), extendedEffectTick(cell) == 0 {
+                    applyNoteCutVolume(cell: cell, source: source, channelIndex: channelIndex,
+                        syntheticRow: syntheticRow, tick: 0, timingPlan: timingPlan,
+                        globalVolume: context.globalVolumeState.volumeValue,
+                        state: &channelState, updates: &context.voiceStateUpdates)
+                }
                 context.xmChannelRows.append(.init(source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, scheduledFrame: scheduledStartFrame, controls: delayedRetainedRowEntry ?? channelState,
                     instrumentOnlyReset: instrumentOnlyReset))
@@ -2676,6 +2682,23 @@ enum PlaybackSongSyntheticAdapter {
             }
             let columnSlide = isOrdinaryVolumeColumnSlide(cell.volumeColumn)
                 ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
+            if isNoteCutEffect(cell), extendedEffectTick(cell) > 0 {
+                // Column slides precede ECx on each actual tick. Do not expose a future
+                // zero to tick-zero snapshots or to another channel's row-entry writers.
+                for tick in 1..<max(1, timingConfig.speed) {
+                    context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell,
+                        source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick,
+                        rowSpeed: timingConfig.speed, timingPlan: timingPlan,
+                        state: &context.channelStates[channelIndex], globalVolume: context.globalVolumeState.volumeValue))
+                    if tick == extendedEffectTick(cell) {
+                        applyNoteCutVolume(cell: cell, source: source, channelIndex: channelIndex,
+                            syntheticRow: syntheticRow, tick: tick, timingPlan: timingPlan,
+                            globalVolume: context.globalVolumeState.volumeValue,
+                            state: &context.channelStates[channelIndex], updates: &context.voiceStateUpdates)
+                    }
+                }
+                continue
+            }
             if isKxxKeyOffEffect(cell) {
                 var state = context.channelStates[channelIndex]
                 let releaseTick = Int(cell.effectParam & 31)

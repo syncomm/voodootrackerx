@@ -663,6 +663,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case instrumentDefaultVolume(value: Int)
     case cxxSetVolume(value: Int)
     case keyOffWithoutEnvelope
+    case ecxNoteCut
     case effect8xxSetPanning(value: Int)
     case axyVolumeSlide(up: Int, down: Int)
     case gxxSetGlobalVolume(value: Int)
@@ -688,6 +689,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "Cxx set volume"
         case .keyOffWithoutEnvelope:
             return "key-off without volume envelope"
+        case .ecxNoteCut:
+            return "ECx zero channel volume"
         case .effect8xxSetPanning:
             return "8xx set panning"
         case .axyVolumeSlide:

@@ -203,13 +203,17 @@ final class XMAudibleOutputTests: XCTestCase {
         XCTAssertTrue(tails.allSatisfy { $0.audibleOutputState?.raw.retiring == 1 })
     }
 
-    func testHardECxRemainsImmediateAndQuickHandoffUsesSameState() throws {
+    func testECxUsesQuickSharedOutputAndRetainsSubsequentHandoff() throws {
         let module = song(commands: [1: cell(effect: 14, param: 0xC2)])
         let request = PlaybackSongOfflineRenderRequest(song: module, config: .init(sampleRate: 48_000), rows: 8)
         let renderer = PlaybackSongOfflineRenderer()
         let result = renderer.render(request)
         XCTAssertGreaterThan(result.block.interleavedPCM[7680 * 2 - 1], 0)
-        XCTAssertTrue(result.block.interleavedPCM[(7680 * 2)...].allSatisfy { $0 == 0 })
+        // Quick volume follows the established previous-target policy, including
+        // the final sub-frame remainder of the preceding ordinary transition.
+        XCTAssertEqual(result.block.interleavedPCM[7680 * 2], 0.625)
+        XCTAssertGreaterThan(result.block.interleavedPCM[(7680 + 120) * 2], 0)
+        XCTAssertTrue(result.block.interleavedPCM[((7680 + 240) * 2)...].allSatisfy { $0 == 0 })
         XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, result.block.interleavedPCM)
         for (rate, duration) in [(48_000.0, 240), (44_100.0, 220)] {
             var state = MixerAudibleOutputState()

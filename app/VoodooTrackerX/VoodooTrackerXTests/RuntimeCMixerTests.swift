@@ -9107,3 +9107,60 @@ final class R02C14OrderedPitchPolicyTests: XCTestCase {
         }
     }
 }
+
+/// ECx changes final output while the same physical source keeps running.
+final class ECxRetainedSourceRuntimeTests: XCTestCase {
+    func testQuickCutSilentMotionRecoveryAndHardStopAcrossRatesAndModes() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for cut in [0, 3] {
+            let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+                pcm: (0..<2048).map { Float(64 + ($0 * 37 % 191)) / 1024 },
+                volume: 0.5, panning: 128, relativeNote: 0, finetune: 0, baseSampleRate: 8363,
+                loopStart: 0, loopLength: 2048, loopType: 1)
+            let cells = [(49, 1, 0, 0), (0, 0, 14, 0xC0 + cut), (0, 0, 0, 0), (0, 0, 12, 32), (0, 0, 0, 0)]
+            let song = PlaybackSong(title: "Original ECx runtime control", orders: [.init(orderIndex: 0, patternIndex: 0)],
+                patternsByIndex: [0: .init(index: 0, rows: cells.enumerated().map { index, item in
+                    .init(index: index, cells: [.init(note: UInt8(item.0), instrument: UInt8(item.1),
+                        volumeColumn: 0, effectType: UInt8(item.2), effectParam: UInt8(item.3))])
+                })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+                restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+            let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
+            let events = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
+            let config = MixerRenderConfig(sampleRate: rate)
+            let n = (6 + cut) * Int(rate / 50), d = Int(rate * 0.005), restore = 18 * Int(rate / 50)
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]),
+                updatePolicy: .resolve(environment: [RuntimeCMixerUpdatePolicy.epsilonEnvironmentKey: "0"]))
+            core.configureAdapterEventScheduleForTesting(events.events, runtimeFrameOffset: 0)
+            var frame = 0, pcm = [Float]()
+            for boundary in [n - 1, n, n + 1, n + d - 1, n + d, restore, restore + 1, restore + d + 1] {
+                while frame < boundary {
+                    let count = min(509, boundary - frame)
+                    pcm += renderRuntimePCM(core, frames: count); frame += count
+                }
+                let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertTrue(voice.active)
+                XCTAssertTrue(voice.keyOn)
+                XCTAssertEqual(voice.sampleStep, plan.pattern.events[0].playbackStep)
+                XCTAssertEqual(voice.samplePosition, (Double(frame) * voice.sampleStep).truncatingRemainder(dividingBy: 2048), accuracy: 1e-8)
+                XCTAssertNil(voice.gainRamp)
+                if boundary > n && boundary <= restore {
+                    let output = try XCTUnwrap(voice.audibleOutputState)
+                    XCTAssertEqual(output.durationFrames, d)
+                    XCTAssertEqual(output.positionFrame, min(d, boundary - n))
+                    XCTAssertEqual(output.target, [0, 0, 0])
+                }
+            }
+            let offline = PlaybackSongOfflineRenderer(preparedPlan: plan).render(.init(song: song, config: config, frames: frame))
+            XCTAssertEqual(pcm, offline.block.interleavedPCM)
+            let applied = core.drainAppliedAdapterEventDiagnostics()
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            XCTAssertEqual(applied.filter { $0.event.primaryCategory == "note_cut" }.count, 1)
+            XCTAssertEqual(applied.filter { if case .noteTrigger = $0.event.action { return true }; return false }.count, 1)
+            let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+            XCTAssertGreaterThan(voice.audibleOutputState?.current[0] ?? 0, 0)
+            core.stop(channel: 0)
+            XCTAssertTrue(renderRuntimePCM(core, frames: 64).allSatisfy { $0 == 0 })
+            XCTAssertNil(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+        } } }
+    }
+}

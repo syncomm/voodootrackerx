@@ -94,7 +94,8 @@ overrides and K00 release ordering are covered by the public fixture; see
 [volume ownership](design/xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
 Song gain consumes restored channel output once (G01); preview remains a
 separate header/headroom policy. G06 pan-envelope targets reuse the existing
-reset; ECx quick-volume parity remains deferred.
+reset; G04 ECx uses that output authority with retained source/cursor and a 5 ms
+quick target, bounded by the public controls below.
 
 G23 nonzero instrument-only `ED1...EDF` is a different dispatch: valid carried
 instrument selection occurs at row entry; tick x resolves the retained note
@@ -202,7 +203,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `E9x` | Retrigger note | Implemented | Partial | Special; no ordinary interval replay | Not applicable | G19 `E90` row-entry routing/carry/reset is closed. E91...E9F retain existing nonzero-tick resets and offsets. Onset/ramp parity and `Rxy` are separate. |
 | `EAx` | Fine volume slide up | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-up amount | Not applicable | Tick-zero +x, clamped to 64; seeded EA0 replays up memory. Cold EA0 restores base to output and publishes against the held target without seeding memory. Independent of EB/A/5/6 and volume-column 8x/9x. |
 | `EBx` | Fine volume slide down | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-down amount | Not applicable | Tick-zero -x, clamped to 0; seeded EB0 replays down memory. Cold EB0 restores base to output and publishes against the held target without seeding memory. Independent of EA/A/5/6 and volume-column 8x/9x. |
-| `ECx` | Note cut | Implemented | Known difference | None | Not applicable | VTX hard-retires the source. FT2 zeros base/output with a quick ramp and retains the cursor/source for recovery (G04). Internal hard stop is separate. |
+| `ECx` | Note cut | Implemented | Closed, bounded | None | Linear + Amiga | At actual tick x, zero base/output and publish a 5 ms final-output target without retiring the source, releasing its key or resetting its cursor/pitch. Later Cxx reveals progressed PCM. EC0/EC3, effective Fxx speeds, both rates, newborn/silent routes and runtime/offline/windows are covered by G04. Internal hard stop and G02/G03/G05 remain separate. |
 | `EDx` | Note delay | Implemented | Partial | None | Not applicable | Ordinary delayed notes remain supported. G23 retained-note instrument-only ED1...EDF dispatch is closed: row-entry owner, delayed exact route/default/reset and one cursor-zero generation. Instrument-only ED0 resets immediately without a restart; out-of-row retains owner only. G24 bounded release/default precedence is closed below. |
 | `EEx` | Pattern delay | Deferred | Open | None | Not applicable | Standard FT2/XM v1 traversal/timing target G35. Row-duration/tick replay needs its own contract, separate from unrelated E effects. |
 | `EFx` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; no destructive MOD invert-loop/funk behavior. OpenMPT XM macro hacks are outside FT2 v1. |
@@ -662,8 +663,8 @@ support alone does not close these domains:
   PCM remains a valid source at header volume 0; later Cxx reveals the continuing
   source, while canonical empty/unrepresented routes remain source-less.
   Preview availability and safety gain are unchanged. New-note onset, same-channel
-  replacement/retirement, ECx retained-source/cursor and quick-output behavior,
-  and generic ramps (G02–G05) remain open. Existing
+  replacement/retirement and generic ramps (G02/G03/G05) remain open. G04 closes
+  bounded ECx retained-source/cursor and quick-output behavior. Existing
   cached defaults and shared final-L/R reset targets are established foundations.
 - **Panning:** exact header/8xx state, final stereo pan law (G40), semantic pan
   clocks, audible pan-envelope factor (G06), and Lxx pan positioning (G07) are

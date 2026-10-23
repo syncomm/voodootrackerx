@@ -89,7 +89,8 @@ struct PlaybackXMAudibleTimeline: Equatable {
                 if case .reset = update.change { return update.scheduledFrame }; return nil
             })
             guard event.volumeEnvelope != nil || event.panEnvelope != nil ||
-                history.contains(where: { !$0.state.keyOn }) || !resetFrames.isEmpty else { continue }
+                history.contains(where: { !$0.state.keyOn }) || !resetFrames.isEmpty ||
+                sourceWrites.contains(where: { $0.command == .ecxNoteCut }) else { continue }
             var gain = event.gain
             var pan = event.pan
             var writeIndex = 0
@@ -99,6 +100,7 @@ struct PlaybackXMAudibleTimeline: Equatable {
                 let priorGain = gain, priorPan = pan
                 var visibleGain = gain
                 var quickVolume = false
+                var noteCut = false
                 while writeIndex < writes.count && writes[writeIndex].scheduledFrame <= frame {
                     let write = writes[writeIndex]
                     if let after = write.gainAfter, write.gainBefore != after {
@@ -113,6 +115,7 @@ struct PlaybackXMAudibleTimeline: Equatable {
                     if let after = write.panAfter, write.panBefore != after { pan = after }
                     if write.scheduledFrame == frame {
                         switch write.command {
+                        case .ecxNoteCut: quickVolume = true; noteCut = true
                         case .cxxSetVolume, .keyOffWithoutEnvelope, .volumeColumn(.setVolume): quickVolume = true
                         case .instrumentDefaultVolume where write.cellNote == 0: quickVolume = true
                         default: break
@@ -127,8 +130,10 @@ struct PlaybackXMAudibleTimeline: Equatable {
                     // A future release/reset must never change the earlier generic gain/pan audio.
                     // A neutral reset must also leave an unfinished generic ramp untouched.
                     let changedReset = resetFrames.contains(frame) && (visibleGain != priorGain || pan != priorPan)
-                    guard !semantic.state.keyOn || changedReset || audiblePan != pan else { continue }
+                    guard !semantic.state.keyOn || changedReset || noteCut || audiblePan != pan else { continue }
                     managesOutput = true
+                    // A newborn EC0 has no earlier audible source value to seed.
+                    // Its zero target must not manufacture a fade from header gain.
                     if offset > 0 {
                         work.lookupCount += 1
                         work.entriesVisited += sourceWrites.count
@@ -136,9 +141,9 @@ struct PlaybackXMAudibleTimeline: Equatable {
                             for: event, eventIndex: index, voiceStateUpdates: sourceWrites, before: frame)
                     }
                 }
-                let initial = offset == 0
+                let initial = offset == 0 && !noteCut
                 let reset = !initial && resetFrames.contains(frame)
-                let duration = initial ? 0 : reset ? Int((plan.timingConfig.sampleRate * 0.005).rounded(.down)) :
+                let duration = initial ? 0 : reset || noteCut ? Int((plan.timingConfig.sampleRate * 0.005).rounded(.down)) :
                     max(1, Int((plan.timingConfig.sampleRate * (quickVolume ? 0.005 : 2.5 / Double(semantic.bpm))).rounded(.down)))
                 all.append(PlaybackXMAudibleUpdate(eventIndex: index, channelIndex: semantic.channelIndex,
                     source: semantic.source, tick: semantic.tick, scheduledFrame: frame,

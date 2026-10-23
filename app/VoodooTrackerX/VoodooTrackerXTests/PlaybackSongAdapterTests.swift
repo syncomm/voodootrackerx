@@ -5107,7 +5107,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(effect.status, .ignoredNoOp)
     }
 
-    func testPlaybackSongAdapterNoteCutECxCutsActiveVoiceAtRequestedTick() throws {
+    func testPlaybackSongAdapterNoteCutECxZerosOutputAtRequestedTick() throws {
         let sample = makePlaybackSample(pcm: [1, 1, 1, 1], baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -5243,7 +5243,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0, 0, 0])
     }
 
-    func testPlaybackSongAdapterNoteCutECxIsHardGainCutNotKeyOffRelease() throws {
+    func testPlaybackSongAdapterNoteCutECxPreservesKeyAndFadeout() throws {
         let sample = makePlaybackSample(pcm: [1, 1, 1], baseSampleRate: 100)
         let envelope = makePlaybackVolumeEnvelope(enabled: false, points: [], typeFlags: 0, fadeout: 65_536)
         let song = makePlaybackSong(

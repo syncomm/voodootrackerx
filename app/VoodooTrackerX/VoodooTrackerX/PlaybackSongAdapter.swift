@@ -46,6 +46,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
             heldPitchProvenance = .notAdapterProduced
             nativePitchWriterSpans = .notAdapterProduced
             g23ChildlessPitchInvocations = .notAdapterProduced
+            rowExitProvenance = .notAdapterProduced
         }
     }
     let canonicalTickClock: PlaybackSongCanonicalTickClock
@@ -53,6 +54,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
     var heldPitchProvenance: PlaybackSongHeldPitchProvenance = .notAdapterProduced
     var nativePitchWriterSpans: PlaybackSongNativePitchWriterSpans = .notAdapterProduced
     var g23ChildlessPitchInvocations: PlaybackSongG23ChildlessPitchInvocations = .notAdapterProduced
+    var rowExitProvenance: PlaybackSongRowExitProvenance = .notAdapterProduced
     var noteOnlyEventIndices: Set<Int> = []
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
@@ -504,6 +506,7 @@ enum PlaybackSongSyntheticAdapter {
     struct AdapterRowContext {
         var heldPitchObserver = PlaybackSongHeldPitchProvenance.Observer()
         var nativePitchWriterObserver = PlaybackSongNativePitchWriterSpans.Observer()
+        var rowExitObserver = PlaybackSongRowExitProvenance.Observer()
         var g23ChildlessPitchInvocationObserver = PlaybackSongG23ChildlessPitchInvocations.Observer()
         var selectionFacts = [PlaybackSongSelectionDispatchFacts.Fact]()
         var selectionTuningProducers = [PlaybackSongSelectionDispatchFacts.TuningProducers]()
@@ -885,6 +888,7 @@ enum PlaybackSongSyntheticAdapter {
         plan.nativePitchWriterSpans = context.nativePitchWriterObserver.evidence(
             domain: song.usesLinearFrequencyTable ? .linear : .amigaVTX4x)
         plan.g23ChildlessPitchInvocations = context.g23ChildlessPitchInvocationObserver.evidence
+        plan.rowExitProvenance = context.rowExitObserver.evidence
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
             startedAt: totalStart,
@@ -1043,6 +1047,8 @@ enum PlaybackSongSyntheticAdapter {
         nextRow: PlaybackRow? = nil,
         context: inout AdapterRowContext
     ) -> PlaybackSongSyntheticRowDiagnostic {
+        context.rowExitObserver.beginRow(syntheticRow, firstVibratoDiagnosticIndex: context.vibratoEffects.count,
+            domain: song.usesLinearFrequencyTable ? .linear : .amigaVTX4x)
         let eventStartCount = context.events.count
         let ignoredStartCount = context.ignoredCells.count
         if context.channelStates.count < row.cells.count {

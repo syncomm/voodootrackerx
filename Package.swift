@@ -142,6 +142,7 @@ let package = Package(
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongDiagnostics.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongHeldPitchProvenance.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongNativePitchWriterSpans.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongRowExitProvenance.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongG23ChildlessPitchInvocations.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongOfflineRender.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackTiming.swift",

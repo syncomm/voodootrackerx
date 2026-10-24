@@ -890,6 +890,7 @@ final class PlaybackSongOfflineRenderer {
             heldPitchProvenance: plan.heldPitchProvenance,
             nativePitchWriterSpans: plan.nativePitchWriterSpans,
             g23ChildlessPitchInvocations: plan.g23ChildlessPitchInvocations,
+            rowExitProvenance: plan.rowExitProvenance,
             noteOnlyEventIndices: plan.noteOnlyEventIndices, coldReleasedEventIndices: plan.coldReleasedEventIndices,
             playbackStateEvents: plan.playbackStateEvents,
             xmEnvelopeTimeline: plan.xmEnvelopeTimeline,

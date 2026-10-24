@@ -48,6 +48,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
             g23ChildlessPitchInvocations = .notAdapterProduced
             rowExitProvenance = .notAdapterProduced
             rowEntryTriggerResetFacts = .notAdapterProduced
+            delayedInstrumentResetFacts = .notAdapterProduced
         }
     }
     let canonicalTickClock: PlaybackSongCanonicalTickClock
@@ -57,6 +58,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
     var g23ChildlessPitchInvocations: PlaybackSongG23ChildlessPitchInvocations = .notAdapterProduced
     var rowExitProvenance: PlaybackSongRowExitProvenance = .notAdapterProduced
     var rowEntryTriggerResetFacts: PlaybackSongRowEntryTriggerResetFacts = .notAdapterProduced
+    var delayedInstrumentResetFacts: PlaybackSongDelayedInstrumentResetFacts = .notAdapterProduced
     var noteOnlyEventIndices: Set<Int> = []
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
@@ -510,6 +512,7 @@ enum PlaybackSongSyntheticAdapter {
         var nativePitchWriterObserver = PlaybackSongNativePitchWriterSpans.Observer()
         var rowExitObserver = PlaybackSongRowExitProvenance.Observer()
         var rowEntryTriggerResetObserver = PlaybackSongRowEntryTriggerResetFacts.Observer()
+        var delayedInstrumentResetObserver = PlaybackSongDelayedInstrumentResetFacts.Observer()
         var g23ChildlessPitchInvocationObserver = PlaybackSongG23ChildlessPitchInvocations.Observer()
         var selectionFacts = [PlaybackSongSelectionDispatchFacts.Fact]()
         var selectionTuningProducers = [PlaybackSongSelectionDispatchFacts.TuningProducers]()
@@ -893,6 +896,7 @@ enum PlaybackSongSyntheticAdapter {
         plan.g23ChildlessPitchInvocations = context.g23ChildlessPitchInvocationObserver.evidence
         plan.rowExitProvenance = context.rowExitObserver.evidence
         plan.rowEntryTriggerResetFacts = context.rowEntryTriggerResetObserver.evidence
+        plan.delayedInstrumentResetFacts = context.delayedInstrumentResetObserver.evidence
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
             startedAt: totalStart,

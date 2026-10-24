@@ -283,8 +283,8 @@ final class G23ChildlessPitchInvocationTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticTonePortamentoStepUpdate>.stride, 144)
         XCTAssertEqual(MemoryLayout<PlaybackXMChannelRow>.stride, 8)
         XCTAssertEqual(MemoryLayout<E.Run>.stride, 32)
-        // Row-entry scalar evidence adds 24 inline bytes; G23 runs stay 32 bytes.
-        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 968)
+        // Each partial reset companion adds 24 inline bytes; G23 runs stay 32 bytes.
+        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 992)
     }
 
     private func observations(_ plan: PlaybackSongSyntheticPlan) throws -> [E.Observation] {

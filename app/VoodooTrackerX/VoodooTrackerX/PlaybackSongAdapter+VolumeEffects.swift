@@ -244,7 +244,8 @@ extension PlaybackSongSyntheticAdapter {
         syntheticRow: Int, scheduledFrame: Int, globalVolume: Int,
         initializesInstrumentVolume: Bool,
         channelState: inout ChannelState,
-        updates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
+        updates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
+        observer: inout PlaybackSongRowEntryTriggerResetFacts.Observer
     ) {
         // Instrument triggers reset phases before a same-cell control write. A
         // note alone does not. Keep unsupported/delayed trigger routing unchanged.
@@ -255,7 +256,12 @@ extension PlaybackSongSyntheticAdapter {
             // K00 bypasses triggerInstrument; volume-column portamento takes
             // precedence over K00 in FT2 and still performs that trigger.
             if !(cell.effectType == 0x14 && cell.effectParam == 0) || cell.volumeColumn >> 4 == 0x0F {
+                let before = PlaybackSongRowEntryTriggerResetFacts.Scalars(channelState)
+                let priorSourceEventIndex = channelState.activeEventIndex
                 resetTremoloTriggerPhases(state: &channelState)
+                observer.record(.init(source: source, syntheticRow: syntheticRow, channelIndex: channelIndex,
+                    scheduledFrame: scheduledFrame, priorSourceEventIndex: priorSourceEventIndex,
+                    before: before, after: .init(channelState), rowCell: cell))
             }
             if !initializesInstrumentVolume && (channelState.tremolo.activated || cell.effectType == 0x07) {
                 let before = channelState

@@ -298,6 +298,7 @@ extension PlaybackSongSyntheticPlan {
             nativePitchWriterSpans: nativePitchWriterSpans,
             g23ChildlessPitchInvocations: g23ChildlessPitchInvocations,
             rowExitProvenance: rowExitProvenance,
+            rowEntryTriggerResetFacts: rowEntryTriggerResetFacts,
             noteOnlyEventIndices: noteOnlyEventIndices, coldReleasedEventIndices: coldReleasedEventIndices,
             playbackStateEvents: playbackStateEvents,
             xmEnvelopeTimeline: xmEnvelopeTimeline,

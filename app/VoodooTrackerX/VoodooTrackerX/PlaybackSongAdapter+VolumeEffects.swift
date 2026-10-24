@@ -109,9 +109,13 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     /// Delayed dispatch replays explicit setters after its reset, never tick-zero fine commands.
-    static func resetDelayedInstrument(cell: PlaybackCell, state: inout ChannelState) {
+    static func resetDelayedInstrument(cell: PlaybackCell, state: inout ChannelState,
+        didResetEffectPhases: ((PlaybackSongRowEntryTriggerResetFacts.Scalars,
+            PlaybackSongRowEntryTriggerResetFacts.Scalars) -> Void)? = nil) {
         restoreCachedInstrumentDefaults(state: &state)
+        let before = didResetEffectPhases == nil ? nil : PlaybackSongRowEntryTriggerResetFacts.Scalars(state)
         resetTremoloTriggerPhases(state: &state)
+        if let before { didResetEffectPhases?(before, .init(state)) }
         state.keyOffWithoutVoice = false
         let column = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
         switch column.command {

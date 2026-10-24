@@ -394,7 +394,9 @@ extension PlaybackSongSyntheticAdapter {
     /// Resolves the retained note through the selected instrument's exact route; cursor restarts at zero.
     static func restartRetainedSource(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
         syntheticRow: Int, tick: Int, frame: Int, song: PlaybackSong, timingConfig: SyntheticTrackerTimingConfig,
-        resetsInstrument: Bool = false, state: inout ChannelState, context: inout AdapterRowContext) -> (Bool, Bool) {
+        resetsInstrument: Bool = false, state: inout ChannelState, context: inout AdapterRowContext,
+        didResetEffectPhases: ((PlaybackSongRowEntryTriggerResetFacts.Scalars,
+            PlaybackSongRowEntryTriggerResetFacts.Scalars) -> Void)? = nil) -> (Bool, Bool) {
         guard (1...96).contains(state.carriedNote), let instrumentIndex = state.carriedInstrumentIndex,
               let instrument = song.instrumentsByIndex[instrumentIndex] else { return (false, false) }
         let selection = selectSample(forNote: state.carriedNote, from: instrument, missingKeymapPolicy: .fail)
@@ -426,7 +428,7 @@ extension PlaybackSongSyntheticAdapter {
                 state.semanticVolumeEnvelopeEnabled = instrument.volumeEnvelope.enabled
                 applyActiveVolumeEnvelopeMapping(mixerVolumeEnvelope(from: instrument.volumeEnvelope,
                     timingConfig: timingConfig), to: &state)
-                resetDelayedInstrument(cell: cell, state: &state)
+                resetDelayedInstrument(cell: cell, state: &state, didResetEffectPhases: didResetEffectPhases)
             }
             captureSelection(source: source, row: syntheticRow, tick: tick, channel: channelIndex,
                 frame: frame, role: selectedHeader ? .emptySelection : .unavailableRoute, linear: song.usesLinearFrequencyTable,
@@ -437,7 +439,7 @@ extension PlaybackSongSyntheticAdapter {
         if resetsInstrument {
             state.triggeredSampleDefaultVolume = sampleVolumeRawEstimate(for: sample.volume)
             state.triggeredSampleDefaultPan = sample.panning
-            resetDelayedInstrument(cell: cell, state: &state)
+            resetDelayedInstrument(cell: cell, state: &state, didResetEffectPhases: didResetEffectPhases)
         }
         let pitch = playbackStepMapping(note: state.carriedNote, sample: sample,
             usesLinearFrequencyTable: song.usesLinearFrequencyTable, timingConfig: timingConfig)
@@ -935,17 +937,29 @@ extension PlaybackSongSyntheticAdapter {
             }
             guard selected, tick == requested else { continue }
             let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+            let priorSourceEventIndex = state.activeEventIndex
+            // This token is filled only by the real phase-reset call, never by dispatch admission.
+            var reset: (PlaybackSongRowEntryTriggerResetFacts.Scalars, PlaybackSongRowEntryTriggerResetFacts.Scalars)?
+            let observe: (PlaybackSongRowEntryTriggerResetFacts.Scalars, PlaybackSongRowEntryTriggerResetFacts.Scalars) -> Void = {
+                reset = ($0, $1)
+            }
             if (1...96).contains(state.carriedNote) {
                 let (started, _) = restartRetainedSource(cell: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, tick: tick, frame: frame, song: song, timingConfig: timingConfig,
-                    resetsInstrument: true, state: &state, context: &context)
+                    resetsInstrument: true, state: &state, context: &context, didResetEffectPhases: observe)
                 status = started ? .instrumentOnlyStarted : .instrumentOnlyUnavailable
                 eventIndex = started ? state.activeEventIndex : nil
             } else {
                 // No retained note means no resolver invocation or fabricated route.
-                resetDelayedInstrument(cell: cell, state: &state)
+                resetDelayedInstrument(cell: cell, state: &state, didResetEffectPhases: observe)
                 captureSelection(source: source, row: syntheticRow, tick: tick, channel: channelIndex,
                     frame: frame, role: .coldDispatch, linear: song.usesLinearFrequencyTable, state: state, context: &context)
+            }
+            if let reset {
+                context.delayedInstrumentResetObserver.record(.init(source: source, syntheticRow: syntheticRow,
+                    syntheticTick: tick, channelIndex: channelIndex, scheduledFrame: frame,
+                    requestedInstrumentIndex: Int(cell.instrument), priorSourceEventIndex: priorSourceEventIndex,
+                    newSourceEventIndex: eventIndex, before: reset.0, after: reset.1))
             }
             defaultVolume = state.triggeredSampleDefaultVolume
             defaultPan = state.triggeredSampleDefaultPan

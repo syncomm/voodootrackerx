@@ -47,6 +47,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
             nativePitchWriterSpans = .notAdapterProduced
             g23ChildlessPitchInvocations = .notAdapterProduced
             rowExitProvenance = .notAdapterProduced
+            rowEntryTriggerResetFacts = .notAdapterProduced
         }
     }
     let canonicalTickClock: PlaybackSongCanonicalTickClock
@@ -55,6 +56,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
     var nativePitchWriterSpans: PlaybackSongNativePitchWriterSpans = .notAdapterProduced
     var g23ChildlessPitchInvocations: PlaybackSongG23ChildlessPitchInvocations = .notAdapterProduced
     var rowExitProvenance: PlaybackSongRowExitProvenance = .notAdapterProduced
+    var rowEntryTriggerResetFacts: PlaybackSongRowEntryTriggerResetFacts = .notAdapterProduced
     var noteOnlyEventIndices: Set<Int> = []
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
@@ -507,6 +509,7 @@ enum PlaybackSongSyntheticAdapter {
         var heldPitchObserver = PlaybackSongHeldPitchProvenance.Observer()
         var nativePitchWriterObserver = PlaybackSongNativePitchWriterSpans.Observer()
         var rowExitObserver = PlaybackSongRowExitProvenance.Observer()
+        var rowEntryTriggerResetObserver = PlaybackSongRowEntryTriggerResetFacts.Observer()
         var g23ChildlessPitchInvocationObserver = PlaybackSongG23ChildlessPitchInvocations.Observer()
         var selectionFacts = [PlaybackSongSelectionDispatchFacts.Fact]()
         var selectionTuningProducers = [PlaybackSongSelectionDispatchFacts.TuningProducers]()
@@ -889,6 +892,7 @@ enum PlaybackSongSyntheticAdapter {
             domain: song.usesLinearFrequencyTable ? .linear : .amigaVTX4x)
         plan.g23ChildlessPitchInvocations = context.g23ChildlessPitchInvocationObserver.evidence
         plan.rowExitProvenance = context.rowExitObserver.evidence
+        plan.rowEntryTriggerResetFacts = context.rowEntryTriggerResetObserver.evidence
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
             startedAt: totalStart,
@@ -1349,7 +1353,8 @@ enum PlaybackSongSyntheticAdapter {
                 initializesInstrumentVolume: refusedSelection != nil || explicitTriggerSelection?.sample != nil || selectedEmptyPitch != nil || restoresInstrumentOnlyDefaults ||
                     (toneTargetSelection?.sample != nil && channelState.activeEventIndex != nil) ||
                     (toneTargetSelection != nil && channelState.activeEventIndex == nil && channelState.semanticInstrumentIndex == nil),
-                channelState: &channelState, updates: &context.voiceStateUpdates
+                channelState: &channelState, updates: &context.voiceStateUpdates,
+                observer: &context.rowEntryTriggerResetObserver
             )
             if let sample = explicitTriggerSelection?.sample {
                 channelState.baseChannelVolume = sampleVolumeRawEstimate(for: sample.volume)

@@ -283,7 +283,8 @@ final class G23ChildlessPitchInvocationTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticTonePortamentoStepUpdate>.stride, 144)
         XCTAssertEqual(MemoryLayout<PlaybackXMChannelRow>.stride, 8)
         XCTAssertEqual(MemoryLayout<E.Run>.stride, 32)
-        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 888)
+        // Sparse row-exit references/scalars add 56 inline bytes; G23 runs stay 32 bytes.
+        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 944)
     }
 
     private func observations(_ plan: PlaybackSongSyntheticPlan) throws -> [E.Observation] {

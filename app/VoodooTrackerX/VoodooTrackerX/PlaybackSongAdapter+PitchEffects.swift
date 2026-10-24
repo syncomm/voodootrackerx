@@ -15,8 +15,9 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func appendPitchWriter(_ command: PlaybackSongSyntheticVibratoDiagnostic, to context: inout AdapterRowContext) {
-        context.nativePitchWriterObserver.record(family: .vibrato, diagnosticIndex: context.vibratoEffects.count,
+        let spanIndex = context.nativePitchWriterObserver.record(family: .vibrato, diagnosticIndex: context.vibratoEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates)
+        context.rowExitObserver.registerVibrato(diagnosticIndex: context.vibratoEffects.count, spanIndex: spanIndex)
         context.vibratoEffects.append(command)
     }
 
@@ -439,7 +440,8 @@ extension PlaybackSongSyntheticAdapter {
     /// Publishes the incoming row after its same-source outgoing restoration.
     static func appendArpeggio(_ command: PlaybackSongSyntheticArpeggioDiagnostic, to context: inout AdapterRowContext) {
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
-            syntheticRow: command.syntheticRow, context: &context)
+            syntheticRow: command.syntheticRow, incoming: .arpeggio,
+            incomingIndex: context.arpeggioEffects.count, context: &context)
         context.nativePitchWriterObserver.record(family: .arpeggio, diagnosticIndex: context.arpeggioEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
         context.arpeggioEffects.append(command)
@@ -448,9 +450,11 @@ extension PlaybackSongSyntheticAdapter {
     static func appendFinePitch(_ command: PlaybackSongSyntheticFinePortamentoUpDiagnostic, to context: inout AdapterRowContext) {
         var command = command
         command.execution.coalescedVibratoExit = coalesceVibratoExit(updates: command.stepUpdates,
-            eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
+            eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, incoming: .finePortamentoUp,
+            incomingIndex: context.finePortamentoUpEffects.count, context: &context)
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
-            syntheticRow: command.syntheticRow, context: &context)
+            syntheticRow: command.syntheticRow, incoming: .finePortamentoUp,
+            incomingIndex: context.finePortamentoUpEffects.count, context: &context)
         context.nativePitchWriterObserver.record(family: .finePortamentoUp, diagnosticIndex: context.finePortamentoUpEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
         context.finePortamentoUpEffects.append(command)
@@ -459,9 +463,11 @@ extension PlaybackSongSyntheticAdapter {
     static func appendFinePitch(_ command: PlaybackSongSyntheticFinePortamentoDownDiagnostic, to context: inout AdapterRowContext) {
         var command = command
         command.execution.coalescedVibratoExit = coalesceVibratoExit(updates: command.stepUpdates,
-            eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
+            eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, incoming: .finePortamentoDown,
+            incomingIndex: context.finePortamentoDownEffects.count, context: &context)
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
-            syntheticRow: command.syntheticRow, context: &context)
+            syntheticRow: command.syntheticRow, incoming: .finePortamentoDown,
+            incomingIndex: context.finePortamentoDownEffects.count, context: &context)
         context.nativePitchWriterObserver.record(family: .finePortamentoDown, diagnosticIndex: context.finePortamentoDownEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
         context.finePortamentoDownEffects.append(command)
@@ -470,9 +476,11 @@ extension PlaybackSongSyntheticAdapter {
     static func appendFinePitch(_ command: PlaybackSongSyntheticExtraFinePortamentoDiagnostic, to context: inout AdapterRowContext) {
         var command = command
         command.execution.coalescedVibratoExit = coalesceVibratoExit(updates: command.stepUpdates,
-            eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, context: &context)
+            eventIndex: command.activeEventIndex, syntheticRow: command.syntheticRow, incoming: command.direction == .up ? .extraFinePortamentoUp : .extraFinePortamentoDown,
+            incomingIndex: context.extraFinePortamentoEffects.count, context: &context)
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
-            syntheticRow: command.syntheticRow, context: &context)
+            syntheticRow: command.syntheticRow, incoming: command.direction == .up ? .extraFinePortamentoUp : .extraFinePortamentoDown,
+            incomingIndex: context.extraFinePortamentoEffects.count, context: &context)
         context.nativePitchWriterObserver.record(family: .extraFinePortamento, diagnosticIndex: context.extraFinePortamentoEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
         context.extraFinePortamentoEffects.append(command)
@@ -482,7 +490,8 @@ extension PlaybackSongSyntheticAdapter {
     /// Keep its raw evidence, but deliver only the later writer to every consumer;
     /// a previous row's synthetic end tick must never win a same-frame tie.
     private static func subsumeArpeggioExit(updates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
-        eventIndex: Int?, syntheticRow: Int, context: inout AdapterRowContext) {
+        eventIndex: Int?, syntheticRow: Int, incoming: PlaybackSongRowExitProvenance.IncomingFamily,
+        incomingIndex: Int, context: inout AdapterRowContext) {
         guard let update = updates.first, update.syntheticTick == 0, let eventIndex else { return }
         for index in context.arpeggioEffects.indices.reversed() {
             let command = context.arpeggioEffects[index]
@@ -491,6 +500,7 @@ extension PlaybackSongSyntheticAdapter {
                   let exit = command.stepUpdates.last, exit.syntheticTick == command.rowSpeed,
                   exit.reachedTarget, exit.scheduledFrame == update.scheduledFrame else { continue }
             context.arpeggioEffects[index].subsumedRowExit = context.arpeggioEffects[index].stepUpdates.removeLast()
+            context.rowExitObserver.recordArpeggio(outgoing: index, incoming: incoming, incomingIndex: incomingIndex)
             return
         }
     }
@@ -499,7 +509,8 @@ extension PlaybackSongSyntheticAdapter {
     /// Search only the current/preceding row; trigger folds and converged cold
     /// commands keep the existing exit publication and source-start ordering.
     private static func coalesceVibratoExit(updates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
-        eventIndex: Int?, syntheticRow: Int, context: inout AdapterRowContext) -> Bool {
+        eventIndex: Int?, syntheticRow: Int, incoming: PlaybackSongRowExitProvenance.IncomingFamily,
+        incomingIndex: Int, context: inout AdapterRowContext) -> Bool {
         guard let update = updates.first, let eventIndex else { return false }
         for index in context.vibratoEffects.indices.reversed() {
             let vibrato = context.vibratoEffects[index]
@@ -508,6 +519,9 @@ extension PlaybackSongSyntheticAdapter {
                   vibrato.activeEventIndex == eventIndex, let exit = vibrato.stepUpdates.last,
                   exit.syntheticTick == vibrato.rowSpeed, exit.reachedTarget,
                   exit.scheduledFrame == update.scheduledFrame else { continue }
+            context.rowExitObserver.recordVibrato(outgoing: index, outgoingRow: vibrato.syntheticRow,
+                exit: exit, incoming: incoming, incomingIndex: incomingIndex,
+                spans: context.nativePitchWriterObserver.spans)
             context.vibratoEffects[index].stepUpdates.removeLast()
             return true
         }

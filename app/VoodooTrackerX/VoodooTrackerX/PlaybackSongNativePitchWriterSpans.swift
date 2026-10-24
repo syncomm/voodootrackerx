@@ -55,10 +55,11 @@ struct PlaybackSongNativePitchWriterSpans: Equatable {
         var referencedChildCount = 0
         var referencedChildCapacity = 0
 
+        @discardableResult
         mutating func record(family: Family, diagnosticIndex: Int, rowSpeed: Int,
-            children: [PlaybackSongSyntheticTonePortamentoStepUpdate]) {
+            children: [PlaybackSongSyntheticTonePortamentoStepUpdate]) -> Int? {
             let count = children.count - (children.last?.syntheticTick == rowSpeed ? 1 : 0)
-            guard count > 0 else { return }
+            guard count > 0 else { return nil }
             let capacity = spans.capacity
             spans.append(.init(diagnosticIndex: diagnosticIndex, capturedChildCount: count,
                 originalChildren: children, family: family))
@@ -66,6 +67,7 @@ struct PlaybackSongNativePitchWriterSpans: Equatable {
             capturedChildCount += count
             referencedChildCount += children.count
             referencedChildCapacity += children.capacity
+            return spans.count - 1
         }
 
         func evidence(domain: PlaybackSongSelectionDispatchFacts.Domain) -> PlaybackSongNativePitchWriterSpans {

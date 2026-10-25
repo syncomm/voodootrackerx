@@ -182,6 +182,8 @@ extension PlaybackSongSyntheticAdapter {
                 resetDimensions: .init(volumeEnvelope: instrument.volumeEnvelope.enabled,
                     panEnvelope: instrument.panningEnvelope.enabled, keyOn: true, fadeout: true))
             resetTremoloTriggerPhases(state: &state)
+            context.semanticPitchBuilder.add(tick: delayed ? extendedEffectTick(cell) : 0,
+                channel: channelIndex, action: .automaticReset(.refused))
             state.keyOffWithoutVoice = false
         }
         if delayed {

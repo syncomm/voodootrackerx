@@ -127,6 +127,7 @@
 		T00000000000000000000106 /* PlaybackModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000006 /* PlaybackModelTests.swift */; };
 		T00000000000000000000107 /* PlaybackSongAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000007 /* PlaybackSongAdapterTests.swift */; };
 		D32C1B000000000000000005 /* SemanticPitchProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C1B000000000000000004 /* SemanticPitchProjectionTests.swift */; };
+		D32C2B000000000000000005 /* InstrumentAutovibratoClockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C2B000000000000000004 /* InstrumentAutovibratoClockTests.swift */; };
 		T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000008 /* RuntimeCMixerTests.swift */; };
 		T00000000000000000000109 /* TrackerViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000009 /* TrackerViewportTests.swift */; };
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
@@ -152,6 +153,7 @@
 		D32C1A000000000000000001 /* PlaybackSongRowEntryTriggerResetFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C1A000000000000000002 /* PlaybackSongRowEntryTriggerResetFacts.swift */; };
 		D32C2A000000000000000001 /* PlaybackSongDelayedInstrumentResetFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C2A000000000000000002 /* PlaybackSongDelayedInstrumentResetFacts.swift */; };
 		D32C1B000000000000000001 /* PlaybackSongSemanticPitchProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C1B000000000000000002 /* PlaybackSongSemanticPitchProjection.swift */; };
+		D32C2B000000000000000001 /* PlaybackSongInstrumentAutovibratoClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C2B000000000000000002 /* PlaybackSongInstrumentAutovibratoClock.swift */; };
 		D32B2C000000000000000001 /* PlaybackSongG23ChildlessPitchInvocations.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32B2C000000000000000002 /* PlaybackSongG23ChildlessPitchInvocations.swift */; };
 		K00000000000000000000014 /* PlaybackSongOfflineRender.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000024 /* PlaybackSongOfflineRender.swift */; };
 		K00000000000000000000015 /* PlaybackVolumeColumnDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */; };
@@ -175,6 +177,7 @@
 		D32C1A000000000000000003 /* PlaybackSongRowEntryTriggerResetFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C1A000000000000000002 /* PlaybackSongRowEntryTriggerResetFacts.swift */; };
 		D32C2A000000000000000003 /* PlaybackSongDelayedInstrumentResetFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C2A000000000000000002 /* PlaybackSongDelayedInstrumentResetFacts.swift */; };
 		D32C1B000000000000000003 /* PlaybackSongSemanticPitchProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C1B000000000000000002 /* PlaybackSongSemanticPitchProjection.swift */; };
+		D32C2B000000000000000003 /* PlaybackSongInstrumentAutovibratoClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C2B000000000000000002 /* PlaybackSongInstrumentAutovibratoClock.swift */; };
 		D32B2C000000000000000003 /* PlaybackSongG23ChildlessPitchInvocations.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32B2C000000000000000002 /* PlaybackSongG23ChildlessPitchInvocations.swift */; };
 		K00000000000000000000034 /* PlaybackSongOfflineRender.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000024 /* PlaybackSongOfflineRender.swift */; };
 		K00000000000000000000035 /* PlaybackVolumeColumnDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */; };
@@ -264,6 +267,7 @@
 		T00000000000000000000006 /* PlaybackModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackModelTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000007 /* PlaybackSongAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongAdapterTests.swift; sourceTree = "<group>"; };
 		D32C1B000000000000000004 /* SemanticPitchProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SemanticPitchProjectionTests.swift; path = ../../../tests/vtx_render_bounded_xm/SemanticPitchProjectionTests.swift; sourceTree = "<group>"; };
+		D32C2B000000000000000004 /* InstrumentAutovibratoClockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = InstrumentAutovibratoClockTests.swift; path = ../../../tests/vtx_render_bounded_xm/InstrumentAutovibratoClockTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000008 /* RuntimeCMixerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000009 /* TrackerViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerViewportTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
@@ -302,6 +306,7 @@
 		D32C1A000000000000000002 /* PlaybackSongRowEntryTriggerResetFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongRowEntryTriggerResetFacts.swift; sourceTree = "<group>"; };
 		D32C2A000000000000000002 /* PlaybackSongDelayedInstrumentResetFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongDelayedInstrumentResetFacts.swift; sourceTree = "<group>"; };
 		D32C1B000000000000000002 /* PlaybackSongSemanticPitchProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongSemanticPitchProjection.swift; sourceTree = "<group>"; };
+		D32C2B000000000000000002 /* PlaybackSongInstrumentAutovibratoClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongInstrumentAutovibratoClock.swift; sourceTree = "<group>"; };
 		D32B2C000000000000000002 /* PlaybackSongG23ChildlessPitchInvocations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongG23ChildlessPitchInvocations.swift; sourceTree = "<group>"; };
 		K00000000000000000000024 /* PlaybackSongOfflineRender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongOfflineRender.swift; sourceTree = "<group>"; };
 		K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackVolumeColumnDecoder.swift; sourceTree = "<group>"; };
@@ -392,6 +397,7 @@
 				D32C1A000000000000000002 /* PlaybackSongRowEntryTriggerResetFacts.swift */,
 				D32C2A000000000000000002 /* PlaybackSongDelayedInstrumentResetFacts.swift */,
 				D32C1B000000000000000002 /* PlaybackSongSemanticPitchProjection.swift */,
+				D32C2B000000000000000002 /* PlaybackSongInstrumentAutovibratoClock.swift */,
 				D32B2C000000000000000002 /* PlaybackSongG23ChildlessPitchInvocations.swift */,
 				K00000000000000000000024 /* PlaybackSongOfflineRender.swift */,
 				A00000000000000000000040 /* PlaybackTiming.swift */,
@@ -453,6 +459,7 @@
 				T00000000000000000000006 /* PlaybackModelTests.swift */,
 				T00000000000000000000007 /* PlaybackSongAdapterTests.swift */,
 				D32C1B000000000000000004 /* SemanticPitchProjectionTests.swift */,
+				D32C2B000000000000000004 /* InstrumentAutovibratoClockTests.swift */,
 				T00000000000000000000008 /* RuntimeCMixerTests.swift */,
 				T00000000000000000000009 /* TrackerViewportTests.swift */,
 				A00000000000000000000022 /* VoodooTrackerXTests.swift */,
@@ -639,6 +646,7 @@
 				D32C1A000000000000000001 /* PlaybackSongRowEntryTriggerResetFacts.swift in Sources */,
 				D32C2A000000000000000001 /* PlaybackSongDelayedInstrumentResetFacts.swift in Sources */,
 				D32C1B000000000000000001 /* PlaybackSongSemanticPitchProjection.swift in Sources */,
+				D32C2B000000000000000001 /* PlaybackSongInstrumentAutovibratoClock.swift in Sources */,
 				D32B2C000000000000000001 /* PlaybackSongG23ChildlessPitchInvocations.swift in Sources */,
 				K00000000000000000000014 /* PlaybackSongOfflineRender.swift in Sources */,
 				A0000000000000000000003E /* PlaybackTiming.swift in Sources */,
@@ -703,6 +711,7 @@
 				D32C1A000000000000000003 /* PlaybackSongRowEntryTriggerResetFacts.swift in Sources */,
 				D32C2A000000000000000003 /* PlaybackSongDelayedInstrumentResetFacts.swift in Sources */,
 				D32C1B000000000000000003 /* PlaybackSongSemanticPitchProjection.swift in Sources */,
+				D32C2B000000000000000003 /* PlaybackSongInstrumentAutovibratoClock.swift in Sources */,
 				D32B2C000000000000000003 /* PlaybackSongG23ChildlessPitchInvocations.swift in Sources */,
 				K00000000000000000000034 /* PlaybackSongOfflineRender.swift in Sources */,
 				A0000000000000000000003F /* PlaybackTiming.swift in Sources */,
@@ -772,6 +781,7 @@
 				T00000000000000000000106 /* PlaybackModelTests.swift in Sources */,
 				T00000000000000000000107 /* PlaybackSongAdapterTests.swift in Sources */,
 				D32C1B000000000000000005 /* SemanticPitchProjectionTests.swift in Sources */,
+				D32C2B000000000000000005 /* InstrumentAutovibratoClockTests.swift in Sources */,
 				T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */,
 				T00000000000000000000109 /* TrackerViewportTests.swift in Sources */,
 				A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */,

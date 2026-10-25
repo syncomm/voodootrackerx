@@ -108,11 +108,33 @@ ticks and new causal admission require separately approved policy. Waveform,
 sweep, reset arithmetic and compatibility choices remain unresolved. Depth-off
 coordinates neither recompute closed G30A/B nor implement audible G32.
 
-Automatic metadata/phase/sweep eventually belong to channel semantic ownership,
-not PCM lifetime. A later compact channel sidecar can hold phase/amplitude/ramp;
-no state is added here. Source identity only authorizes delivery and selects the
+Automatic metadata/phase/sweep belong to channel semantic ownership,
+not PCM lifetime. Source identity only authorizes delivery and selects the
 existing source conversion inputs; a refused new owner can modulate retained PCM.
 The semantic owner must not silently substitute a new sample's base rate.
+
+### Depth-off instrument clock foundation
+
+`PlaybackSongInstrumentAutovibratoClock` retains sparse owner/reset/release
+anchors inside the existing semantic row reducer. Queries derive before/after
+8-bit phase and elapsed ticks from the canonical traversal, including empty
+rows; rendering, window continuation and cached Play never advance another clock.
+Metadata follows the semantic owner, independently of carried instrument and
+source generation/conversion. Natural clock facts include depth-zero metadata;
+they establish no audible eligibility. No waveform ordinate or period is computed.
+
+Row-entry and instrument-only EDx resets reuse actual #503/#504 observations.
+Additional delayed-note and refused resets are captured beside actual native
+reset calls. E9 automatic resets follow admitted source/empty dispatches; they
+are new automatic lifecycle anchors, not invented per-tick observations of the
+legacy aggregated effect-phase reset. Instrumentless E90/Rxy carry the clock.
+Applied release excludes its own tick from key-on elapsed time, freezes that
+elapsed fact and continues phase. `sweepReached` means nominal raw duration
+completion, never rounded integer amplitude completion. Total and key-on elapsed
+ticks remain separate; no released amplitude is selected. Malformed bytes,
+sweep-255 and rate-zero square retain raw metadata with `policyPending` status;
+malformed metadata yields no numeric phase. All six audible policies below remain
+UNAPPROVED, and no physical pitch consumer uses this inert companion.
 
 Births carry a positive final step in their trigger before its first mixed frame.
 Ordinary priority-0 updates precede priority-2 triggers and cannot initialize

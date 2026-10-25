@@ -275,7 +275,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(effectOverride.pan, PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: 192), accuracy: 0.000_001)
     }
 
-    func testInstrumentAutoVibratoIsRuntimeInertForAdapterPlansPitchSchedulingAndPCM() throws {
+    func testInstrumentAutoVibratoClockIsDepthOffForAdapterPlansPitchSchedulingAndPCM() throws {
         func song(autoVibrato: PlaybackInstrumentAutoVibrato) -> PlaybackSong {
             let sample = makePlaybackSample(
                 pcm: [0, 1, 0.5, -0.5],
@@ -322,11 +322,26 @@ final class PlaybackSongAdapterTests: XCTestCase {
             frames: 6
         ))
 
-        XCTAssertEqual(baselineAdapterPlan, candidateAdapterPlan)
+        func withoutClock(_ plan: PlaybackSongSyntheticPlan) -> PlaybackSongSyntheticPlan {
+            var copy = plan
+            copy.instrumentAutovibratoClock = .notAdapterProduced
+            return copy
+        }
+        // Raw clock facts now differ; every preexisting plan field must still match exactly.
+        XCTAssertNotEqual(baselineAdapterPlan.instrumentAutovibratoClock, candidateAdapterPlan.instrumentAutovibratoClock)
+        XCTAssertEqual(candidateAdapterPlan.instrumentAutovibrato(row: 0, tick: 0, channel: 0)?.raw, candidateSong.instrumentsByIndex[1]?.autoVibrato)
+        XCTAssertEqual(candidateAdapterPlan.instrumentAutovibrato(row: 0, tick: 0, channel: 0)?.status, .policyPending)
+        XCTAssertEqual(withoutClock(baselineAdapterPlan), withoutClock(candidateAdapterPlan))
         XCTAssertEqual(baselineAdapterPlan.pattern.events.map(\.playbackStep), candidateAdapterPlan.pattern.events.map(\.playbackStep))
         XCTAssertEqual(baselineAdapterPlan.pattern.events.map(\.scheduledStartFrame), candidateAdapterPlan.pattern.events.map(\.scheduledStartFrame))
         XCTAssertTrue(baselineAdapterPlan.diagnostics.vibratoEffects.isEmpty && candidateAdapterPlan.diagnostics.vibratoEffects.isEmpty)
-        XCTAssertEqual(baselineRuntimePlan, candidateRuntimePlan)
+        XCTAssertEqual(baselineRuntimePlan.generated, candidateRuntimePlan.generated)
+        XCTAssertEqual(baselineRuntimePlan.sampleRate, candidateRuntimePlan.sampleRate)
+        XCTAssertEqual(baselineRuntimePlan.plannedSongEndFrame, candidateRuntimePlan.plannedSongEndFrame)
+        XCTAssertEqual(baselineRuntimePlan.plannedEventCount, candidateRuntimePlan.plannedEventCount)
+        XCTAssertEqual(baselineRuntimePlan.eventStorage, candidateRuntimePlan.eventStorage)
+        XCTAssertEqual(baselineRuntimePlan.categories, candidateRuntimePlan.categories)
+        XCTAssertEqual(baselineRuntimePlan.plan.map(withoutClock), candidateRuntimePlan.plan.map(withoutClock))
         XCTAssertEqual(baselineRender.block.interleavedPCM.map(\.bitPattern), candidateRender.block.interleavedPCM.map(\.bitPattern))
     }
 

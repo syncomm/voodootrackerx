@@ -144,6 +144,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
         enum Action {
             case writer(Ref, Bool, Int?, Double?), selection(Int), emptyRoute(Int), rowOwner(Int)
             case generation(Int), boundary(Ref)
+            case automaticReset(PlaybackSongInstrumentAutovibratoClock.ResetCause), automaticRelease
             var ownerRef: Int? {
                 switch self {
                 case .selection(let index): return index
@@ -156,6 +157,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
         struct Operation { let tick: Int, channel: Int, ordinal: Int; let action: Action }
         struct Boundary { let channel: Int, generation: Int, index: Int; let ref: Ref }
         var channels = [[Record]](), states = [Record](), resetRuns = [[ResetRun]]()
+        var automatic = PlaybackSongInstrumentAutovibratoClock.Builder()
         var baseValues = [Double?](), seeds = [Double]()
         var operations = [Operation](), pending = [Boundary](), following = [Boundary]()
         var touched = [Int](), lastTicks = [Int](), folds = [Int](), rowStarts = [Int](), entryOwners = [Int]()
@@ -163,6 +165,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
         var operationCapacityHighWater = 0, boundaryCapacityHighWater = 0, resetGrowths = 0
         var linear = true
         var firstRetrigger = 0, firstRowReset = 0, firstDelayedReset = 0, firstExit = 0, firstRow = 0
+        var firstRelease = 0
 
         mutating func begin(states incoming: borrowing [PlaybackSongSyntheticAdapter.ChannelState], count: Int,
             firstOrdinal: Int, speed: Int, linear: Bool, retriggers: Int, rowResets: Int, delayedResets: Int, exits: Int, rows: Int) {
@@ -174,6 +177,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
             while states.count < count {
                 states.append(.init()); channels.append([]); resetRuns.append([]); baseValues.append(nil); lastTicks.append(-1); folds.append(-1); rowStarts.append(0); entryOwners.append(-1)
             }
+            automatic.ensureChannels(count)
             growths += (capacities.0 != states.capacity ? 1 : 0) + (capacities.1 != channels.capacity ? 1 : 0)
                 + (capacities.2 != baseValues.capacity ? 1 : 0) + (capacities.3 != lastTicks.capacity ? 1 : 0)
                 + (capacities.4 != folds.capacity ? 1 : 0) + (capacities.5 != rowStarts.capacity ? 1 : 0)
@@ -225,7 +229,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
             }
         }
 
-        mutating func finish(context: borrowing PlaybackSongSyntheticAdapter.AdapterRowContext) {
+        mutating func finish(context: borrowing PlaybackSongSyntheticAdapter.AdapterRowContext, song: borrowing PlaybackSong) {
             for index in firstRow..<context.xmChannelRows.count {
                 let channel = context.xmChannelRows[index].channelIndex
                 let actual = Self.owner(-3 - 2 * index, context: context)
@@ -242,16 +246,26 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
                 if command.effectType == 14 && command.effectParam >> 4 == 9 {
                     for (tick, event) in zip(command.retriggerTicks, command.retriggerEventIndices) {
                         add(tick: tick, channel: command.channelIndex, action: .generation(event))
+                        // New automatic-clock reset at a real E9 source dispatch, not an
+                        // invented observation of the legacy aggregated effect-phase call.
+                        if command.effectParam & 15 > 0 {
+                            add(tick: tick, channel: command.channelIndex, action: .automaticReset(.retrigger))
+                        }
                     }
                 }
             }
             for index in firstRowReset..<context.rowEntryTriggerResetObserver.facts.count {
                 let fact = context.rowEntryTriggerResetObserver.facts[index]
                 appendReset(ordinal: firstOrdinal, channel: fact.channelIndex, index: index, delayed: false)
+                add(tick: 0, channel: fact.channelIndex, action: .automaticReset(.rowEntry))
             }
             for index in firstDelayedReset..<context.delayedInstrumentResetObserver.facts.count {
                 let fact = context.delayedInstrumentResetObserver.facts[index]
                 appendReset(ordinal: firstOrdinal + fact.syntheticTick, channel: fact.channelIndex, index: index, delayed: true)
+                add(tick: fact.syntheticTick, channel: fact.channelIndex, action: .automaticReset(.delayedInstrument))
+            }
+            for release in context.keyOffEvents[firstRelease...] where release.applied {
+                add(tick: release.syntheticTick, channel: release.channelIndex, action: .automaticRelease)
             }
             for boundary in pending where states[boundary.channel].generation == boundary.generation {
                 var ref = boundary.ref
@@ -268,7 +282,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
             for op in operations {
                 let channel = op.channel
                 if lastTicks[channel] != op.tick {
-                    if lastTicks[channel] >= 0 { publish(channel: channel) } else { touched.append(channel) }
+                    if lastTicks[channel] >= 0 { publish(channel: channel, context: context, song: song) } else { touched.append(channel) }
                     lastTicks[channel] = op.tick
                 }
                 switch op.action {
@@ -297,6 +311,8 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
                 case .rowOwner(let index): states[channel].selection = -3 - 2 * index
                 case .generation(let generation): states[channel].generation = generation
                 case .boundary(let ref): states[channel].incoming = states[channel].output; states[channel].output = ref
+                case .automaticReset(let cause): automatic.resets[channel] = cause
+                case .automaticRelease: automatic.releases[channel] = true
                 }
             }
             // Compare independently captured producer values with actual incoming-next-row base.
@@ -308,13 +324,16 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
                 if actual != baseValues[channel] || owner != (state.semanticInstrumentIndex, state.semanticSampleIndex, state.carriedInstrumentIndex) ||
                     states[channel].generation != (state.activeEventIndex ?? -1) {
                     failures += 1
+                    // A pitch capture gap cannot supply trustworthy automatic ownership,
+                    // nor rewind a clock anchor already published earlier in this row.
+                    automatic.valid = false
                     channels[channel].removeSubrange(rowStarts[channel]..<channels[channel].count)
                     states[channel].base = Ref(.missing); states[channel].output = Ref(.missing)
                     if lastTicks[channel] < 0 { touched.append(channel) }
                     lastTicks[channel] = 0
                 }
             }
-            for channel in touched { publish(channel: channel) }
+            for channel in touched { publish(channel: channel, context: context, song: song) }
             operationCapacityHighWater = max(operationCapacityHighWater, operations.capacity)
             boundaryCapacityHighWater = max(boundaryCapacityHighWater, pending.capacity + following.capacity)
             workspaceHighWater = max(workspaceHighWater, operations.capacity + pending.capacity + following.capacity)
@@ -332,8 +351,10 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
             resetRuns[channel].append(run)
             if capacity != resetRuns[channel].capacity { growths += 1; resetGrowths += 1 }
         }
-        mutating func publish(channel: Int) {
+        mutating func publish(channel: Int, context: borrowing PlaybackSongSyntheticAdapter.AdapterRowContext, song: borrowing PlaybackSong) {
             var record = states[channel]; record.ordinal = firstOrdinal + lastTicks[channel]
+            let owner = Self.owner(record.selection, context: context).0
+            automatic.publish(channel: channel, ordinal: record.ordinal, instrument: owner, song: song)
             if let prior = channels[channel].last, prior.sameState(as: record) { return }
             let capacity = channels[channel].capacity
             channels[channel].append(record)
@@ -384,10 +405,10 @@ extension PlaybackSongSyntheticPlan {
 
 extension PlaybackSongSyntheticAdapter {
     /// Moves workspace out temporarily so row inspection cannot copy its mutable COW buffers.
-    static func finishSemanticPitchRow(context: inout AdapterRowContext) {
+    static func finishSemanticPitchRow(context: inout AdapterRowContext, song: borrowing PlaybackSong) {
         var builder = PlaybackSongSemanticPitchProjection.Builder()
         swap(&builder, &context.semanticPitchBuilder)
-        builder.finish(context: context)
+        builder.finish(context: context, song: song)
         swap(&builder, &context.semanticPitchBuilder)
     }
 }

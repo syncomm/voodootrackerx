@@ -43,6 +43,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
     var diagnostics: PlaybackSongSyntheticDiagnostics {
         // Arbitrary diagnostic replacement must not leave producer references attached to new storage.
         didSet {
+            instrumentAutovibratoClock = .notAdapterProduced
             semanticPitchProjection = .notAdapterProduced
             heldPitchProvenance = .notAdapterProduced
             nativePitchWriterSpans = .notAdapterProduced
@@ -54,6 +55,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
     }
     let canonicalTickClock: PlaybackSongCanonicalTickClock
     let selectionDispatchFacts: PlaybackSongSelectionDispatchFacts
+    var instrumentAutovibratoClock: PlaybackSongInstrumentAutovibratoClock = .notAdapterProduced
     var semanticPitchProjection: PlaybackSongSemanticPitchProjection = .notAdapterProduced
     var heldPitchProvenance: PlaybackSongHeldPitchProvenance = .notAdapterProduced
     var nativePitchWriterSpans: PlaybackSongNativePitchWriterSpans = .notAdapterProduced
@@ -761,6 +763,7 @@ enum PlaybackSongSyntheticAdapter {
                 firstOrdinal: canonicalTickCount - rowTimingConfig.speed, speed: rowTimingConfig.speed, linear: song.usesLinearFrequencyTable,
                 retriggers: context.retriggerEffects.count, rowResets: context.rowEntryTriggerResetObserver.facts.count,
                 delayedResets: context.delayedInstrumentResetObserver.facts.count, exits: context.rowExitObserver.references.count, rows: context.xmChannelRows.count)
+            context.semanticPitchBuilder.firstRelease = context.keyOffEvents.count
             let rowDiagnostic = appendEvents(
                 from: traversalRow.row,
                 source: traversalRow.source,
@@ -779,7 +782,7 @@ enum PlaybackSongSyntheticAdapter {
                 }
             }
             let publicationStart = profileSession == nil ? nil : DispatchTime.now().uptimeNanoseconds
-            finishSemanticPitchRow(context: &context)
+            finishSemanticPitchRow(context: &context, song: song)
             if let publicationStart { semanticPublicationNanoseconds += DispatchTime.now().uptimeNanoseconds - publicationStart }
             context.rowDiagnostics.append(rowDiagnostic)
         }
@@ -810,6 +813,11 @@ enum PlaybackSongSyntheticAdapter {
                 AdapterPlanProfileField("semantic_pitch_workspace_capacity", context.semanticPitchBuilder.workspaceHighWater),
                 AdapterPlanProfileField("semantic_pitch_storage_growths", context.semanticPitchBuilder.growths),
                 AdapterPlanProfileField("semantic_pitch_capture_failures", context.semanticPitchBuilder.failures),
+                AdapterPlanProfileField("automatic_clock_run_count", context.semanticPitchBuilder.automatic.evidence.runCount),
+                AdapterPlanProfileField("automatic_clock_run_capacity", context.semanticPitchBuilder.automatic.evidence.runCapacity),
+                AdapterPlanProfileField("automatic_clock_run_stride", MemoryLayout<PlaybackSongInstrumentAutovibratoClock.Run>.stride),
+                AdapterPlanProfileField("automatic_clock_growths", context.semanticPitchBuilder.automatic.growths),
+                AdapterPlanProfileField("automatic_clock_workspace_capacity", context.semanticPitchBuilder.automatic.evidence.workspaceCapacity),
                 AdapterPlanProfileField("semantic_pitch_seed_count", context.semanticPitchBuilder.seeds.count),
                 AdapterPlanProfileField("semantic_pitch_seed_capacity", context.semanticPitchBuilder.seeds.capacity),
                 AdapterPlanProfileField("semantic_pitch_channel_capacity", context.semanticPitchBuilder.states.capacity),
@@ -922,6 +930,7 @@ enum PlaybackSongSyntheticAdapter {
         }
         // Install only after existing diagnostic/admission mutations have completed.
         plan.semanticPitchProjection = context.semanticPitchBuilder.evidence
+        plan.instrumentAutovibratoClock = context.semanticPitchBuilder.automatic.evidence
         plan.heldPitchProvenance = context.heldPitchObserver.evidence
         plan.nativePitchWriterSpans = context.nativePitchWriterObserver.evidence(
             domain: song.usesLinearFrequencyTable ? .linear : .amigaVTX4x)
@@ -2019,6 +2028,7 @@ enum PlaybackSongSyntheticAdapter {
                             syntheticRow: syntheticRow, channelIndex: channelIndex, frame: delay.delayedFrame!, tick: delay.requestedTick, selection: sampleSelection,
                             song: song, timingConfig: timingConfig, state: &channelState, context: &context)
                         resetDelayedInstrument(cell: cell, state: &channelState)
+                        context.semanticPitchBuilder.add(tick: delay.requestedTick, channel: channelIndex, action: .automaticReset(.delayedNote))
                     }
                     delay.cachedDefaultVolume = channelState.triggeredSampleDefaultVolume
                     delay.cachedDefaultPan = channelState.triggeredSampleDefaultPan
@@ -2051,6 +2061,7 @@ enum PlaybackSongSyntheticAdapter {
                                 action: .emptyRoute(context.xmEmptyRoutes.count - 1))
                         }
                         resetTremoloTriggerPhases(state: &channelState)
+                        context.semanticPitchBuilder.add(tick: delay.requestedTick, channel: channelIndex, action: .automaticReset(.delayedNote))
                     }
                     // E9x repeats the selected empty route at the existing tick cadence.
                     // Its instrument reset belongs to the channel, with no source event.
@@ -2058,6 +2069,7 @@ enum PlaybackSongSyntheticAdapter {
                     if extendedSubcommand == 9, repeatInterval > 0, repeatInterval < timingConfig.speed {
                         resetTremoloTriggerPhases(state: &channelState)
                         for tick in stride(from: repeatInterval, to: timingConfig.speed, by: repeatInterval) {
+                            context.semanticPitchBuilder.add(tick: tick, channel: channelIndex, action: .automaticReset(.retrigger))
                             context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
                                 scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
                                 instrumentIndex: instrumentIndex, sampleIndex: slot, stoppedEventIndex: nil, tick: tick))
@@ -2418,6 +2430,7 @@ enum PlaybackSongSyntheticAdapter {
                 // The established EDx path has resolved a real delayed trigger.
                 // Reset at that trigger, rather than on an out-of-row delay.
                 resetTremoloTriggerPhases(state: &channelState)
+                context.semanticPitchBuilder.add(tick: scheduledNoteTick, channel: channelIndex, action: .automaticReset(.delayedNote))
                 if channelState.tremolo.activated, cell.instrument > 0, !retainsDelayedTrigger {
                     channelState.baseChannelVolume = 64
                     // FT2's delayed trigger replays an explicit volume value,

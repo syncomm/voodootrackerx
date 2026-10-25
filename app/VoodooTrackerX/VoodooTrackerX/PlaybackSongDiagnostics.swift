@@ -294,6 +294,7 @@ extension PlaybackSongSyntheticPlan {
             diagnostics: diagnostics.replacingEventCoverage(eventCoverage),
             canonicalTickClock: canonicalTickClock,
             selectionDispatchFacts: selectionDispatchFacts,
+            semanticPitchProjection: semanticPitchProjection,
             heldPitchProvenance: heldPitchProvenance,
             nativePitchWriterSpans: nativePitchWriterSpans,
             g23ChildlessPitchInvocations: g23ChildlessPitchInvocations,

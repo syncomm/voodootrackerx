@@ -43,6 +43,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
     var diagnostics: PlaybackSongSyntheticDiagnostics {
         // Arbitrary diagnostic replacement must not leave producer references attached to new storage.
         didSet {
+            semanticPitchProjection = .notAdapterProduced
             heldPitchProvenance = .notAdapterProduced
             nativePitchWriterSpans = .notAdapterProduced
             g23ChildlessPitchInvocations = .notAdapterProduced
@@ -53,6 +54,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
     }
     let canonicalTickClock: PlaybackSongCanonicalTickClock
     let selectionDispatchFacts: PlaybackSongSelectionDispatchFacts
+    var semanticPitchProjection: PlaybackSongSemanticPitchProjection = .notAdapterProduced
     var heldPitchProvenance: PlaybackSongHeldPitchProvenance = .notAdapterProduced
     var nativePitchWriterSpans: PlaybackSongNativePitchWriterSpans = .notAdapterProduced
     var g23ChildlessPitchInvocations: PlaybackSongG23ChildlessPitchInvocations = .notAdapterProduced
@@ -508,6 +510,7 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     struct AdapterRowContext {
+        var semanticPitchBuilder = PlaybackSongSemanticPitchProjection.Builder()
         var heldPitchObserver = PlaybackSongHeldPitchProvenance.Observer()
         var nativePitchWriterObserver = PlaybackSongNativePitchWriterSpans.Observer()
         var rowExitObserver = PlaybackSongRowExitProvenance.Observer()
@@ -595,6 +598,7 @@ enum PlaybackSongSyntheticAdapter {
             cachedDefaultVolume: state.triggeredSampleDefaultVolume, cachedDefaultPan: state.triggeredSampleDefaultPan))
         if context.selectionFacts.capacity != capacity { context.selectionFactStorageGrowthCount += 1 }
         context.selectionTuningProducers[channel] = producers
+        context.semanticPitchBuilder.add(tick: tick, channel: channel, action: .selection(index))
     }
 
     static func adapt(
@@ -732,6 +736,7 @@ enum PlaybackSongSyntheticAdapter {
 
         let rowIterationStart = profileSession?.beginPhase()
         var eventGenerationNanoseconds: UInt64 = 0
+        var semanticPublicationNanoseconds: UInt64 = 0
         for (rowIndex, traversalRow) in traversalPlan.rows.enumerated() {
             rowMappings.append(PlaybackSongSyntheticRowMapping(
                 source: traversalRow.source,
@@ -752,6 +757,10 @@ enum PlaybackSongSyntheticAdapter {
             clockRuns.append(.init(timingRowIndex: traversalRow.syntheticRow, firstCanonicalTickOrdinal: canonicalTickCount))
             canonicalTickCount = nextOrdinal.partialValue
             let eventGenerationStart = profileSession == nil ? nil : DispatchTime.now().uptimeNanoseconds
+            context.semanticPitchBuilder.begin(states: context.channelStates, count: traversalRow.row.cells.count,
+                firstOrdinal: canonicalTickCount - rowTimingConfig.speed, speed: rowTimingConfig.speed, linear: song.usesLinearFrequencyTable,
+                retriggers: context.retriggerEffects.count, rowResets: context.rowEntryTriggerResetObserver.facts.count,
+                delayedResets: context.delayedInstrumentResetObserver.facts.count, exits: context.rowExitObserver.references.count, rows: context.xmChannelRows.count)
             let rowDiagnostic = appendEvents(
                 from: traversalRow.row,
                 source: traversalRow.source,
@@ -769,8 +778,13 @@ enum PlaybackSongSyntheticAdapter {
                     eventGenerationNanoseconds += eventGenerationEnd - eventGenerationStart
                 }
             }
+            let publicationStart = profileSession == nil ? nil : DispatchTime.now().uptimeNanoseconds
+            finishSemanticPitchRow(context: &context)
+            if let publicationStart { semanticPublicationNanoseconds += DispatchTime.now().uptimeNanoseconds - publicationStart }
             context.rowDiagnostics.append(rowDiagnostic)
         }
+        profileSession?.recordMeasuredPhase("semantic_pitch_publication", elapsedMS: Double(semanticPublicationNanoseconds) / 1_000_000.0,
+            fields: [AdapterPlanProfileField("semantic_pitch_capture_failures", context.semanticPitchBuilder.failures)])
         profileSession?.recordMeasuredPhase(
             "event_generation",
             elapsedMS: Double(eventGenerationNanoseconds) / 1_000_000.0,
@@ -786,6 +800,23 @@ enum PlaybackSongSyntheticAdapter {
                 AdapterPlanProfileField("selection_fact_stride", MemoryLayout<PlaybackSongSelectionDispatchFacts.Fact>.stride),
                 AdapterPlanProfileField("selection_fact_capacity", context.selectionFacts.capacity),
                 AdapterPlanProfileField("selection_fact_storage_growth_count", context.selectionFactStorageGrowthCount),
+                AdapterPlanProfileField("semantic_pitch_record_count", context.semanticPitchBuilder.evidence.recordCount),
+                AdapterPlanProfileField("semantic_pitch_record_capacity", context.semanticPitchBuilder.evidence.recordCapacity),
+                AdapterPlanProfileField("semantic_pitch_record_stride", MemoryLayout<PlaybackSongSemanticPitchProjection.Record>.stride),
+                AdapterPlanProfileField("semantic_pitch_reset_run_count", context.semanticPitchBuilder.evidence.resetRunCount),
+                AdapterPlanProfileField("semantic_pitch_reset_run_capacity", context.semanticPitchBuilder.evidence.resetRunCapacity),
+                AdapterPlanProfileField("semantic_pitch_reset_run_stride", MemoryLayout<PlaybackSongSemanticPitchProjection.ResetRun>.stride),
+                AdapterPlanProfileField("semantic_pitch_reset_run_growths", context.semanticPitchBuilder.resetGrowths),
+                AdapterPlanProfileField("semantic_pitch_workspace_capacity", context.semanticPitchBuilder.workspaceHighWater),
+                AdapterPlanProfileField("semantic_pitch_storage_growths", context.semanticPitchBuilder.growths),
+                AdapterPlanProfileField("semantic_pitch_capture_failures", context.semanticPitchBuilder.failures),
+                AdapterPlanProfileField("semantic_pitch_seed_count", context.semanticPitchBuilder.seeds.count),
+                AdapterPlanProfileField("semantic_pitch_seed_capacity", context.semanticPitchBuilder.seeds.capacity),
+                AdapterPlanProfileField("semantic_pitch_channel_capacity", context.semanticPitchBuilder.states.capacity),
+                AdapterPlanProfileField("semantic_pitch_operation_capacity", context.semanticPitchBuilder.operationCapacityHighWater),
+                AdapterPlanProfileField("semantic_pitch_operation_stride", MemoryLayout<PlaybackSongSemanticPitchProjection.Builder.Operation>.stride),
+                AdapterPlanProfileField("semantic_pitch_boundary_capacity", context.semanticPitchBuilder.boundaryCapacityHighWater),
+                AdapterPlanProfileField("semantic_pitch_boundary_stride", MemoryLayout<PlaybackSongSemanticPitchProjection.Builder.Boundary>.stride),
                 AdapterPlanProfileField("native_writer_span_count", context.nativePitchWriterObserver.spans.count),
                 AdapterPlanProfileField("native_writer_span_stride", MemoryLayout<PlaybackSongNativePitchWriterSpans.Span>.stride),
                 AdapterPlanProfileField("native_writer_span_capacity", context.nativePitchWriterObserver.spans.capacity),
@@ -890,6 +921,7 @@ enum PlaybackSongSyntheticAdapter {
             plan.xmAudibleTimeline = PlaybackXMAudibleTimeline(plan: plan)
         }
         // Install only after existing diagnostic/admission mutations have completed.
+        plan.semanticPitchProjection = context.semanticPitchBuilder.evidence
         plan.heldPitchProvenance = context.heldPitchObserver.evidence
         plan.nativePitchWriterSpans = context.nativePitchWriterObserver.evidence(
             domain: song.usesLinearFrequencyTable ? .linear : .amigaVTX4x)
@@ -1578,7 +1610,7 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil,
                     executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil
                 )
-                appendPitchWriter(diagnostic, to: &context)
+                appendPitchWriter(diagnostic, to: &context, invocationTick: isRxyMultiRetriggerEffect(cell) ? nil : 1)
                 if let noteDelay {
                     context.noteDelayEffects.append(noteDelay)
                 }
@@ -2015,6 +2047,8 @@ enum PlaybackSongSyntheticAdapter {
                             channelState.semanticVolumeEnvelopeEnabled = instrument.volumeEnvelope.enabled
                             applyActiveVolumeEnvelopeMapping(mixerVolumeEnvelope(from: instrument.volumeEnvelope,
                                 timingConfig: timingConfig), to: &channelState)
+                            context.semanticPitchBuilder.add(tick: delay.requestedTick, channel: channelIndex,
+                                action: .emptyRoute(context.xmEmptyRoutes.count - 1))
                         }
                         resetTremoloTriggerPhases(state: &channelState)
                     }
@@ -2322,7 +2356,7 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil,
                     executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil
                 )
-                appendPitchWriter(diagnostic, to: &context)
+                appendPitchWriter(diagnostic, to: &context, invocationTick: isRxyMultiRetriggerEffect(cell) ? nil : 1)
                 if let noteDelay {
                     context.noteDelayEffects.append(noteDelay)
                 }
@@ -2787,7 +2821,7 @@ enum PlaybackSongSyntheticAdapter {
                             channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,
                             timingPlan: timingPlan, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                             channelState: &state, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
-                            executionTicks: tick..<(tick + 1)), to: &context)
+                            executionTicks: tick..<(tick + 1)), to: &context, invocationTick: tick)
                     }
                     handleRxyTick(cell: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
                         tick: tick, song: song, timingConfig: timingConfig, timingPlan: timingPlan,

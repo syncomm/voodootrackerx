@@ -284,7 +284,8 @@ final class G23ChildlessPitchInvocationTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<PlaybackXMChannelRow>.stride, 8)
         XCTAssertEqual(MemoryLayout<E.Run>.stride, 32)
         // Each partial reset companion adds 24 inline bytes; G23 runs stay 32 bytes.
-        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 992)
+        // Sparse reset storage makes the native semantic companion 56 inline bytes.
+        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 1048)
     }
 
     private func observations(_ plan: PlaybackSongSyntheticPlan) throws -> [E.Observation] {

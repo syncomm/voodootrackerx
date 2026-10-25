@@ -1,16 +1,20 @@
 # XM semantic pitch and ordered physical publication proposal
 
-Status: proposed, awaiting Gregory's architecture review in
-[issue #488](https://github.com/syncomm/voodootrackerx/issues/488).
+Status: Gregory accepted Candidates A/C and rejected Candidate B on October 24,
+2026 (America/New_York), for the depth-off semantic publication foundation only.
+[Issue #488](https://github.com/syncomm/voodootrackerx/issues/488) remains OPEN
+pending independent manager review; its older proposed status does not revoke
+this limited approval.
 Clock prerequisite baseline: `ad359d2c3f30b7b28b471caef5082a17721f803d`;
-bounded G31 remains closed. G32A-2A is separately authorized for coordinates only;
-complete capture, final pitch migration and G32 behavior remain unauthorized.
+bounded G31 remains closed. G32A-2C1 authorizes physical/event/PCM-neutral native
+semantic capture and publication. Consumer migration, enabled automatic pitch,
+an eighth pitch stream and all six compatibility decisions remain UNAPPROVED.
 The supplied G32 preflight is characterization evidence:
 208 reference renders / 519,120 oracle assertions, not rerun for this proposal.
 Existing code, accepted ADRs and the [effect contracts](../xm-effect-support.md)
 remain authoritative. This is not an accepted ADR.
 
-**Superseding architecture clarification (proposed):** unconditional final-only
+**Accepted depth-off architecture clarification:** unconditional final-only
 physical coalescing is rejected. C14 retains requests 10963 then 10835 Q16 at
 frame 7680: epsilon .003 holds 10963 with ordered delivery, versus 10835 with
 last-only delivery. One semantic effect-output period does not authorize removing
@@ -57,9 +61,9 @@ nor source eligibility. No final-only consumer or history switch is proposed.
 
 | Design | Benefit | Cost / disposition |
 | --- | --- | --- |
-| Candidate A: semantic versus physical ownership | Separates one semantic output from zero-or-more ordered physical intents. | Selected direction for further proof; complete production capture remains unimplemented. |
-| Candidate B: final-only physical compaction | Reduces physical requests. | Not authorized: C14 disproves policy neutrality. Lossless ordered spans need their own contract. |
-| Candidate C: surgical native capture/composition | Captures facts at existing arithmetic, selection and birth boundaries. | Preferred technique within A's ownership model; judge correctness, coverage, ordering and cost, not line count. |
+| Candidate A: semantic versus physical ownership | Separates one semantic output from zero-or-more ordered physical intents. | ACCEPTED for the depth-off foundation; native semantic publication remains separate from ordered physical delivery. |
+| Candidate B: final-only physical compaction | Reduces physical requests. | REJECTED: C14 disproves policy neutrality. Lossless ordered spans need their own contract. |
+| Candidate C: surgical native capture/composition | Captures facts at existing arithmetic, selection and birth boundaries. | ACCEPTED within A's depth-off ownership model, with no additional whole-song pass. |
 
 ## Proposed construction and ordering
 
@@ -76,9 +80,9 @@ runs retain original row commands and existing diagnostic indices; queries proje
 real invocation ticks through the canonical clock and preserve each diagnostic's
 status, policy and generation association. Legacy row-scope diagnostic coordinates
 remain unchanged. This partial evidence supplies no pitch, ownership, lifecycle,
-source-eligibility or physical-delivery authority and does not accept this proposal.
+source-eligibility or physical-delivery authority and does not prove complete capture.
 
-G32A-2B requires separate approval for native period, ownership/conversion and
+The accepted G32A-2C1 foundation covers native period, ownership/conversion and
 actual dispatch/reset capture before physical admission. Use incoming scalar seeds,
 not end-of-row snapshots as tick-zero state, and never invert Q16 or filtered C
 pitch. Generic source-less vibrato may advance legacy phase without calculating
@@ -91,6 +95,11 @@ Keep one semantic channel/tick result or sparse held interval separately from
 all ordered requests and distinct generations/frame integration boundaries.
 No additional song pass, full-control/PCM copies, per-tick heap storage, callback
 clock or eighth effect authority is proposed; the envelope clock is not universal.
+
+`PlaybackSongSemanticPitchProjection.swift` implements the depth-off companion
+at this traversal seam. Canonical queries retain base, held output and causal
+producer references; capture failures remain explicit `notCaptured` results.
+Physical consumers continue to use their existing seven diagnostic families.
 
 Future enabled composition is **canonical base → ordered effect-output intents
 → one automatic delta per canonical tick → existing Linear/Amiga conversion →
@@ -126,6 +135,9 @@ creation/hold intent. Existing zero-step sources retain their cursor and resume.
 | Empty rows / Fxx / order boundaries / new plan | Do not skip future enabled clocks on empty cells; use canonical Fxx frames. Rebuild state cold on invalidation; cached Play reuses an immutable plan. |
 
 ## Compatibility disposition, separate from architecture approval
+
+All six questions below remain UNAPPROVED. The limited A/C architecture approval
+does not approve any compatibility quirk or audible autovibrato behavior.
 
 **A — intended eventual G32 target:** independent channel-semantic phase/sweep,
 sine/square/two ramps, meaningful sweep and normal reset/carry, phase continuing
@@ -190,8 +202,11 @@ Whole/window/indexed/scan, loop direction, zero hold/resume and completed-source
 controls retain the existing 32-frame policy. G21/Rxy retirement debt, G03's FT2
 overlap policy and broader epsilon-policy parity remain separate; G23 tolerance
 is unchanged. No generic parity exclusion or relaxed PCM gate is authorized.
-Issue #488 remains OPEN and this document remains proposed. Complete capture,
-enabled behavior and compatibility decisions require their own approvals/proofs.
+Issue #488 remains OPEN for independent manager review. The depth-off A/C
+architecture is accepted; complete capture, neutrality and cost require their
+independent verification gates.
+Consumer migration, enabled behavior and compatibility decisions require separate
+approval and proof.
 
 Measure existing `event_generation`, `fine_pitch_source_history_build`,
 `fine_pitch_source_eligibility`, cold ordering/materialization and runtime queue

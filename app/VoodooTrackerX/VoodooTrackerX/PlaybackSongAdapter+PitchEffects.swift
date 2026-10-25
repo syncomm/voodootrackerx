@@ -2,21 +2,36 @@ import Foundation
 
 extension PlaybackSongSyntheticAdapter {
     /// Observes only an already-produced child list, in diagnostic append order.
-    static func appendPitchWriter(_ command: PlaybackSongSyntheticTonePortamentoDiagnostic, to context: inout AdapterRowContext) {
-        context.nativePitchWriterObserver.record(family: .tonePortamento, diagnosticIndex: context.tonePortamentoEffects.count,
+    static func appendPitchWriter(_ command: PlaybackSongSyntheticTonePortamentoDiagnostic, to context: inout AdapterRowContext, invocationTick: Int? = 1) {
+        let spanIndex = context.nativePitchWriterObserver.record(family: .tonePortamento, diagnosticIndex: context.tonePortamentoEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
+        context.semanticPitchBuilder.writer(span: spanIndex, family: .tonePortamento, index: context.tonePortamentoEffects.count,
+            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates, generation: command.activeEventIndex)
+        let before = command.currentLinearPeriodBefore ?? command.currentAmigaPeriodBefore
+        let target = command.targetLinearPeriod ?? command.targetAmigaPeriod
+        // The real handler's equal-target branch restores held output without a child.
+        if command.status == .applied, command.stepUpdates.isEmpty, command.directionAtExecution != .none,
+           let invocationTick, let before, let target, abs(before - target) <= 0.000000001 {
+            context.semanticPitchBuilder.add(tick: invocationTick, channel: command.channelIndex,
+                action: .writer(.init(.toneHold, context.tonePortamentoEffects.count), true, nil, before))
+        }
         context.tonePortamentoEffects.append(command)
     }
 
     static func appendPitchWriter(_ command: PlaybackSongSyntheticPortamentoSlideDiagnostic, to context: inout AdapterRowContext) {
-        context.nativePitchWriterObserver.record(family: .portamentoSlide, diagnosticIndex: context.portamentoSlideEffects.count,
+        let spanIndex = context.nativePitchWriterObserver.record(family: .portamentoSlide, diagnosticIndex: context.portamentoSlideEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
+        context.semanticPitchBuilder.writer(span: spanIndex, family: .portamentoSlide, index: context.portamentoSlideEffects.count,
+            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates, generation: command.activeEventIndex)
         context.portamentoSlideEffects.append(command)
     }
 
     static func appendPitchWriter(_ command: PlaybackSongSyntheticVibratoDiagnostic, to context: inout AdapterRowContext) {
         let spanIndex = context.nativePitchWriterObserver.record(family: .vibrato, diagnosticIndex: context.vibratoEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates)
+        context.semanticPitchBuilder.writer(span: spanIndex, family: .vibrato, index: context.vibratoEffects.count,
+            channel: command.channelIndex, rowSpeed: command.rowSpeed,
+            children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates, generation: command.activeEventIndex)
         context.rowExitObserver.registerVibrato(diagnosticIndex: context.vibratoEffects.count, spanIndex: spanIndex)
         context.vibratoEffects.append(command)
     }
@@ -442,8 +457,10 @@ extension PlaybackSongSyntheticAdapter {
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
             syntheticRow: command.syntheticRow, incoming: .arpeggio,
             incomingIndex: context.arpeggioEffects.count, context: &context)
-        context.nativePitchWriterObserver.record(family: .arpeggio, diagnosticIndex: context.arpeggioEffects.count,
+        let spanIndex = context.nativePitchWriterObserver.record(family: .arpeggio, diagnosticIndex: context.arpeggioEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
+        context.semanticPitchBuilder.writer(span: spanIndex, family: .arpeggio, index: context.arpeggioEffects.count,
+            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates, generation: command.activeEventIndex)
         context.arpeggioEffects.append(command)
     }
 
@@ -455,8 +472,12 @@ extension PlaybackSongSyntheticAdapter {
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
             syntheticRow: command.syntheticRow, incoming: .finePortamentoUp,
             incomingIndex: context.finePortamentoUpEffects.count, context: &context)
-        context.nativePitchWriterObserver.record(family: .finePortamentoUp, diagnosticIndex: context.finePortamentoUpEffects.count,
+        let spanIndex = context.nativePitchWriterObserver.record(family: .finePortamentoUp, diagnosticIndex: context.finePortamentoUpEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
+        context.semanticPitchBuilder.writer(span: spanIndex, family: .finePortamentoUp, index: context.finePortamentoUpEffects.count,
+            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates,
+            folded: command.appliedToInitialPlaybackStep ? command.activeEventIndex : nil,
+            scalar: command.currentLinearPeriodAfter, calculated: command.applied, generation: command.activeEventIndex)
         context.finePortamentoUpEffects.append(command)
     }
 
@@ -468,8 +489,12 @@ extension PlaybackSongSyntheticAdapter {
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
             syntheticRow: command.syntheticRow, incoming: .finePortamentoDown,
             incomingIndex: context.finePortamentoDownEffects.count, context: &context)
-        context.nativePitchWriterObserver.record(family: .finePortamentoDown, diagnosticIndex: context.finePortamentoDownEffects.count,
+        let spanIndex = context.nativePitchWriterObserver.record(family: .finePortamentoDown, diagnosticIndex: context.finePortamentoDownEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
+        context.semanticPitchBuilder.writer(span: spanIndex, family: .finePortamentoDown, index: context.finePortamentoDownEffects.count,
+            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates,
+            folded: command.appliedToInitialPlaybackStep ? command.activeEventIndex : nil,
+            scalar: command.currentLinearPeriodAfter, calculated: command.applied, generation: command.activeEventIndex)
         context.finePortamentoDownEffects.append(command)
     }
 
@@ -481,8 +506,12 @@ extension PlaybackSongSyntheticAdapter {
         subsumeArpeggioExit(updates: command.stepUpdates, eventIndex: command.activeEventIndex,
             syntheticRow: command.syntheticRow, incoming: command.direction == .up ? .extraFinePortamentoUp : .extraFinePortamentoDown,
             incomingIndex: context.extraFinePortamentoEffects.count, context: &context)
-        context.nativePitchWriterObserver.record(family: .extraFinePortamento, diagnosticIndex: context.extraFinePortamentoEffects.count,
+        let spanIndex = context.nativePitchWriterObserver.record(family: .extraFinePortamento, diagnosticIndex: context.extraFinePortamentoEffects.count,
             rowSpeed: command.rowSpeed, children: command.stepUpdates)
+        context.semanticPitchBuilder.writer(span: spanIndex, family: .extraFinePortamento, index: context.extraFinePortamentoEffects.count,
+            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates,
+            folded: command.appliedToInitialPlaybackStep ? command.activeEventIndex : nil,
+            scalar: command.currentLinearPeriodAfter, calculated: command.applied, generation: command.activeEventIndex)
         context.extraFinePortamentoEffects.append(command)
     }
 

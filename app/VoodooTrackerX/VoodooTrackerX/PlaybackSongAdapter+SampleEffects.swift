@@ -931,7 +931,7 @@ extension PlaybackSongSyntheticAdapter {
                     channelState: &state, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(0xF0),
                     executionTicks: tick..<(tick + 1))
                 let diagnosticIndex = context.tonePortamentoEffects.count
-                appendPitchWriter(diagnostic, to: &context)
+                appendPitchWriter(diagnostic, to: &context, invocationTick: tick)
                 context.g23ChildlessPitchInvocationObserver.record(rowCell: cell, tick: tick,
                     diagnosticIndex: diagnosticIndex, diagnostics: context.tonePortamentoEffects)
             }

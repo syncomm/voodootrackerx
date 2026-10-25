@@ -887,6 +887,7 @@ final class PlaybackSongOfflineRenderer {
             diagnostics: plan.diagnostics,
             canonicalTickClock: plan.canonicalTickClock,
             selectionDispatchFacts: plan.selectionDispatchFacts,
+            semanticPitchProjection: plan.semanticPitchProjection,
             heldPitchProvenance: plan.heldPitchProvenance,
             nativePitchWriterSpans: plan.nativePitchWriterSpans,
             g23ChildlessPitchInvocations: plan.g23ChildlessPitchInvocations,

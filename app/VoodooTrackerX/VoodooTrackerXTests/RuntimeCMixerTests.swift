@@ -9066,6 +9066,10 @@ final class R02C14OrderedPitchPolicyTests: XCTestCase {
             if case let .stepUpdate(_, step) = event.action { return step }; return nil
         }, [10963.0 / 65536, 10835.0 / 65536])
         XCTAssertEqual(ordered.count, runtime.events.count)
+        let semantic = try XCTUnwrap(runtime.plan?.semanticPitch(row: 1, tick: 2, channel: 0))
+        XCTAssertEqual(semantic.base, .known(4608)); XCTAssertEqual(semantic.output, .known(4666))
+        XCTAssertEqual(semantic.incoming, .known(4653)); XCTAssertEqual(semantic.associatedGeneration, 0)
+        XCTAssertEqual(semantic.producer, .nativeWriter(span: 0, child: 3))
         for (epsilonText, held, prior): (String?, Int, Int) in [
             ("0", 10835, 11173), (nil, 10835, 11173),
             ("0.003", 10963, 11173), ("0.01", 11418, 11418)] {

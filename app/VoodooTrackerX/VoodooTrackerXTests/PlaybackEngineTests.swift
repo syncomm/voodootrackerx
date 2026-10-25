@@ -129,6 +129,7 @@ final class PlaybackEngineTests: XCTestCase {
             "order_traversal",
             "timing_frame_calculation",
             "traversal_effect_status_indexing",
+            "semantic_pitch_publication",
             "event_generation",
             "pattern_row_iteration",
             "global_volume_channel_projection",
@@ -157,6 +158,7 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(output.contains("ordering_entries_precomputed=true"))
         XCTAssertTrue(output.contains("index_build_count=0"))
         XCTAssertTrue(output.contains("eligibility_query_count=0"))
+        XCTAssertTrue(output.contains("semantic_pitch_capture_failures=0"))
         XCTAssertFalse(output.contains("private"))
         XCTAssertFalse(output.contains("/"))
     }

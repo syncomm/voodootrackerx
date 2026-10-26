@@ -103,8 +103,7 @@ bounded contracts; they do not establish full command or audible parity.
   pitch, memory, envelope, trigger/retrigger/cut, and traversal obligations.
   Known families include panning slide, tremor, pattern delay, relevant
   E-commands, volume-column gaps, and remaining loaded-Amiga pitch coverage.
-  Pan-envelope arithmetic/clock quirks, instrument autovibrato,
-  onset/replacement/cut behavior,
+  Pan-envelope arithmetic/clock quirks, interactions beyond closed bounded G02/G03/G04/G32,
   and remaining envelope/pitch arithmetic must be resolved or explicitly
   justified within that same compatibility target.
 - Reconcile absent-keymap implementation/compatibility with [accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)

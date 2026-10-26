@@ -15082,6 +15082,171 @@
       "xm_output": "generated/instrument-autovibrato-musical-study-amiga.xm",
       "xm_sha256": "24ff490dbac154def8c15597e50a1c2907e4b55100a21244bef2aee64a533e97",
       "xm_size_bytes": 4274
+    },
+    {
+      "id": "new-source-onset",
+      "intended_tests": [
+        "new-source onset",
+        "exact sample routing",
+        "musical attack listening"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "TWO ATTACKS",
+            "note_sample_map": [
+              {
+                "end_note": 52,
+                "sample": 0,
+                "start_note": 1
+              },
+              {
+                "end_note": 96,
+                "sample": 1,
+                "start_note": 53
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "PULSE ATTACK",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 96,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "pulse"
+                },
+                "pcm_sha256": "d34a7a5a1de71cf19f72a7fca87ce839cfbca67842a08f87ad7c1c7b63330fa2",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "SAW ATTACK",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 80,
+                  "frame_count": 256,
+                  "period_frames": 16,
+                  "waveform": "saw"
+                },
+                "pcm_sha256": "a40f368248f33adda8f0821b2ce9a2bc60c47316bd8fc11056b4cbf7a53937cd",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0
+        ],
+        "patterns": [
+          {
+            "events": [
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 49,
+                "row": 0
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 53,
+                "row": 4
+              },
+              {
+                "channel": 0,
+                "note": 56,
+                "row": 8
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 209,
+                "effect_type": 14,
+                "note": 49,
+                "row": 12
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 144,
+                "effect_type": 14,
+                "note": 0,
+                "row": 16
+              },
+              {
+                "channel": 0,
+                "instrument": 1,
+                "note": 53,
+                "row": 20
+              },
+              {
+                "channel": 0,
+                "effect_parameter": 0,
+                "effect_type": 12,
+                "note": 0,
+                "row": 23
+              }
+            ],
+            "rows": 24
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX ONSET PHRASE",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "new-source-onset.xm",
+      "purpose": "Original short two-sample musical phrase with high first samples, note-only routing, actual ED1 dispatch and E90 births; G03 retirement remains separate.",
+      "significant_rows": [
+        "0: C-4 pulse",
+        "4: E-4 saw",
+        "8: G-4 note-only saw",
+        "12: C-4 note-only ED1",
+        "16: E90 carried pulse",
+        "20: E-4 saw",
+        "23: C00"
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [],
+      "xm_output": "generated/new-source-onset.xm",
+      "xm_sha256": "6b2db4f91bd5f1b75c9c15f63fe5006fc382b202afbb957ef5ee3971decbe69d",
+      "xm_size_bytes": 1237
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

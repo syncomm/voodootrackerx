@@ -22,8 +22,9 @@ final class VolumeColumnPanningMappingTests: XCTestCase {
             }
         }
         let right = render(song([cell(note: 49, instrument: 1, volume: 0xCF)]), 48_000)
-        XCTAssertGreaterThan(right.block.interleavedPCM[0], 0) // CF is 240, not the 255 endpoint.
-        XCTAssertGreaterThan(right.block.interleavedPCM[1], right.block.interleavedPCM[0])
+        XCTAssertEqual(Array(right.block.interleavedPCM.prefix(2)), [0, 0])
+        XCTAssertGreaterThan(right.block.interleavedPCM[2], 0) // CF is 240, not the 255 endpoint.
+        XCTAssertGreaterThan(right.block.interleavedPCM[3], right.block.interleavedPCM[2])
     }
 
     func testSampleDefaultsThenColumnThen8xxKeepTheirPrecedence() {

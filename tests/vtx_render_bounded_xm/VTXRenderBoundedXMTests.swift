@@ -926,9 +926,9 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             isolationFilter: PlaybackSongRenderIsolationFilter(soloChannelIndex: 1)
         ))
 
-        XCTAssertEqual(full.block.interleavedPCM, [1.25, 1.25, 1.25])
-        XCTAssertEqual(soloChannel0.block.interleavedPCM, [1, 1, 1])
-        XCTAssertEqual(soloChannel1.block.interleavedPCM, [0.25, 0.25, 0.25])
+        XCTAssertEqual(full.block.interleavedPCM, [0, 0.25, 0.5])
+        XCTAssertEqual(soloChannel0.block.interleavedPCM, [0, 0.2, 0.4])
+        XCTAssertEqual(soloChannel1.block.interleavedPCM, [0, 0.05, 0.1])
     }
 
     func testSoloInstrumentAndSampleRenderFiltersMatchingEvents() {
@@ -951,8 +951,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             isolationFilter: PlaybackSongRenderIsolationFilter(soloInstrumentIndex: 2, soloSampleIndex: 0)
         ))
 
-        XCTAssertEqual(soloInstrument2.block.interleavedPCM, [0.25, 0.25, 0.25])
-        XCTAssertEqual(soloSample1.block.interleavedPCM, [0.25, 0.25, 0.25])
+        XCTAssertEqual(soloInstrument2.block.interleavedPCM, [0, 0.05, 0.1])
+        XCTAssertEqual(soloSample1.block.interleavedPCM, [0, 0.05, 0.1])
     }
 
     func testWindowedSoloChannelDoesNotCarryMutedVoiceAfterGainUpdate() {

@@ -3372,7 +3372,8 @@ final class PlaybackSongOfflineRenderer {
                 keyOn: keyOn,
                 fadeoutValue: fadeoutValue,
                 gainRamp: audibleOutputState == nil || gainRamp?.deactivateAfterRamp == true ? gainRamp : nil,
-                panRamp: audibleOutputState == nil ? panRamp : nil
+                panRamp: audibleOutputState == nil ? panRamp : nil,
+                sourceOnsetElapsedFrames: elapsedFrames
             ),
             keyOffFrame: localKeyOffFrame,
             carriedTonePortamentoActive: carriedTonePortamentoActive,

@@ -74,7 +74,7 @@ final class OfflineRenderTests: XCTestCase {
         let result = PlaybackSongOfflineRenderer().render(request)
         let event = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [0.5, 0.25, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0.25, 0])
         XCTAssertEqual(result.scheduledVoiceIndices, [0])
         XCTAssertEqual(result.diagnostics.adaptedOrders.map(\.requestedOrderIndex), [0])
         XCTAssertEqual(event.source.patternIndex, 7)
@@ -111,7 +111,7 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(result.renderedFrameCount, 3)
         XCTAssertEqual(result.maximumFrameCount, 3)
         XCTAssertTrue(result.wasFrameCountBounded)
-        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 1])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 1])
     }
 
     func testPlaybackSongOfflineRendererSchedulesDenseRenderAbovePreviousCapacity() throws {
@@ -602,7 +602,8 @@ final class OfflineRenderTests: XCTestCase {
     }
 
     func testPlaybackSongOfflineRendererWindowedRenderReusesScheduledCapacityAcrossRows() throws {
-        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        // Include a settled output frame after each one-frame synthetic onset.
+        let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 100)
         let notesPerRow = 100
         let rows = (0..<3).map { rowIndex in
             PlaybackRow(index: rowIndex, cells: (0..<notesPerRow).map { _ in
@@ -619,7 +620,7 @@ final class OfflineRenderTests: XCTestCase {
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 3
+            frames: 4
         )
         let renderer = PlaybackSongOfflineRenderer()
 
@@ -632,11 +633,12 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(windowed.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, 0)
         XCTAssertEqual(windowed.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, 0)
         XCTAssertEqual(summary.windowCount, 3)
-        XCTAssertEqual(summary.totalScheduledEvents, notesPerRow * rows.count)
-        XCTAssertEqual(summary.totalAcceptedScheduledEvents, notesPerRow * rows.count)
+        XCTAssertEqual(summary.totalCarriedVoices, 200)
+        XCTAssertEqual(summary.totalScheduledEvents, notesPerRow * rows.count + 200)
+        XCTAssertEqual(summary.totalAcceptedScheduledEvents, notesPerRow * rows.count + 200)
         XCTAssertEqual(summary.totalScheduledCapacityRejects, 0)
-        XCTAssertEqual(summary.windows.map(\.scheduledEventCount), [100, 100, 100])
-        XCTAssertEqual(summary.windows.map(\.acceptedScheduledEventCount), [100, 100, 100])
+        XCTAssertEqual(summary.windows.map(\.scheduledEventCount), [100, 200, 200])
+        XCTAssertEqual(summary.windows.map(\.acceptedScheduledEventCount), [100, 200, 200])
         XCTAssertEqual(summary.windows.map(\.scheduledCapacityRejectedCount), [0, 0, 0])
         XCTAssertGreaterThan(windowed.block.interleavedPCM.reduce(0, +), allAtOnce.block.interleavedPCM.reduce(0, +))
     }
@@ -727,7 +729,7 @@ final class OfflineRenderTests: XCTestCase {
         let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
         let summary = try XCTUnwrap(result.windowedRenderSummary)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 1])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0])
         XCTAssertEqual(summary.totalCarriedVoices, 0)
         XCTAssertEqual(summary.totalBoundaryContinuations, 0)
         XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 0)
@@ -761,7 +763,7 @@ final class OfflineRenderTests: XCTestCase {
         let summary = try XCTUnwrap(windowed.windowedRenderSummary)
 
         XCTAssertEqual(windowed.block, nonWindowed.block)
-        XCTAssertEqual(windowed.block.interleavedPCM, [1, 0.5, -0.5, 0.25])
+        XCTAssertEqual(windowed.block.interleavedPCM, [0, 0.5, -0.5, 0.25])
         XCTAssertEqual(summary.totalCarriedVoices, 3)
         XCTAssertEqual(summary.totalBoundaryContinuations, 3)
         XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 0)
@@ -849,7 +851,7 @@ final class OfflineRenderTests: XCTestCase {
 
         let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
 
-        XCTAssertPCMEqual(result.block.interleavedPCM, [1, 1, 0.75, 0.5, 0.25])
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 1, 0.75, 0.5, 0.25])
         XCTAssertEqual(result.windowedRenderSummary?.totalCarriedVoices, 4)
     }
 
@@ -888,7 +890,7 @@ final class OfflineRenderTests: XCTestCase {
         let summary = try XCTUnwrap(result.windowedRenderSummary)
 
         // A no-envelope key-off zeros channel volume on the release tick.
-        XCTAssertPCMEqual(result.block.interleavedPCM, [1, 1, 1, 0, 0])
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 1, 1, 0, 0])
         XCTAssertGreaterThan(summary.totalReleasedVoiceCarryovers, 0)
         XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 0)
     }
@@ -952,7 +954,7 @@ final class OfflineRenderTests: XCTestCase {
 
         let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 1.21875, 1.1875])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0.96875, 1.1875])
         XCTAssertEqual(result.windowedRenderSummary?.totalBoundaryContinuations, 3)
         XCTAssertEqual(result.sameChannelVoiceLifetime.replacementRampFrameCount, 32)
         XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelActiveVoiceCount, 2)
@@ -1013,7 +1015,7 @@ final class OfflineRenderTests: XCTestCase {
         let result = PlaybackSongOfflineRenderer().render(request)
 
         XCTAssertEqual(result.requestedFrameCount, 4)
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, -0.5, 0.25])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0.5, -0.5, 0.25])
     }
 
     func testPlaybackSongOfflineRendererRowCountUsesVariableFxxTiming() {
@@ -1040,7 +1042,7 @@ final class OfflineRenderTests: XCTestCase {
 
         XCTAssertEqual(result.requestedFrameCount, 9)
         XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 3, 6])
-        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [1, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 9))
     }
 
     func testPlaybackSongOfflineRendererSplitRendersMatchOneLargerRender() {
@@ -1067,7 +1069,7 @@ final class OfflineRenderTests: XCTestCase {
         let single = renderer.render(request)
         let split = renderer.render(request, splitFrameCounts: [1, 2, 3])
 
-        XCTAssertEqual(single.block.interleavedPCM, [0, 0, 1, 0.5, -0.5, 0])
+        XCTAssertEqual(single.block.interleavedPCM, [0, 0, 0, 0.5, -0.5, 0])
         XCTAssertEqual(split.block, single.block)
         XCTAssertEqual(split.diagnostics, single.diagnostics)
     }
@@ -1227,7 +1229,7 @@ final class OfflineRenderTests: XCTestCase {
         let normal = renderer.render(request)
         let windowed = renderer.renderWindowed(request, windowRows: 1)
 
-        XCTAssertEqual(normal.block.interleavedPCM, [1, 0, 0])
+        XCTAssertEqual(normal.block.interleavedPCM, [0, 0, 0])
         XCTAssertEqual(windowed.block, normal.block)
         XCTAssertEqual(windowed.diagnostics.noteCutEffects.first?.scheduledFrame, 1)
         XCTAssertEqual(windowed.windowedRenderSummary?.totalBoundaryContinuations, 2)
@@ -1256,7 +1258,7 @@ final class OfflineRenderTests: XCTestCase {
         let normal = renderer.render(request)
         let windowed = renderer.renderWindowed(request, windowRows: 1)
 
-        XCTAssertEqual(normal.block.interleavedPCM, [0, 0, 1, 0])
+        XCTAssertEqual(normal.block.interleavedPCM, [0, 0, 0, 0])
         XCTAssertEqual(windowed.block, normal.block)
         XCTAssertEqual(windowed.diagnostics.noteDelayEffects.first?.status, .applied)
         XCTAssertEqual(windowed.diagnostics.noteDelayEffects.first?.delayedFrame, 2)
@@ -1285,7 +1287,7 @@ final class OfflineRenderTests: XCTestCase {
         let normal = renderer.render(request)
         let windowed = renderer.renderWindowed(request, windowRows: 1)
 
-        XCTAssertPCMEqual(normal.block.interleavedPCM, [1, 0.5, 1, 1])
+        XCTAssertPCMEqual(normal.block.interleavedPCM, [0, 0.5, 1, 0])
         XCTAssertEqual(windowed.block, normal.block)
         XCTAssertEqual(windowed.diagnostics.retriggerEffects.first?.status, .applied)
         XCTAssertEqual(windowed.diagnostics.retriggerEffects.first?.retriggerFrames, [3])
@@ -1479,7 +1481,7 @@ final class OfflineRenderTests: XCTestCase {
     }
 
     func testPlaybackSongOfflineRendererExportWAVAppliesGainPolicy() throws {
-        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
@@ -1489,7 +1491,7 @@ final class OfflineRenderTests: XCTestCase {
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 1
+            frames: 2
         )
         let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1504,7 +1506,7 @@ final class OfflineRenderTests: XCTestCase {
         )
         let wav = try parsePCM16WAV(Data(contentsOf: outputURL))
 
-        XCTAssertEqual(wav.samples, [16_384])
+        XCTAssertEqual(wav.samples, [0, 16_384])
         XCTAssertEqual(result.exportDiagnostics?.policy.gain, 0.5)
         XCTAssertEqual(result.exportDiagnostics?.postGainPeak, 0.5)
     }

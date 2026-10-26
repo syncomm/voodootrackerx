@@ -174,6 +174,10 @@ typedef struct {
     int has_external_envelope_state;
     VTXCMixerEnvelopeSemanticState external_envelope_state;
     VTXCMixerOutputState output;
+    // Independent new-source gain. Age follows output time, including silent/zero-step PCM.
+    uint32_t onset_duration_frames;
+    uint32_t onset_initial_age_frames;
+    uint32_t onset_age_frames;
     int has_channel_tag;
     uint32_t channel_tag;
     int active;
@@ -198,6 +202,8 @@ typedef struct {
     int has_external_envelope_state;
     VTXCMixerEnvelopeSemanticState external_envelope_state;
     VTXCMixerOutputState output;
+    uint32_t onset_duration_frames;
+    uint32_t onset_age_frames;
     int gain_ramp_active;
     float gain_ramp_start;
     float gain_ramp_target;
@@ -248,6 +254,13 @@ typedef struct {
     VTXCMixerVoice voices[VTX_C_MIXER_MAX_VOICES];
     VTXCMixerVoiceStateEvent voice_state_events[VTX_C_MIXER_MAX_VOICE_STATE_EVENTS];
 } VTXCMixerState;
+
+/// Returns the truncated 5 ms new-source duration in output frames.
+uint32_t vtx_c_mixer_source_onset_frame_count(double sample_rate);
+/// Enables onset on a freshly installed playable source, or imports its age at a window boundary.
+/// Rejects an existing onset, completed or retiring voice. Generic clients opt in at source installation.
+VTXCMixerStatus vtx_c_mixer_set_voice_source_onset(VTXCMixerState *state,
+    uint32_t voice_index, uint32_t elapsed_frames);
 
 // Applies a held target at the current frame; callers supply the semantic timeline.
 VTXCMixerStatus vtx_c_mixer_set_voice_envelope_semantic_state(

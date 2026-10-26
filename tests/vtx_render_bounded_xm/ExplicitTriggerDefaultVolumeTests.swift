@@ -43,7 +43,7 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
         XCTAssertEqual(context.events.map(\.gain), [0.25])
         let request = PlaybackSongOfflineRenderRequest(song: module, config: .init(sampleRate: 100, channelCount: 1), rows: 3)
         let rendered = PlaybackSongOfflineRenderer().render(request)
-        XCTAssertEqual(rendered.block.interleavedPCM, [0, 0.25, 0.25])
+        XCTAssertEqual(rendered.block.interleavedPCM, [0, 0, 0.25])
         XCTAssertEqual(rendered.diagnostics.eventMappings.first?.sampleIndex, 1)
     }
 
@@ -118,7 +118,8 @@ final class ExplicitTriggerDefaultVolumeTests: XCTestCase {
         }
         XCTAssertEqual(offline.plan.pattern.events.map(\.scheduledStartFrame), [480, 1920, 3360])
         XCTAssertEqual(offline.plan.pattern.events.map(\.gain), [0.25, 1, 0.5])
-        XCTAssertGreaterThan(offline.block.interleavedPCM[480], 0)
+        XCTAssertEqual(offline.block.interleavedPCM[480], 0)
+        XCTAssertGreaterThan(offline.block.interleavedPCM[481], 0)
     }
 
     private func inspect(_ song: PlaybackSong, initial: Adapter.ChannelState = .init()) -> (Adapter.AdapterRowContext, [Adapter.ChannelState]) {

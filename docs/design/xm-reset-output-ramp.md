@@ -1,7 +1,8 @@
 # XM Non-retriggering Reset Output Contract
 
 This note owns the implemented XM semantic tick, ordinary audible final-L/R,
-non-retriggering 5 ms reset, and bounded G04 ECx retained-source contracts.
+non-retriggering 5 ms reset, G02 new-source onset, and bounded G04 ECx
+retained-source contracts. G02 implementation does not establish its closure.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
 [XM volume ownership](xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
 Instrument-only dispatch reuses these contracts. Ordinary note-only carries
@@ -17,6 +18,7 @@ audible factor through this same final-output authority.
 | Semantic envelope/fadeout | `PlaybackXMEnvelopeTimeline` publishes instantaneous state at canonical Fxx tick frames, separately from audible interpolation. |
 | Final output targets | `PlaybackXMAudibleTimeline` combines typed factor writes with volume/pan-envelope and release targets. `VTXCMixerOutputState` alone interpolates their final mono/L/R gains. |
 | Gain/pan updates | For managed XM voices, scalar/pan writes update factor metadata without a second 32-frame ramp. Generic voices retain the existing independent 32-frame gain/pan path. |
+| New-source onset | An independent C voice multiplier fades each installed song/runtime source from silence over 5 ms of output time, including silent and zero-step sources. It does not change final targets or source stepping. |
 | Stereo output | Sample pan initializes channel pan. G06 consumes the existing semantic pan segment in the final target; static conversions/profile laws remain G40. A neutral pan clock alone does not enable final-output management. |
 | Output policy | Mixer profile scaling follows voice summation. Runtime fixed `-12 dB` headroom and product WAV auto-headroom to `-1 dB` remain separate downstream policies; runtime auto-headroom is disabled. |
 
@@ -30,6 +32,53 @@ The target amplitude is `output/64 * global/64 * envelope * fadeout`; L/R
 additionally multiply the existing pan-law factors. Mono retains
 its established pan-independent amplitude. The pan-envelope factor changes only
 the target pan; it adds no C envelope clock or interpolation state.
+
+### G02 new-source onset
+
+Every playable song/runtime source installation opts into the existing C mixer
+with age zero. For output-frame age `k`, its independent multiplier is
+`min(k / N, 1)`, where `N = max(1, floor(sampleRate * 0.005))`. At 48 kHz,
+`N = 240`: gains at ages 0/120/239/240 are 0/0.5/239÷240/1. At 44.1 kHz,
+`N = 220`: ages 0/110/219/220 yield 0/0.5/219÷220/1. The first frame reads
+and advances the original source cursor despite its zero multiplier; this is
+an attack, not a delayed note. Mono/L/R factors, profile scaling and headroom
+keep their existing authority. Managed final targets receive no second gain ramp.
+
+Fresh independent constant signed-16 PCM controls against the matrix's pinned
+FT2 reference confirm zero first output and the 240/220-frame endpoints in
+both frequency modes, with header volumes 16/64 and center/off-center pan.
+Positive and negative full-scale constants give the same normalized line.
+The largest observed normalized Float32 accumulation residual is below
+`1.98e-6`; VTX evaluates the clean linear fraction rather than accumulating
+reference rounding. This is a bounded onset observation, not a pan-law or
+bit-perfect reference claim. No reference code or tables are incorporated.
+
+Onset belongs to an installed source generation. Initial/ordinary notes,
+note-only routing, actual EDx dispatch and E90 receive it. Current E9/Rxy PCM
+restarts are also represented by new synthetic generations and C voices, so
+they receive the same new-side attack. This adds no trigger, counter, routing
+or retirement rule. Existing-source pitch/gain changes, Cxx recovery, ECx and
+instrument-only resets never start another onset. Empty/refused routes create
+no onset voice; represented zero-volume PCM advances silently.
+
+Three UInt32 fields retain duration, current age and initial imported age.
+The measured C voice stride is 512 bytes (formerly 504); existing padding
+absorbs part of the state, so the fixed 256-slot pool grows by 2048 bytes.
+Age advances once per rendered source frame, independently of
+gain, pan, cursor step and callback chunk size. Offline continuation imports
+elapsed output frames from the original event start, including during attack;
+reset restores the installed initial age. Generic primitive C clients retain
+their existing behavior unless they explicitly opt into source onset.
+
+The old source retains its existing 32-frame retirement and cursor/pitch.
+G03 remains open, including its known runtime/offline retrigger retirement
+difference. G04, generic G05 ramps, G40, interpolation and callback safety
+remain separately owned. `NewSourceOnsetTests` and runtime-core controls cover
+native curve/cursor, silent/held/completed sources, replacement tails, exact
+chunks, prepared/indexed/scan/window delivery and both rates. The original
+`new-source-onset.xm` phrase provides two distinct sample attacks for external
+before/after listening. G02 remains unclosed pending independent review and
+maintainer listening.
 
 ### G06 panning-envelope factor
 
@@ -218,8 +267,8 @@ completed or retiring voices. Imports never reactivate a completed source.
 Replacement snapshots current final output and uses the existing `(k + 1) / 32`
 retirement convention, identity and lifetime. Its old scalar timer still owns
 retirement, while only the final-output state supplies managed PCM. This avoids
-double multiplication. New note onset is unchanged; neither path claims FT2
-onset/replacement parity. ECx uses the retained-source contract below; internal
+double multiplication. G02's independent new-side onset is described above;
+replacement parity remains G03. ECx uses the retained-source contract below; internal
 hard stop remains immediate and separate.
 
 Constant-PCM tests pin rising/falling stereo interiors, unchanged-target holds,

@@ -7386,6 +7386,165 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(ring.droppedCount, 1)
     }
 
+    func testRuntimeCMixerEmptyRingClearPreservesCapacityAndReuse() {
+        for capacity in [3, RuntimeCMixerRenderCore.callbackDiagnosticRingCapacity] {
+            var ring = RuntimeCMixerFixedRingBuffer<Int>(capacity: capacity)
+            for value in 1...3 {
+                ring.removeAll()
+                ring.removeAll()
+                XCTAssertTrue(ring.isEmpty)
+                XCTAssertEqual(ring.count, 0)
+                XCTAssertEqual(ring.capacity, capacity)
+                XCTAssertEqual(ring.droppedCount, 0)
+                XCTAssertEqual(ring.drain(), [])
+                ring.record(value)
+                XCTAssertEqual(ring.drain(), [value])
+            }
+        }
+    }
+
+    func testRuntimeCMixerDrainReleasesReferencesBeforeEmptyClear() {
+        final class Witness {}
+        var ring = RuntimeCMixerFixedRingBuffer<Witness>(capacity: 3)
+        weak var witness: Witness?
+        do {
+            let value = Witness()
+            witness = value
+            ring.record(value)
+        }
+        var drained: [Witness]? = ring.drain()
+        XCTAssertEqual(drained?.count, 1)
+        withExtendedLifetime(drained) { XCTAssertNotNil(witness) }
+        drained = nil
+        // The drain itself must nil storage before the early-empty clear is safe.
+        XCTAssertNil(witness)
+        XCTAssertEqual(ring.count, 0)
+        ring.removeAll()
+        ring.record(Witness())
+        XCTAssertEqual(ring.drain().count, 1)
+        XCTAssertTrue(ring.drain().isEmpty)
+    }
+
+    func testRuntimeCMixerWrappedRingClearReleasesAllRemainingReferences() {
+        final class Witness {}
+        var ring = RuntimeCMixerFixedRingBuffer<Witness>(capacity: 3)
+        weak var first: Witness?, second: Witness?, third: Witness?, wrapped: Witness?
+        do {
+            let a = Witness(), b = Witness(), c = Witness()
+            first = a; second = b; third = c
+            ring.record(a); ring.record(b); ring.record(c)
+        }
+        XCTAssertEqual(ring.drain(limit: 1).count, 1)
+        XCTAssertNil(first)
+        do {
+            let value = Witness()
+            wrapped = value
+            ring.record(value)
+        }
+        XCTAssertTrue(ring.drain(limit: 0).isEmpty)
+        XCTAssertTrue(ring.drain(limit: -1).isEmpty)
+        XCTAssertEqual(ring.count, 3)
+        XCTAssertNotNil(second)
+        XCTAssertNotNil(third)
+        XCTAssertNotNil(wrapped)
+        ring.record(Witness())
+        ring.removeAll(resetDroppedCount: false)
+        XCTAssertNil(second)
+        XCTAssertNil(third)
+        XCTAssertNil(wrapped)
+        XCTAssertEqual(ring.droppedCount, 1)
+        XCTAssertEqual(ring.capacity, 3)
+        XCTAssertTrue(ring.drain().isEmpty)
+        ring.removeAll()
+        ring.record(Witness())
+        XCTAssertEqual(ring.drain().count, 1)
+        XCTAssertTrue(ring.isEmpty)
+        XCTAssertEqual(ring.droppedCount, 0)
+    }
+
+    func testRuntimeCMixerPartialRingClearReleasesReferencesAndReusesStorage() {
+        final class Witness {}
+        var ring = RuntimeCMixerFixedRingBuffer<Witness>(capacity: 3)
+        weak var witness: Witness?
+        do {
+            let value = Witness()
+            witness = value
+            ring.record(value)
+        }
+        XCTAssertNotNil(witness)
+        ring.removeAll()
+        XCTAssertNil(witness)
+        XCTAssertEqual(ring.capacity, 3)
+        XCTAssertEqual(ring.count, 0)
+        ring.record(Witness())
+        XCTAssertEqual(ring.drain().count, 1)
+        XCTAssertTrue(ring.drain().isEmpty)
+    }
+
+    func testRuntimeCMixerEmptyAndZeroCapacityRingClearsHonorDropCountPolicy() {
+        for capacity in [0, 2] {
+            var ring = RuntimeCMixerFixedRingBuffer<Int>(capacity: capacity)
+            ring.record(1); ring.record(2); ring.record(3)
+            let drops: UInt64 = capacity == 0 ? 3 : 1
+            XCTAssertEqual(ring.droppedCount, drops)
+            XCTAssertEqual(ring.drain(), capacity == 0 ? [] : [1, 2])
+            XCTAssertTrue(ring.isEmpty)
+            for _ in 0..<2 {
+                ring.removeAll(resetDroppedCount: false)
+                XCTAssertEqual(ring.droppedCount, drops)
+                XCTAssertEqual(ring.capacity, capacity)
+                XCTAssertEqual(ring.count, 0)
+            }
+            ring.removeAll()
+            XCTAssertEqual(ring.droppedCount, 0)
+            ring.recordDrop()
+            ring.removeAll(resetDroppedCount: false)
+            XCTAssertEqual(ring.droppedCount, 1)
+            ring.removeAll()
+            XCTAssertEqual(ring.droppedCount, 0)
+            ring.record(4)
+            XCTAssertEqual(ring.drain(), capacity == 0 ? [] : [4])
+            XCTAssertEqual(ring.droppedCount, capacity == 0 ? 1 : 0)
+        }
+    }
+
+    func testRuntimeCMixerRingCopiesKeepIndependentRecordsDropsAndLifetimes() {
+        final class Witness {
+            let id: Int
+            init(_ id: Int) { self.id = id }
+        }
+        var original = RuntimeCMixerFixedRingBuffer<Witness>(capacity: 2)
+        weak var first: Witness?, second: Witness?
+        do {
+            let value = Witness(1)
+            first = value
+            original.record(value)
+        }
+        var copy = original
+        original.removeAll()
+        XCTAssertNotNil(first)
+        do {
+            let value = Witness(2)
+            second = value
+            original.record(value)
+        }
+        copy.recordDrop()
+        XCTAssertEqual(original.droppedCount, 0)
+        XCTAssertEqual(copy.droppedCount, 1)
+        XCTAssertEqual(copy.drain().map(\.id), [1])
+        XCTAssertNil(first)
+        XCTAssertNotNil(second)
+        copy.removeAll(resetDroppedCount: false)
+        copy.record(Witness(3))
+        XCTAssertEqual(original.drain().map(\.id), [2])
+        XCTAssertNil(second)
+        original.removeAll()
+        XCTAssertEqual(copy.drain().map(\.id), [3])
+        XCTAssertEqual(copy.droppedCount, 1)
+        XCTAssertEqual(original.capacity, 2)
+        XCTAssertEqual(copy.capacity, 2)
+    }
+
     func testRuntimeCMixerNormalRenderReportsRealtimeSafeCallbackDiagnostics() {
         let core = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),

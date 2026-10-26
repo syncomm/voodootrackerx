@@ -170,8 +170,9 @@ final class XMVolumeOwnershipTests: XCTestCase {
         XCTAssertEqual(bounded.diagnostics.retriggerEffects.first?.retriggerTicks, [2])
         XCTAssertEqual(bounded.diagnostics.eventMappings.last?.effectiveVolumeValue, 16)
         XCTAssertEqual(bounded.plan.pattern.events.last?.gain, 0.078125)
-        // At this synthetic rate, G02 silences the first frame of each new source.
-        XCTAssertEqual(hash, "9897de4701c535af23ae6cb6ea4cc6e072aa6e0426a0fce0b695229650850a6a")
+        // G02 silences each birth; G03 retires the old source in one frame at this
+        // synthetic rate. Independent base/candidate comparison pins all other PCM.
+        XCTAssertEqual(hash, "67b9c84339b1869ced4bde93629fde679779a9aeaa2e401d6adcf20944a15070")
         XCTAssertEqual(bounded.block.frameCount, 56)
     }
 

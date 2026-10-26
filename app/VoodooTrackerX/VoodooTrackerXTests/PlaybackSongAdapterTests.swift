@@ -7964,7 +7964,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(lifetime.sameChannelReplacementStartCount, 2)
         XCTAssertEqual(lifetime.sameChannelReplacementCompletionCount, 2)
-        XCTAssertEqual(lifetime.sameChannelVoiceOverlapFrames, CSoftwareMixer.replacementStopRampFrameCount * 2)
+        XCTAssertEqual(lifetime.sameChannelVoiceOverlapFrames, CSoftwareMixer.songReplacementRampFrameCount(sampleRate: 6_400) * 2)
         XCTAssertEqual(lifetime.sameChannelActiveVoiceCount, 2)
         XCTAssertEqual(lifetime.maxVoicesPerSourceChannel[0], 2)
         XCTAssertEqual(lifetime.loadedVoicesBySourceChannel[0], 3)
@@ -7974,11 +7974,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
             2
         )
         XCTAssertEqual(result.block.interleavedPCM[63], 1, accuracy: 0.000_001)
-        // New side k/32 plus the unchanged old side (31-k)/32 leaves this G03 residual.
-        XCTAssertEqual(result.block.interleavedPCM[64], 31.0 / 32, accuracy: 0.000_001)
-        XCTAssertEqual(result.block.interleavedPCM[94], 31.0 / 32, accuracy: 0.000_001)
-        XCTAssertEqual(result.block.interleavedPCM[95], 31.0 / 32, accuracy: 0.000_001)
-        XCTAssertEqual(result.block.interleavedPCM[128], 31.0 / 32, accuracy: 0.000_001)
+        // At this rate N = 32: complementary k/N and 1-k/N preserve the constant level.
+        XCTAssertEqual(result.block.interleavedPCM[64], 1, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[94], 1, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[95], 1, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[128], 1, accuracy: 0.000_001)
     }
 
     func testPlaybackSongAdapterSameChannelReplacementWindowedRenderMatchesFullRender() throws {
@@ -8056,8 +8056,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementStartCount, 1)
         XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementCompletionCount, 1)
-        XCTAssertEqual(result.block.interleavedPCM[64], 31.0 / 32, accuracy: 0.000_001)
-        XCTAssertEqual(result.block.interleavedPCM[95], 31.0 / 32, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[64], 1, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[95], 1, accuracy: 0.000_001)
         XCTAssertEqual(result.block.interleavedPCM[127], 1, accuracy: 0.000_001)
     }
 
@@ -8098,7 +8098,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(runtimePlan.events.filter { $0.categories.contains("replacement") }.count, 1)
         XCTAssertEqual(runtimePlan.events.filter { $0.categories.contains("replacement") }.count, result.sameChannelVoiceLifetime.sameChannelReplacementStartCount)
         XCTAssertEqual(result.block.interleavedPCM[127], 1, accuracy: 0.000_001)
-        XCTAssertEqual(result.block.interleavedPCM[128], 31.0 / 32, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[128], 1, accuracy: 0.000_001)
     }
 
     func testPlaybackSongAdapterWindowedCarryoverPreservesActiveGainRampState() throws {

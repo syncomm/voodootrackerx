@@ -23,6 +23,10 @@ uint32_t vtx_c_mixer_source_onset_frame_count(double sample_rate) {
     return frames >= (double)UINT32_MAX ? UINT32_MAX : (frames < 1.0 ? 1u : (uint32_t)frames);
 }
 
+uint32_t vtx_c_mixer_song_retirement_frame_count(double sample_rate) {
+    return vtx_c_mixer_source_onset_frame_count(sample_rate);
+}
+
 VTXCMixerStatus vtx_c_mixer_set_voice_source_onset(VTXCMixerState *state,
     uint32_t voice_index, uint32_t elapsed_frames) {
     if (state == NULL || voice_index >= state->voice_count) { return VTX_C_MIXER_STATUS_INVALID_ARGUMENT; }
@@ -154,6 +158,10 @@ static float vtx_c_mixer_effective_gain(const VTXCMixerVoice *voice) {
     if (voice == NULL) {
         return 0.0f;
     }
+    if (voice->gain_ramp_active && voice->deactivate_after_gain_ramp == VTX_C_MIXER_RETIRE_SONG) {
+        float progress = (float)voice->gain_ramp_position_frame / (float)voice->gain_ramp_total_frames;
+        return voice->gain_ramp_start + (voice->gain_ramp_target - voice->gain_ramp_start) * progress;
+    }
     return vtx_c_mixer_effective_ramped_value(
         voice->gain_ramp_active,
         voice->gain_ramp_start,
@@ -209,10 +217,16 @@ static void vtx_c_mixer_start_gain_ramp_with_frame_count(
     if (voice == NULL) {
         return;
     }
+    if (deactivate_after_ramp == VTX_C_MIXER_RETIRE_SONG &&
+        (!voice->active || voice->deactivate_after_gain_ramp)) { return; }
     target = vtx_c_mixer_sanitized_gain(target);
     if (voice->output.enabled) {
         if (deactivate_after_ramp) {
-            vtx_c_mixer_output_retire(&voice->output, frame_count);
+            if (deactivate_after_ramp == VTX_C_MIXER_RETIRE_SONG) {
+                vtx_c_mixer_output_retire_song(&voice->output, frame_count);
+            } else {
+                vtx_c_mixer_output_retire(&voice->output, frame_count);
+            }
         } else {
             // Managed XM factors feed one final target; do not multiply two ramps.
             voice->gain = target;
@@ -225,7 +239,7 @@ static void vtx_c_mixer_start_gain_ramp_with_frame_count(
     voice->gain_ramp_total_frames = frame_count;
     voice->gain_ramp_position_frame = 0u;
     voice->gain_ramp_active = voice->gain_ramp_total_frames > 0u;
-    voice->deactivate_after_gain_ramp = deactivate_after_ramp ? 1 : 0;
+    voice->deactivate_after_gain_ramp = deactivate_after_ramp;
     voice->gain = target;
 }
 
@@ -519,6 +533,12 @@ static void vtx_c_mixer_apply_voice_state_events(VTXCMixerState *state, uint64_t
         }
         if (event->voice_index < state->voice_count) {
             voice = &state->voices[event->voice_index];
+            // Runtime removes these queued writes at displacement. Offline tails must
+            // likewise reject stale writes rather than reopening a retired generation.
+            if (voice->deactivate_after_gain_ramp == VTX_C_MIXER_RETIRE_SONG) {
+                state->next_voice_state_event_index++;
+                continue;
+            }
             if (voice->active && absolute_frame >= voice->scheduled_start_frame &&
                 !voice->deactivate_after_gain_ramp) {
                 uint32_t reset = event->playback_reset;
@@ -1253,7 +1273,7 @@ VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
     out_diagnostic->gain_ramp_target = voice->gain_ramp_target;
     out_diagnostic->gain_ramp_total_frames = voice->gain_ramp_total_frames;
     out_diagnostic->gain_ramp_position_frame = voice->gain_ramp_position_frame;
-    out_diagnostic->deactivate_after_gain_ramp = voice->deactivate_after_gain_ramp ? 1 : 0;
+    out_diagnostic->deactivate_after_gain_ramp = voice->deactivate_after_gain_ramp;
     out_diagnostic->pan_ramp_active = voice->pan_ramp_active ? 1 : 0;
     out_diagnostic->pan_ramp_start = voice->pan_ramp_start;
     out_diagnostic->pan_ramp_target = voice->pan_ramp_target;
@@ -1270,7 +1290,7 @@ VTXCMixerOutputGains vtx_c_mixer_output_gains(VTXCMixerPanLaw pan_law, float amp
 }
 
 VTXCMixerOutputGains vtx_c_mixer_output_value(VTXCMixerOutputState output) {
-    uint64_t position = (uint64_t)output.position_frame + (output.retiring ? 1u : 0u);
+    uint64_t position = (uint64_t)output.position_frame + (output.retiring == VTX_C_MIXER_RETIRE_GENERIC ? 1u : 0u);
     if (output.duration_frames == 0u || position >= output.duration_frames) { return output.target; }
     float fraction = (float)position / (float)output.duration_frames;
     VTXCMixerOutputGains value = {
@@ -1319,8 +1339,14 @@ void vtx_c_mixer_output_retire(VTXCMixerOutputState *output, uint32_t duration) 
     output->target = (VTXCMixerOutputGains){0.0f, 0.0f, 0.0f};
     output->duration_frames = duration;
     output->position_frame = 0u;
-    // Retirement keeps the existing (k + 1) / 32 endpoint and lifetime convention.
+    // Generic clients retain their next-frame endpoint and lifetime convention.
     output->retiring = 1;
+}
+
+void vtx_c_mixer_output_retire_song(VTXCMixerOutputState *output, uint32_t duration) {
+    if (output == NULL || !output->enabled || output->retiring) { return; }
+    vtx_c_mixer_output_retire(output, duration);
+    output->retiring = VTX_C_MIXER_RETIRE_SONG;
 }
 
 VTXCMixerStatus vtx_c_mixer_publish_voice_output(VTXCMixerState *state, uint32_t voice_index,
@@ -1422,10 +1448,11 @@ VTXCMixerStatus vtx_c_mixer_stop_voices_for_channel_tag(
     return VTX_C_MIXER_STATUS_OK;
 }
 
-VTXCMixerStatus vtx_c_mixer_ramp_down_voices_for_channel_tag(
+static VTXCMixerStatus vtx_c_mixer_ramp_down_voices_for_channel_tag_internal(
     VTXCMixerState *state,
     uint32_t channel_tag,
     uint32_t ramp_frame_count,
+    int retirement_mode,
     uint32_t *out_ramped_count
 ) {
     uint32_t voice_index;
@@ -1441,6 +1468,10 @@ VTXCMixerStatus vtx_c_mixer_ramp_down_voices_for_channel_tag(
             voice->channel_tag != channel_tag) {
             continue;
         }
+        if (retirement_mode == VTX_C_MIXER_RETIRE_SONG &&
+            (voice->deactivate_after_gain_ramp || state->current_frame < voice->scheduled_start_frame)) {
+            continue;
+        }
         vtx_c_mixer_remove_voice_state_events_for_voice(state, voice_index);
         if (!voice->active) {
             vtx_c_mixer_release_voice(voice);
@@ -1450,7 +1481,7 @@ VTXCMixerStatus vtx_c_mixer_ramp_down_voices_for_channel_tag(
             voice,
             0.0f,
             ramp_frame_count,
-            1
+            retirement_mode
         );
         state->ramp_down_start_count++;
         ramped_count++;
@@ -1459,6 +1490,19 @@ VTXCMixerStatus vtx_c_mixer_ramp_down_voices_for_channel_tag(
         *out_ramped_count = ramped_count;
     }
     return VTX_C_MIXER_STATUS_OK;
+}
+
+VTXCMixerStatus vtx_c_mixer_ramp_down_voices_for_channel_tag(
+    VTXCMixerState *state, uint32_t channel_tag, uint32_t ramp_frame_count, uint32_t *out_ramped_count) {
+    return vtx_c_mixer_ramp_down_voices_for_channel_tag_internal(
+        state, channel_tag, ramp_frame_count, VTX_C_MIXER_RETIRE_GENERIC, out_ramped_count);
+}
+
+VTXCMixerStatus vtx_c_mixer_retire_song_voices_for_channel_tag(
+    VTXCMixerState *state, uint32_t channel_tag, uint32_t *out_ramped_count) {
+    if (state == NULL) { return VTX_C_MIXER_STATUS_INVALID_ARGUMENT; }
+    return vtx_c_mixer_ramp_down_voices_for_channel_tag_internal(state, channel_tag,
+        vtx_c_mixer_song_retirement_frame_count(state->config.sample_rate), VTX_C_MIXER_RETIRE_SONG, out_ramped_count);
 }
 
 VTXCMixerStatus vtx_c_mixer_add_one_shot_sample(
@@ -1838,6 +1882,20 @@ VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
     return VTX_C_MIXER_STATUS_OK;
 }
 
+VTXCMixerStatus vtx_c_mixer_set_continuation_sample_step(
+    VTXCMixerState *state, uint32_t voice_index, double sample_step) {
+    if (state == NULL || voice_index >= state->voice_count ||
+        !isfinite(sample_step) || sample_step < 0.0 || sample_step > (double)UINT32_MAX) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    VTXCMixerVoice *voice = &state->voices[voice_index];
+    if (!voice->active || voice->deactivate_after_gain_ramp ||
+        state->current_frame != voice->scheduled_start_frame) { return VTX_C_MIXER_STATUS_INVALID_ARGUMENT; }
+    voice->sample_step = sample_step;
+    voice->initial_sample_step = sample_step;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 VTXCMixerStatus vtx_c_mixer_set_voice_gain_pan_ramp_state(
     VTXCMixerState *state,
     uint32_t voice_index,
@@ -1872,7 +1930,7 @@ VTXCMixerStatus vtx_c_mixer_set_voice_gain_pan_ramp_state(
         voice->gain_ramp_total_frames = gain_ramp.total_frames;
         voice->gain_ramp_position_frame = gain_ramp.position_frame;
         voice->gain = voice->gain_ramp_target;
-        voice->deactivate_after_gain_ramp = gain_ramp.deactivate_after_ramp ? 1 : 0;
+        voice->deactivate_after_gain_ramp = gain_ramp.deactivate_after_ramp;
     } else {
         vtx_c_mixer_clear_gain_ramp(voice);
         voice->deactivate_after_gain_ramp = 0;
@@ -2000,7 +2058,7 @@ static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
     event.ramp_frame_count = event.ramp_enabled && ramp_frame_count > 0u
         ? ramp_frame_count
         : VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES;
-    event.deactivate_after_gain_ramp = deactivate_after_gain_ramp ? 1 : 0;
+    event.deactivate_after_gain_ramp = deactivate_after_gain_ramp;
 
     return vtx_c_mixer_insert_voice_state_event(state, event);
 }
@@ -2162,6 +2220,14 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_ramp_down_and_deactivate(
     );
 }
 
+VTXCMixerStatus vtx_c_mixer_schedule_song_voice_retirement(
+    VTXCMixerState *state, uint32_t voice_index, uint64_t scheduled_frame) {
+    if (state == NULL) { return VTX_C_MIXER_STATUS_INVALID_ARGUMENT; }
+    return vtx_c_mixer_schedule_voice_gain_pan_update_internal(state, voice_index, scheduled_frame,
+        1, 0.0f, 0, 0.0f, 0, 1.0, 0, 0u, 1,
+        vtx_c_mixer_song_retirement_frame_count(state->config.sample_rate), VTX_C_MIXER_RETIRE_SONG);
+}
+
 VTXCMixerStatus vtx_c_mixer_render(
     VTXCMixerState *state,
     float *output_interleaved_float32,
@@ -2257,7 +2323,9 @@ VTXCMixerStatus vtx_c_mixer_render(
 
             vtx_c_mixer_advance_sample_position(voice);
             // Output time advances even when PCM gain or pitch step is zero.
-            if (voice->onset_age_frames < voice->onset_duration_frames) { voice->onset_age_frames++; }
+            // A displaced attack contributes its current value, never a still-growing attack.
+            if (voice->onset_age_frames < voice->onset_duration_frames &&
+                voice->deactivate_after_gain_ramp != VTX_C_MIXER_RETIRE_SONG) { voice->onset_age_frames++; }
             vtx_c_mixer_output_advance(&voice->output, 1u);
             vtx_c_mixer_advance_voice_envelopes(voice);
             vtx_c_mixer_advance_value_ramps(state, voice);

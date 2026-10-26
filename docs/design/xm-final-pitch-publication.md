@@ -299,11 +299,12 @@ diagnostic children can require COW storage beside captured raw children.
 Profile fields expose request/bounds capacity growth, row workspace capacity and
 changed-array capacity proxies; these are not measured malloc counts.
 
-Actual E9/Rxy retriggers retain the established G03/G21 runtime 32-frame old-voice
-tail versus immediate offline cut. Dedicated controls establish the same
-depth-off difference, strict PCM equality outside actual retirement windows and
-new-generation step/cursor delivery inside them. No tolerance or DSP policy is
-changed; this residual is separate from instrument modulation and G32 closure.
+Actual E9/Rxy retriggers retain the G21 runtime old-voice tail versus immediate
+offline cut; G03 supplies the current 5 ms song-tail duration. Dedicated controls
+establish the same depth-off difference, strict PCM equality outside actual
+retirement windows and new-generation step/cursor delivery inside them. G32
+changes no tolerance or DSP policy; retirement is separately owned from
+instrument modulation and G32 closure.
 
 **C — intentionally omit:** redundant period-refresh flags and period writes to
 inactive mixer slots when state/output equality is preserved. No phantom source
@@ -346,8 +347,11 @@ and `R02ReplacementParityTests`. Offline scheduling and continuation histories
 now preserve runtime's cancellation of old-generation pitch writes at replacement
 frame N, holding the pre-N physical step while advancing the retiring cursor.
 Whole/window/indexed/scan, loop direction, zero hold/resume and completed-source
-controls retain the existing 32-frame policy. G21/Rxy retirement debt, G03's FT2
-overlap policy and broader epsilon-policy parity remain separate; G23 tolerance
+controls originally retained the 32-frame policy. The bounded G03
+[song-retirement contract](xm-reset-output-ramp.md#g03-same-channel-outgoing-source-retirement)
+extends those same R02 proofs through the full 5 ms tail without reopening the
+old pitch stream. G21/Rxy offline retirement debt, G03 independent acceptance
+and broader epsilon-policy parity remain separate; G23 tolerance
 is unchanged. No generic parity exclusion or relaxed PCM gate is authorized.
 Issue #488 remains OPEN for independent manager review. The depth-off A/C
 architecture is accepted; complete capture, neutrality and cost require their

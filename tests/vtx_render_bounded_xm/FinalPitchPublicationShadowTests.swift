@@ -236,7 +236,7 @@ final class OrdinaryReplacementOfflineParityTests: XCTestCase {
                 XCTAssertEqual(replacement.oldEventIndex, 0)
                 XCTAssertEqual(replacement.newEventIndex, 1)
                 XCTAssertEqual(replacement.replacementFrame, 12 * Int(rate / 50))
-                XCTAssertEqual(replacement.completionFrame, replacement.replacementFrame + 32)
+                XCTAssertEqual(replacement.completionFrame, replacement.replacementFrame + Int(rate * 0.005))
                 XCTAssertEqual(plan.diagnostics.eventMappings.map(\.instrumentIndex), [1, 2])
                 XCTAssertNotEqual(plan.pattern.events[0].sample, plan.pattern.events[1].sample)
                 for rows in [1, 2, 3] {
@@ -249,7 +249,7 @@ final class OrdinaryReplacementOfflineParityTests: XCTestCase {
                 let session = renderer.prepare(request)
                 let cuts = [replacement.replacementFrame, replacement.replacementFrame + 1,
                     replacement.replacementFrame + 15, replacement.replacementFrame + 30,
-                    replacement.replacementFrame + 31, replacement.replacementFrame + 32, whole.block.frameCount]
+                    replacement.replacementFrame + Int(rate * 0.005) - 1, replacement.replacementFrame + Int(rate * 0.005), whole.block.frameCount]
                 var previous = 0, prepared = [Float]()
                 for cut in cuts {
                     prepared += session.render(frames: cut - previous).interleavedPCM
@@ -259,7 +259,7 @@ final class OrdinaryReplacementOfflineParityTests: XCTestCase {
 #if DEBUG
                 for boundaries in [Array(cuts.dropLast()), [replacement.replacementFrame + 1],
                     [replacement.replacementFrame + 15], [replacement.replacementFrame + 30],
-                    [replacement.replacementFrame + 31], [replacement.replacementFrame + 32]] {
+                    [replacement.replacementFrame + Int(rate * 0.005) - 1], [replacement.replacementFrame + Int(rate * 0.005)]] {
                     let split = renderer.renderWindowedAtFrameBoundariesForTesting(request, boundaries: boundaries)
                     assertPCM(split.block.interleavedPCM, reference)
                 }
@@ -343,7 +343,7 @@ final class OrdinaryReplacementOfflineParityTests: XCTestCase {
             }
             let held = try XCTUnwrap(steps.firstIndex(of: 0))
             XCTAssertTrue(steps.dropFirst(held + 1).contains { $0 > 0 })
-            let request = PlaybackSongOfflineRenderRequest(song: input, config: .init(sampleRate: rate), frames: n + 64)
+            let request = PlaybackSongOfflineRenderRequest(song: input, config: .init(sampleRate: rate), frames: n + Int(rate * 0.005) + 64)
             let renderer = R(preparedPlan: try XCTUnwrap(runtime.plan))
             let reference = try physicalReference(runtime, config: request.config, frames: request.boundedFrameCount)
             assertPCM(renderer.render(request).block.interleavedPCM, reference)
@@ -371,20 +371,21 @@ final class OrdinaryReplacementOfflineParityTests: XCTestCase {
         }
         var pcm = mixer.render(frames: n).interleavedPCM
         let frozen = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: voice))
-        XCTAssertEqual(mixer.rampDownVoices(channel: 0, rampFrames: 32), 1)
+        XCTAssertEqual(mixer.retireSongVoices(channel: 0), 1)
         _ = mixer.addVoice(sample: new.sample, gain: new.gain, pan: new.pan,
             playbackStep: new.playbackStep, loop: new.loop, sourceOnsetElapsedFrames: 0)
+        let duration = Int(config.sampleRate * 0.005)
         var elapsed = 0
-        for offset in [0, 1, 15, 30, 31, 32, frames - n] {
+        for offset in Set([0, 1, 15, 30, duration / 2, duration - 1, duration, frames - n]).sorted() {
             pcm += mixer.render(frames: offset - elapsed).interleavedPCM
             elapsed = offset
             let state = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: voice))
             XCTAssertEqual(state.sampleStep, frozen.sampleStep)
-            XCTAssertEqual(state.active, offset < 32)
+            XCTAssertEqual(state.active, offset < duration)
 #if DEBUG
             let carry = R().continuationsForTesting(plan, at: n + offset, config: config)
                 .first { $0.eventIndex == 0 }
-            XCTAssertEqual(carry != nil, offset < 32)
+            XCTAssertEqual(carry != nil, offset < duration)
             if let carry {
                 XCTAssertEqual(carry.playbackStep, state.sampleStep)
                 XCTAssertEqual(carry.runtimeState.samplePosition, state.samplePosition, accuracy: 1e-8)
@@ -399,9 +400,9 @@ final class OrdinaryReplacementOfflineParityTests: XCTestCase {
                 XCTAssertEqual(diagnostic.pingPongDirection, state.pingPongDirection)
             }
 #endif
-            if offset < 32 {
+            if offset < duration {
                 let ramp = try XCTUnwrap(state.gainRamp)
-                XCTAssertEqual(ramp.totalFrames, 32)
+                XCTAssertEqual(ramp.totalFrames, duration)
                 XCTAssertEqual(ramp.positionFrame, offset)
                 XCTAssertEqual(ramp.target, 0)
                 XCTAssertTrue(ramp.deactivateAfterRamp)

@@ -158,12 +158,12 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testNativeSelectionPhysicalBaseline() throws {
-        // G02 updates attack PCM and adds window onset age. An independent starting-SHA
-        // component audit pins all other state and exact PCM outside [birth, birth + N).
-        let expected = ["true-44100": "e442efa07b054de4fb9091d34040332d247e9402c102818a2b2f462ccb03c6e5",
-            "true-48000": "3e71290fe1b7d4e1bc910211b366a2f5f9d6e3e88f30d42ed8ba76dbfba905a3",
-            "false-44100": "107c37eb9b6e04a6911f34e6aa8df3aebd114c8661a7beb71cd5787fcf5df5da",
-            "false-48000": "42766ea713a227c4c85f4a154731fb2e9d5643ed57a160aef10d5384f2e23f73"]
+        // G03 changes only old-source tail PCM/state. A fresh merged-base component
+        // audit pins all event/plan/window state and exact Float32 PCM outside retirement.
+        let expected = ["true-44100": "b5bc9732f85041c4542047f599b753757e6f19600c0fe1d70ef53beab04a09db",
+            "true-48000": "e4e7a14286d25050b212b4620399712b69aada2e9f31227c3e9f3130001a8fdf",
+            "false-44100": "4cef4b3a81c2f2c099bbb70157d020ed479b866a5d782637547420463bdc0344",
+            "false-48000": "39c58ecc0a5ade95827e47907a43d039fb508e48e1c8f8e5c28055015b6f392b"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data()
             for cells in clockSentinels + selectionSentinels {
@@ -238,12 +238,12 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testCanonicalClockPhysicalBaseline() throws {
-        // G02 changes only attack PCM here. Starting-SHA component comparisons keep
-        // ordered runtime events, IDs, diagnostics and non-attack PCM exact.
-        let expected = ["true44100": "28b42f23bb4dcb0ec2ff7f0d4a254040a2122fee1507ab51a4518bdcc5fde675",
-            "true48000": "7675fec30ca2dfbf430f371c1d430bf8282a37763275167cbd6eedd1df286cb1",
-            "false44100": "8cd0d053fc43a1072f43445ec2251b8fb5b1702435f3780df40887505b13c3bd",
-            "false48000": "c555c7768309582ca1761e7e81c4a785cae70a1fd62c6b728a9d52a0c3b85da5"]
+        // G03 tail-only differences are qualified against the fresh merged base;
+        // ordered runtime events, IDs, diagnostics and all other PCM remain exact.
+        let expected = ["true44100": "bfb1cc0859e2a9e05a201fa138dbd178838ffbd2ac34dc2e7bcb425da105601d",
+            "true48000": "24e0c9f8f047e4000f6ab57ae61ea37101d30c5cbbb63c55adc9a0b4ed00f215",
+            "false44100": "e078e257dc7676e9de4eeb8883517bce0086128d882edafe1a10b694ed00a4ad",
+            "false48000": "aa769a3a9a77098f3f53bf0a23b092e1ef0094e67e0e1ea5dede4fe242273ba3"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data()
             for cells in clockSentinels {

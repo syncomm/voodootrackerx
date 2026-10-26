@@ -78,8 +78,12 @@ host.
 - G02 new-source onset uses an independent C voice multiplier from zero to the
   existing target over 240 output frames at 48 kHz / 220 at 44.1 kHz. Source
   timing/cursor and final targets remain independent, including silent/zero-step
-  births and window continuation. Independent review and maintainer listening
-  remain required; G03 retirement/overlap stays open. See the
+  births and window continuation. Its bounded contract is closed after passing
+  CI and Gregory's independent listening acceptance. G03 song retirement now
+  uses the same C-owned 5 ms interval with current-value `1-k/N` output, one
+  deadline per displaced generation and retained physical pitch/cursor. G03
+  independent acceptance/listening and G21 offline retrigger-tail reconstruction
+  remain open. See the
   [onset contract](design/xm-reset-output-ramp.md#g02-new-source-onset).
 - G26 Amiga `0xy` is closed for in-range quantized pitches. It reuses G25's
   phase selector and the existing Amiga note/finetune lookup and sample-step
@@ -289,7 +293,8 @@ host.
   admission, carried periods, signed arithmetic, extreme target/direction and
   arpeggio projection are owned by G30B above and verified together under the
   closed bounded G30 contract. C DSP, onset,
-  interpolation rounding and 32-frame retirement policy are unchanged.
+  interpolation rounding and generic 32-frame ramps remain separate from G03
+  song retirement.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

@@ -301,8 +301,8 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(diagnostics.indexedContinuationCandidateCount, 2)
         XCTAssertEqual(diagnostics.eventCountsByWindow, [1, 2, 1])
         XCTAssertEqual(diagnostics.continuationCandidateCountsByWindow, [0, 1, 1])
-        XCTAssertEqual(diagnostics.updateCandidateCountsByWindow, [1, 4, 2])
-        XCTAssertEqual(diagnostics.indexedUpdateCandidateCount, 7)
+        XCTAssertEqual(diagnostics.updateCandidateCountsByWindow, [1, 3, 2])
+        XCTAssertEqual(diagnostics.indexedUpdateCandidateCount, 6)
         XCTAssertEqual(diagnostics.currentWindowEventAndUpdateFullArrayScanCount, 39)
         XCTAssertEqual(diagnostics.currentContinuationTopLevelFullArrayScanCount, 6)
         XCTAssertEqual(diagnostics.currentTopLevelFullArrayScanCount, 45)
@@ -310,14 +310,14 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(diagnostics.estimatedAvoidedEventAndUpdateFullArrayScanCount, 26)
         XCTAssertEqual(index.windows[0].schedulingUpdateCandidates.map(\.kind), [.voiceGainPan])
         XCTAssertEqual(index.windows[0].schedulingUpdateCandidates.map(\.scheduledFrame), [63])
-        XCTAssertEqual(index.windows[1].schedulingUpdateCandidates.map(\.kind), [.finePortamentoUpStep, .sameChannelReplacementRamp, .sameChannelReplacementRamp, .sameChannelReplacementRamp])
-        XCTAssertEqual(index.windows[1].schedulingUpdateCandidates.map(\.scheduledFrame), [65, 64, 70, 70])
+        XCTAssertEqual(index.windows[1].schedulingUpdateCandidates.map(\.kind), [.finePortamentoUpStep, .sameChannelReplacementRamp, .sameChannelReplacementRamp])
+        XCTAssertEqual(index.windows[1].schedulingUpdateCandidates.map(\.scheduledFrame), [65, 64, 70])
         XCTAssertEqual(index.windows[2].schedulingUpdateCandidates.map(\.kind), [.voiceGainPan, .sameChannelReplacementRamp])
         XCTAssertEqual(index.windows[2].schedulingUpdateCandidates.map(\.scheduledFrame), [128, 129])
-        XCTAssertEqual(index.windows.flatMap(\.schedulingUpdateCandidates).map(\.activeEventIndex), [0, 1, 0, 0, 1, 2, 2])
+        XCTAssertEqual(index.windows.flatMap(\.schedulingUpdateCandidates).map(\.activeEventIndex), [0, 1, 0, 1, 2, 2])
         XCTAssertEqual(current.diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).map(\.scheduledFrame), [63, 128])
         XCTAssertEqual(current.diagnostics.finePortamentoUpEffects.filter(\.applied).flatMap(\.stepUpdates).map(\.scheduledFrame), [65])
-        XCTAssertEqual(current.sameChannelVoiceLifetime.replacementEvents.map(\.replacementFrame), [64, 70, 70, 129])
+        XCTAssertEqual(current.sameChannelVoiceLifetime.replacementEvents.map(\.replacementFrame), [64, 70, 129])
     }
 
     func testProductionWindowedRenderConsumesPreindexedSchedulingBuckets() throws {
@@ -333,20 +333,21 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(indexDiagnostics.indexedWindowCount, 3)
         XCTAssertEqual(indexDiagnostics.indexedEventCount, 4)
         XCTAssertEqual(indexDiagnostics.indexedContinuationCandidateCount, 2)
-        XCTAssertEqual(indexDiagnostics.indexedUpdateCandidateCount, 7)
+        XCTAssertEqual(indexDiagnostics.indexedUpdateCandidateCount, 6)
         XCTAssertEqual(indexDiagnostics.estimatedAvoidedEventAndUpdateFullArrayScanCount, 26)
         XCTAssertGreaterThanOrEqual(indexDiagnostics.buildDurationSeconds, 0)
     }
 
-    func testReplacementRampLookupMatchesFullScanReferenceAndKeepsLastMatchingRamp() throws {
+    func testReplacementRampLookupMatchesScanAndKeepsOneImmutableDeadline() throws {
         let result = PlaybackSongOfflineRenderer().renderWindowed(
             makePreindexedWindowSchedulingRequest(),
             windowRows: 64
         )
         let lifetime = result.sameChannelVoiceLifetime
         let groupedEvents = Dictionary(grouping: lifetime.replacementEvents, by: \.oldEventIndex)
-        let repeatedRampGroup = try XCTUnwrap(groupedEvents.first { $0.value.count > 1 })
-        let boundaryAfterCandidates = try XCTUnwrap(repeatedRampGroup.value.last?.replacementFrame) + 1
+        XCTAssertTrue(groupedEvents.values.allSatisfy { $0.count == 1 })
+        let repeatedRampGroup = try XCTUnwrap(groupedEvents.first)
+        let boundaryAfterCandidates = try XCTUnwrap(repeatedRampGroup.value.last?.replacementFrame)
         let boundaryFrames = Set(
             lifetime.replacementEvents.flatMap { event in
                 [event.replacementFrame, event.replacementFrame + 1, event.completionFrame - 1, event.completionFrame]
@@ -370,7 +371,7 @@ final class OfflineRenderTests: XCTestCase {
             event.replacementFrame <= boundaryAfterCandidates &&
                 boundaryAfterCandidates < event.completionFrame
         }
-        XCTAssertGreaterThan(matchingCandidates.count, 1)
+        XCTAssertEqual(matchingCandidates.count, 1)
         XCTAssertEqual(
             lifetime.rampEvent(
                 forOldEventIndex: repeatedRampGroup.key,
@@ -954,13 +955,13 @@ final class OfflineRenderTests: XCTestCase {
 
         let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
 
-        XCTAssertEqual(result.block.interleavedPCM, [0, 0.96875, 1.1875])
-        XCTAssertEqual(result.windowedRenderSummary?.totalBoundaryContinuations, 3)
-        XCTAssertEqual(result.sameChannelVoiceLifetime.replacementRampFrameCount, 32)
+        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 0.25])
+        XCTAssertEqual(result.windowedRenderSummary?.totalBoundaryContinuations, 2)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.replacementRampFrameCount, 1)
         XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelActiveVoiceCount, 2)
         XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementStartCount, 1)
-        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementCompletionCount, 0)
-        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelVoiceOverlapFrames, 2)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementCompletionCount, 1)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelVoiceOverlapFrames, 1)
         XCTAssertEqual(result.sameChannelVoiceLifetime.windowBoundaryPruneCount, 0)
         XCTAssertEqual(result.sameChannelVoiceLifetime.oldVoiceKeptReasonCounts["replacement_ramp_overlap"], 1)
     }

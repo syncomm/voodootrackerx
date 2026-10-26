@@ -3739,10 +3739,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let sameFrameStepUpdate = adapterVoiceState?.lastStepUpdateFrame == currentFrame
         let rampedVoiceCount: Int
         if channel >= 0 && channel <= Int(UInt32.max) {
-            rampedVoiceCount = mixer.rampDownVoices(
-                channel: channel,
-                rampFrames: CSoftwareMixer.replacementStopRampFrameCount
-            )
+            rampedVoiceCount = mixer.retireSongVoices(channel: channel)
             voiceStateByChannel.removeValue(forKey: channel)
             clearAdapterVoiceState(channel: channel)
         } else {
@@ -3765,7 +3762,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             channel: channel,
             stoppedVoiceCount: 0,
             rampedVoiceCount: rampedVoiceCount,
-            replacementRampFrames: CSoftwareMixer.replacementStopRampFrameCount,
+            replacementRampFrames: CSoftwareMixer.songReplacementRampFrameCount(sampleRate: mixer.config.sampleRate),
             replacementVoicesOverlap: false,
             replacementOldVoiceState: replacementOldVoiceState,
             replacementRampStartState: replacementRampStartState,

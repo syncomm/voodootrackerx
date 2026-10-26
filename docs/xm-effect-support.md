@@ -166,8 +166,8 @@ defaults/clocks. `cold-tone-portamento-initialization.xm` pins this distinction.
 K00 suppresses a normal note-only trigger; ED0 carries ordinary state, valid
 nonzero EDx resets at its delayed tick, and out-of-row EDx does not trigger.
 E9x retains repeat resets; Rxy uses its persistent counter and sample restarts
-that preserve instrument semantic state (G21). VTX's immediate new-source onset versus
-FT2's 5 ms onset ramp remains separate. See
+that preserve instrument semantic state (G21). G02's bounded 5 ms new-source
+onset is closed; G03 old-side acceptance remains separate. See
 [volume ownership](design/xm-volume-ownership.md#note-only-routing-and-state-carry).
 
 ## Effect Column Commands
@@ -309,10 +309,10 @@ instrument, completion, release, order and loop transitions retain the bytes.
 Same-cell routing or counter-dispatch gates cannot suppress memory mutation.
 `RxyNibbleMemoryTests` and runtime controls close G20 memory at both rates:
 positive-interval replay matches explicit-equivalent event plans and PCM in
-whole/window offline and runtime paths. Baseline comparison proves the existing
-runtime/offline retrigger-retirement difference unchanged: runtime ramps the
-old source over 32 frames while offline cuts it immediately. That separate
-retirement debt does not close with G20; mixer and retirement code are unchanged.
+whole/window offline and runtime paths. The G21 runtime/offline retrigger-retirement
+difference remains: runtime uses G03 song retirement over 5 ms while offline
+cuts the old source immediately. That separate reconstruction debt does not
+close with G20.
 
 G21 closes the persistent R counter, tick-zero dispatch and semantic carry.
 Every eligible invocation increments the channel counter, then executes and
@@ -429,7 +429,8 @@ The public bounded-pitch fixture pair, exhaustive UInt16 reference fingerprints,
 source rates 4000/8363/16726, and 0.25/1/5-second cursor controls cover both
 44.1/48 kHz outputs. Bounded sustained drift is closed. Remaining waveform
 residuals are the existing onset and interpolation fraction/PCM rounding;
-retirement remains 32 frames. Stored sample-import tuning and PCM are unchanged;
+song retirement follows the separate G03 contract. Stored sample-import tuning
+and PCM are unchanged;
 its existing derived playback-rate/error diagnostics now observe quantization.
 
 ### G30B extreme pitch state and independent instrument reset
@@ -678,8 +679,9 @@ support alone does not close these domains:
   once while the header initializes/restores defaults. Exact mapped represented
   PCM remains a valid source at header volume 0; later Cxx reveals the continuing
   source, while canonical empty/unrepresented routes remain source-less.
-  Preview availability and safety gain are unchanged. New-note onset, same-channel
-  replacement/retirement and generic ramps (G02/G03/G05) remain open. G04 closes
+  Preview availability and safety gain are unchanged. G02 bounded 5 ms onset is
+  closed; G03 independent retirement acceptance and G05 generic ramps remain
+  open. G04 closes
   bounded ECx retained-source/cursor and quick-output behavior. Existing
   cached defaults and shared final-L/R reset targets are established foundations.
 - **Panning:** exact header/8xx state, final stereo pan law (G40), semantic pan

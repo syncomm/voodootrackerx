@@ -189,7 +189,7 @@ final class XMAudibleOutputTests: XCTestCase {
 
     func testWindowsInsideReplacementTailPreserveIdentityAndRetirement() {
         let module = song(commands: [1: cell(note: 49), 4: cell(note: 49)])
-        let config = MixerRenderConfig(sampleRate: 100, channelCount: 2)
+        let config = MixerRenderConfig(sampleRate: 48_000, channelCount: 2)
         let request = PlaybackSongOfflineRenderRequest(song: module, config: config, rows: 8)
         let renderer = PlaybackSongOfflineRenderer()
         let full = renderer.render(request)
@@ -197,11 +197,12 @@ final class XMAudibleOutputTests: XCTestCase {
             XCTAssertEqual(renderer.renderWindowed(request, windowRows: rows).block.interleavedPCM,
                 full.block.interleavedPCM)
         }
-        let index = renderer.makeWindowedRenderScheduleIndex(for: full.plan,
-            totalFrames: full.block.frameCount, windowRows: 1, includedEventIndices: nil, config: config)
-        let tails = index.windows.flatMap(\.continuations).filter { $0.runtimeState.gainRamp?.deactivateAfterRamp == true }
+        #if DEBUG
+        let tails = renderer.continuationsForTesting(full.plan, at: 6 * 960 + 120, config: config)
+            .filter { $0.runtimeState.gainRamp?.deactivateAfterRamp == true }
         XCTAssertFalse(tails.isEmpty)
-        XCTAssertTrue(tails.allSatisfy { $0.audibleOutputState?.raw.retiring == 1 })
+        XCTAssertTrue(tails.allSatisfy { $0.audibleOutputState?.raw.retiring == 2 })
+        #endif
     }
 
     func testECxUsesQuickSharedOutputAndRetainsSubsequentHandoff() throws {

@@ -9,9 +9,10 @@ remain intentionally deferred.
 `new-source-onset.xm` is an original 2.88-second, one-channel phrase with two
 distinct looped sample identities (mathematical pulse and saw PCM). Both start
 with a large nonzero sample. Exact keymap routing, note-only changes, ED1 and
-E90 expose the new-side 5 ms attack. Before/after and reference WAVs remain
-external; the outgoing 32-frame replacement policy remains G03, and automated
-rendering does not establish maintainer listening acceptance.
+E90 expose G02's closed new-side 5 ms attack. The same phrase also exposes
+G03's 5 ms outgoing tails and contrasting overlaps. Matched before/after and
+reference WAVs remain external; G03 independent review and maintainer listening
+acceptance remain open. Automated rendering does not establish listening.
 
 `instrument-autovibrato-composition-linear.xm` and its Amiga companion use
 one channel and sixteen rows of original mathematical PCM. Four sections select

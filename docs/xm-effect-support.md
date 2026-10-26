@@ -451,8 +451,8 @@ control instrument's curves/rate; existing E4/E7 phase-reset gates still apply.
 Later explicit volume/pan writers win. Immediate note-only refusal does not
 reset; delayed note-only refusal resets clocks/key/fadeout at dispatch without
 restoring cached defaults. Completed/empty owners gain no live source; a valid
-cold explicit instrument can establish semantic ownership. G32 autovibrato is
-still a missing parent, without a new automatic-modulation implementation here.
+cold explicit instrument can establish semantic ownership. G32 automatic
+composition follows its separate VTX policy without changing this G30 contract.
 
 Ordinary Amiga native lookup spans 22...29024 (VTX 88...116096). Effects use
 native UInt16 storage, with Linear scale 1 and Amiga VTX scale 4. Upward 1xx/E1/X1
@@ -508,7 +508,23 @@ blank/000 rows. A later same-frame arpeggio or fine/extra-fine writer subsumes
 that outgoing restoration in the shared delivery list; its original period,
 step and frame remain diagnostic evidence. Source generation/cursor and
 strict-before history/continuation semantics are preserved. This bounded
-correction does not authorize the final-pitch migration or instrument autovibrato.
+correction is separate from the subsequently authorized instrument composition.
+
+### Instrument autovibrato composition
+
+G32 now applies an independent instrument phase/sweep delta to every retained
+ordinary native pitch intent, preserving ordered Bx/4xy/6xy intermediates.
+Positive births fold the composed step; zero births use the existing placeholder
+and exactly-once after-trigger hold. Eligible blank ticks use causal generation
+requests through the existing physical C step protocol, including histories and
+whole/window/indexed/scan scheduling. Source conversion inputs remain independent
+of semantic instrument ownership. The [approved VTX arithmetic and bounds](design/xm-final-pitch-publication.md)
+intentionally omit signed negative-only bias, sweep overshoot, release-amplitude
+collapse and rate-zero-square detuning. Metadata bytes remain unchanged.
+`InstrumentAutovibratoCompositionTests`, `InstrumentAutovibratoPublicationTests`
+and runtime controls verify focused both-mode/rate behavior. Independent G32
+review, complete gates and Gregory's actual-hardware listening remain open;
+this does not close G32 or freeze the backend.
 
 ## Shared Volume-Slide Memory Contract
 
@@ -685,8 +701,8 @@ support alone does not close these domains:
   loop/end positioning and cold before-first initialization remain open, as do pan
   Float/Q8 and pan-clock quirks. See the
   [owned volume policy](design/xm-reset-output-ramp.md#g31-bounded-volume-envelope-q8-arithmetic).
-  Instrument autovibrato (G32) is
-  preserved but runtime-inert and remains Phase 2 playback work; later editable
+  Instrument autovibrato (G32) now has enabled VTX composition; closure remains
+  subject to its independent verification and listening gate. Later editable
   Instrument Editor controls are a separate roadmap milestone.
 - **Volume writers and memory:** H00 replay (G13) is closed; its cold FT2
   zero-memory target-refresh artifact is an intentional known difference.

@@ -357,6 +357,7 @@ enum PlaybackSongWindowSchedulingUpdateKind: String, CaseIterable, Hashable {
     case extraFinePortamentoStep
     case arpeggioStep
     case vibratoStep
+    case instrumentAutoPitchStep
     case noteCut
     case retriggerCut
     case sameChannelReplacementRamp
@@ -775,6 +776,9 @@ final class PlaybackSongOfflineRenderSession {
             includedEventIndices: includedEventIndices,
             sameChannelLifetime: sameChannelVoiceLifetime
         )
+        PlaybackSongOfflineRenderer.scheduleInstrumentAutoPitchUpdates(adaptedPlan.instrumentAutovibratoRequests,
+            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices), on: preparedMixer,
+            includedEventIndices: includedEventIndices, sameChannelLifetime: sameChannelVoiceLifetime)
         PlaybackSongOfflineRenderer.scheduleRetriggerCuts(
             adaptedPlan.diagnostics.retriggerEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
@@ -888,6 +892,8 @@ final class PlaybackSongOfflineRenderer {
             canonicalTickClock: plan.canonicalTickClock,
             selectionDispatchFacts: plan.selectionDispatchFacts,
             instrumentAutovibratoClock: plan.instrumentAutovibratoClock,
+            instrumentAutovibratoRequests: plan.instrumentAutovibratoRequests,
+            instrumentAutovibratoInitialHoldEventIndices: plan.instrumentAutovibratoInitialHoldEventIndices,
             semanticPitchProjection: plan.semanticPitchProjection,
             heldPitchProvenance: plan.heldPitchProvenance,
             nativePitchWriterSpans: plan.nativePitchWriterSpans,
@@ -1139,7 +1145,8 @@ final class PlaybackSongOfflineRenderer {
             )
         }
         let buildDuration = VTXPerformanceClock.seconds(since: buildStartTime)
-        let indexedSourceScanCount = PlaybackSongWindowSchedulingUpdateKind.allCases.count + 1
+        let indexedSourceScanCount = PlaybackSongWindowSchedulingUpdateKind.allCases.count +
+            (plan.instrumentAutovibratoRequests.isEmpty ? 0 : 1)
         let currentWindowScanCount = specs.count * indexedSourceScanCount
         let continuationScanCount = max(0, specs.count - 1) * 3
         let diagnostics = PlaybackSongWindowedRenderIndexDiagnostics(
@@ -1478,6 +1485,10 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices,
                 sameChannelLifetime: sameChannelLifetime
             )
+            Self.scheduleInstrumentAutoPitchUpdates(usesScanReference ? adaptedPlan.instrumentAutovibratoRequests : [],
+                voiceIndexByEventIndex: voiceIndexByEventIndex, on: mixer,
+                windowStartFrame: spec.startFrame, windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices, sameChannelLifetime: sameChannelLifetime)
             Self.scheduleRetriggerCuts(
                 usesScanReference ? adaptedPlan.diagnostics.retriggerEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
@@ -1843,6 +1854,11 @@ final class PlaybackSongOfflineRenderer {
                     scheduledFrame: localFrame,
                     playbackStep: update.playbackStepAfter
                 )
+            case .instrumentAutoPitchStep:
+                guard sameChannelLifetime.permitsPitchUpdate(eventIndex: candidate.activeEventIndex, at: candidate.scheduledFrame) else { continue }
+                let request = plan.instrumentAutovibratoRequests[candidate.sourceDiagnosticIndex]
+                mixer.scheduleVoicePlaybackStepUpdate(voiceIndex: voiceIndex,
+                    scheduledFrame: localFrame, playbackStep: request.playbackStep)
             case .noteCut:
                 break // The audible timeline owns ECx; this index entry is diagnostic only.
             case .retriggerCut:
@@ -2308,6 +2324,24 @@ final class PlaybackSongOfflineRenderer {
                     playbackStep: update.playbackStepAfter
                 )
             }
+        }
+    }
+
+    /// Uses the same source-generation and replacement cancellation contract as ordinary pitch.
+    fileprivate static func scheduleInstrumentAutoPitchUpdates(
+        _ requests: [PlaybackSongInstrumentAutovibratoPublication.Request],
+        voiceIndexByEventIndex: [Int: Int], on mixer: CSoftwareMixer,
+        windowStartFrame: Int = 0, windowEndFrame: Int = Int.max,
+        includedEventIndices: Set<Int>? = nil,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil
+    ) {
+        for request in requests {
+            guard request.scheduledFrame >= windowStartFrame, request.scheduledFrame < windowEndFrame,
+                  includesEvent(request.activeEventIndex, includedEventIndices: includedEventIndices),
+                  sameChannelLifetime?.permitsPitchUpdate(eventIndex: request.activeEventIndex, at: request.scheduledFrame) != false,
+                  let voice = voiceIndexByEventIndex[request.activeEventIndex] else { continue }
+            mixer.scheduleVoicePlaybackStepUpdate(voiceIndex: voice,
+                scheduledFrame: request.scheduledFrame - windowStartFrame, playbackStep: request.playbackStep)
         }
     }
 
@@ -2793,7 +2827,8 @@ final class PlaybackSongOfflineRenderer {
         let vibratoUpdates = plan.diagnostics.vibratoEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
-        return (toneUpdates + slideUpdates + finePortamentoUpUpdates + finePortamentoDownUpdates + extraFinePortamentoUpdates + arpeggioUpdates + vibratoUpdates)
+        let automaticUpdates = plan.instrumentAutovibratoRequests.filter { $0.activeEventIndex == eventIndex }.map(\.stepUpdate)
+        return (toneUpdates + slideUpdates + finePortamentoUpUpdates + finePortamentoDownUpdates + extraFinePortamentoUpdates + arpeggioUpdates + vibratoUpdates + automaticUpdates)
             .sorted { lhs, rhs in
                 if lhs.scheduledFrame != rhs.scheduledFrame {
                     return lhs.scheduledFrame < rhs.scheduledFrame
@@ -3059,6 +3094,12 @@ final class PlaybackSongOfflineRenderer {
             for x in d.extraFinePortamentoEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
             for x in d.arpeggioEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
             for x in d.vibratoEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            for request in plan.instrumentAutovibratoRequests {
+                guard bySource.indices.contains(request.activeEventIndex) else { continue }
+                bySource[request.activeEventIndex].append(.init(frame: request.scheduledFrame,
+                    tick: request.syntheticTick, step: request.playbackStep))
+                stepCount += 1
+            }
             diagnosticsVisited = visited
             var cuts = [Int: Int]()
             func cut(_ source: Int?, at frame: Int) {
@@ -3830,6 +3871,10 @@ final class PlaybackSongOfflineRenderer {
         appendStepDiagnostics(plan.diagnostics.extraFinePortamentoEffects, kind: .extraFinePortamentoStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
         appendStepDiagnostics(plan.diagnostics.arpeggioEffects, kind: .arpeggioStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
         appendStepDiagnostics(plan.diagnostics.vibratoEffects, kind: .vibratoStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
+        for (index, request) in plan.instrumentAutovibratoRequests.enumerated() {
+            append(.instrumentAutoPitchStep, diagnosticIndex: index,
+                eventIndex: request.activeEventIndex, frame: request.scheduledFrame)
+        }
         for (diagnosticIndex, diagnostic) in plan.diagnostics.noteCutEffects.enumerated() where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
                   let scheduledFrame = diagnostic.scheduledFrame else {

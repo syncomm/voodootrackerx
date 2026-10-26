@@ -56,6 +56,10 @@ struct PlaybackSongSyntheticPlan: Equatable {
     let canonicalTickClock: PlaybackSongCanonicalTickClock
     let selectionDispatchFacts: PlaybackSongSelectionDispatchFacts
     var instrumentAutovibratoClock: PlaybackSongInstrumentAutovibratoClock = .notAdapterProduced
+    // Causal physical step requests, separate from the seven ordinary diagnostic families.
+    var instrumentAutovibratoRequests: [PlaybackSongInstrumentAutovibratoPublication.Request] = []
+    // Added holds receive new IDs without displacing existing physical writers.
+    var instrumentAutovibratoInitialHoldEventIndices: Set<Int> = []
     var semanticPitchProjection: PlaybackSongSemanticPitchProjection = .notAdapterProduced
     var heldPitchProvenance: PlaybackSongHeldPitchProvenance = .notAdapterProduced
     var nativePitchWriterSpans: PlaybackSongNativePitchWriterSpans = .notAdapterProduced
@@ -709,6 +713,10 @@ enum PlaybackSongSyntheticAdapter {
         let safeOrderCount = max(0, orderCount)
         var rowMappings = [PlaybackSongSyntheticRowMapping]()
         var context = AdapterRowContext()
+        // Keep the optional composition workspace out of every ordinary row helper.
+        var automaticPitchBuilder = PlaybackSongInstrumentAutovibratoPublication.Builder()
+        let automaticEnabled = song.instrumentsByIndex.values.contains { $0.autoVibrato.depth > 0 && $0.autoVibrato.rate > 0 }
+        automaticPitchBuilder.enabled = automaticEnabled
         let estimatedRows = timingPlan.rowTimings.count
         var clockRuns = [PlaybackSongCanonicalTickClock.ClockRun]()
         clockRuns.reserveCapacity(estimatedRows)
@@ -783,9 +791,15 @@ enum PlaybackSongSyntheticAdapter {
             }
             let publicationStart = profileSession == nil ? nil : DispatchTime.now().uptimeNanoseconds
             finishSemanticPitchRow(context: &context, song: song)
+            if automaticEnabled {
+                materializeInstrumentAutovibratoRow(context: &context, builder: &automaticPitchBuilder, source: traversalRow.source,
+                    row: traversalRow.syntheticRow, channelCount: traversalRow.row.cells.count,
+                    timingConfig: rowTimingConfig, timingPlan: timingPlan)
+            }
             if let publicationStart { semanticPublicationNanoseconds += DispatchTime.now().uptimeNanoseconds - publicationStart }
             context.rowDiagnostics.append(rowDiagnostic)
         }
+        if automaticEnabled { finishInstrumentAutovibratoTail(context: &context, builder: &automaticPitchBuilder) }
         profileSession?.recordMeasuredPhase("semantic_pitch_publication", elapsedMS: Double(semanticPublicationNanoseconds) / 1_000_000.0,
             fields: [AdapterPlanProfileField("semantic_pitch_capture_failures", context.semanticPitchBuilder.failures)])
         profileSession?.recordMeasuredPhase(
@@ -818,6 +832,16 @@ enum PlaybackSongSyntheticAdapter {
                 AdapterPlanProfileField("automatic_clock_run_stride", MemoryLayout<PlaybackSongInstrumentAutovibratoClock.Run>.stride),
                 AdapterPlanProfileField("automatic_clock_growths", context.semanticPitchBuilder.automatic.growths),
                 AdapterPlanProfileField("automatic_clock_workspace_capacity", context.semanticPitchBuilder.automatic.evidence.workspaceCapacity),
+                AdapterPlanProfileField("instrument_auto_request_count", automaticPitchBuilder.requests.count),
+                AdapterPlanProfileField("instrument_auto_introduced_hold_count", automaticPitchBuilder.introducedHoldEventIndices.count),
+                AdapterPlanProfileField("instrument_auto_request_capacity", automaticPitchBuilder.requests.capacity),
+                AdapterPlanProfileField("instrument_auto_request_stride", MemoryLayout<PlaybackSongInstrumentAutovibratoPublication.Request>.stride),
+                AdapterPlanProfileField("instrument_auto_request_growths", automaticPitchBuilder.requestGrowthCount),
+                AdapterPlanProfileField("instrument_auto_bounds_capacity", automaticPitchBuilder.bounds.capacity),
+                AdapterPlanProfileField("instrument_auto_bounds_growths", automaticPitchBuilder.boundsGrowthCount),
+                AdapterPlanProfileField("instrument_auto_workspace_capacity_bytes", automaticPitchBuilder.workspaceCapacityBytes),
+                AdapterPlanProfileField("instrument_auto_rewritten_array_count", automaticPitchBuilder.rewrittenArrayCount),
+                AdapterPlanProfileField("instrument_auto_rewritten_child_capacity_bytes", automaticPitchBuilder.rewrittenChildCapacityBytes),
                 AdapterPlanProfileField("semantic_pitch_seed_count", context.semanticPitchBuilder.seeds.count),
                 AdapterPlanProfileField("semantic_pitch_seed_capacity", context.semanticPitchBuilder.seeds.capacity),
                 AdapterPlanProfileField("semantic_pitch_channel_capacity", context.semanticPitchBuilder.states.capacity),
@@ -920,6 +944,8 @@ enum PlaybackSongSyntheticAdapter {
         plan.xmEmptyRoutes = context.xmEmptyRoutes
         plan.xmInstrumentSelections = context.xmInstrumentSelections
         plan.initialHeldPitchEventIndices = context.initialHeldPitchEventIndices
+        plan.instrumentAutovibratoRequests = automaticPitchBuilder.requests
+        plan.instrumentAutovibratoInitialHoldEventIndices = automaticPitchBuilder.introducedHoldEventIndices
         plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
         admitFinePitchPublications(in: &plan, ordinaryDelayedVibratoIndices: context.ordinaryDelayedVibratoIndices,
             profileSession: profileSession, oracle: eligibilityOracle)
@@ -954,7 +980,8 @@ enum PlaybackSongSyntheticAdapter {
         let hasQueries = plan.diagnostics.finePortamentoUpEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
             plan.diagnostics.finePortamentoDownEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
             plan.diagnostics.extraFinePortamentoEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
-            ordinaryDelayedVibratoIndices.contains { !plan.diagnostics.vibratoEffects[$0].stepUpdates.isEmpty }
+            ordinaryDelayedVibratoIndices.contains { !plan.diagnostics.vibratoEffects[$0].stepUpdates.isEmpty } ||
+            !plan.instrumentAutovibratoRequests.isEmpty
         let work = profileSession == nil ? nil : PlaybackSongOfflineRenderer.PitchSourceHistory.Work()
         // Admission only removes writes to an already dead source. Its earlier, eligible
         // positive-step prefix is unchanged, so this immutable projection stays valid.
@@ -1019,6 +1046,16 @@ enum PlaybackSongSyntheticAdapter {
                 plan.diagnostics.vibratoEffects[index].stepUpdates.removeAll { inactive.contains($0.scheduledFrame) }
             }
         }
+        // Compact in place; future requests cannot revive an already completed generation.
+        var retained = 0
+        for index in plan.instrumentAutovibratoRequests.indices {
+            let request = plan.instrumentAutovibratoRequests[index]
+            if eligibleSource(request.activeEventIndex, request.scheduledFrame, plan) {
+                if retained != index { plan.instrumentAutovibratoRequests[retained] = request }
+                retained += 1
+            }
+        }
+        plan.instrumentAutovibratoRequests.removeLast(plan.instrumentAutovibratoRequests.count - retained)
         profileSession?.recordPhase("fine_pitch_source_eligibility", startedAt: start, fields: fields + [
             .init("eligibility_query_count", queryCount), .init("position_lookup_count", work?.lookupCount ?? 0),
             .init("position_entries_visited", work?.entriesVisited ?? 0)

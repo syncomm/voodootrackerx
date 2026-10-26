@@ -1,4 +1,4 @@
-# XM semantic pitch and ordered physical publication proposal
+# XM native pitch composition and ordered physical publication
 
 Status: Gregory accepted Candidates A/C and rejected Candidate B on October 24,
 2026 (America/New_York), for the depth-off semantic publication foundation only.
@@ -7,8 +7,11 @@ pending independent manager review; its older proposed status does not revoke
 this limited approval.
 Clock prerequisite baseline: `ad359d2c3f30b7b28b471caef5082a17721f803d`;
 bounded G31 remains closed. G32A-2C1 authorizes physical/event/PCM-neutral native
-semantic capture and publication. Consumer migration, enabled automatic pitch,
-an eighth pitch stream and all six compatibility decisions remain UNAPPROVED.
+semantic capture and publication. Consumer migration, enabled automatic pitch
+and an eighth pitch stream were outside that foundation's approval. Gregory's
+October 25 approval below supersedes the earlier UNAPPROVED disposition of the
+six G32 playback policies only; audible implementation remains subject to the
+composition-boundary and physical-delivery preflight gates.
 The supplied G32 preflight is characterization evidence:
 208 reference renders / 519,120 oracle assertions, not rerun for this proposal.
 Existing code, accepted ADRs and the [effect contracts](../xm-effect-support.md)
@@ -104,8 +107,9 @@ Physical consumers continue to use their existing seven diagnostic families.
 Future enabled composition is **canonical base → ordered effect-output intents
 → one automatic delta per canonical tick → existing Linear/Amiga conversion →
 each admitted intent or folded birth**. Automatic-only publication on no-writer
-ticks and new causal admission require separately approved policy. Waveform,
-sweep, reset arithmetic and compatibility choices remain unresolved. Depth-off
+ticks and new causal admission are authorized by the audible G32 task, subject
+to its ordering/admission proof. The six playback policies below now govern
+waveform, sweep and compatibility interpretation. Depth-off
 coordinates neither recompute closed G30A/B nor implement audible G32.
 
 Automatic metadata/phase/sweep belong to channel semantic ownership,
@@ -133,8 +137,11 @@ elapsed fact and continues phase. `sweepReached` means nominal raw duration
 completion, never rounded integer amplitude completion. Total and key-on elapsed
 ticks remain separate; no released amplitude is selected. Malformed bytes,
 sweep-255 and rate-zero square retain raw metadata with `policyPending` status;
-malformed metadata yields no numeric phase. All six audible policies below remain
-UNAPPROVED, and no physical pitch consumer uses this inert companion.
+malformed metadata yields no numeric phase. These are the foundation's inert
+query results, not a disposition of the now-approved audible policies below;
+public raw queries retain the foundation contract. Enabled publication consumes
+an interpreted view of the same phase/reset/release anchors; a visibility bit
+preserves legacy malformed-phase absence without adding another clock.
 
 Births carry a positive final step in their trigger before its first mixed frame.
 Ordinary priority-0 updates precede priority-2 triggers and cannot initialize
@@ -158,12 +165,16 @@ creation/hold intent. Existing zero-step sources retain their cursor and resume.
 
 ## Compatibility disposition, separate from architecture approval
 
-All six questions below remain UNAPPROVED. The limited A/C architecture approval
-does not approve any compatibility quirk or audible autovibrato behavior.
+On October 25, 2026 (America/New_York), Gregory explicitly answered **"Approved
+all six"** to the intended-behavior proposal. This supersedes this document's
+earlier UNAPPROVED wording for these six **G32 playback policies only**. It does
+not amend persisted parser/writer bytes, accepted ADRs, global G30 arithmetic or
+unrelated effects. Issue #488 remains OPEN for independent complete-G32 review.
 
-**A — intended eventual G32 target:** independent channel-semantic phase/sweep,
+**A — G32 target:** independent channel-semantic phase/sweep,
 sine/square/two ramps, meaningful sweep and normal reset/carry, phase continuing
-after release, and composition after effect output. G32A implements none of it.
+after release, and composition after effect output. The enabled implementation
+below follows the approved VTX policies; complete G32 closure remains open.
 
 The supplied preflight observations, pinned
 [replayer](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c)
@@ -171,14 +182,128 @@ and [instrument sanitizer](https://github.com/8bitbubsy/ft2-clone/blob/87be42543
 support the distinctions below. Metadata ranges do not specify every arithmetic
 or malformed-byte edge. Observed clone behavior is evidence, not approval.
 
-| B — review before approval | Audible consequence / evidence | Compatibility value versus harm; disposition |
+| Approved G32 playback policy | Historical artifact / evidence | Required VTX interpretation |
 | --- | --- | --- |
-| Raw-byte playback sanitation | Preflight sanitizer controls map type >3 to sine, depth >15 to 15, rate >63 to 63. | Predictable unusual-input playback versus changing preserved bytes or adopting unproven DOS malformed-input policy. Playback-only interpretation if approved; **UNRESOLVED B/C**, no parser/writer normalization. |
-| Signed integer rounding | Negative small products floor to a nonzero negative delta while positive ones may truncate to zero; sweep-255 controls distinguish it. | Exact period/phase matching versus asymmetric low-depth tuning. **UNRESOLVED B**, explicit numeric policy required. |
-| UInt16 final-period / unsigned ≥32000 gate | Preflight zero/underflow/high-word controls show real cursor holds and later resume; base/effect output remains unchanged. | Preserves composed extreme behavior versus abrupt holds/pitch jumps. **UNRESOLVED B**, not a harmless refresh and not permission to reopen G30B. |
-| High-byte sweep overshoot | Sweep-16/255 traces exceed depth's nominal Q8 amplitude before snapping back. | Reference envelope-of-pitch match versus audible overshoot/discontinuity and unintuitive controls. **UNRESOLVED B/C**; do not approve merely because reproduced. |
-| Released unfinished sweep uses increment, not stored amplitude | Early note97/Kxx controls infer a suddenly smaller effective amplitude while stored amplitude freezes and phase continues. | Reproduces release pitch change versus an abrupt vibrato collapse that conflicts with coherent retained-amplitude behavior. **UNRESOLVED B/C**, manager disposition mandatory. |
-| Rate-zero square | Enabled depth at fixed phase produces a constant negative period offset; sine stays neutral. | Compatible sustained detuning versus users expecting rate zero to disable modulation. **UNRESOLVED B**, distinct from depth-off. |
+| Malformed raw metadata | Sanitizer characterization uses type 0...3, depth 0...15 and rate 0...63. | Playback alone maps invalid type to sine and caps depth at 15/rate at 63. Sweep retains raw 0...255; persisted bytes stay exact. |
+| Signed modulation rounding | Negative small products can floor while positive products truncate to zero. | Deterministic round-to-nearest, ties-away-from-zero, with sign symmetry and explicit half-tie tests; omit the negative-only bias. |
+| Composed period boundaries | Historical word wrapping and a ≥32000 gate can hold or jump pitch. | Derive mode/source-aware final bounds from unchanged G30 conversion and representable steps before production clamps. Preserve native base/effects and meaningful exact-zero hold/resume; stop if these obligations cannot be reconciled. |
+| Sweep 255 | High-byte traces can exceed requested depth, then snap back. | Sweeps 0/1/16/255 ramp to at most requested depth, with explicit tick, saturation and release tests. |
+| Release during unfinished sweep | Historical release can use an increment in place of reached amplitude. | Retain amplitude reached at release and continue oscillator phase; do not reduce or reinitialize it. |
+| Rate-zero square | Fixed square phase can produce constant detuning. | Rate zero is neutral for every waveform; depth zero is physically inert. |
+
+These are VTX composition semantics. Negative-only rounding bias, sweep
+overshoot/snapback, released-amplitude collapse and rate-zero-square detuning are
+intentional non-emulations. Reference observations do not authorize importing
+GPL code/tables or weakening regression tolerances.
+
+### Composed-boundary preflight
+
+[InstrumentAutovibratoBoundaryPreflightTests](../../tests/vtx_render_bounded_xm/InstrumentAutovibratoBoundaryPreflightTests.swift)
+pins unchanged G30 conversion before choosing production clamps. With retained
+source rate 8363, Linear period 9216 produces Q16 step 194/178 at 44.1/48 kHz;
+9217 produces zero. Period 14080 is also zero, whereas 14081 produces
+6357427/5840886. These are existing exponent/word conversion boundaries, not a
+new G32 clamp. Ordinary C-0 → 2C0 → X21 reaches 9217 without a new source;
+X11 returns to 9216 and resumes the same C cursor. Native base and semantic
+effect output retain these exact values.
+
+Positive-step bounds also depend on the sounding source's conversion inputs.
+At source rate 1, Linear's initial positive interval ends at 5045/4954 and
+Amiga's at native 2544/2337 at 44.1/48 kHz. At source rate 8363, Amiga remains
+positive through native 65535 (VTX 262140); native 65536 wraps to zero in the
+unchanged converter. A universal 31999 bound is therefore unjustified.
+
+For the continuation, the isolated composition kernel chooses a conservative
+interpretation of "surprise high-period freezes": only an ordinary output within
+the retained source's initial continuous positive-step interval receives new
+modulation. New output saturates to native `0...upper`; exact zero remains a hold.
+An existing output outside that interval keeps its original G30 conversion,
+including existing zero regions and positive high branches. Delta zero is exact
+identity. Linear's hard upper edge is 9216, Amiga's is native 65535; source/output
+Q16 quantization can reduce either bound. Unusual Linear source ratios with
+internal coefficient-word aliases remain outside this automatic domain. Bounds
+are cached conversion values, never changes to canonical base/effect history.
+The row materializer invokes this kernel before existing physical consumers.
+
+[InstrumentAutovibratoDeliveryPreflightTests](../../tests/vtx_render_bounded_xm/InstrumentAutovibratoDeliveryPreflightTests.swift)
+uses an arbitrary fixed offset to probe blank-tick C step delivery, folded
+positive births, exactly-once zero birth hold/resume, and separate ordered
+Bx→4xy/6xy intermediates in both modes/rates. This is test-only construction,
+not product automatic publication, whole/window history parity or host proof.
+Existing Xcode C14 controls separately pin runtime generation/epsilon admission.
+
+### Isolated composition arithmetic
+
+`PlaybackSongInstrumentAutovibratoComposition` interprets a value copy of raw
+metadata; it never rewrites parser/writer records. It consumes the existing
+clock's phase-after and key-on sweep elapsed values, without owning another clock.
+Its authored quarter-sine ordinates are `round(32768*sin(pi*i/128))`, `i=0...64`;
+quadrant reflection gives negative sine on the first phase half. Square is -1
+below phase 128 and +1 thereafter. Raw type 2 uses `signed8(phase)/128`; raw type 3
+uses `signed8(-phase)/128`. Positive period delta lowers pitch, so the existing
+waveform names describe pitch direction. Native amplitude equals interpreted depth; Amiga delivery
+scales the resulting native period by four through the existing conversion seam.
+
+For Q15 ordinate `w`, depth `d`, sweep duration `s` and frozen-at-release key-on
+elapsed `e`, the delta is nearest integer to
+`w*d*min(max(e,0),s)/(32768*s)`, with half ties away from zero. Sweep zero uses
+full amplitude immediately. Integer quotient/remainder rounding gives
+`round(1/2)=1`, `round(-1/2)=-1` and `round(±1/32768)=0`, without signed floating
+conversions. The bounded elapsed fraction cannot overshoot requested depth.
+Continuing oscillator phase with the same `e` preserves reached release amplitude.
+
+The mathematical Q15 sine can differ from reference ordinate quantization as well
+as historical signed rounding. These differences require separate reference-audio
+classification; reference-identical normal audio is not claimed. Focused kernel
+tests cover numeric policies; publication and runtime controls separately cover
+enabled behavior. The clock's raw malformed `policyPending`/nil-phase queries
+remain unchanged while its interpreted view uses bounded playback metadata.
+
+### Enabled physical materialization
+
+The materializer reuses the existing semantic owner/generation/clock capture and
+actual native producer facts. A bounded per-source ordinary-intent latch records
+the birth mapping or last actual writer's native output, separately from both the
+semantic effect latch and epsilon-filtered C state. Current numeric childless
+fine/extra-fine/tone invocations can supply an auto-only basis when that source
+has no physical writer at the tick; held semantic references cannot silently
+retune a newly born generation. There is no second native resolver, song pass,
+full control snapshot or per-tick heap object.
+The materializer composes each existing ordered diagnostic child's physical step
+from that child's own native output; captured original children and native period
+fields remain raw. Prior-row exits wait for incoming-row subsumption and use the
+incoming canonical tick's delta when that channel has a canonical tick. A sparse
+row's actual exit uses the last canonical delta and updates the retained intent
+without creating a clock tick or request. Terminal ordinary restoration keeps the last
+canonical automatic value without advancing an envelope-tail oscillator.
+
+Births use their ordinary mapping's native input, including existing same-cell
+fine folds, even when E9/Rxy initially copied an already composed event. Inactive
+owners preserve ordinary birth/hold behavior exactly, including legacy zero-E9
+placeholder behavior. Automatic-only requests target real source generations on ticks
+without an ordinary writer; held-value equality deduplicates them. A change to
+depth/rate zero restores a previously affected retained source once. Existing
+strict-before source history admits these requests alongside fine pitch before
+runtime/offline/window scheduling. Auto-only requests and introduced zero-birth
+holds receive IDs after existing events; original hold/writer IDs stay unchanged.
+The seven ordinary families and their order remain physical authority. Capture
+failure refuses new automatic row/tail work, preserving the already proven
+prefix and ordinary intents; existing capture-failure diagnostics remain visible.
+
+The immutable causal carrier is 32 bytes. Its Array reference and the introduced-hold
+provenance Set change plan stride from 1080 to 1096 bytes. ChannelState remains 1152, native records 48,
+reset runs 24 and clock anchors 48 bytes. Bounds are 32-byte cached values,
+pruned to retained channel generations. Row scalar workspaces are temporary;
+the existing semantic reducer and its 32-byte transient boundaries are unchanged. Modified
+diagnostic children can require COW storage beside captured raw children.
+Profile fields expose request/bounds capacity growth, row workspace capacity and
+changed-array capacity proxies; these are not measured malloc counts.
+
+Actual E9/Rxy retriggers retain the established G03/G21 runtime 32-frame old-voice
+tail versus immediate offline cut. Dedicated controls establish the same
+depth-off difference, strict PCM equality outside actual retirement windows and
+new-generation step/cursor delivery inside them. No tolerance or DSP policy is
+changed; this residual is separate from instrument modulation and G32 closure.
 
 **C — intentionally omit:** redundant period-refresh flags and period writes to
 inactive mixer slots when state/output equality is preserved. No phantom source
@@ -186,8 +311,8 @@ or redundant C callback work. Meaningful zero-step holds are not classified C.
 Last-only equality alone never proves an existing ordered request redundant.
 Original DOS FT2 bit reduction is separate from the consulted clone's Float32
 output; neither proves the other's PCM policy. GPL source/tables must not enter
-MIT VTX. Tests use independently authored cells, PCM and an arbitrary period
-offset for birth folding, with no autovibrato waveform/sweep implementation.
+MIT VTX. The original shadow tests used independently authored cells, PCM and an arbitrary
+period offset for birth folding; those tests did not implement a waveform or sweep.
 
 Parser isolation, MOD/XM read-only loading, exact 96-note/S01...S16 routing,
 ADR 012–014, editable Undo, preview, XM export/reopen and source URL ownership
@@ -227,19 +352,18 @@ is unchanged. No generic parity exclusion or relaxed PCM gate is authorized.
 Issue #488 remains OPEN for independent manager review. The depth-off A/C
 architecture is accepted; complete capture, neutrality and cost require their
 independent verification gates.
-Consumer migration, enabled behavior and compatibility decisions require separate
-approval and proof.
+The October 25 task authorizes enabled composition under the six policies above;
+it still requires independent behavior, physical-delivery and performance proof.
 
 Measure existing `event_generation`, `fine_pitch_source_history_build`,
 `fine_pitch_source_eligibility`, cold ordering/materialization and runtime queue
 profile fields, plus projection records/bytes/visits and allocation counts. Avoid
 per-tick heap objects, PCM copies, full control snapshots or widened ChannelState.
 The 1152-byte state/8-byte row-reference baseline must be remeasured on migration.
-Stop before production work if another song pass, planner replacement, broad
-seven-family rewrites, C/host work, costly snapshots or unjustified >~500 lines
-are required.
+Composition must not introduce another song pass, planner replacement, broad
+seven-family consumer rewrites, C/host work or costly snapshots.
 
-Later implementation retains fresh paired alternating process-cold ordinary
+Validation requires fresh paired alternating process-cold ordinary
 optimized Release products, two five-pair batches where feasible, public heavy
 synthetic input and strict `cached_reuse`. Optional `xm-corpus-011` requires a
 dynamically supplied map, never a default private path. Hard pooled medians remain
@@ -247,5 +371,5 @@ dynamically supplied map, never a default private path. Hard pooled medians rema
 counts above one second and attributed trends even below ceilings; no +15 ms
 failure rule. G31 numbers are historical, not reusable executables. Full Xcode,
 actual host, reference audio, Release benchmarks and listening are not established
-by this proposal's shadow test. The external handoff report records executed
+by the shadow tests. The external handoff report records executed
 checks. No private inventory, listening or corpus curation is needed here.

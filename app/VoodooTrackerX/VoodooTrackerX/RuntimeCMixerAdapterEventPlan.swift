@@ -652,6 +652,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for eventIndex in adaptedPlan.initialHeldPitchEventIndices.sorted() {
+            guard !adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.contains(eventIndex) else { continue }
             let event = adaptedPlan.pattern.events[eventIndex]
             guard let mapping = eventMappingsByIndex[eventIndex] else { continue }
             events.append(RuntimeCMixerAdapterEvent(id: nextID, source: mapping.source,
@@ -992,7 +993,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         let channelCount = sourceFreeChannels.isEmpty ? 0 :
             (adaptedPlan.xmEnvelopeTimeline?.channelUpdates ?? []).lazy.filter { sourceFreeChannels.contains($0.channelIndex) }.count
         events.reserveAdditionalCapacity([carriedCount, stopCount, channelCount,
-            adaptedPlan.xmEnvelopeTimeline?.updates.count ?? 0, adaptedPlan.xmAudibleTimeline?.updates.count ?? 0])
+            adaptedPlan.xmEnvelopeTimeline?.updates.count ?? 0, adaptedPlan.xmAudibleTimeline?.updates.count ?? 0,
+            adaptedPlan.instrumentAutovibratoRequests.count, adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.count])
         let statePositionResolver = stateEvents.isEmpty ? nil : PlaybackSongSampleTimePositionResolver(plan: adaptedPlan)
         // Immutable lists share their backing storage across a publication run.
         let carriedPlaybackStateCategories = ["carried_playback_state"]
@@ -1032,6 +1034,25 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             events.append(RuntimeCMixerAdapterEvent(id: events.count, source: update.source,
                 channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
                 action: .audibleTargetUpdate(update), categories: audibleTargetCategories))
+        }
+        let instrumentAutoPitchCategories = ["step_update", "instrument_auto_pitch"]
+        for request in adaptedPlan.instrumentAutovibratoRequests {
+            guard adaptedPlan.diagnostics.rowMappings.indices.contains(request.syntheticRow) else { continue }
+            events.append(.init(id: events.count,
+                source: adaptedPlan.diagnostics.rowMappings[request.syntheticRow].source,
+                channelIndex: request.channelIndex, syntheticTick: request.syntheticTick,
+                scheduledFrame: request.scheduledFrame,
+                action: .stepUpdate(activeEventIndex: request.activeEventIndex, playbackStep: request.playbackStep),
+                categories: instrumentAutoPitchCategories))
+        }
+
+        let introducedHoldCategories = ["step_update", "initial_pitch_hold"]
+        for eventIndex in adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.sorted() {
+            guard let mapping = eventMappingsByIndex[eventIndex] else { continue }
+            events.append(.init(id: events.count, source: mapping.source,
+                channelIndex: mapping.channelIndex, syntheticTick: mapping.syntheticTick,
+                scheduledFrame: scheduler.frame(for: adaptedPlan.pattern.events[eventIndex]),
+                action: .stepUpdate(activeEventIndex: eventIndex, playbackStep: 0), categories: introducedHoldCategories))
         }
         profileSession?.recordPhase("adapter_semantic_event_materialization", startedAt: semanticMaterializationStart)
         let sortingStart = profileSession?.beginPhase()

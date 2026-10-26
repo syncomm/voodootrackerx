@@ -25,7 +25,17 @@ struct PlaybackSongInstrumentAutovibratoClock: Equatable {
         var raw = PlaybackInstrumentAutoVibrato.disabled
         var phase: UInt8? = nil
         var resetCause: ResetCause? = nil
-        var released = false
+        // Release and legacy visibility share one byte, preserving the compact
+        // anchor while the same numeric phase supports safe playback interpretation.
+        private var lifecycleFlags: UInt8 = 0
+        var released: Bool {
+            get { lifecycleFlags & 1 != 0 }
+            set { lifecycleFlags = newValue ? lifecycleFlags | 1 : lifecycleFlags & ~1 }
+        }
+        var rawPhaseAvailable: Bool {
+            get { lifecycleFlags & 2 != 0 }
+            set { lifecycleFlags = newValue ? lifecycleFlags | 2 : lifecycleFlags & ~2 }
+        }
         var wellFormed: Bool { raw.waveformType < 4 && raw.depth <= 15 && raw.rate <= 63 }
 
         func advancing(to ordinal: Int) -> Self {
@@ -35,26 +45,29 @@ struct PlaybackSongInstrumentAutovibratoClock: Equatable {
             if owner >= 0 {
                 result.elapsed += ticks
                 if !released { result.sweepElapsed += ticks }
-                if let phase, wellFormed {
-                    result.phase = phase &+ UInt8((ticks & 255) * Int(raw.rate) & 255)
+                if let phase {
+                    // One existing phase follows playback-only capped rate. Public raw
+                    // foundation queries still expose malformed phase as unavailable.
+                    result.phase = phase &+ UInt8((ticks & 255) * Int(min(63, raw.rate)) & 255)
                 } else { result.phase = nil }
             }
             result.ordinal = ordinal
             return result
         }
 
-        func result(at ordinal: Int) -> Result {
+        func result(at ordinal: Int, interpreted: Bool = false) -> Result {
             let before = advancing(to: ordinal), after = before.advancing(to: ordinal + 1)
             let owned = owner >= 0
-            let reached: Bool? = owned && wellFormed && raw.sweep != 255
+            let reached: Bool? = owned && (interpreted || wellFormed) && (interpreted || raw.sweep != 255)
                 ? after.sweepElapsed >= Int(raw.sweep) : nil
-            let pending = !wellFormed || phase == nil || raw.sweep == 255 ||
+            let pending = !wellFormed || !rawPhaseAvailable || raw.sweep == 255 ||
                 (raw.depth > 0 && raw.rate == 0 && raw.waveformType == 1) ||
                 (released && raw.depth > 0 && reached != true)
-            return .init(phaseBefore: before.phase, phaseAfter: after.phase,
+            return .init(phaseBefore: interpreted || (wellFormed && rawPhaseAvailable) ? before.phase : nil,
+                phaseAfter: interpreted || (wellFormed && rawPhaseAvailable) ? after.phase : nil,
                 elapsedTicks: after.elapsed, sweepElapsed: after.sweepElapsed, sweepReached: reached,
                 released: released, raw: owned ? raw : nil, waveform: owned ? Waveform(rawValue: raw.waveformType) : nil,
-                status: owned ? (pending ? .policyPending : .ordinary) : .unowned,
+                status: owned ? (pending && !interpreted ? .policyPending : .ordinary) : .unowned,
                 lastResetOrdinal: resetOrdinal >= 0 ? resetOrdinal : nil, resetCause: resetCause)
         }
     }
@@ -87,10 +100,11 @@ struct PlaybackSongInstrumentAutovibratoClock: Equatable {
             var run = prior.advancing(to: ordinal)
             run.owner = owner; run.raw = song.instrumentsByIndex[owner]?.autoVibrato ?? .disabled
             if reset != nil {
-                run.phase = 0; run.elapsed = 0; run.sweepElapsed = 0; run.released = false
+                run.phase = 0; run.rawPhaseAvailable = true; run.elapsed = 0; run.sweepElapsed = 0; run.released = false
                 run.resetOrdinal = ordinal; run.resetCause = reset
-            } else if prior.owner < 0 && owner >= 0 { run.phase = 0 }
-            if owner < 0 || !run.wellFormed { run.phase = nil }
+            } else if prior.owner < 0 && owner >= 0 { run.phase = 0; run.rawPhaseAvailable = true }
+            if owner < 0 { run.phase = nil }
+            if owner < 0 || !run.wellFormed { run.rawPhaseAvailable = false }
             if release { run.released = true }
             let capacity = channels[channel].capacity
             channels[channel].append(run)

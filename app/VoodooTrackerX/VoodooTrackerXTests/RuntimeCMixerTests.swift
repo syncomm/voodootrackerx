@@ -9168,3 +9168,49 @@ final class ECxRetainedSourceRuntimeTests: XCTestCase {
         } } }
     }
 }
+
+/// Enabled automatic publication reaches the unchanged generation-addressed runtime C path.
+final class InstrumentAutovibratoRuntimeDeliveryTests: XCTestCase {
+    func testEnabledOrderedAndBlankTicksMatchOfflinePCMAtBothRatesAndModes() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            func cell(_ note: UInt8 = 0, _ instrument: UInt8 = 0, _ volume: UInt8 = 0,
+                      _ effect: UInt8 = 0, _ parameter: UInt8 = 0) -> PlaybackCell {
+                .init(note: note, instrument: instrument, volumeColumn: volume,
+                    effectType: effect, effectParam: parameter)
+            }
+            let instruments = Dictionary(uniqueKeysWithValues: (1...2).map { index in
+                (index, PlaybackInstrument(index: index, samples: [.init(instrumentIndex: index, sampleIndex: 0,
+                    pcm: (0..<4096).map { Float(($0 * (index == 1 ? 79 : 113) + 293) % 2048 - 1024) / 4096 },
+                    volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: index == 1 ? 8363 : 12000,
+                    loopStart: 17, loopLength: 2031, loopType: 1)],
+                    autoVibrato: .init(waveformType: UInt8(index - 1), sweep: index == 1 ? 0 : 16, depth: 8, rate: 16),
+                    noteSampleMap: Array(repeating: 0, count: 96)))
+            })
+            let cells = [cell(49, 1, 0xa4), cell(), cell(0, 0, 0xb8, 4, 0x48), cell(),
+                cell(61, 2), cell(), cell(0, 0, 0, 6, 0), cell()]
+            let song = PlaybackSong(title: "Public enabled automatic runtime delivery",
+                orders: [.init(orderIndex: 0, patternIndex: 0)],
+                patternsByIndex: [0: .init(index: 0, rows: cells.enumerated().map { .init(index: $0.offset, cells: [$0.element]) })],
+                instrumentsByIndex: instruments, restartOrderIndex: 0, endBehavior: .stopAtEnd,
+                initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan)
+            XCTAssertFalse(plan.instrumentAutovibratoRequests.isEmpty)
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+            let frames = cells.count * 6 * Int(rate / 50)
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: frames)
+            let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
+            let expected = renderer.render(request).block.interleavedPCM
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var actual = [Float]()
+            while actual.count < frames { actual += renderRuntimePCM(core, frames: min(997, frames - actual.count)) }
+            XCTAssertEqual(actual.count, expected.count)
+            XCTAssertLessThanOrEqual(zip(actual, expected).map { abs($0 - $1) }.max() ?? 0, 1e-7)
+            let applied = core.drainAppliedAdapterEventDiagnostics()
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            XCTAssertTrue(applied.contains { $0.event.categories.contains("instrument_auto_pitch") })
+        } }
+    }
+}

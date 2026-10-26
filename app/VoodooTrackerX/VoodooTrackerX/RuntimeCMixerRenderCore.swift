@@ -906,7 +906,8 @@ struct RuntimeCMixerFixedRingBuffer<Element> {
     }
 
     mutating func removeAll(resetDroppedCount: Bool = true) {
-        guard !storage.isEmpty else {
+        // Drain nils consumed slots, so zero occupancy leaves no references to clear.
+        guard !storage.isEmpty, storedCount > 0 else {
             storedCount = 0
             readIndex = 0
             if resetDroppedCount {

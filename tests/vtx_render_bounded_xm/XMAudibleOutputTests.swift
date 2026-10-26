@@ -126,7 +126,8 @@ final class XMAudibleOutputTests: XCTestCase {
                     let carry = try XCTUnwrap(plan.xmAudibleTimeline?.state(eventIndex: 0, before: boundary, config: config))
                     XCTAssertEqual(carry, expected, "boundary \(boundary)")
                     let imported = CSoftwareMixer(config: config)
-                    let slot = imported.addVoice(sample: .init(monoPCM: Array(repeating: 1, count: 128)))
+                    let slot = imported.addVoice(sample: .init(monoPCM: Array(repeating: 1, count: 128)),
+                        sourceOnsetElapsedFrames: boundary)
                     XCTAssertTrue(imported.setAudibleOutputState(carry, forVoiceAt: slot))
                     PlaybackSongOfflineRenderer.schedulePlaybackStateEvents(plan, voiceIndexByEventIndex: [0: slot],
                         on: imported, windowStartFrame: boundary)

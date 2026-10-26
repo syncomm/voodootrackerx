@@ -63,6 +63,7 @@ ALL_FIXTURES = [
     "instrument-autovibrato-composition-amiga.xm",
     "instrument-autovibrato-musical-study-linear.xm",
     "instrument-autovibrato-musical-study-amiga.xm",
+    "new-source-onset.xm",
 ]
 
 
@@ -300,6 +301,22 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertEqual([cell["row"] for cell in cells if cell.get("instrument")], [0, 4, 8, 12])
             self.assertEqual([cell["row"] for cell in cells if not cell.get("instrument")], [2, 6, 10, 14])
             self.assertEqual(generator.fixture_xm_bytes(manifest, name), (PACK_ROOT / "generated" / name).read_bytes())
+
+    def test_new_source_phrase_has_two_exact_routes_and_original_high_first_samples(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        name = "new-source-onset.xm"
+        fixture = next(item for item in manifest["fixtures"] if item["name"] == name)
+        module = fixture["module"]
+        self.assertEqual((module["channels"], module["speed"], module["bpm"]), (1, 6, 125))
+        self.assertEqual(module["patterns"][0]["rows"], 24)
+        instrument = module["instruments"][0]
+        self.assertEqual(instrument["note_sample_map"], [
+            {"start_note": 1, "end_note": 52, "sample": 0},
+            {"start_note": 53, "end_note": 96, "sample": 1},
+        ])
+        self.assertEqual([generator.sample_pcm_bytes(s)[0] for s in instrument["samples"]], [96, 176])
+        self.assertEqual(generator.fixture_xm_bytes(manifest, name), (PACK_ROOT / "generated" / name).read_bytes())
 
     def test_autovibrato_musical_study_preserves_original_full_mix_bytes(self):
         generator = load_module()
@@ -700,6 +717,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "instrument-autovibrato-composition-amiga.xm").resolve(),
                     (output_dir / "generated" / "instrument-autovibrato-musical-study-linear.xm").resolve(),
                     (output_dir / "generated" / "instrument-autovibrato-musical-study-amiga.xm").resolve(),
+                    (output_dir / "generated" / "new-source-onset.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -741,6 +759,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-sustained-defaults.xm",
                     "generated/linear-arpeggio-ordering.xm",
                     "generated/multi-pattern-loop-boundary.xm",
+                    "generated/new-source-onset.xm",
                     "generated/note-only-routing.xm",
                     "generated/noteoff-kxx-precedence.xm",
                     "generated/ordinary-trigger-tone-target-lifetime.xm",
@@ -851,6 +870,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/instrument-sustained-defaults.xm",
                     "generated/linear-arpeggio-ordering.xm",
                     "generated/multi-pattern-loop-boundary.xm",
+                    "generated/new-source-onset.xm",
                     "generated/note-only-routing.xm",
                     "generated/noteoff-kxx-precedence.xm",
                     "generated/ordinary-trigger-tone-target-lifetime.xm",
@@ -965,6 +985,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:instrument-autovibrato-composition-amiga.xm": "generated/instrument-autovibrato-composition-amiga.xm",
                     "xm:instrument-autovibrato-musical-study-linear.xm": "generated/instrument-autovibrato-musical-study-linear.xm",
                     "xm:instrument-autovibrato-musical-study-amiga.xm": "generated/instrument-autovibrato-musical-study-amiga.xm",
+                    "xm:new-source-onset.xm": "generated/new-source-onset.xm",
                     "xm:extreme-pitch-state-linear.xm": "generated/extreme-pitch-state-linear.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",

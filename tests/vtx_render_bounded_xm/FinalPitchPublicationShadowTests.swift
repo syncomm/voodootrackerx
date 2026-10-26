@@ -359,7 +359,7 @@ final class OrdinaryReplacementOfflineParityTests: XCTestCase {
         let plan = try XCTUnwrap(runtime.plan), old = plan.pattern.events[0], new = plan.pattern.events[1]
         let n = try XCTUnwrap(new.scheduledStartFrame), mixer = CSoftwareMixer(config: config)
         let voice = mixer.addVoice(sample: old.sample, gain: old.gain, pan: old.pan,
-            playbackStep: old.playbackStep, loop: old.loop)
+            playbackStep: old.playbackStep, loop: old.loop, sourceOnsetElapsedFrames: 0)
         mixer.setChannelTag(0, forVoiceAt: voice)
         // Runtime enqueues the same-frame old writer before channel retirement cancels it.
         for ordered in runtime.eventStorage.ordering {
@@ -373,7 +373,7 @@ final class OrdinaryReplacementOfflineParityTests: XCTestCase {
         let frozen = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: voice))
         XCTAssertEqual(mixer.rampDownVoices(channel: 0, rampFrames: 32), 1)
         _ = mixer.addVoice(sample: new.sample, gain: new.gain, pan: new.pan,
-            playbackStep: new.playbackStep, loop: new.loop)
+            playbackStep: new.playbackStep, loop: new.loop, sourceOnsetElapsedFrames: 0)
         var elapsed = 0
         for offset in [0, 1, 15, 30, 31, 32, frames - n] {
             pcm += mixer.render(frames: offset - elapsed).interleavedPCM

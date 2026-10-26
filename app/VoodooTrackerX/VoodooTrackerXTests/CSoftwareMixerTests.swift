@@ -1829,8 +1829,9 @@ final class CSoftwareMixerTests: XCTestCase {
             config: MixerRenderConfig(sampleRate: config.sampleRate, channelCount: 1)
         )
 
-        XCTAssertEqual(scheduled, immediate)
-        XCTAssertEqual(scheduled.interleavedPCM, [1, 0.5, 0, 0])
+        // Tracker sources opt into G02; the generic primitive remains an independent control.
+        XCTAssertEqual(scheduled.interleavedPCM, [0] + Array(immediate.interleavedPCM.dropFirst()))
+        XCTAssertEqual(scheduled.interleavedPCM, [0, 0.5, 0, 0])
     }
 
     func testSyntheticTrackerSchedulerLaterRowRendersSilenceBeforeEvent() {
@@ -1839,30 +1840,30 @@ final class CSoftwareMixerTests: XCTestCase {
 
         let block = cSyntheticTrackerBlock(events: [event], frames: 7)
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0, 1, 0.5, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0, 0, 0.5, 0])
     }
 
     func testSyntheticTrackerSchedulerRowTickEventStartsAtComputedFrame() {
         let config = SyntheticTrackerTimingConfig(speed: 2, bpm: 250, sampleRate: 100)
         let scheduler = SyntheticTrackerScheduler(config: config)
-        let event = SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [0.75]))
+        let event = SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [0.75, 0.75]))
 
         let block = cSyntheticTrackerBlock(events: [event], frames: 5, timingConfig: config)
 
         XCTAssertEqual(scheduler.frame(for: event), 3)
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0.75, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0, 0.75])
     }
 
     func testSyntheticTrackerSchedulerMultipleEventsRenderAtDeterministicPositions() {
         let events = [
-            SyntheticTrackerEvent(row: 0, tick: 0, sample: MixerSampleBuffer(monoPCM: [1])),
-            SyntheticTrackerEvent(row: 1, tick: 0, sample: MixerSampleBuffer(monoPCM: [0.5])),
-            SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [0.25]))
+            SyntheticTrackerEvent(row: 0, tick: 0, sample: MixerSampleBuffer(monoPCM: [1, 1])),
+            SyntheticTrackerEvent(row: 1, tick: 0, sample: MixerSampleBuffer(monoPCM: [0.5, 0.5])),
+            SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [0.25, 0.25]))
         ]
 
         let block = cSyntheticTrackerBlock(events: events, frames: 5)
 
-        XCTAssertEqual(block.interleavedPCM, [1, 0, 0.5, 0.25, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 1, 0, 0.5, 0.25])
     }
 
     func testSyntheticTrackerSchedulerOverlappingEventsMixDeterministically() {
@@ -1873,7 +1874,7 @@ final class CSoftwareMixerTests: XCTestCase {
 
         let block = cSyntheticTrackerBlock(events: events, frames: 6)
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 1, 1.5, 1.25, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 1, 1.25, 0])
     }
 
     func testSyntheticTrackerSchedulerSplitRendersMatchOneLargerRender() {
@@ -1911,7 +1912,7 @@ final class CSoftwareMixerTests: XCTestCase {
         let reset = mixer.render(frames: 6)
 
         XCTAssertEqual(first, reset)
-        XCTAssertEqual(reset.interleavedPCM, [0, 0, 0, 1, 0.5, 0])
+        XCTAssertEqual(reset.interleavedPCM, [0, 0, 0, 0, 0.5, 0])
     }
 
     func testSyntheticPatternEmptyPatternRendersSilence() {
@@ -1936,8 +1937,8 @@ final class CSoftwareMixerTests: XCTestCase {
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1)
         )
 
-        XCTAssertEqual(patternBlock, immediateBlock)
-        XCTAssertEqual(patternBlock.interleavedPCM, [1, 0.5, -0.5, 0, 0])
+        XCTAssertEqual(patternBlock.interleavedPCM, [0] + Array(immediateBlock.interleavedPCM.dropFirst()))
+        XCTAssertEqual(patternBlock.interleavedPCM, [0, 0.5, -0.5, 0, 0])
     }
 
     func testSyntheticPatternLaterRowRendersSilenceBeforeEvent() {
@@ -1947,33 +1948,33 @@ final class CSoftwareMixerTests: XCTestCase {
 
         let block = cSyntheticPatternBlock(pattern: pattern, frames: 7)
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0, 1, 0.5, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0, 0, 0.5, 0])
     }
 
     func testSyntheticPatternEventStartsAtSyntheticTimingFrame() {
         let config = SyntheticTrackerTimingConfig(speed: 2, bpm: 250, sampleRate: 100)
         let timing = SyntheticTrackerTiming(config: config)
         let scheduler = SyntheticPatternScheduler(config: config)
-        let event = SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [0.75]))
+        let event = SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [0.75, 0.75]))
         let pattern = SyntheticPattern(rowCount: 2, events: [event])
 
         let block = cSyntheticPatternBlock(pattern: pattern, frames: 5, timingConfig: config)
 
         XCTAssertEqual(timing.frameFor(row: 1, tick: 1), 3)
         XCTAssertEqual(scheduler.frame(for: event), 3)
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0.75, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0, 0.75])
     }
 
     func testSyntheticPatternMultipleRowsRenderDeterministically() {
         let pattern = SyntheticPattern(rowCount: 3, events: [
-            SyntheticTrackerEvent(row: 0, tick: 0, sample: MixerSampleBuffer(monoPCM: [1])),
-            SyntheticTrackerEvent(row: 1, tick: 0, sample: MixerSampleBuffer(monoPCM: [0.5])),
-            SyntheticTrackerEvent(row: 2, tick: 0, sample: MixerSampleBuffer(monoPCM: [0.25]))
+            SyntheticTrackerEvent(row: 0, tick: 0, sample: MixerSampleBuffer(monoPCM: [1, 1])),
+            SyntheticTrackerEvent(row: 1, tick: 0, sample: MixerSampleBuffer(monoPCM: [0.5, 0.5])),
+            SyntheticTrackerEvent(row: 2, tick: 0, sample: MixerSampleBuffer(monoPCM: [0.25, 0.25]))
         ])
 
         let block = cSyntheticPatternBlock(pattern: pattern, frames: 6)
 
-        XCTAssertEqual(block.interleavedPCM, [1, 0, 0.5, 0, 0.25, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 1, 0, 0.5, 0, 0.25])
     }
 
     func testSyntheticPatternMultipleEventsOnSameRowMixDeterministically() {
@@ -1984,7 +1985,7 @@ final class CSoftwareMixerTests: XCTestCase {
 
         let block = cSyntheticPatternBlock(pattern: pattern, frames: 5)
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 1.5, 1.25, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 1.25, 0])
     }
 
     func testSyntheticPatternDifferentTicksInSameRowRenderDeterministically() {
@@ -1995,7 +1996,7 @@ final class CSoftwareMixerTests: XCTestCase {
 
         let block = cSyntheticPatternBlock(pattern: pattern, frames: 6)
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 1, 1.5, 1.25, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 1, 1.25, 0])
     }
 
     func testSyntheticPatternLoopedEventUsesCForwardLoopBehavior() {
@@ -2066,19 +2067,19 @@ final class CSoftwareMixerTests: XCTestCase {
         let reset = mixer.render(frames: 6)
 
         XCTAssertEqual(first, reset)
-        XCTAssertEqual(reset.interleavedPCM, [0, 0, 0, 1, 0.5, 0])
+        XCTAssertEqual(reset.interleavedPCM, [0, 0, 0, 0, 0.5, 0])
     }
 
     func testSyntheticPatternEmptyRowsAreSafeAndDeterministic() {
         let pattern = SyntheticPattern(rowCount: 4, events: [
-            SyntheticTrackerEvent(row: 3, tick: 0, sample: MixerSampleBuffer(monoPCM: [1]))
+            SyntheticTrackerEvent(row: 3, tick: 0, sample: MixerSampleBuffer(monoPCM: [1, 1]))
         ])
 
         let first = cSyntheticPatternBlock(pattern: pattern, frames: 8)
         let second = cSyntheticPatternBlock(pattern: pattern, frames: 8)
 
         XCTAssertEqual(first, second)
-        XCTAssertEqual(first.interleavedPCM, [0, 0, 0, 0, 0, 0, 1, 0])
+        XCTAssertEqual(first.interleavedPCM, [0, 0, 0, 0, 0, 0, 0, 1])
     }
 
     func testSyntheticPatternInvalidRowCountClampsToEmptyPattern() {

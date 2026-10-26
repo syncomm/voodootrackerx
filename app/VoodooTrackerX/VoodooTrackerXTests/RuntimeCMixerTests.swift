@@ -581,7 +581,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 for (index, gain) in [(1, Float(header) / 64), (3, 0.5), (5, Float(header) / 64), (7, Float(header) / 64)] {
                     XCTAssertTrue(pcm[(index * row)..<((index + 1) * row)].allSatisfy { $0 == 0.25 * gain })
                 }
-                XCTAssertEqual(pcm.map(abs).max(), header == 64 ? 0.4921875 : 0.125)
+                XCTAssertEqual(pcm.map(abs).max(), header == 64 ? 0.25 : 0.125)
                 XCTAssertEqual(core.snapshot().clippingSampleCount, 0)
                 XCTAssertEqual(core.snapshot().overrangeSampleCount, 0)
             }
@@ -1249,7 +1249,8 @@ final class RuntimeCMixerTests: XCTestCase {
             }
         }
         XCTAssertTrue(offline.block.interleavedPCM[..<480].allSatisfy { $0 == 0 })
-        XCTAssertEqual(offline.block.interleavedPCM[480], 0.25)
+        XCTAssertEqual(offline.block.interleavedPCM[480], 0)
+        XCTAssertGreaterThan(offline.block.interleavedPCM[481], 0)
         let applied = core.drainAppliedAdapterEventDiagnostics().filter { if case .noteTrigger = $0.result { return true }; return false }
         XCTAssertEqual(applied.count, 3)
         for (actual, planned) in zip(applied, triggers) {
@@ -1433,7 +1434,7 @@ final class RuntimeCMixerTests: XCTestCase {
             let event = SyntheticTrackerEvent(row: 0, sample: sample, playbackStep: 0.75, loop: loop)
             XCTAssertTrue(core.triggerAdapterEventWithDiagnostics(event, eventIndex: 0, mapping: makeSyntheticEventMapping()).succeeded)
             let offline = CSoftwareMixer(config: config)
-            let voice = offline.addVoice(sample: sample, playbackStep: 0.75, loop: loop)
+            let voice = offline.addVoice(sample: sample, playbackStep: 0.75, loop: loop, sourceOnsetElapsedFrames: 0)
             let updates = [(7, 0.0), (23, 0.25)]
             core.configureAdapterEventScheduleForTesting(updates.enumerated().map { index, update in
                 RuntimeCMixerAdapterEvent(id: index, source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
@@ -3457,7 +3458,7 @@ final class RuntimeCMixerTests: XCTestCase {
         let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 10, loopStart: 0, loopLength: 2, loopType: 1)
         XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
 
-        XCTAssertPCMEqual(renderRuntimePCM(core, frames: 2), [1, 1])
+        XCTAssertPCMEqual(renderRuntimePCM(core, frames: 2), [0, 1])
         let cappedSnapshot = core.snapshot()
         XCTAssertEqual(cappedSnapshot.capture.frameLimit, 2)
         XCTAssertEqual(cappedSnapshot.capture.capturedFrameCount, 2)
@@ -3515,7 +3516,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
         core.configureAdapterEventScheduleForTesting([], runtimeFrameOffset: 0, plannedSongEndFrame: 2)
 
-        XCTAssertPCMEqual(renderRuntimePCM(core, frames: 6), [1, 1, 1, 1, 0, 0])
+        XCTAssertPCMEqual(renderRuntimePCM(core, frames: 6), [0, 1, 1, 1, 0, 0])
         let snapshot = core.snapshot()
 
         XCTAssertEqual(snapshot.capture.frameLimit, 100)
@@ -3540,7 +3541,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
         core.configureAdapterEventScheduleForTesting([], runtimeFrameOffset: 0, plannedSongEndFrame: 2)
 
-        XCTAssertPCMEqual(renderRuntimePCM(core, frames: 5), [1, 1, 1, 1, 1])
+        XCTAssertPCMEqual(renderRuntimePCM(core, frames: 5), [0, 1, 1, 1, 1])
         let snapshot = core.snapshot()
 
         XCTAssertEqual(snapshot.plannedSongEndFrame, 2)
@@ -3689,7 +3690,7 @@ final class RuntimeCMixerTests: XCTestCase {
         engine.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0))
         let output = engine.renderForTesting(frameCount: 4)
 
-        XCTAssertPCMEqual(output, [0.25, 0.5, 0.75, 1.0])
+        XCTAssertPCMEqual(output, [0, 0.5, 0.75, 1])
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer_coreaudio")
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "coreaudio_default_output_unit")
         XCTAssertEqual(traceWriter.events.last?.runtimeAudioBackend, "c_mixer_coreaudio")
@@ -5045,6 +5046,53 @@ final class RuntimeCMixerTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testNewSourceOnsetPhraseWholeWindowCoreAndEngineParityAtBothRates() throws {
+        try assertFixtureRuntimeParity(fixtureName: "new-source-onset.xm", linear: true)
+        try assertFixtureRuntimeParity(fixtureName: "new-source-onset.xm", linear: false)
+    }
+
+    func testNewSourceOnsetCorePreservesActualBirthCursorAndExactChunkDelivery() throws {
+        let fixture = try referenceXMFixtureURL("generated/new-source-onset.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        for rate in [44_100.0, 48_000] {
+            let config = MixerRenderConfig(sampleRate: rate)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), end = try XCTUnwrap(runtime.plannedSongEndFrame)
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: end)
+            let expected = PlaybackSongOfflineRenderer(preparedPlan: plan).render(request).block.interleavedPCM
+            let duration = Int(rate * 0.005)
+            let births = plan.pattern.events.compactMap(\.scheduledStartFrame)
+            var splits = [end]
+            for birth in births {
+                splits.append(contentsOf: [birth + 1, birth + duration / 2, birth + duration, birth + duration + 1])
+            }
+            let boundaries = Set(splits).sorted()
+            for chunk in [1, 17, 256, 997] {
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float](), applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+                for boundary in boundaries {
+                    while pcm.count / 2 < boundary {
+                        pcm += renderRuntimePCM(core, frames: min(chunk, boundary - pcm.count / 2))
+                        applied += core.drainAppliedAdapterEventDiagnostics()
+                    }
+                    if let index = births.firstIndex(of: boundary - 1) {
+                        let state = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: index))
+                        XCTAssertEqual(state.sourceOnsetDurationFrames, duration)
+                        XCTAssertEqual(state.sourceOnsetElapsedFrames, 1)
+                        XCTAssertEqual(state.samplePosition, Double(plan.pattern.events[index].initialSourceFrame) + state.sampleStep)
+                    }
+                }
+                XCTAssertEqual(pcm, expected)
+                let ordered = runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end }
+                XCTAssertEqual(applied.map(\.event), ordered)
+                XCTAssertTrue(applied.allSatisfy { $0.appliedFrame == UInt64($0.event.scheduledFrame) && $0.eventFrameDelta == 0 })
+            }
+        }
+    }
+
     func testFinePitchAfterVibratoExitOwnsFinalHeldStepAtBothRates() throws {
         for rate in [44_100.0, 48_000] {
             for (command, seed, zero, expected): (UInt8, UInt8, UInt8, Double) in [(14, 0x13, 0x10, 4584), (14, 0x24, 0x20, 4640), (33, 0x13, 0x10, 4602), (33, 0x24, 0x20, 4616)] {
@@ -5736,6 +5784,10 @@ final class RuntimeCMixerTests: XCTestCase {
             let ordered = ["linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) || boundedPitchFixture
                 ? runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] } : runtime.events
             let planned = ordered.filter { event in
+                if fixtureName == "new-source-onset.xm" {
+                    guard event.scheduledFrame < end else { return false }
+                    if case .noteTrigger = event.action { return true }
+                }
                 if ["fine-volume-directional-memory.xm", "fine-pitch-directional-memory.xm", "extra-fine-pitch-directional-memory.xm", "e90-row-entry-retrigger.xm", "delayed-instrument-only-edx.xm", "noteoff-kxx-precedence.xm", "linear-arpeggio-ordering.xm", "amiga-arpeggio-ordering.xm", "regular-portamento-memory-admission.xm", "amiga-portamento-up.xm", "tone-portamento-retained-source-reset.xm", "cold-tone-portamento-initialization.xm", "amiga-tone-portamento-consumers.xm", "ordinary-trigger-tone-target-lifetime.xm", "tone-portamento-direction-latch.xm", "amiga-fine-extra-fine-finetune.xm"].contains(fixtureName) || boundedPitchFixture {
                     guard event.scheduledFrame < end else { return false }
                     switch event.action {
@@ -6311,7 +6363,7 @@ final class RuntimeCMixerTests: XCTestCase {
             audioEngine.configureAdapterEventScheduleForTesting([], runtimeFrameOffset: 0, plannedSongEndFrame: 2)
 
             let output = audioEngine.renderForTesting(frameCount: 6)
-            XCTAssertPCMEqual(output, [1, 1, 1, 1, 0, 0])
+        XCTAssertPCMEqual(output, [0, 1, 1, 1, 0, 0])
 
             let snapshot = audioEngine.snapshotForTesting()
             XCTAssertEqual(audioEngine.runtimeAudioBackend, backend)
@@ -6721,7 +6773,8 @@ final class RuntimeCMixerTests: XCTestCase {
         let output = harness.audioEngine.renderForTesting(frameCount: 12)
 
         XCTAssertTrue(output[0..<10].allSatisfy { abs($0) < 0.000_001 })
-        XCTAssertGreaterThan(abs(output[10]), 0.000_001)
+        XCTAssertEqual(output[10], 0)
+        XCTAssertGreaterThan(abs(output[11]), 0.000_001)
         let addVoice = harness.traceWriter.events.first { $0.runtimeAction == "c_mixer_add_voice" }
         XCTAssertEqual(addVoice?.runtimeEventSource, "offline_adapter_plan")
         XCTAssertEqual(addVoice?.adapterEventCategory, "note_trigger")
@@ -7113,7 +7166,8 @@ final class RuntimeCMixerTests: XCTestCase {
         }
 
         let gain = RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
-        XCTAssertEqual(output, [gain, gain, 0.5 * gain, 0.5 * gain, 0.25 * gain, 0.25 * gain])
+        let attack = Float(0.5) / 220 * gain
+        XCTAssertEqual(output, [0, 0, attack, attack, attack, attack])
 
         core.stopAll()
         var silentOutput = Array(repeating: Float(1), count: 6)
@@ -7588,7 +7642,7 @@ final class RuntimeCMixerTests: XCTestCase {
             XCTAssertEqual(status, noErr)
         }
 
-        XCTAssertPCMEqual(output, [1, 1, 0.5, 0.5])
+        XCTAssertPCMEqual(output, [0, 0, 0.1, 0.1])
         let snapshot = core.snapshot()
         XCTAssertFalse(snapshot.callbackAllocationWarning)
         XCTAssertTrue(snapshot.callbackRealtimeSafeDiagnostics)
@@ -7612,14 +7666,14 @@ final class RuntimeCMixerTests: XCTestCase {
         let sample = makePlaybackSample(pcm: [0.25, 0.5, 0.75, 1], baseSampleRate: 1_000)
 
         XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
-        XCTAssertPCMEqual(renderCoreAudioRuntimePCM(core, frames: 2), [0.25, 0.5])
+        XCTAssertPCMEqual(renderCoreAudioRuntimePCM(core, frames: 2), [0, 0.1])
 
         var lockedOutput = [Float]()
         core.withRenderLockHeldForTesting {
             lockedOutput = renderCoreAudioRuntimePCM(core, frames: 2, initialValue: -1)
         }
 
-        XCTAssertPCMEqual(lockedOutput, [0.25, 0.5])
+        XCTAssertPCMEqual(lockedOutput, [0, 0.1])
         let snapshot = core.snapshot()
         XCTAssertEqual(snapshot.callbackLockAttemptCount, 2)
         XCTAssertEqual(snapshot.callbackTryLockFailureCount, 1)
@@ -7853,13 +7907,14 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(snapshot.zeroFillCount, 0)
         XCTAssertEqual(snapshot.silentOutputCallbackCount, 0)
         let gain = RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
-        XCTAssertEqual(snapshot.lastOutputPeak, gain, accuracy: 0.000_001)
-        XCTAssertEqual(snapshot.outputPeak, gain, accuracy: 0.000_001)
-        XCTAssertEqual(snapshot.outputRMS, Float(sqrt(2.5 / 4.0)) * gain, accuracy: 0.000_001)
+        let attackPeak = Float(0.5) / 220 * gain
+        XCTAssertEqual(snapshot.lastOutputPeak, attackPeak, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.outputPeak, attackPeak, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.outputRMS, Float(sqrt(0.5)) * attackPeak, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.outputDiscontinuityCount, 0)
         XCTAssertLessThan(snapshot.maxOutputAdjacentSampleJump, RuntimeCMixerRenderCore.outputDiscontinuityThreshold)
-        XCTAssertEqual(snapshot.topOutputPeaks.first?.runtimeFrame, 0)
-        XCTAssertEqual(snapshot.topOutputPeaks.first?.peak ?? 0, gain, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.topOutputPeaks.first?.runtimeFrame, 1)
+        XCTAssertEqual(snapshot.topOutputPeaks.first?.peak ?? 0, attackPeak, accuracy: 0.000_001)
         XCTAssertNil(snapshot.lastOutputDiscontinuitySampleJump)
         XCTAssertEqual(snapshot.overrangeSampleCount, 0)
         XCTAssertEqual(snapshot.clippingSampleCount, 0)
@@ -7875,17 +7930,18 @@ final class RuntimeCMixerTests: XCTestCase {
     func testRuntimeCMixerRenderCoreReportsOutputDiscontinuityDiagnostics() {
         let core = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
-            maximumRenderFrames: 16,
+            maximumRenderFrames: 256,
             outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
             ])
         )
-        let sample = makePlaybackSample(pcm: [0, 1, -1, 1], baseSampleRate: 44_100)
+        // Place the discontinuities after the attack so this remains a discontinuity detector test.
+        let sample = makePlaybackSample(pcm: Array(repeating: 0, count: 220) + [0, 1, -1, 1], baseSampleRate: 44_100)
 
         XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
-        var output = Array(repeating: Float(0), count: 4)
+        var output = Array(repeating: Float(0), count: 224)
         output.withUnsafeMutableBufferPointer { buffer in
-            XCTAssertTrue(core.render(into: buffer, frameCount: 4))
+            XCTAssertTrue(core.render(into: buffer, frameCount: 224))
         }
 
         let snapshot = core.snapshot()
@@ -7894,12 +7950,12 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(snapshot.outputDiscontinuityThresholdCounts.map(\.threshold), [0.25, 0.35, 0.50, RuntimeCMixerRenderCore.outputDiscontinuityThreshold])
         XCTAssertEqual(snapshot.outputDiscontinuityThresholdCounts.map(\.count), [3, 3, 3, 3])
         XCTAssertEqual(snapshot.maxOutputAdjacentSampleJump, 2, accuracy: 0.000_001)
-        XCTAssertEqual(snapshot.topOutputAdjacentSampleJumps.map(\.sampleJump), [2, 2, 1])
-        XCTAssertEqual(snapshot.topOutputAdjacentSampleJumps.map(\.runtimeFrame), [2, 3, 1])
+        XCTAssertEqual(snapshot.topOutputAdjacentSampleJumps.map(\.sampleJump), [2, 2, 1, 0, 0, 0, 0, 0])
+        XCTAssertEqual(snapshot.topOutputAdjacentSampleJumps.map(\.runtimeFrame), [222, 223, 221, 1, 2, 3, 4, 5])
         XCTAssertEqual(snapshot.lastOutputDiscontinuitySampleJump, 2)
         XCTAssertEqual(snapshot.lastOutputDiscontinuityCallbackIndex, 1)
-        XCTAssertEqual(snapshot.lastOutputDiscontinuityRuntimeFrame, 2)
-        XCTAssertEqual(snapshot.lastOutputDiscontinuityFrameOffset, 2)
+        XCTAssertEqual(snapshot.lastOutputDiscontinuityRuntimeFrame, 222)
+        XCTAssertEqual(snapshot.lastOutputDiscontinuityFrameOffset, 222)
         XCTAssertEqual(snapshot.lastOutputDiscontinuityChannelIndex, 0)
     }
 
@@ -7928,7 +7984,8 @@ final class RuntimeCMixerTests: XCTestCase {
         let output = renderRuntimePCM(core, frames: 2)
         let snapshot = core.snapshot()
 
-        XCTAssertGreaterThan(abs(output[0]), 0.000_001)
+        XCTAssertEqual(output[0], 0)
+        XCTAssertGreaterThan(abs(output[1]), 0.000_001)
         XCTAssertEqual(snapshot.currentFrame, 7)
         XCTAssertEqual(snapshot.appliedPlannedEventCount, 1)
         XCTAssertEqual(snapshot.exactFrameAppliedEventCount, 0)
@@ -7955,7 +8012,7 @@ final class RuntimeCMixerTests: XCTestCase {
             XCTAssertTrue(core.render(into: buffer, frameCount: 2))
         }
 
-        XCTAssertEqual(output, [0.5, 0.5, -0.25, -0.25])
+        XCTAssertEqual(output, [0, 0, -0.25 / 220, -0.25 / 220])
         XCTAssertEqual(core.snapshot().runtimeHeadroomPolicy, "env_runtime_gain")
         XCTAssertEqual(core.snapshot().runtimeGainPolicySource, "environment_override")
         XCTAssertEqual(core.snapshot().runtimeGainPolicyIsEnvironmentOverride, true)
@@ -7968,28 +8025,28 @@ final class RuntimeCMixerTests: XCTestCase {
         let reducedPolicy = RuntimeCMixerOutputPolicy.resolve(environment: [
             RuntimeCMixerOutputPolicy.gainEnvironmentKey: "0.25"
         ])
-        let hotSample = makePlaybackSample(pcm: [2, -2, 0.5], baseSampleRate: 44_100)
+        let hotSample = makePlaybackSample(pcm: Array(repeating: 0, count: 220) + [2, -2, 0.5], baseSampleRate: 44_100)
 
         let unityCore = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
-            maximumRenderFrames: 16,
+            maximumRenderFrames: 256,
             outputPolicy: unityPolicy
         )
         XCTAssertTrue(unityCore.trigger(AudioVoiceRequest(sample: hotSample, note: 49, channel: 0)))
-        var unityOutput = Array(repeating: Float(0), count: 3)
+        var unityOutput = Array(repeating: Float(0), count: 223)
         unityOutput.withUnsafeMutableBufferPointer { buffer in
-            XCTAssertTrue(unityCore.render(into: buffer, frameCount: 3))
+            XCTAssertTrue(unityCore.render(into: buffer, frameCount: 223))
         }
 
         let reducedCore = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
-            maximumRenderFrames: 16,
+            maximumRenderFrames: 256,
             outputPolicy: reducedPolicy
         )
         XCTAssertTrue(reducedCore.trigger(AudioVoiceRequest(sample: hotSample, note: 49, channel: 0)))
-        var reducedOutput = Array(repeating: Float(0), count: 3)
+        var reducedOutput = Array(repeating: Float(0), count: 223)
         reducedOutput.withUnsafeMutableBufferPointer { buffer in
-            XCTAssertTrue(reducedCore.render(into: buffer, frameCount: 3))
+            XCTAssertTrue(reducedCore.render(into: buffer, frameCount: 223))
         }
 
         let unitySnapshot = unityCore.snapshot()
@@ -7998,7 +8055,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(unitySnapshot.clippingSampleCount, 2)
         XCTAssertEqual(unitySnapshot.outputPeakWarningSampleCount, 2)
         XCTAssertEqual(unitySnapshot.topOutputPeaks.first?.peak, 2)
-        XCTAssertEqual(unitySnapshot.topOutputPeaks.first?.runtimeFrame, 0)
+        XCTAssertEqual(unitySnapshot.topOutputPeaks.first?.runtimeFrame, 220)
         XCTAssertEqual(unitySnapshot.runtimeClippingRecommendation, RuntimeCMixerOutputPolicy.clippingRecommendation)
         XCTAssertFalse(reducedSnapshot.clippingDetected)
         XCTAssertEqual(reducedSnapshot.clippingSampleCount, 0)
@@ -8009,27 +8066,27 @@ final class RuntimeCMixerTests: XCTestCase {
         let oldDefaultEquivalentPolicy = RuntimeCMixerOutputPolicy.resolve(environment: [
             RuntimeCMixerOutputPolicy.headroomDBEnvironmentKey: "-10"
         ])
-        let hotSample = makePlaybackSample(pcm: [3.5, -3.5, 0.25], baseSampleRate: 44_100)
+        let hotSample = makePlaybackSample(pcm: Array(repeating: 0, count: 220) + [3.5, -3.5, 0.25], baseSampleRate: 44_100)
 
         let minusTenCore = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
-            maximumRenderFrames: 16,
+            maximumRenderFrames: 256,
             outputPolicy: oldDefaultEquivalentPolicy
         )
         XCTAssertTrue(minusTenCore.trigger(AudioVoiceRequest(sample: hotSample, note: 49, channel: 0)))
-        var minusTenOutput = Array(repeating: Float(0), count: 3)
+        var minusTenOutput = Array(repeating: Float(0), count: 223)
         minusTenOutput.withUnsafeMutableBufferPointer { buffer in
-            XCTAssertTrue(minusTenCore.render(into: buffer, frameCount: 3))
+            XCTAssertTrue(minusTenCore.render(into: buffer, frameCount: 223))
         }
 
         let defaultCore = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
-            maximumRenderFrames: 16
+            maximumRenderFrames: 256
         )
         XCTAssertTrue(defaultCore.trigger(AudioVoiceRequest(sample: hotSample, note: 49, channel: 0)))
-        var defaultOutput = Array(repeating: Float(0), count: 3)
+        var defaultOutput = Array(repeating: Float(0), count: 223)
         defaultOutput.withUnsafeMutableBufferPointer { buffer in
-            XCTAssertTrue(defaultCore.render(into: buffer, frameCount: 3))
+            XCTAssertTrue(defaultCore.render(into: buffer, frameCount: 223))
         }
 
         let minusTenSnapshot = minusTenCore.snapshot()
@@ -8102,7 +8159,8 @@ final class RuntimeCMixerTests: XCTestCase {
         output.withUnsafeMutableBufferPointer { buffer in
             XCTAssertTrue(core.render(into: buffer, frameCount: 3))
         }
-        XCTAssertEqual(output, Array(repeating: 0.25 * RuntimeCMixerOutputPolicy.defaultPolicy.outputGain, count: 3))
+        let gain = RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
+        XCTAssertEqual(output, (0..<3).map { (Float(0.25) * Float($0) / 220) * gain })
     }
 
     func testRuntimeCMixerRenderCoreRampsPriorVoiceOnSameChannelReplacement() {
@@ -8134,10 +8192,11 @@ final class RuntimeCMixerTests: XCTestCase {
         output.withUnsafeMutableBufferPointer { buffer in
             XCTAssertTrue(core.render(into: buffer, frameCount: 34))
         }
-        XCTAssertEqual(output[0], 1.71875, accuracy: 0.000_001)
-        XCTAssertEqual(output[30], 0.78125, accuracy: 0.000_001)
-        XCTAssertEqual(output[31], 0.75, accuracy: 0.000_001)
-        XCTAssertEqual(output[33], 0.75, accuracy: 0.000_001)
+        // All three sources were installed at the same frame; old-side retirement stays 32 frames.
+        XCTAssertEqual(output[0], 0, accuracy: 0.000_001)
+        XCTAssertEqual(output[30], 0.78125 * 30 / 220, accuracy: 0.000_001)
+        XCTAssertEqual(output[31], 0.75 * 31 / 220, accuracy: 0.000_001)
+        XCTAssertEqual(output[33], 0.75 * 33 / 220, accuracy: 0.000_001)
         XCTAssertEqual(core.snapshot().activeVoiceCount, 2)
         XCTAssertEqual(core.snapshot().rampingOutVoiceCount, 0)
         XCTAssertEqual(core.snapshot().rampDownCompletionCount, 1)
@@ -8345,7 +8404,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(update.targetVoiceIndex, 1)
         XCTAssertEqual(update.gainBefore ?? -1, 1, accuracy: 0.000_001)
         XCTAssertEqual(update.gainAfter ?? -1, 0.25, accuracy: 0.000_001)
-        XCTAssertEqual(output[39], 1.5, accuracy: 0.000_001)
+        XCTAssertEqual(output[39], 1.5 * 39 / 220, accuracy: 0.000_001)
     }
 
     func testRuntimeCMixerStepUpdateTargetsOnlyRequestedChannel() {
@@ -8374,7 +8433,11 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(update.targetVoiceIndex, 1)
         XCTAssertEqual(update.sampleStepBefore ?? -1, 1, accuracy: 0.000_001)
         XCTAssertEqual(update.sampleStepAfter ?? -1, 2, accuracy: 0.000_001)
-        XCTAssertEqual(output, [100, 103, 106, 109])
+        let expected = (0..<4).map { frame -> Float in
+            let onset = Float(frame) / 220
+            return Float(100 + frame) * onset + Float(2 * frame) * onset
+        }
+        XCTAssertEqual(output, expected)
     }
 
     func testRuntimeCMixerCombinedGainPanStepUpdateIsDeterministic() {
@@ -8792,7 +8855,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertNil(update.succeeded)
 
         XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0, panning: defaultRuntimePan(forChannel: 0))))
-        XCTAssertEqual(renderRuntimePCM(core, frames: 2), [0.25, 0.25])
+        XCTAssertEqual(renderRuntimePCM(core, frames: 2), [0, 0.25 / 220])
     }
 
     func testRuntimeCMixerStepUpdateWithoutActiveVoiceStaysDeferred() {

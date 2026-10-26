@@ -72,8 +72,15 @@ host.
   each ordered ordinary native pitch intent, with folded births and causal blank-tick
   delivery through the existing C step protocol. Playback-only metadata interpretation,
   symmetric rounding, bounded sweep/release and retained-source bounds follow the
-  [approved VTX policies](design/xm-final-pitch-publication.md). G32 closure remains
-  open pending complete verification, independent review and Gregory's listening.
+  [approved VTX policies](design/xm-final-pitch-publication.md). The bounded G32
+  contract is closed by maintainer acceptance; its approved intentional reference
+  differences remain explicit.
+- G02 new-source onset uses an independent C voice multiplier from zero to the
+  existing target over 240 output frames at 48 kHz / 220 at 44.1 kHz. Source
+  timing/cursor and final targets remain independent, including silent/zero-step
+  births and window continuation. Independent review and maintainer listening
+  remain required; G03 retirement/overlap stays open. See the
+  [onset contract](design/xm-reset-output-ramp.md#g02-new-source-onset).
 - G26 Amiga `0xy` is closed for in-range quantized pitches. It reuses G25's
   phase selector and the existing Amiga note/finetune lookup and sample-step
   conversion. Tuning, relative-note/octave crossings, effective Fxx speed,

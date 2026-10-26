@@ -164,8 +164,9 @@ final class NoteOnlyRoutingTests: XCTestCase {
             let request = PlaybackSongOfflineRenderRequest(song: module, config: config, rows: cells.count)
             let full = renderer.render(request).block.interleavedPCM
             for rows in [1, 2, 3, 4] { XCTAssertEqual(renderer.renderWindowed(request, windowRows: rows).block.interleavedPCM, full) }
-            XCTAssertEqual(full[0], 0.25)
+            XCTAssertEqual(full[0], 0)
             XCTAssertEqual(full[1], 0)
+            XCTAssertEqual(full[2], 0.25 / Float(Int(rate * 0.005)))
             let mono = MixerRenderConfig(sampleRate: rate, channelCount: 1)
             XCTAssertEqual(renderer.render(.init(song: module, config: mono, rows: cells.count)).block.interleavedPCM,
                 renderer.render(.init(song: song(cells, panEnvelope: false), config: mono, rows: cells.count)).block.interleavedPCM)

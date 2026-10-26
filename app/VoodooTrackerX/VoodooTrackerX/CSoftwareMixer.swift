@@ -230,6 +230,8 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
 
     let envelopeSemanticState: MixerEnvelopeSemanticState?
     let audibleOutputState: MixerAudibleOutputState?
+    let sourceOnsetDurationFrames: Int
+    let sourceOnsetElapsedFrames: Int
 
     init(_ diagnostic: VTXCMixerVoiceDiagnostic) {
         loaded = diagnostic.loaded != 0
@@ -245,6 +247,8 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
         fadeoutValue = diagnostic.fadeout_value
         let semantic = diagnostic.external_envelope_state
         audibleOutputState = diagnostic.output.enabled == 0 ? nil : MixerAudibleOutputState(raw: diagnostic.output)
+        sourceOnsetDurationFrames = Int(diagnostic.onset_duration_frames)
+        sourceOnsetElapsedFrames = Int(diagnostic.onset_age_frames)
         envelopeSemanticState = diagnostic.has_external_envelope_state == 0 ? nil : MixerEnvelopeSemanticState(
             volumeTick: Int(semantic.volume_tick), panTick: Int(semantic.pan_tick), keyOn: semantic.key_on != 0,
             fadeoutAccumulator: Int(semantic.fadeout_accumulator), volumeValue: semantic.volume_value,
@@ -300,6 +304,7 @@ struct CSoftwareMixerVoiceRuntimeState: Equatable {
     let fadeoutValue: Float
     let gainRamp: CSoftwareMixerValueRampRuntimeState?
     let panRamp: CSoftwareMixerValueRampRuntimeState?
+    let sourceOnsetElapsedFrames: Int?
 
     init(
         samplePosition: Double,
@@ -309,7 +314,8 @@ struct CSoftwareMixerVoiceRuntimeState: Equatable {
         keyOn: Bool = true,
         fadeoutValue: Float = 1,
         gainRamp: CSoftwareMixerValueRampRuntimeState? = nil,
-        panRamp: CSoftwareMixerValueRampRuntimeState? = nil
+        panRamp: CSoftwareMixerValueRampRuntimeState? = nil,
+        sourceOnsetElapsedFrames: Int? = nil
     ) {
         self.samplePosition = samplePosition.isFinite && samplePosition >= 0 ? samplePosition : 0
         self.pingPongDirection = pingPongDirection < 0 ? -1 : 1
@@ -319,6 +325,7 @@ struct CSoftwareMixerVoiceRuntimeState: Equatable {
         self.fadeoutValue = fadeoutValue.isFinite ? min(1, max(0, fadeoutValue)) : 1
         self.gainRamp = gainRamp
         self.panRamp = panRamp
+        self.sourceOnsetElapsedFrames = sourceOnsetElapsedFrames.map { max(0, $0) }
     }
 }
 
@@ -398,6 +405,13 @@ final class CSoftwareMixer {
     func setAudibleOutputState(_ output: MixerAudibleOutputState, forVoiceAt voice: Int) -> Bool {
         guard voice >= 0 else { return false }
         return vtx_c_mixer_set_voice_output_state(state, UInt32(clamping: voice), output.raw) == VTX_C_MIXER_STATUS_OK
+    }
+
+    /// Starts the C-owned new-source fade, or imports its output-frame age on a fresh continuation.
+    @discardableResult
+    func setSourceOnset(elapsedFrames: Int, forVoiceAt voice: Int) -> Bool {
+        guard voice >= 0, voice <= Int(UInt32.max), elapsedFrames >= 0 else { return false }
+        return vtx_c_mixer_set_voice_source_onset(state, UInt32(voice), UInt32(clamping: elapsedFrames)) == VTX_C_MIXER_STATUS_OK
     }
 
     /// Installs a prepared offline stream; runtime applies these same targets at its planned event frames.
@@ -502,7 +516,8 @@ final class CSoftwareMixer {
         volumeEnvelope: MixerEnvelope? = nil,
         panEnvelope: MixerEnvelope? = nil,
         keyOffFrame: Int? = nil,
-        fadeoutFrameDecrement: Float = 0
+        fadeoutFrameDecrement: Float = 0,
+        sourceOnsetElapsedFrames: Int? = nil
     ) -> Int {
         precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
@@ -528,6 +543,7 @@ final class CSoftwareMixer {
             )
         }
         Self.requireOK(status)
+        if let age = sourceOnsetElapsedFrames { setSourceOnset(elapsedFrames: age, forVoiceAt: Int(voiceIndex)) }
         recordAcceptedVoiceAdd(
             frameCount: sample.frameCount,
             sampleIdentity: sampleIdentity,
@@ -563,7 +579,8 @@ final class CSoftwareMixer {
         volumeEnvelope: MixerEnvelope? = nil,
         panEnvelope: MixerEnvelope? = nil,
         keyOffFrame: Int? = nil,
-        fadeoutFrameDecrement: Float = 0
+        fadeoutFrameDecrement: Float = 0,
+        sourceOnsetElapsedFrames: Int? = nil
     ) -> Int? {
         addScheduledVoiceWithResult(
             sample: sample,
@@ -576,7 +593,8 @@ final class CSoftwareMixer {
             volumeEnvelope: volumeEnvelope,
             panEnvelope: panEnvelope,
             keyOffFrame: keyOffFrame,
-            fadeoutFrameDecrement: fadeoutFrameDecrement
+            fadeoutFrameDecrement: fadeoutFrameDecrement,
+            sourceOnsetElapsedFrames: sourceOnsetElapsedFrames
         ).voiceIndex
     }
 
@@ -593,7 +611,8 @@ final class CSoftwareMixer {
         volumeEnvelope: MixerEnvelope? = nil,
         panEnvelope: MixerEnvelope? = nil,
         keyOffFrame: Int? = nil,
-        fadeoutFrameDecrement: Float = 0
+        fadeoutFrameDecrement: Float = 0,
+        sourceOnsetElapsedFrames: Int? = nil
     ) -> CSoftwareMixerScheduledVoiceResult {
         guard scheduledStartFrame >= 0 else {
             return CSoftwareMixerScheduledVoiceResult(voiceIndex: nil, rejectionReason: .invalidScheduledVoice)
@@ -651,6 +670,7 @@ final class CSoftwareMixer {
                 rejectionReason: Self.rejectionReason(for: status)
             )
         }
+        if let age = sourceOnsetElapsedFrames { setSourceOnset(elapsedFrames: age, forVoiceAt: Int(voiceIndex)) }
         recordAcceptedVoiceAdd(
             frameCount: sample.frameCount,
             sampleIdentity: sampleIdentity,
@@ -744,6 +764,7 @@ final class CSoftwareMixer {
             runtimeState.fadeoutValue
         )
         Self.requireOK(status)
+        if let age = runtimeState.sourceOnsetElapsedFrames { setSourceOnset(elapsedFrames: age, forVoiceAt: voiceIndex) }
         let rampStatus = vtx_c_mixer_set_voice_gain_pan_ramp_state(
             state,
             UInt32(voiceIndex),

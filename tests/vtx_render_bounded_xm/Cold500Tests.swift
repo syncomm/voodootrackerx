@@ -139,7 +139,8 @@ final class Cold500Tests: XCTestCase {
                     let full = PlaybackSongOfflineRenderer().render(.init(song: module, config: .init(sampleRate: rate, channelCount: 1), rows: 5))
                     let tick = Int(rate / 50)
                     XCTAssertTrue(full.block.interleavedPCM[(18 * tick)..<(24 * tick)].allSatisfy { $0 == 0 })
-                    XCTAssertEqual(full.block.interleavedPCM[24 * tick + 100], route == 3 ? 0 : 0.5 / 32, accuracy: 1e-7)
+                    XCTAssertEqual(full.block.interleavedPCM[24 * tick + 100],
+                        (route == 3 ? 0 : 0.5 / 32) * Float(100) / Float(Int(rate * 0.005)), accuracy: 1e-7)
                     if route != 2 { XCTAssertTrue(gainEvents(RuntimeCMixerAdapterEventPlan.make(song: module, sampleRate: rate), row: 3).isEmpty) }
                 }
             }

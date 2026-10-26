@@ -249,7 +249,8 @@ struct SyntheticTrackerScheduler: Equatable {
             volumeEnvelope: event.volumeEnvelope,
             panEnvelope: event.panEnvelope,
             keyOffFrame: event.keyOffFrame,
-            fadeoutFrameDecrement: event.fadeoutFrameDecrement
+            fadeoutFrameDecrement: event.fadeoutFrameDecrement,
+            sourceOnsetElapsedFrames: 0
         )
     }
 

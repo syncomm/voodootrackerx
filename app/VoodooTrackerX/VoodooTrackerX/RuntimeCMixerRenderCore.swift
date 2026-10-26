@@ -1516,7 +1516,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             pan: initialPan,
             playbackStep: initialSampleStep,
             loop: mixerLoop(for: request.sample),
-            initialSourceFrame: request.sampleStartOffset
+            initialSourceFrame: request.sampleStartOffset,
+            sourceOnsetElapsedFrames: 0
         )
         mixer.setChannelTag(request.channel, forVoiceAt: voiceIndex)
         voiceStateByChannel[request.channel] = RuntimeCMixerChannelVoiceState(
@@ -1641,7 +1642,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             volumeEnvelope: event.volumeEnvelope,
             panEnvelope: event.panEnvelope,
             keyOffFrame: runtimeKeyOffFrame,
-            fadeoutFrameDecrement: event.fadeoutFrameDecrement
+            fadeoutFrameDecrement: event.fadeoutFrameDecrement,
+            sourceOnsetElapsedFrames: 0
         )
         mixer.setChannelTag(mapping.channelIndex, forVoiceAt: voiceIndex)
         adapterVoiceStateByEventIndex[eventIndex] = RuntimeCMixerAdapterVoiceState(

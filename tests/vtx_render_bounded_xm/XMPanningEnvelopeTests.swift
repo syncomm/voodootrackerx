@@ -33,8 +33,10 @@ final class XMPanningEnvelopeTests: XCTestCase {
                 XCTAssertEqual(update.amplitude, 1) // G01 remains one channel/header ownership.
                 XCTAssertEqual(update.durationFrames, 0)
                 let config = MixerRenderConfig(sampleRate: rate)
-                XCTAssertEqual(result.block.interleavedPCM[0], 0.25 * config.panLaw.leftGain(for: update.pan), accuracy: 1e-7)
-                XCTAssertEqual(result.block.interleavedPCM[1], 0.25 * config.panLaw.rightGain(for: update.pan), accuracy: 1e-7)
+                let settled = 2 * Int(rate * 0.005)
+                XCTAssertEqual(Array(result.block.interleavedPCM.prefix(2)), [0, 0])
+                XCTAssertEqual(result.block.interleavedPCM[settled], 0.25 * config.panLaw.leftGain(for: update.pan), accuracy: 1e-7)
+                XCTAssertEqual(result.block.interleavedPCM[settled + 1], 0.25 * config.panLaw.rightGain(for: update.pan), accuracy: 1e-7)
                 XCTAssertEqual(result.plan.xmChannelRows.first?.controls.panningValue, Double(header))
             }
         }

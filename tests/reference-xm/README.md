@@ -6,6 +6,13 @@ remain intentionally deferred.
 
 ## Purpose
 
+`new-source-onset.xm` is an original 2.88-second, one-channel phrase with two
+distinct looped sample identities (mathematical pulse and saw PCM). Both start
+with a large nonzero sample. Exact keymap routing, note-only changes, ED1 and
+E90 expose the new-side 5 ms attack. Before/after and reference WAVs remain
+external; the outgoing 32-frame replacement policy remains G03, and automated
+rendering does not establish maintainer listening acceptance.
+
 `instrument-autovibrato-composition-linear.xm` and its Amiga companion use
 one channel and sixteen rows of original mathematical PCM. Four sections select
 sine, square, ramp-down and ramp-up with depth 15, rate 8 and sweeps 0/1/16/255.

@@ -14,7 +14,8 @@ final class XMVolumeOwnershipTests: XCTestCase {
             XCTAssertTrue(states.allSatisfy { $0.triggeredSampleDefaultVolume == 0 && $0.activeSampleVolume == 0 })
             XCTAssertEqual(context.events.map(\.gain), [Float(expected) / 64])
             XCTAssertEqual(context.events.map(\.scheduledStartFrame), [0])
-            XCTAssertEqual(render(module).block.interleavedPCM, Array(repeating: Float(expected) / 64, count: 8))
+            // This deliberately tiny render rate gives a one-frame G02 onset.
+            XCTAssertEqual(render(module).block.interleavedPCM, [0] + Array(repeating: Float(expected) / 64, count: 7))
         }
     }
 
@@ -57,7 +58,7 @@ final class XMVolumeOwnershipTests: XCTestCase {
             XCTAssertEqual(states.map(\.activeSampleVolume), [sample, sample])
             XCTAssertEqual(context.events.map(\.gain), [gain])
             XCTAssertEqual(context.eventMappings.map(\.effectiveVolumeValue), [channel])
-            XCTAssertEqual(render(module).block.interleavedPCM, Array(repeating: gain, count: 8))
+            XCTAssertEqual(render(module).block.interleavedPCM, [0] + Array(repeating: gain, count: 7))
         }
     }
 
@@ -143,7 +144,7 @@ final class XMVolumeOwnershipTests: XCTestCase {
         XCTAssertEqual(context.events.map(\.gain), [0.5])
         let result = render(module)
         // The semantic clamp is immediate; audible output reaches zero one tick later.
-        XCTAssertEqual(result.block.interleavedPCM, [0.25, 0.25, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0.25, 0, 0])
         XCTAssertEqual(result.diagnostics.eventMappings.first?.volumeEnvelopeSemantics.fadeoutApplied, true)
     }
 
@@ -169,7 +170,8 @@ final class XMVolumeOwnershipTests: XCTestCase {
         XCTAssertEqual(bounded.diagnostics.retriggerEffects.first?.retriggerTicks, [2])
         XCTAssertEqual(bounded.diagnostics.eventMappings.last?.effectiveVolumeValue, 16)
         XCTAssertEqual(bounded.plan.pattern.events.last?.gain, 0.078125)
-        XCTAssertEqual(hash, "e54892eb2b78d2902c460f0df6e500d62e75b52a2cbf6f91d2a8d4304a55b33c")
+        // At this synthetic rate, G02 silences the first frame of each new source.
+        XCTAssertEqual(hash, "9897de4701c535af23ae6cb6ea4cc6e072aa6e0426a0fce0b695229650850a6a")
         XCTAssertEqual(bounded.block.frameCount, 56)
     }
 

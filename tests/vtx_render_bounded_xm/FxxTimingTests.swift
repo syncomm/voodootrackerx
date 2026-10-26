@@ -158,12 +158,12 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testNativeSelectionPhysicalBaseline() throws {
-        // Frozen on unmodified 00fea60 before selection capture; R02 changes only retirement PCM.
-        // Component audit pins every other byte; affected tails are N+1...N+30 in sentinels 2/7.
-        let expected = ["true-44100": "109f28b74601884e209f477942ecb6572b501110c62aca97f1ea84f10a2dc6a3",
-            "true-48000": "b8a5ca5a0fb75818a9c22837991c367a9f7d05fdcfc4795eca8fcc97d7b6fcf7",
-            "false-44100": "3b75906f32dfcb746518b5edb5f503f8560f175f4d134b88a36dafb5d4f95046",
-            "false-48000": "f0245e9842ff3acfd0044379830021116e86576f91d9b3b3bf18f603b4b5a4ed"]
+        // G02 updates attack PCM and adds window onset age. An independent starting-SHA
+        // component audit pins all other state and exact PCM outside [birth, birth + N).
+        let expected = ["true-44100": "e442efa07b054de4fb9091d34040332d247e9402c102818a2b2f462ccb03c6e5",
+            "true-48000": "3e71290fe1b7d4e1bc910211b366a2f5f9d6e3e88f30d42ed8ba76dbfba905a3",
+            "false-44100": "107c37eb9b6e04a6911f34e6aa8df3aebd114c8661a7beb71cd5787fcf5df5da",
+            "false-48000": "42766ea713a227c4c85f4a154731fb2e9d5643ed57a160aef10d5384f2e23f73"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data()
             for cells in clockSentinels + selectionSentinels {
@@ -238,12 +238,12 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testCanonicalClockPhysicalBaseline() throws {
-        // Captured twice on clean ad359d2 before the clock; R02 updates only retirement PCM.
-        // Runtime events/order/diagnostics stay byte-identical; changed samples are N+1...N+30.
-        let expected = ["true44100": "06f33c35097f0292fc5baed34961adf9a8ffa3162b700f2934b32b6516b9aa3d",
-            "true48000": "d765d237f5b82023bd846c8479b96d7eac612170d374152f3b15429273794131",
-            "false44100": "c6eecba653c7aa4a437cf730c092b4dfa56ecfafdd3863ef70cfbd787677a537",
-            "false48000": "e2998f04dd4b0437b27a47280a71a73e17f7a18aa44f8596593bd7fd74c354b3"]
+        // G02 changes only attack PCM here. Starting-SHA component comparisons keep
+        // ordered runtime events, IDs, diagnostics and non-attack PCM exact.
+        let expected = ["true44100": "28b42f23bb4dcb0ec2ff7f0d4a254040a2122fee1507ab51a4518bdcc5fde675",
+            "true48000": "7675fec30ca2dfbf430f371c1d430bf8282a37763275167cbd6eedd1df286cb1",
+            "false44100": "8cd0d053fc43a1072f43445ec2251b8fb5b1702435f3780df40887505b13c3bd",
+            "false48000": "c555c7768309582ca1761e7e81c4a785cae70a1fd62c6b728a9d52a0c3b85da5"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data()
             for cells in clockSentinels {

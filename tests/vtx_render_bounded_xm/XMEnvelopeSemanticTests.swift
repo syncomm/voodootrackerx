@@ -15,7 +15,7 @@ final class XMEnvelopeSemanticTests: XCTestCase {
             for (index, update) in updates.prefix(9).enumerated() {
                 let pcm = mixer.render(frames: frames).interleavedPCM
                 let start = index == 0 ? update.state.volumeValue : updates[index - 1].state.volumeValue
-                XCTAssertEqual(pcm.first, start)
+                XCTAssertEqual(pcm.first, index == 0 ? 0 : start)
                 XCTAssertEqual(pcm.last!, start + (update.state.volumeValue - start) * Float(frames - 1) / Float(frames), accuracy: 0.0000001)
                 XCTAssertEqual(mixer.voiceDiagnostic(forVoiceAt: voice)?.envelopeSemanticState, update.state)
             }
@@ -127,7 +127,8 @@ final class XMEnvelopeSemanticTests: XCTestCase {
             let states = try XCTUnwrap(result.plan.xmEnvelopeTimeline?.updatesByEvent[0])
             XCTAssertEqual(Array(states.prefix(9)).map(\.state.panTick), [0, 1, 2, 3, 0, 1, 2, 3, 0])
             XCTAssertEqual(Array(states.prefix(5)).map(\.state.panValue), [0, 0.25, 0.5, 0.75, 0])
-            XCTAssertGreaterThan(result.block.interleavedPCM[0], result.block.interleavedPCM[1])
+            XCTAssertEqual(Array(result.block.interleavedPCM.prefix(2)), [0, 0])
+            XCTAssertGreaterThan(result.block.interleavedPCM[2], result.block.interleavedPCM[3])
         }
     }
 

@@ -18,6 +18,25 @@ static double vtx_c_mixer_sanitized_sample_rate(double sample_rate) {
         : VTX_C_MIXER_DEFAULT_SAMPLE_RATE;
 }
 
+uint32_t vtx_c_mixer_source_onset_frame_count(double sample_rate) {
+    double frames = vtx_c_mixer_sanitized_sample_rate(sample_rate) * 0.005;
+    return frames >= (double)UINT32_MAX ? UINT32_MAX : (frames < 1.0 ? 1u : (uint32_t)frames);
+}
+
+VTXCMixerStatus vtx_c_mixer_set_voice_source_onset(VTXCMixerState *state,
+    uint32_t voice_index, uint32_t elapsed_frames) {
+    if (state == NULL || voice_index >= state->voice_count) { return VTX_C_MIXER_STATUS_INVALID_ARGUMENT; }
+    VTXCMixerVoice *voice = &state->voices[voice_index];
+    if (!voice->active || voice->deactivate_after_gain_ramp || voice->onset_duration_frames > 0u) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    voice->onset_duration_frames = vtx_c_mixer_source_onset_frame_count(state->config.sample_rate);
+    voice->onset_initial_age_frames = elapsed_frames < voice->onset_duration_frames ?
+        elapsed_frames : voice->onset_duration_frames;
+    voice->onset_age_frames = voice->onset_initial_age_frames;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 static uint32_t vtx_c_mixer_sanitized_channel_count(uint32_t channel_count) {
     return channel_count > 0
         ? channel_count
@@ -1138,6 +1157,7 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
     for (voice_index = 0; voice_index < state->voice_count; voice_index++) {
         VTXCMixerVoice *voice = &state->voices[voice_index];
         voice->sample_position = (double)voice->initial_sample_frame;
+        voice->onset_age_frames = voice->onset_initial_age_frames;
         voice->sample_step = voice->initial_sample_step;
         voice->ping_pong_direction = 1;
         voice->gain = voice->initial_gain;
@@ -1215,6 +1235,8 @@ VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
     out_diagnostic->gain = voice->gain;
     out_diagnostic->pan = voice->pan;
     out_diagnostic->sample_position = voice->sample_position;
+    out_diagnostic->onset_duration_frames = voice->onset_duration_frames;
+    out_diagnostic->onset_age_frames = voice->onset_age_frames;
     out_diagnostic->sample_step = voice->sample_step;
     out_diagnostic->effective_gain = vtx_c_mixer_effective_gain(voice);
     out_diagnostic->effective_pan = vtx_c_mixer_effective_pan(voice);
@@ -1275,7 +1297,7 @@ VTXCMixerStatus vtx_c_mixer_output_publish(VTXCMixerOutputState *output, VTXCMix
     }
     // Independent interrupted-tick observations establish previous-target rebasing.
     // A non-retriggering reset instead preserves the currently audible value.
-    // First publication initializes immediately, preserving the existing note onset.
+    // First publication initializes the factor target immediately; source onset is independent.
     output->start = output->enabled ?
         (rebase_from_current ? vtx_c_mixer_output_value(*output) : output->target) : target;
     output->target = target;
@@ -2184,6 +2206,7 @@ VTXCMixerStatus vtx_c_mixer_render(
             VTXCMixerVoice *voice = &state->voices[voice_index];
             uint32_t source_index;
             float mono_sample;
+            float onset = 1.0f;
 
             if (!voice->active) {
                 continue;
@@ -2202,9 +2225,13 @@ VTXCMixerStatus vtx_c_mixer_render(
                 continue;
             }
 
+            if (voice->onset_age_frames < voice->onset_duration_frames) {
+                onset = (float)voice->onset_age_frames / (float)voice->onset_duration_frames;
+            }
+
             if (voice->output.enabled) {
                 VTXCMixerOutputGains gains = vtx_c_mixer_output_value(voice->output);
-                mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index);
+                mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index) * onset;
                 if (channel_count_size == 1) {
                     output_interleaved_float32[frame_offset] += mono_sample * gains.mono;
                 } else {
@@ -2215,7 +2242,7 @@ VTXCMixerStatus vtx_c_mixer_render(
                 mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index) *
                     vtx_c_mixer_effective_gain(voice) *
                     vtx_c_mixer_evaluate_envelope(&voice->volume_envelope, 1.0f) *
-                    voice->fadeout_value;
+                    voice->fadeout_value * onset;
                 if (channel_count_size == 1) {
                     output_interleaved_float32[frame_offset] += mono_sample;
                 } else {
@@ -2229,6 +2256,8 @@ VTXCMixerStatus vtx_c_mixer_render(
             }
 
             vtx_c_mixer_advance_sample_position(voice);
+            // Output time advances even when PCM gain or pitch step is zero.
+            if (voice->onset_age_frames < voice->onset_duration_frames) { voice->onset_age_frames++; }
             vtx_c_mixer_output_advance(&voice->output, 1u);
             vtx_c_mixer_advance_voice_envelopes(voice);
             vtx_c_mixer_advance_value_ramps(state, voice);

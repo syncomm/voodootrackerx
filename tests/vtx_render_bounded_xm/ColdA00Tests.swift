@@ -150,7 +150,8 @@ final class ColdA00Tests: XCTestCase {
                 let full = PlaybackSongOfflineRenderer().render(.init(song: module, config: .init(sampleRate: rate, channelCount: 1), rows: 4))
                 let tick = Int(rate / 50)
                 XCTAssertTrue(full.block.interleavedPCM[(12 * tick)..<(18 * tick)].allSatisfy { $0 == 0 })
-                XCTAssertEqual(full.block.interleavedPCM[18 * tick + 100], 0.5 / 32, accuracy: 1e-7)
+                XCTAssertEqual(full.block.interleavedPCM[18 * tick + 100],
+                    (0.5 / 32) * Float(100) / Float(Int(rate * 0.005)), accuracy: 1e-7)
             }
         }
     }

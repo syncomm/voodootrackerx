@@ -212,7 +212,8 @@ final class FineVolumeMemoryTests: XCTestCase {
                         XCTAssertTrue(rendered.block.interleavedPCM[rowFrames..<(3 * rowFrames)].allSatisfy { $0 == 0 })
                         let expected = route == 0 ? 32 : states[2][0].baseChannelVolume
                         XCTAssertEqual(context.events.last?.gain, Float(expected) / 64)
-                        XCTAssertEqual(rendered.block.interleavedPCM[3 * rowFrames + 100], Float(expected) / 2048, accuracy: 1e-7)
+                        XCTAssertEqual(rendered.block.interleavedPCM[3 * rowFrames + 100],
+                            Float(expected) / 2048 * Float(100) / Float(Int(rate * 0.005)), accuracy: 1e-7)
                         if route != 1 { XCTAssertTrue(gains(RuntimeCMixerAdapterEventPlan.make(song: module, sampleRate: rate), row: 2).isEmpty) }
                     }
                 }

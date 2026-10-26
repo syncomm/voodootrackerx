@@ -2,8 +2,8 @@
 
 This note owns the implemented XM semantic tick, ordinary audible final-L/R,
 non-retriggering 5 ms reset, G02 new-source onset, G03 song retirement, and
-bounded G04 ECx retained-source contracts. G02 is closed within its bounded
-onset contract; G03 remains open pending independent acceptance.
+bounded G04 ECx retained-source contracts. G02, G03 and G04 are closed within
+their stated bounds; G21 retrigger-tail reconstruction remains open.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
 [XM volume ownership](xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
 Instrument-only dispatch reuses these contracts. Ordinary note-only carries
@@ -85,8 +85,10 @@ or broad FT2 PCM equality.
 
 ### G03 same-channel outgoing-source retirement
 
-Status: **IMPLEMENTED; CLOSURE OPEN** pending independent review and Gregory's
-listening acceptance. Ordinary song replacement snapshots the currently audible
+Status: **CLOSED, bounded 5 ms song-retirement contract** after
+[PR #510](https://github.com/syncomm/voodootrackerx/pull/510) merged with green
+macOS CI on October 26, 2026 and Gregory's before/after listening acceptance.
+Ordinary song replacement snapshots the currently audible
 old scalar or final mono/L/R value. At output age `k` its tail is `1 - k/N`
 for `0 <= k < N`, with `N = max(1, floor(sampleRate * 0.005))`; it retires before
 frame `N`. Thus the first frame retains the current value, midpoint is 0.5,
@@ -121,10 +123,15 @@ its source. No extra note, canonical tick or semantic clock is created.
 R02 controls pin numerical endpoints, interruption, fixed-pool reuse, dispatch,
 pitch/cursor and continuation/partition invariance.
 
+The merged PR records qualified both-mode/rate runtime/offline/window and actual
+CoreAudio controls, full suites, performance/memory gates and CLI provenance
+reconciliation. That qualification predates this documentation reconciliation.
+
 G21 remains a specific follow-up: E9/Rxy's offline explicit retrigger cuts omit
 the old generation, while runtime starts this song tail. Their source-generation,
 counter and semantic-carry rules are unchanged; this work does not claim full
-retrigger parity. Generic G05 updates and G40 remain separate.
+retrigger parity. The separate strict one-LSB host/offline musical-study
+discrepancy, generic G05 updates and G40 remain open before backend freeze.
 
 ### G06 panning-envelope factor
 
@@ -313,7 +320,7 @@ completed or retiring voices. Imports never reactivate a completed source.
 Song replacement uses the G03 `1 - k/N` convention above. Its scalar timer owns
 retirement, while only final-output state supplies managed PCM, avoiding double
 multiplication. Generic clients retain their separate `(k + 1) / 32` convention.
-G02's independent new-side onset is described above; G03 acceptance remains open.
+G02's independent new-side onset and G03's bounded retirement are closed above.
 ECx uses the retained-source contract below; internal
 hard stop remains immediate and separate.
 
@@ -708,5 +715,6 @@ at both rates. The matching CoreAudio 48 kHz PCM16 capture agrees exactly with
 offline. These are bounded controls, not general reference-audio bit parity:
 reference Float32 accumulation/interpolation residuals remain, and exhaustive
 envelope/global/pan/other-writer combinations are not source-confirmed here.
-G02 onset, G03 replacement overlap, G05 generic ramps, G40 pan law, autovibrato
-and callback real-time safety retain their separate open boundaries.
+G02 onset, G03 retirement and G32 autovibrato are closed under their separate
+bounded contracts. G21 retrigger-tail reconstruction, G05 generic ramps, G40
+pan law, broader interactions and callback real-time safety remain open.

@@ -81,9 +81,11 @@ host.
   births and window continuation. Its bounded contract is closed after passing
   CI and Gregory's independent listening acceptance. G03 song retirement now
   uses the same C-owned 5 ms interval with current-value `1-k/N` output, one
-  deadline per displaced generation and retained physical pitch/cursor. G03
-  independent acceptance/listening and G21 offline retrigger-tail reconstruction
-  remain open. See the
+  deadline per displaced generation and retained physical pitch/cursor. Its bounded
+  contract is closed after [PR #510](https://github.com/syncomm/voodootrackerx/pull/510),
+  green CI and Gregory's listening acceptance. G21 offline retrigger-tail
+  reconstruction and the separate strict one-LSB host/offline musical-study
+  discrepancy remain open. See the
   [onset contract](design/xm-reset-output-ramp.md#g02-new-source-onset).
 - G26 Amiga `0xy` is closed for in-range quantized pitches. It reuses G25's
   phase selector and the existing Amiga note/finetune lookup and sample-step
@@ -130,11 +132,11 @@ host.
   preserving nibble memory; note-only starts and E90 preserve it.
   Initialized source-less channels retain semantic volume changes. Only the
   fully uninitialized bookkeeping mutation is excluded as C: the first
-  note+instrument resets it before observable output. The existing 32-frame
-  runtime/offline retirement difference remains separate debt. Exact integer
-  volume modes cover all inputs 0...64; mode 6 sums separately truncated
-  `v/2 + v/8 + v/16`, correcting 32→22. G20 memory and G21 execution/carry
-  semantics are unchanged.
+  note+instrument resets it before observable output. G21 runtime/offline
+  retrigger-tail reconstruction remains separate debt; runtime uses G03's 5 ms
+  retirement. Exact integer volume modes cover all inputs 0...64; mode 6 sums
+  separately truncated `v/2 + v/8 + v/16`, correcting 32→22. G20 memory and
+  G21 execution/carry semantics are unchanged.
 - G23 instrument-only `ED1...EDF` selects the valid carried instrument at row
   entry, then dispatches the retained note through its exact map at tick x.
   Represented routes start one new cursor-zero generation and reset defaults,
@@ -187,7 +189,7 @@ host.
   sounding instrument's raw volume-sustain flag is set, including disabled volume
   envelopes. The bounded G07 Lxx panning-envelope positioning contract is closed
   with automated controls and maintainer-reported Xcode/listening acceptance.
-  Pan-clock/Q8 quirks, static pan law (G40) and new-note onset parity remain open.
+  Pan-clock/Q8 quirks, static pan law (G40) and broader onset interactions remain open.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.

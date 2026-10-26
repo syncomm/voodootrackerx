@@ -45,6 +45,10 @@ An FT2-inert byte can be closed while an audible extension for that byte is NOT-
 | Bounded behavior | Class | Current evidence and boundary |
 | --- | --- | --- |
 | G01 sample-header/channel-volume ownership | CLOSED | [XMVolumeOwnershipTests](../tests/vtx_render_bounded_xm/XMVolumeOwnershipTests.swift), note-only and runtime cursor controls: header 0/16/64 initializes/restores defaults; song output consumes them once. Exact mapped zero-header PCM stays active while silent and later Cxx reveals its continuing cursor; empty/unrepresented routes stay source-less and preview policy is unchanged. Both-rate constant-source controls match settled FT2 levels within `6e-8`, with exact VTX runtime/whole/window agreement. |
+| G02 new-source onset | CLOSED, bounded 5 ms contract | [Onset contract](design/xm-reset-output-ramp.md#g02-new-source-onset), `NewSourceOnsetTests` and [accepted PR #509](https://github.com/syncomm/voodootrackerx/pull/509): independent incoming `k/N` output preserves scheduled birth and continuous cursor. G03 outgoing retirement and G21 retrigger-tail reconstruction remain separately owned. |
+| G03 displaced-song-source retirement | CLOSED, bounded 5 ms contract | [Retirement contract](design/xm-reset-output-ramp.md#g03-same-channel-outgoing-source-retirement) and [accepted PR #510](https://github.com/syncomm/voodootrackerx/pull/510): current-value `1-k/N` output has one immutable deadline per outgoing generation, preserving physical pitch/cursor. Qualified both-rate/mode continuation and host controls, green CI and Gregory's listening acceptance close this contract; G21 reconstruction, the separate one-LSB study discrepancy and G05 remain open. |
+| G04 ECx retained-source note cut | CLOSED, bounded retained-source contract | [ECx contract](design/xm-reset-output-ramp.md#g04-ecx-retained-source-and-quick-output) and [ECxRetainedSourceTests](../tests/vtx_render_bounded_xm/ECxRetainedSourceTests.swift): one quick zero-output target preserves source lifetime, pitch and cursor for later Cxx recovery. Internal hard stop, G02/G03 transitions and G05 remain separate contracts. |
+| G32 instrument autovibrato | CLOSED, bounded VTX composition policy | [Accepted PR #507](https://github.com/syncomm/voodootrackerx/pull/507) and [approved policy](design/xm-final-pitch-publication.md): independent phase/sweep composes after ordered native pitch intents; issue #488 is closed. Intentional reference differences remain explicit; G39 interactions, editor controls and backend freeze remain separate. |
 | G06 audible pan-envelope factor | CLOSED | [XMPanningEnvelopeTests](../tests/vtx_render_bounded_xm/XMPanningEnvelopeTests.swift), shared runtime controls: observed byte-domain displacement joins the existing final-L/R target at 44.1/48 kHz. Neutral audio, static baseline, silent routes, sustain/loop/logical release, resets and carry are covered. This closes the output factor only; retained pan-clock/Q8/point-64 differences and G40 remain open. See [the owned contract](design/xm-reset-output-ramp.md#g06-panning-envelope-factor). |
 | G07 Lxx panning-envelope positioning | CLOSED | [XMPanningEnvelopeTests](../tests/vtx_render_bounded_xm/XMPanningEnvelopeTests.swift), shared runtime-core controls: the sounding instrument's raw volume-sustain bit gates positioning, independent of volume enable/loop flags. Public gate/position/end/loop/release/reset/silent-route controls match pinned command-frame state at 44.1/48 kHz; whole/window/runtime-core tests preserve volume Lxx, G06 and exact routes. Maintainer-reported external full canonical Xcode testing and listening passed. This closes positioning only; pan fractional/Q8 arithmetic, G40 static/header/8xx final pan law and the pan-sustain/release difference remain open. See [the owned contract and external verification](design/xm-reset-output-ramp.md#g07-lxx-panning-envelope-positioning). |
 | Nonzero Fxx speed/BPM from command-row tick 0, including channel precedence | CLOSED | `fxx-timing.xm`, timing tests and shared frame plan; F00 is excluded below. Do not reopen the completed timing correction. |
@@ -90,7 +94,10 @@ An FT2-inert byte can be closed while an audible extension for that byte is NOT-
 | Valid same-cell ED0/nonzero EDx note dispatch; nonzero E9x interval triggers; ordinary Kxx release | CLOSED, bounded dispatch | Existing delay/retrigger/semantic tests plus `OrdinaryMappedEmptyDispatchTests` pin explicit exact-map declared-empty ED0/in-row EDx generation cuts, header/default/reset timing, Fxx and source/window/runtime delivery. G23 instrument-only and G24 precedence remain separate. Absent-map ordinary fallback policy is OPEN; represented ED header-zero-volume gain carry is an unchanged separate discrepancy. An internal hard stop remains immediate and is not ECx. |
 | Shared runtime/offline event frames and window progress in tested profiles/rates | CLOSED | Fresh canonical-host checks for tremolo and Amiga 3xx: 509 and 24 C event applications respectively have zero scheduled/applied-frame delta. Matched VTX-profile captures agree within PCM16 quantization; six whole/window comparisons at 44.1/48 kHz have maximum error below `1.5e-8`. This is bounded delivery evidence, not universal audio or RT-safety closure. |
 
-## Remaining gap matrix
+## Status inventory (closed and open entries)
+
+The `Primary class` determines whether a row remains a gap; `CLOSED` marks
+an accepted bounded contract.
 
 Prevalence keys refer to the ledger below, including its zero and unavailable
 values. Severity describes the consequence when hit, not a numeric ranking.
@@ -98,8 +105,9 @@ Dependencies name existing prerequisites separately from the primary class:
 **S** channel/silent semantics; **O** shared final-L/R targets; **N** new-source /
 retiring-source output state; **P** audible pan-envelope factor; **M** effect
 memory; **F** frequency-mode math; **T** traversal state; **none** no missing
-prerequisite. G02 supplies new-source N; G03 retirement remains open. P/S/O and
-the supported portions of F/T/M exist.
+prerequisite. G02 and G03 supply the closed bounded new-source and retirement
+contracts for N; G21 retrigger-tail reconstruction remains open. P/S/O and the
+supported portions of F/T/M exist.
 
 G06's output-factor closure preserves existing semantic clocks and Float segment
 arithmetic. Focused controls confirm retained differences in release from pan
@@ -110,7 +118,7 @@ the audible-factor closure does not resolve or justify them.
 | ID / behavior | Primary class | Observable impact / severity when hit | Evidence / prevalence | Dependencies |
 | --- | --- | --- | --- | --- |
 | G02 new-note onset | CLOSED, bounded 5 ms new-source onset | Independent linear new-source fade from silence; source starts and advances at its scheduled frame. | [Onset contract](design/xm-reset-output-ramp.md#g02-new-source-onset), `NewSourceOnsetTests` and original `new-source-onset.xm`: zero first output, midpoint 0.5 and unity at age 240/220 at 48/44.1 kHz. Qualified tests/CI passed; Gregory independently listened to and accepted the result. No broad FT2 PCM-equality claim. | Existing N/O; G03 old-side retirement remains separate. |
-| G03 same-channel replacement | IMPLEMENTED; CLOSURE OPEN | Old source snapshots current output and retires once over 5 ms using `1-k/N`; G02 retains the independent `k/N` incoming attack. | [Retirement contract](design/xm-reset-output-ramp.md#g03-same-channel-outgoing-source-retirement), `SongSourceRetirementTests` and extended R02/runtime controls pin both rates/modes, distinct signed sources, rapid generations, retained pitch/cursor, exact continuation and bounded pooling. Pinned reference confirms first/interior/endpoint convention; independent acceptance and Gregory's listening remain required. G21 offline explicit retrigger cuts still omit runtime tails. | N, S; G05 generic 32-frame ramps unchanged. |
+| G03 same-channel replacement | CLOSED, bounded 5 ms song-retirement contract | Old source snapshots current output and retires once over 5 ms using `1-k/N`; G02 retains the independent `k/N` incoming attack. | [Retirement contract](design/xm-reset-output-ramp.md#g03-same-channel-outgoing-source-retirement), `SongSourceRetirementTests` and extended R02/runtime controls pin both rates/modes, distinct signed sources, rapid generations, retained pitch/cursor, exact continuation and bounded pooling. Pinned reference confirms first/interior/endpoint convention; [PR #510](https://github.com/syncomm/voodootrackerx/pull/510) merged with green macOS CI on October 26, 2026 after Gregory's before/after listening acceptance. Qualified continuation/actual-host and performance/memory gates support bounded closure. G21 offline explicit retrigger cuts still omit runtime tails; the separate strict one-LSB study discrepancy remains open. | N, S; G05 generic 32-frame ramps unchanged. |
 | G04 ECx audible cut | CLOSED, bounded retained-source contract | ECx zeros canonical base/output at its actual tick and publishes one shared 5 ms target; the same source, pitch, key and moving cursor survive for later Cxx recovery. | [ECxRetainedSourceTests](../tests/vtx_render_bounded_xm/ECxRetainedSourceTests.swift) and runtime tests cover Linear/Amiga at 44.1/48 kHz, EC0/EC3, Fxx/speed boundaries, silent routes, completion/replacement and exact whole/window/core PCM. Pinned reference confirms ordinary EC0/EC3 shape and newborn EC0 silence; canonical CoreAudio PCM16 matches offline. | S/O reused; G02/G03/G05/G40 and unmeasured reference interactions remain separate. Internal hard stop stays immediate. |
 | G05 generic gain/pan ramp policy | KNOWN-REFERENCE-DIFFERENCE | Short update transients differ for voices outside managed final-L/R state; duration changes with sample rate. | N/PA/8; VTX generic 32-frame ramp vs reference tick/quick durations. Exact generic-only population is unavailable. | O; characterize plain-voice admission |
 | G13 cold zero-memory H00 artifact | KNOWN-REFERENCE-DIFFERENCE; INTENTIONALLY NOT EMULATED | FT2 can refresh a held 28/64 target to 27/64 without changing canonical 27. VTX retains 28/64, emits no publication and matches the blank-command PCM. | Explicit compatibility decision: whole-byte replay is A (intended); unseeded zero-amount refresh is C (implementation artifact). Public both-rate controls cover the difference; no bit-perfect cold-H00 claim. | Excluded artifact; seeded memory CLOSED above; G12 unchanged |
@@ -129,20 +137,21 @@ the audible-factor closure does not resolve or justify them.
 | G40 static 8xx / header pan law | KNOWN-REFERENCE-DIFFERENCE | Noncenter stereo amplitudes differ under current profile laws; exact panning state is already supported. | 8/PA; retained profile-law boundary; compare endpoints/interior and PE factor together before closure. | O; none missing |
 | G41 9xx/900 and sample loop/end boundaries | PARITY-WATCH | Valid offsets, memory and loops are supported; boundary source retirement/interpolation can affect attacks and tails. | Z command occurrences; existing synthetic offset/loop tests. No fresh exhaustive FT2 boundary oracle. | S; N when replacement overlaps |
 
-### Decision inputs for remaining candidates
+### Decision inputs and current status
 
 Impact/severity and prevalence are in the preceding matrix/ledger. The table
 below supplies dependency leverage, isolation, reference confidence, testability
-and architectural risk for every candidate, without invented scores. **High**
+and architectural risk for every inventory entry, without invented scores.
+Closed rows retain their decision inputs for traceability. **High**
 confidence means current tests/source plus a fresh distinguishing control;
 **bounded** means a parent/known boundary is established but interactions are not.
 Temporary controls are evidence, not newly committed regression tests.
 
 | IDs | Dependency leverage / implementation isolation | Reference confidence / focused test | Architectural risk |
 | --- | --- | --- | --- |
-| G02 | Reusable new-source start; C voice initialization plus window carry. | High for onset; constant source at both rates and truncated windows. | Medium: adds per-voice transition state; source identity and first sample matter. |
-| G03 | Shares N with onset; retirement/source overlap is a separate contract. | High; two constant sources, consecutive replacement and window split. | Medium: bounded retiring voices and overlap limits. |
-| G04 | Reuses O; adapter must keep source/cursor and lower base/output instead of retiring it. | High for ordinary cuts; EC0/EC3 plus later volume restoration, speed 1 and hard stop. | Medium semantic-lifetime risk, little new callback state. |
+| G02 | CLOSED, bounded onset; reusable new-source start, C voice initialization and window carry. | High for onset; constant source at both rates and truncated windows. | Medium: per-voice transition state; source identity and first sample matter. |
+| G03 | CLOSED, bounded song retirement; shares N with onset while owning outgoing-source overlap. | High; two constant sources, consecutive replacement and window split. | Medium: bounded retiring voices and overlap limits. |
+| G04 | CLOSED, bounded retained-source cut; reuses O to keep source/cursor and lower base/output. | High for ordinary cuts; EC0/EC3 plus later volume restoration, speed 1 and hard stop. | Medium semantic-lifetime risk, little new callback state. |
 | G05 | Reuses O policies; isolate plain-voice admission before changing generic C controls. | Bounded; plain vs managed updates at two rates, quick/ordinary changes. | Medium: generic mixer clients and double-ramp regression. |
 | G17 | CLOSED above; reuses F and existing lifetime eligibility. | Directional replay, cold restoration, deduplication and mode gates are pinned. | Adapter-only memory; no C-state or callback changes. |
 | G18 | CLOSED above; reuses F and existing lifetime eligibility. | Directional/family independence, cold restoration, deduplication and mode gates are pinned. | Adapter-only memory; no C-state or callback changes. |
@@ -158,7 +167,7 @@ Temporary controls are evidence, not newly committed regression tests.
 | G29 | CLOSED in-range above; existing memories, scheduler and ordinary trigger lookup. | Fine/extra-fine grid, E5 overrides and five actual crossings match pinned FT2 at both rates. | No ChannelState growth, target/direction authority, C/DSP/callback or startup architecture changes; G30 remains separate. |
 | G30A / G30B | Both bounded contracts and their combined verification are closed above. | Numerical fingerprints, explicit admission/reset/cache ownership, native-word slide/tone boundaries, bounded arpeggio projection and both-rate source/frame parity. | ChannelState remains 1152 bytes; no C DSP/callback, parser/document or startup architecture rewrite. |
 | G31 | CLOSED above; one volume-only Q8 policy in existing direct/carried S/O factors. | Signed nongrid slopes, endpoints, carry/clamps, sustain/release and both-rate delivery are pinned. | No state growth, extra pass or C change; volume-Lxx/cold initialization and pan/G40 remain separate. |
-| G32 | Reuses period update path, adds instrument phase/sweep state. | High for absent output, bounded sweep; waveforms, sweep, release/reset and note-only carry. | Medium: new planned state; avoid overlapping effect-vibrato ownership. |
+| G32 | CLOSED, bounded VTX policy; reuses period update path with independent instrument phase/sweep state. | Approved waveform, bounded sweep, release/reset and note-only controls; intentional reference differences remain explicit. | Medium: planned state and independent effect-vibrato ownership. |
 | G33 | Existing pan/tick writer with channel memory. | High for absent parent, bounded quirks; nonzero ticks, P00/mixed nibbles and PE interaction. | Low/medium: pan writer precedence. |
 | G34 | Existing O volume factor, new tremor counter/memory. | High for absent parent, bounded counter rules; T00, trigger carry, envelope/volume writers. | Medium: independent output mute versus base-volume mutation. |
 | G35 | Reuses T but affects every later planned event. | High for missing delay, bounded interactions; EE × Fxx/B/D/E6 and multi-channel cases. | Medium/high: traversal/tick replay; no callback rewrite. |
@@ -335,8 +344,9 @@ existing fallback rules. Preview availability, safety gain and headroom retain
 their prior policy. G01 adds no render-callback state and leaves default reset,
 note-only state carry, tremolo output, global volume, envelope/fadeout, causal
 release and final-L/R transitions intact. G04 closes the bounded ECx contract
-separately. Onset, replacement, generic ramps, pan laws and other effect families
-retain their separate closure obligations.
+separately; G02/G03 onset/retirement and G32 autovibrato are closed within their
+stated bounds. Generic ramps, pan laws and other effect interactions retain
+their separate closure obligations.
 
 ## Overall milestone closure criteria
 

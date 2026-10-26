@@ -167,7 +167,8 @@ K00 suppresses a normal note-only trigger; ED0 carries ordinary state, valid
 nonzero EDx resets at its delayed tick, and out-of-row EDx does not trigger.
 E9x retains repeat resets; Rxy uses its persistent counter and sample restarts
 that preserve instrument semantic state (G21). G02's bounded 5 ms new-source
-onset is closed; G03 old-side acceptance remains separate. See
+onset and G03's bounded old-side retirement are closed; G21 offline retrigger-tail
+reconstruction remains open. See
 [volume ownership](design/xm-volume-ownership.md#note-only-routing-and-state-carry).
 
 ## Effect Column Commands
@@ -341,9 +342,9 @@ it and matches the blank-control PCM. This exclusion does not cover initialized
 source-less, empty, completed or released channels. Public
 `rxy-counter-timing-carry.xm`, focused tests and both-rate runtime/window controls
 cover G21. Replay matches explicit-equivalent commands within each render path;
-PCM differences between runtime and offline stay inside the unchanged 32-frame
-retirement windows. G22 closes integer volume arithmetic independently of that
-unchanged retirement policy.
+PCM differences between runtime and offline stay inside G03's 5 ms retirement
+windows; offline explicit retrigger cuts still omit the runtime old tail.
+G22 closes integer volume arithmetic independently of that open reconstruction debt.
 
 P00 and T00 use their own whole-byte memories in the
 [pinned handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2106-L2161).
@@ -497,7 +498,8 @@ G30 is closed for:
 
 Combined verification covers both rates, whole/window/runtime-core/canonical-host
 delivery, matched reference audio and paired Release guardrails. Remaining
-G32/G33/G34/G35–G38/G39/G40/G41 and callback real-time safety stay open.
+G33/G34/G35–G38/G39/G40/G41 and callback real-time safety stay open;
+G32 is closed under its separate bounded VTX policy below.
 
 ### Retained-source arpeggio row handoff
 
@@ -523,9 +525,11 @@ of semantic instrument ownership. The [approved VTX arithmetic and bounds](desig
 intentionally omit signed negative-only bias, sweep overshoot, release-amplitude
 collapse and rate-zero-square detuning. Metadata bytes remain unchanged.
 `InstrumentAutovibratoCompositionTests`, `InstrumentAutovibratoPublicationTests`
-and runtime controls verify focused both-mode/rate behavior. Independent G32
-review, complete gates and Gregory's actual-hardware listening remain open;
-this does not close G32 or freeze the backend.
+and runtime controls verify focused both-mode/rate behavior. G32 is **CLOSED,
+bounded VTX composition policy** after maintainer acceptance and merged
+[PR #507](https://github.com/syncomm/voodootrackerx/pull/507); issue #488 is closed.
+The approved reference differences, G39 interactions and eventual backend freeze
+remain separate boundaries.
 
 ## Shared Volume-Slide Memory Contract
 
@@ -679,10 +683,12 @@ support alone does not close these domains:
   once while the header initializes/restores defaults. Exact mapped represented
   PCM remains a valid source at header volume 0; later Cxx reveals the continuing
   source, while canonical empty/unrepresented routes remain source-less.
-  Preview availability and safety gain are unchanged. G02 bounded 5 ms onset is
-  closed; G03 independent retirement acceptance and G05 generic ramps remain
-  open. G04 closes
-  bounded ECx retained-source/cursor and quick-output behavior. Existing
+  Preview availability and safety gain are unchanged. G02 bounded 5 ms onset and
+  G03 bounded 5 ms song retirement are closed after CI and Gregory's listening
+  acceptance ([PR #510](https://github.com/syncomm/voodootrackerx/pull/510) for G03).
+  G21 offline retrigger-tail reconstruction, the separate strict one-LSB
+  host/offline musical-study discrepancy and G05 generic ramps remain open.
+  G04 closes bounded ECx retained-source/cursor and quick-output behavior. Existing
   cached defaults and shared final-L/R reset targets are established foundations.
 - **Panning:** exact header/8xx state, final stereo pan law (G40), semantic pan
   clocks, audible pan-envelope factor (G06), and Lxx pan positioning (G07) are
@@ -703,9 +709,9 @@ support alone does not close these domains:
   loop/end positioning and cold before-first initialization remain open, as do pan
   Float/Q8 and pan-clock quirks. See the
   [owned volume policy](design/xm-reset-output-ramp.md#g31-bounded-volume-envelope-q8-arithmetic).
-  Instrument autovibrato (G32) now has enabled VTX composition; closure remains
-  subject to its independent verification and listening gate. Later editable
-  Instrument Editor controls are a separate roadmap milestone.
+  Instrument autovibrato (G32) is closed under its accepted bounded VTX
+  composition policy, preserving its intentional reference differences. Later
+  editable Instrument Editor controls are a separate roadmap milestone.
 - **Volume writers and memory:** H00 replay (G13) is closed; its cold FT2
   zero-memory target-refresh artifact is an intentional known difference.
   Cold A00 restoration (G14) is closed under the bounded B convention above.
@@ -740,8 +746,9 @@ or explicit accepted rationale; aggregate audio correlation is not closure.
 
 ## Pending FT2 targets and exclusions
 
-- Deferred FT2 parents: E3x, EEx, Pxy, Txy, volume-column vibrato and instrument
-  autovibrato. Fine-slide zero memory and missing Amiga paths remain in v1 scope.
+- Deferred FT2 parents: E3x, EEx, Pxy, Txy and volume-column vibrato.
+  G32 instrument autovibrato is closed under its bounded VTX policy above.
+  Fine-slide zero memory and missing Amiga paths remain in v1 scope.
 - E0x/E8x/EFx are FT2-inert. Adding an audible filter, E8 panning alias, MOD
   destructive funk or XM macro behavior would change the target.
 - X5/X6/X9/XA, Y/Z and other OpenMPT/ModPlug hacks are extensions outside v1.

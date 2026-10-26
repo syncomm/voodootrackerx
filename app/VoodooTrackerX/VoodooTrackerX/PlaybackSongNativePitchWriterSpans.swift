@@ -141,8 +141,16 @@ extension PlaybackSongSyntheticPlan {
         }
         // Matching the same immutable ordinal proves diagnostic retention only. After
         // interior filtering, uncertain ordinal association remains unknown delivery.
-        if delivery == .unknownDelivery, currentChildren.indices.contains(childIndex),
-           currentChildren[childIndex] == child { delivery = .retainedDiagnosticChild }
+        if delivery == .unknownDelivery, currentChildren.indices.contains(childIndex) {
+            let current = currentChildren[childIndex]
+            // Composition changes physical step payloads, never this captured native identity.
+            if current.syntheticTick == child.syntheticTick && current.scheduledFrame == child.scheduledFrame &&
+                current.linearPeriodBefore == child.linearPeriodBefore && current.linearPeriodAfter == child.linearPeriodAfter &&
+                current.amigaPeriodBefore == child.amigaPeriodBefore && current.amigaPeriodAfter == child.amigaPeriodAfter &&
+                current.reachedTarget == child.reachedTarget && current.clamped == child.clamped && current.vibrato == child.vibrato {
+                delivery = .retainedDiagnosticChild
+            }
+        }
         return .init(family: span.family, diagnosticIndex: index, childIndex: childIndex,
             producerAppendOrdinal: spanIndex, source: source, syntheticRow: row, channelIndex: channel,
             syntheticTick: child.syntheticTick, scheduledFrame: child.scheduledFrame, domain: domain,

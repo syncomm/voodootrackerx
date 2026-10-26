@@ -295,6 +295,8 @@ extension PlaybackSongSyntheticPlan {
             canonicalTickClock: canonicalTickClock,
             selectionDispatchFacts: selectionDispatchFacts,
             instrumentAutovibratoClock: instrumentAutovibratoClock,
+            instrumentAutovibratoRequests: instrumentAutovibratoRequests,
+            instrumentAutovibratoInitialHoldEventIndices: instrumentAutovibratoInitialHoldEventIndices,
             semanticPitchProjection: semanticPitchProjection,
             heldPitchProvenance: heldPitchProvenance,
             nativePitchWriterSpans: nativePitchWriterSpans,
@@ -1222,7 +1224,7 @@ struct PlaybackSongSyntheticTonePortamentoDiagnostic: Equatable {
     var directionBefore: PlaybackSongSyntheticTonePortamentoDirection = .none
     var directionAtExecution: PlaybackSongSyntheticTonePortamentoDirection = .none
     var directionAfter: PlaybackSongSyntheticTonePortamentoDirection = .none
-    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
+    var stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let policy: String
 }
 
@@ -1270,7 +1272,7 @@ struct PlaybackSongSyntheticPortamentoSlideDiagnostic: Equatable {
     let currentPlaybackStepAfter: Double?
     let rowSpeed: Int
     let rowBPM: Int
-    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
+    var stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let clamped: Bool
     let policy: String
 }

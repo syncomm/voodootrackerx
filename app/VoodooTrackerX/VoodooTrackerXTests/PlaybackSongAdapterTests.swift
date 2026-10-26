@@ -275,7 +275,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(effectOverride.pan, PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: 192), accuracy: 0.000_001)
     }
 
-    func testInstrumentAutoVibratoClockIsDepthOffForAdapterPlansPitchSchedulingAndPCM() throws {
+    func testZeroDepthInstrumentAutoVibratoClockPreservesAdapterPitchSchedulingAndPCM() throws {
         func song(autoVibrato: PlaybackInstrumentAutoVibrato) -> PlaybackSong {
             let sample = makePlaybackSample(
                 pcm: [0, 1, 0.5, -0.5],
@@ -300,7 +300,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let candidateSong = song(autoVibrato: PlaybackInstrumentAutoVibrato(
             waveformType: 3,
             sweep: 17,
-            depth: 42,
+            depth: 0,
             rate: 199
         ))
         let baselineAdapterPlan = PlaybackSongSyntheticAdapter.adapt(baselineSong, orderIndex: 0, sampleRate: 100)
@@ -327,7 +327,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             copy.instrumentAutovibratoClock = .notAdapterProduced
             return copy
         }
-        // Raw clock facts now differ; every preexisting plan field must still match exactly.
+        // Depth zero is physically inert even when preserved rate metadata is malformed.
         XCTAssertNotEqual(baselineAdapterPlan.instrumentAutovibratoClock, candidateAdapterPlan.instrumentAutovibratoClock)
         XCTAssertEqual(candidateAdapterPlan.instrumentAutovibrato(row: 0, tick: 0, channel: 0)?.raw, candidateSong.instrumentsByIndex[1]?.autoVibrato)
         XCTAssertEqual(candidateAdapterPlan.instrumentAutovibrato(row: 0, tick: 0, channel: 0)?.status, .policyPending)

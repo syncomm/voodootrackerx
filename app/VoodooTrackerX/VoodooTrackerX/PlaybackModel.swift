@@ -387,7 +387,7 @@ struct PlaybackPanningEnvelope: Equatable {
     }
 }
 
-/// Exact XM instrument-header autovibrato bytes. Playback intentionally ignores this foundation value.
+/// Exact persisted XM instrument-header bytes; playback interprets a bounded value copy.
 struct PlaybackInstrumentAutoVibrato: Equatable {
     static let disabled = PlaybackInstrumentAutoVibrato()
 

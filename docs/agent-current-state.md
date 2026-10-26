@@ -67,7 +67,13 @@ host.
   row's writer. Pure volume-column Bx output is held through the first arpeggio
   tick zero; subsequent phases and blank/000 exits use canonical pitch. Incoming
   arpeggio/fine writers subsume the prior exit across delivery/history consumers,
-  retaining its raw diagnostic evidence. Final-pitch migration and G32 remain blocked.
+  retaining its raw diagnostic evidence.
+- Instrument autovibrato now composes one independent canonical-tick delta after
+  each ordered ordinary native pitch intent, with folded births and causal blank-tick
+  delivery through the existing C step protocol. Playback-only metadata interpretation,
+  symmetric rounding, bounded sweep/release and retained-source bounds follow the
+  [approved VTX policies](design/xm-final-pitch-publication.md). G32 closure remains
+  open pending complete verification, independent review and Gregory's listening.
 - G26 Amiga `0xy` is closed for in-range quantized pitches. It reuses G25's
   phase selector and the existing Amiga note/finetune lookup and sample-step
   conversion. Tuning, relative-note/octave crossings, effective Fxx speed,
@@ -364,8 +370,7 @@ and normalization details.
   `applyEdit`.
 - Current stopped-editable metadata includes instrument name and selected-sample
   panning, volume, relative note, and finetune. Preserved envelope/autovibrato
-  fields remain read-only or runtime-inert where the specialized design docs say
-  so.
+  controls remain read-only; preserved autovibrato metadata now drives playback.
 
 ## Editor and transport boundaries
 

@@ -147,6 +147,8 @@ let package = Package(
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongDelayedInstrumentResetFacts.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongSemanticPitchProjection.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongInstrumentAutovibratoClock.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongInstrumentAutovibratoComposition.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongInstrumentAutovibratoPublication.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongG23ChildlessPitchInvocations.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongOfflineRender.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackTiming.swift",

@@ -6,6 +6,26 @@ remain intentionally deferred.
 
 ## Purpose
 
+`instrument-autovibrato-composition-linear.xm` and its Amiga companion use
+one channel and sixteen rows of original mathematical PCM. Four sections select
+sine, square, ramp-down and ramp-up with depth 15, rate 8 and sweeps 0/1/16/255.
+The note-only change halfway through each section carries phase independently
+from ordinary effect vibrato. Exact 96-note maps select the represented sample.
+These fixtures do not close onset/retirement gaps or Gregory’s listening gate.
+
+`instrument-autovibrato-musical-study-linear.xm` and its Amiga companion preserve
+the original full `VTX AUTO STUDY` composition byte for byte. Each is 4,274 bytes:
+three channels, six instruments, 128 rows at speed 6/BPM 125, lasting 15.36 seconds.
+The C–Am–F–G progression has four 3.84-second phrases: sine/sweep 0,
+square/sweep 1, ramp-down/sweep 16 and ramp-up/sweep 255, all at depth 15/rate 8.
+Each phrase holds the lead for 1.92 seconds before four note-only melody changes;
+bass octaves and quiet chord arpeggios provide the original tuning context.
+Row 127 ends all three channels with C00. The manifest retains the complete
+original notes, title, exact maps and mathematical PCM recipes, using the existing
+generator without a new source format. Depth-off and solo controls, reference
+WAVs and local listening/host diagnostics remain external. Preserving the study
+does not close the performance, onset/retirement or maintainer acceptance gates.
+
 `volume-envelope-q8.xm` is an original two-channel, twelve-row triangle control.
 Its volume points `(0,64),(3,32),(10,57),(15,17),(23,64)` distinguish signed Q8
 slope truncation and exact endpoint assignment. It covers center/off-center

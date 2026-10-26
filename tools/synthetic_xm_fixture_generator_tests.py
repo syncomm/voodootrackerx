@@ -59,6 +59,10 @@ ALL_FIXTURES = [
     "extreme-pitch-state-linear.xm",
     "extreme-pitch-state-amiga.xm",
     "volume-envelope-q8.xm",
+    "instrument-autovibrato-composition-linear.xm",
+    "instrument-autovibrato-composition-amiga.xm",
+    "instrument-autovibrato-musical-study-linear.xm",
+    "instrument-autovibrato-musical-study-amiga.xm",
 ]
 
 
@@ -275,6 +279,78 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         self.assertIn("sample-less instruments", limitations)
         for sample in instrument["samples"]:
             self.assertEqual(hashlib.sha256(generator.sample_pcm_bytes(sample)).hexdigest(), sample["pcm_sha256"])
+
+    def test_autovibrato_composition_fixtures_pin_waveforms_sweeps_and_note_only_carry(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        for mode, flags in [("linear", 1), ("amiga", 0)]:
+            name = f"instrument-autovibrato-composition-{mode}.xm"
+            fixture = next(item for item in manifest["fixtures"] if item["name"] == name)
+            module = fixture["module"]
+            self.assertEqual((module["flags"], module["channels"]), (flags, 1))
+            self.assertEqual(module["patterns"][0]["rows"], 16)
+            self.assertEqual([instrument["autovibrato"] for instrument in module["instruments"]], [
+                {"type": waveform, "sweep": sweep, "depth": 15, "rate": 8}
+                for waveform, sweep in enumerate([0, 1, 16, 255])
+            ])
+            for instrument in module["instruments"]:
+                self.assertEqual(instrument["note_sample_map"], [{"start_note": 1, "end_note": 96, "sample": 0}])
+                self.assertEqual(instrument["samples"][0]["loop"]["mode"], "forward")
+            cells = module["patterns"][0]["events"]
+            self.assertEqual([cell["row"] for cell in cells if cell.get("instrument")], [0, 4, 8, 12])
+            self.assertEqual([cell["row"] for cell in cells if not cell.get("instrument")], [2, 6, 10, 14])
+            self.assertEqual(generator.fixture_xm_bytes(manifest, name), (PACK_ROOT / "generated" / name).read_bytes())
+
+    def test_autovibrato_musical_study_preserves_original_full_mix_bytes(self):
+        generator = load_module()
+        manifest = generator.fixture_manifest()
+        expected_hashes = {
+            "linear": "6e81bc010a986b9813e9d1e34b86fb7321a59db1cde1f83af79e9dc0c1956c95",
+            "amiga": "24ff490dbac154def8c15597e50a1c2907e4b55100a21244bef2aee64a533e97",
+        }
+        modules = []
+        for mode, flags in [("linear", 1), ("amiga", 0)]:
+            name = f"instrument-autovibrato-musical-study-{mode}.xm"
+            fixture = next(item for item in manifest["fixtures"] if item["name"] == name)
+            module = fixture["module"]
+            payload = generator.fixture_xm_bytes(manifest, name)
+            self.assertEqual(hashlib.sha256(payload).hexdigest(), expected_hashes[mode])
+            self.assertEqual(len(payload), 4_274)
+            self.assertEqual(payload, (PACK_ROOT / "generated" / name).read_bytes())
+            self.assertEqual(module["title"], "VTX AUTO STUDY")
+            self.assertEqual((module["flags"], module["channels"], module["speed"], module["bpm"]), (flags, 3, 6, 125))
+            self.assertEqual(module["orders"], [0])
+            self.assertEqual(len(module["instruments"]), 6)
+            self.assertEqual(module["patterns"][0]["rows"], 128)
+            self.assertEqual(len(module["patterns"][0]["events"]), 71)
+            modules.append({key: value for key, value in module.items() if key != "flags"})
+        self.assertEqual(modules[0], modules[1])
+
+    def test_autovibrato_musical_study_keeps_lead_carry_and_accompaniment(self):
+        generator = load_module()
+        fixture = next(item for item in generator.fixture_manifest()["fixtures"]
+                       if item["name"] == "instrument-autovibrato-musical-study-linear.xm")
+        module = fixture["module"]
+        instruments = module["instruments"]
+        self.assertEqual([item["autovibrato"] for item in instruments[:4]], [
+            {"type": waveform, "sweep": sweep, "depth": 15, "rate": 8}
+            for waveform, sweep in enumerate([0, 1, 16, 255])
+        ])
+        self.assertTrue(all(item["autovibrato"]["depth"] == 0 for item in instruments[4:]))
+        self.assertEqual([(item["samples"][0]["panning"], item["samples"][0]["volume"])
+                          for item in instruments[4:]], [(96, 40), (176, 28)])
+        cells = module["patterns"][0]["events"]
+        lead = [cell for cell in cells if cell["channel"] == 0 and cell["note"]]
+        self.assertEqual([cell["row"] for cell in lead], [start + offset for start in [0, 32, 64, 96]
+                                                        for offset in [0, 16, 20, 24, 28]])
+        self.assertEqual([cell["note"] for cell in lead], [61, 65, 68, 65, 63, 58, 61, 65, 61, 60,
+                                                          54, 58, 61, 58, 56, 56, 60, 63, 60, 58])
+        self.assertEqual([(cell["row"], cell["instrument"]) for cell in lead if "instrument" in cell],
+                         [(0, 1), (32, 2), (64, 3), (96, 4)])
+        self.assertEqual([sum(cell["channel"] == channel and bool(cell["note"]) for cell in cells)
+                          for channel in range(3)], [20, 16, 32])
+        self.assertEqual([(cell["row"], cell["channel"], cell["effect_type"], cell["effect_parameter"])
+                          for cell in cells if "effect_type" in cell], [(127, 0, 12, 0), (127, 1, 12, 0), (127, 2, 12, 0)])
 
     def test_fxx_fixture_pins_timing_cells_plain_rows_and_sustained_pcm(self):
         generator = load_module()
@@ -620,6 +696,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "extreme-pitch-state-linear.xm").resolve(),
                     (output_dir / "generated" / "extreme-pitch-state-amiga.xm").resolve(),
                     (output_dir / "generated" / "volume-envelope-q8.xm").resolve(),
+                    (output_dir / "generated" / "instrument-autovibrato-composition-linear.xm").resolve(),
+                    (output_dir / "generated" / "instrument-autovibrato-composition-amiga.xm").resolve(),
+                    (output_dir / "generated" / "instrument-autovibrato-musical-study-linear.xm").resolve(),
+                    (output_dir / "generated" / "instrument-autovibrato-musical-study-amiga.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -651,6 +731,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/global-volume-publication.xm",
                     "generated/global-volume-slide-memory.xm",
                     "generated/global-volume-slide-timing.xm",
+                    "generated/instrument-autovibrato-composition-amiga.xm",
+                    "generated/instrument-autovibrato-composition-linear.xm",
+                    "generated/instrument-autovibrato-musical-study-amiga.xm",
+                    "generated/instrument-autovibrato-musical-study-linear.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-only-volume-semantics.xm",
@@ -757,6 +841,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/global-volume-publication.xm",
                     "generated/global-volume-slide-memory.xm",
                     "generated/global-volume-slide-timing.xm",
+                    "generated/instrument-autovibrato-composition-amiga.xm",
+                    "generated/instrument-autovibrato-composition-linear.xm",
+                    "generated/instrument-autovibrato-musical-study-amiga.xm",
+                    "generated/instrument-autovibrato-musical-study-linear.xm",
                     "generated/instrument-envelopes-keymap.xm",
                     "generated/instrument-metadata-matrix.xm",
                     "generated/instrument-only-volume-semantics.xm",
@@ -873,6 +961,10 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:bounded-pitch-conversion-amiga.xm": "generated/bounded-pitch-conversion-amiga.xm",
                     "xm:extreme-pitch-state-amiga.xm": "generated/extreme-pitch-state-amiga.xm",
                     "xm:volume-envelope-q8.xm": "generated/volume-envelope-q8.xm",
+                    "xm:instrument-autovibrato-composition-linear.xm": "generated/instrument-autovibrato-composition-linear.xm",
+                    "xm:instrument-autovibrato-composition-amiga.xm": "generated/instrument-autovibrato-composition-amiga.xm",
+                    "xm:instrument-autovibrato-musical-study-linear.xm": "generated/instrument-autovibrato-musical-study-linear.xm",
+                    "xm:instrument-autovibrato-musical-study-amiga.xm": "generated/instrument-autovibrato-musical-study-amiga.xm",
                     "xm:extreme-pitch-state-linear.xm": "generated/extreme-pitch-state-linear.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",

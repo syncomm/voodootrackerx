@@ -14336,6 +14336,752 @@
       "xm_output": "generated/volume-envelope-q8.xm",
       "xm_sha256": "fdd7f7daaf0b5dfa0ca76232243c9e6deeb8f40903ee79a65651010c874cd343",
       "xm_size_bytes": 1202
+    },
+    {
+      "id": "instrument-autovibrato-composition-linear",
+      "intended_tests": ["G32 instrument automatic composition", "public waveform/sweep and note-only carry control"],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "sine immediate",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "sine immediate",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 1, "type": 1},
+            "fadeout": 0,
+            "name": "square one-tick",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "square one-tick",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 16, "type": 2},
+            "fadeout": 0,
+            "name": "ramp down gradual",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "ramp down gradual",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 255, "type": 3},
+            "fadeout": 0,
+            "name": "ramp up slow",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "ramp up slow",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          }
+        ],
+        "orders": [0],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "instrument": 1, "note": 61, "row": 0, "volume_column": 56},
+              {"channel": 0, "note": 65, "row": 2},
+              {"channel": 0, "instrument": 2, "note": 58, "row": 4, "volume_column": 56},
+              {"channel": 0, "note": 61, "row": 6},
+              {"channel": 0, "instrument": 3, "note": 54, "row": 8, "volume_column": 56},
+              {"channel": 0, "note": 58, "row": 10},
+              {"channel": 0, "instrument": 4, "note": 56, "row": 12, "volume_column": 56},
+              {"channel": 0, "note": 60, "row": 14}
+            ],
+            "rows": 16
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX AUTO COMPOSITION",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "instrument-autovibrato-composition-linear.xm",
+      "purpose": "Four small original waveform/sweep controls with note-only phase carry and exact mapped mathematical PCM.",
+      "significant_rows": [
+        "Rows 0/4/8/12 explicitly select sine/square/ramp-down/ramp-up with sweeps 0/1/16/255, depth 15, rate 8.",
+        "Rows 2/6/10/14 change note without instrument, preserving the independent oscillator clock."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": ["Reference audio and human listening stay external; this fixture does not close onset or retirement residuals."],
+      "xm_output": "generated/instrument-autovibrato-composition-linear.xm",
+      "xm_sha256": "0cf922c529eb367d496a09d8113f24abb0490bd4786b31d507a726bf141bb626",
+      "xm_size_bytes": 2613
+    },
+    {
+      "id": "instrument-autovibrato-composition-amiga",
+      "intended_tests": ["G32 instrument automatic composition", "public waveform/sweep and note-only carry control"],
+      "module": {
+        "bpm": 125,
+        "channels": 1,
+        "flags": 0,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "sine immediate",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "sine immediate",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 1, "type": 1},
+            "fadeout": 0,
+            "name": "square one-tick",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "square one-tick",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 16, "type": 2},
+            "fadeout": 0,
+            "name": "ramp down gradual",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "ramp down gradual",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 255, "type": 3},
+            "fadeout": 0,
+            "name": "ramp up slow",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "ramp up slow",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          }
+        ],
+        "orders": [0],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "instrument": 1, "note": 61, "row": 0, "volume_column": 56},
+              {"channel": 0, "note": 65, "row": 2},
+              {"channel": 0, "instrument": 2, "note": 58, "row": 4, "volume_column": 56},
+              {"channel": 0, "note": 61, "row": 6},
+              {"channel": 0, "instrument": 3, "note": 54, "row": 8, "volume_column": 56},
+              {"channel": 0, "note": 58, "row": 10},
+              {"channel": 0, "instrument": 4, "note": 56, "row": 12, "volume_column": 56},
+              {"channel": 0, "note": 60, "row": 14}
+            ],
+            "rows": 16
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX AUTO COMPOSITION",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "instrument-autovibrato-composition-amiga.xm",
+      "purpose": "Four small original waveform/sweep controls with note-only phase carry and exact mapped mathematical PCM.",
+      "significant_rows": [
+        "Rows 0/4/8/12 explicitly select sine/square/ramp-down/ramp-up with sweeps 0/1/16/255, depth 15, rate 8.",
+        "Rows 2/6/10/14 change note without instrument, preserving the independent oscillator clock."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": ["Reference audio and human listening stay external; this fixture does not close onset or retirement residuals."],
+      "xm_output": "generated/instrument-autovibrato-composition-amiga.xm",
+      "xm_sha256": "31f907bd44761892d5ad4ed26a97d6fb4911a22ab5c85344b9b2df4759ffcacd",
+      "xm_size_bytes": 2613
+    },
+    {
+      "id": "instrument-autovibrato-musical-study-linear",
+      "intended_tests": [
+        "Original full three-channel musical study identity",
+        "Audible automatic waveform/sweep and note-only phase carry with stable accompaniment"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 3,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "sine immediate",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "sine immediate",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 1, "type": 1},
+            "fadeout": 0,
+            "name": "square one-tick",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "square one-tick",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 16, "type": 2},
+            "fadeout": 0,
+            "name": "ramp down gradual",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "ramp down gradual",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 255, "type": 3},
+            "fadeout": 0,
+            "name": "ramp up slow",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "ramp up slow",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "BASS",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "BASS",
+                "panning": 96,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "9ecb19dee57632e279f06e9b6e2f0f5fc0122251a684b7a1bf959b22942afa29",
+                "relative_note": -24,
+                "slot": 0,
+                "volume": 40
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "SOFT ARPEGGIO",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "SOFT ARPEGGIO",
+                "panning": 176,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "9ecb19dee57632e279f06e9b6e2f0f5fc0122251a684b7a1bf959b22942afa29",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 28
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          }
+        ],
+        "orders": [0],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "instrument": 1, "note": 61, "row": 0, "volume_column": 56},
+              {"channel": 0, "note": 65, "row": 16, "volume_column": 56},
+              {"channel": 0, "note": 68, "row": 20, "volume_column": 56},
+              {"channel": 0, "note": 65, "row": 24, "volume_column": 56},
+              {"channel": 0, "note": 63, "row": 28, "volume_column": 56},
+              {"channel": 1, "instrument": 5, "note": 37, "row": 0, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 49, "row": 8, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 37, "row": 16, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 49, "row": 24, "volume_column": 48},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 0, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 4, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 68, "row": 8, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 12, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 16, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 68, "row": 20, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 24, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 28, "volume_column": 36},
+              {"channel": 0, "instrument": 2, "note": 58, "row": 32, "volume_column": 56},
+              {"channel": 0, "note": 61, "row": 48, "volume_column": 56},
+              {"channel": 0, "note": 65, "row": 52, "volume_column": 56},
+              {"channel": 0, "note": 61, "row": 56, "volume_column": 56},
+              {"channel": 0, "note": 60, "row": 60, "volume_column": 56},
+              {"channel": 1, "instrument": 5, "note": 34, "row": 32, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 46, "row": 40, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 34, "row": 48, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 46, "row": 56, "volume_column": 48},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 32, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 36, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 40, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 44, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 48, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 52, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 56, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 60, "volume_column": 36},
+              {"channel": 0, "instrument": 3, "note": 54, "row": 64, "volume_column": 56},
+              {"channel": 0, "note": 58, "row": 80, "volume_column": 56},
+              {"channel": 0, "note": 61, "row": 84, "volume_column": 56},
+              {"channel": 0, "note": 58, "row": 88, "volume_column": 56},
+              {"channel": 0, "note": 56, "row": 92, "volume_column": 56},
+              {"channel": 1, "instrument": 5, "note": 30, "row": 64, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 42, "row": 72, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 30, "row": 80, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 42, "row": 88, "volume_column": 48},
+              {"channel": 2, "instrument": 6, "note": 54, "row": 64, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 68, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 72, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 54, "row": 76, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 80, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 84, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 54, "row": 88, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 92, "volume_column": 36},
+              {"channel": 0, "instrument": 4, "note": 56, "row": 96, "volume_column": 56},
+              {"channel": 0, "note": 60, "row": 112, "volume_column": 56},
+              {"channel": 0, "note": 63, "row": 116, "volume_column": 56},
+              {"channel": 0, "note": 60, "row": 120, "volume_column": 56},
+              {"channel": 0, "note": 58, "row": 124, "volume_column": 56},
+              {"channel": 1, "instrument": 5, "note": 32, "row": 96, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 44, "row": 104, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 32, "row": 112, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 44, "row": 120, "volume_column": 48},
+              {"channel": 2, "instrument": 6, "note": 56, "row": 96, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 60, "row": 100, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 63, "row": 104, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 56, "row": 108, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 60, "row": 112, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 63, "row": 116, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 56, "row": 120, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 60, "row": 124, "volume_column": 36},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 12, "note": 0, "row": 127},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 12, "note": 0, "row": 127},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 12, "note": 0, "row": 127}
+            ],
+            "rows": 128
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX AUTO STUDY",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "instrument-autovibrato-musical-study-linear.xm",
+      "purpose": "Original VTX AUTO STUDY: full fifteen-second C-Am-F-G composition with lead, bass octaves and chord arpeggios.",
+      "significant_rows": [
+        "Rows 0/32/64/96 begin sine/square/ramp-down/ramp-up phrases with sweeps 0/1/16/255, depth 15 and rate 8.",
+        "Each phrase holds the lead for sixteen rows before four note-only changes; bass octaves and quiet chord arpeggios retain the original tuning context.",
+        "Row 127 C00 on all three channels ends the original full mix."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Reference audio, depth-off controls and local host diagnostics remain external."
+      ],
+      "xm_output": "generated/instrument-autovibrato-musical-study-linear.xm",
+      "xm_sha256": "6e81bc010a986b9813e9d1e34b86fb7321a59db1cde1f83af79e9dc0c1956c95",
+      "xm_size_bytes": 4274
+    },
+    {
+      "id": "instrument-autovibrato-musical-study-amiga",
+      "intended_tests": [
+        "Original full three-channel musical study identity",
+        "Audible automatic waveform/sweep and note-only phase carry with stable accompaniment"
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 3,
+        "flags": 0,
+        "instruments": [
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "sine immediate",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "sine immediate",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 1, "type": 1},
+            "fadeout": 0,
+            "name": "square one-tick",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "square one-tick",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 16, "type": 2},
+            "fadeout": 0,
+            "name": "ramp down gradual",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "ramp down gradual",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 15, "rate": 8, "sweep": 255, "type": 3},
+            "fadeout": 0,
+            "name": "ramp up slow",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "ramp up slow",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "b29bece13eda3fc1d80f391d3784a5bb210a3f09eaf48e86a3a3aec69214ecb1",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 48
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "BASS",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "BASS",
+                "panning": 96,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "9ecb19dee57632e279f06e9b6e2f0f5fc0122251a684b7a1bf959b22942afa29",
+                "relative_note": -24,
+                "slot": 0,
+                "volume": 40
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          },
+          {
+            "autovibrato": {"depth": 0, "rate": 0, "sweep": 0, "type": 0},
+            "fadeout": 0,
+            "name": "SOFT ARPEGGIO",
+            "note_sample_map": [{"end_note": 96, "sample": 0, "start_note": 1}],
+            "panning_envelope": {"enabled": false, "points": [], "type_flags": 0},
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {"length_frames": 128, "mode": "forward", "start_frame": 0},
+                "name": "SOFT ARPEGGIO",
+                "panning": 176,
+                "pcm_recipe": {"amplitude": 10000, "frame_count": 128, "period_frames": 16, "waveform": "sine"},
+                "pcm_sha256": "9ecb19dee57632e279f06e9b6e2f0f5fc0122251a684b7a1bf959b22942afa29",
+                "relative_note": -12,
+                "slot": 0,
+                "volume": 28
+              }
+            ],
+            "volume_envelope": {"enabled": false, "points": [], "type_flags": 0}
+          }
+        ],
+        "orders": [0],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "instrument": 1, "note": 61, "row": 0, "volume_column": 56},
+              {"channel": 0, "note": 65, "row": 16, "volume_column": 56},
+              {"channel": 0, "note": 68, "row": 20, "volume_column": 56},
+              {"channel": 0, "note": 65, "row": 24, "volume_column": 56},
+              {"channel": 0, "note": 63, "row": 28, "volume_column": 56},
+              {"channel": 1, "instrument": 5, "note": 37, "row": 0, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 49, "row": 8, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 37, "row": 16, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 49, "row": 24, "volume_column": 48},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 0, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 4, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 68, "row": 8, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 12, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 16, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 68, "row": 20, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 24, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 28, "volume_column": 36},
+              {"channel": 0, "instrument": 2, "note": 58, "row": 32, "volume_column": 56},
+              {"channel": 0, "note": 61, "row": 48, "volume_column": 56},
+              {"channel": 0, "note": 65, "row": 52, "volume_column": 56},
+              {"channel": 0, "note": 61, "row": 56, "volume_column": 56},
+              {"channel": 0, "note": 60, "row": 60, "volume_column": 56},
+              {"channel": 1, "instrument": 5, "note": 34, "row": 32, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 46, "row": 40, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 34, "row": 48, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 46, "row": 56, "volume_column": 48},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 32, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 36, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 40, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 44, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 48, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 65, "row": 52, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 56, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 60, "volume_column": 36},
+              {"channel": 0, "instrument": 3, "note": 54, "row": 64, "volume_column": 56},
+              {"channel": 0, "note": 58, "row": 80, "volume_column": 56},
+              {"channel": 0, "note": 61, "row": 84, "volume_column": 56},
+              {"channel": 0, "note": 58, "row": 88, "volume_column": 56},
+              {"channel": 0, "note": 56, "row": 92, "volume_column": 56},
+              {"channel": 1, "instrument": 5, "note": 30, "row": 64, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 42, "row": 72, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 30, "row": 80, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 42, "row": 88, "volume_column": 48},
+              {"channel": 2, "instrument": 6, "note": 54, "row": 64, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 68, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 72, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 54, "row": 76, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 80, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 61, "row": 84, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 54, "row": 88, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 58, "row": 92, "volume_column": 36},
+              {"channel": 0, "instrument": 4, "note": 56, "row": 96, "volume_column": 56},
+              {"channel": 0, "note": 60, "row": 112, "volume_column": 56},
+              {"channel": 0, "note": 63, "row": 116, "volume_column": 56},
+              {"channel": 0, "note": 60, "row": 120, "volume_column": 56},
+              {"channel": 0, "note": 58, "row": 124, "volume_column": 56},
+              {"channel": 1, "instrument": 5, "note": 32, "row": 96, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 44, "row": 104, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 32, "row": 112, "volume_column": 48},
+              {"channel": 1, "instrument": 5, "note": 44, "row": 120, "volume_column": 48},
+              {"channel": 2, "instrument": 6, "note": 56, "row": 96, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 60, "row": 100, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 63, "row": 104, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 56, "row": 108, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 60, "row": 112, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 63, "row": 116, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 56, "row": 120, "volume_column": 36},
+              {"channel": 2, "instrument": 6, "note": 60, "row": 124, "volume_column": 36},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 12, "note": 0, "row": 127},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 12, "note": 0, "row": 127},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 12, "note": 0, "row": 127}
+            ],
+            "rows": 128
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX AUTO STUDY",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "instrument-autovibrato-musical-study-amiga.xm",
+      "purpose": "Original VTX AUTO STUDY: full fifteen-second C-Am-F-G composition with lead, bass octaves and chord arpeggios.",
+      "significant_rows": [
+        "Rows 0/32/64/96 begin sine/square/ramp-down/ramp-up phrases with sweeps 0/1/16/255, depth 15 and rate 8.",
+        "Each phrase holds the lead for sixteen rows before four note-only changes; bass octaves and quiet chord arpeggios retain the original tuning context.",
+        "Row 127 C00 on all three channels ends the original full mix."
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "Reference audio, depth-off controls and local host diagnostics remain external."
+      ],
+      "xm_output": "generated/instrument-autovibrato-musical-study-amiga.xm",
+      "xm_sha256": "24ff490dbac154def8c15597e50a1c2907e4b55100a21244bef2aee64a533e97",
+      "xm_size_bytes": 4274
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

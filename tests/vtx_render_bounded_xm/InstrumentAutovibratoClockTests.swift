@@ -276,6 +276,39 @@ final class InstrumentAutovibratoClockTests: XCTestCase {
         builder.finish(context: context, song: song([[birth]]))
         XCTAssertEqual(builder.failures, 1)
         XCTAssertEqual(builder.automatic.evidence.coverage, .notAdapterProduced)
+
+        // A real valid prefix must survive a later capture gap. Ordinary writers
+        // in that row keep their raw requests instead of using stale automatic phase.
+        let input = song([[birth], [c(4, 0x48)]])
+        let traversal = PlaybackSongTraversalPlanner.plan(input, startOrderIndex: 0, orderCount: 1)
+        let timing = PlaybackSongFxxTimingPlanner.plan(input, traversalPlan: traversal, sampleRate: 48000)
+        var live = A.AdapterRowContext()
+        var automatic = PlaybackSongInstrumentAutovibratoPublication.Builder()
+        automatic.enabled = true
+        var prefix = [PlaybackSongInstrumentAutovibratoPublication.Request]()
+        for (index, row) in traversal.rows.enumerated() {
+            live.semanticPitchBuilder.begin(states: live.channelStates, count: row.row.cells.count,
+                firstOrdinal: index * 6, speed: 6, linear: true, retriggers: live.retriggerEffects.count,
+                rowResets: live.rowEntryTriggerResetObserver.facts.count,
+                delayedResets: live.delayedInstrumentResetObserver.facts.count,
+                exits: live.rowExitObserver.references.count, rows: live.xmChannelRows.count)
+            _ = A.appendEvents(from: row.row, source: row.source, syntheticRow: row.syntheticRow, song: input,
+                timingConfig: timing.timingConfig(forSyntheticRow: row.syntheticRow), timingPlan: timing,
+                scheduledStartFrame: timing.frameFor(row: row.syntheticRow),
+                nextRow: index == 0 ? traversal.rows[1].row : nil, context: &live)
+            if index == 1 { live.channelStates[0].activeLinearPeriod = 42 }
+            A.finishSemanticPitchRow(context: &live, song: input)
+            let ordinary = live.vibratoEffects.last?.stepUpdates
+            A.materializeInstrumentAutovibratoRow(context: &live, builder: &automatic, source: row.source, row: row.syntheticRow,
+                channelCount: row.row.cells.count, timingConfig: timing.timingConfig(forSyntheticRow: row.syntheticRow), timingPlan: timing)
+            if index == 0 { prefix = automatic.requests; XCTAssertFalse(prefix.isEmpty) }
+            else {
+                XCTAssertEqual(live.semanticPitchBuilder.failures, 1)
+                XCTAssertFalse(live.semanticPitchBuilder.automatic.valid)
+                XCTAssertEqual(live.vibratoEffects.last?.stepUpdates, ordinary)
+                XCTAssertEqual(automatic.requests, prefix)
+            }
+        }
     }
 
     func testSparseStorageDoesNotRetainOneStatePerEmptyTick() throws {

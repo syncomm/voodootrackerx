@@ -38,6 +38,10 @@ struct MixerAudibleOutputState: Equatable {
     mutating func retire(frames: Int) {
         vtx_c_mixer_output_retire(&raw, UInt32(clamping: frames))
     }
+
+    mutating func retireSong(sampleRate: Double) {
+        vtx_c_mixer_output_retire_song(&raw, vtx_c_mixer_song_retirement_frame_count(sampleRate))
+    }
 }
 
 /// Existing generic gain/pan where a plain voice first enters release/reset output.
@@ -179,7 +183,9 @@ struct PlaybackXMAudibleTimeline: Equatable {
         guard let history = updatesByEvent[eventIndex] else { return nil }
         var output = MixerAudibleOutputState()
         var cursor = 0
-        for update in history where update.scheduledFrame < frame {
+        // Same-frame publications are delivered before C's scheduled retirement;
+        // subsequent old-generation publications are rejected by the retiring voice.
+        for update in history where update.scheduledFrame < frame && update.scheduledFrame <= (replacementFrame ?? frame) {
             output.advance(update.scheduledFrame - cursor)
             output.publish(update, config: config)
             cursor = update.scheduledFrame
@@ -187,7 +193,7 @@ struct PlaybackXMAudibleTimeline: Equatable {
         guard output.enabled else { return nil }
         if let replacementFrame, replacementFrame < frame {
             output.advance(replacementFrame - cursor)
-            output.retire(frames: CSoftwareMixer.replacementStopRampFrameCount)
+            output.retireSong(sampleRate: config.sampleRate)
             cursor = replacementFrame
         }
         output.advance(frame - cursor)

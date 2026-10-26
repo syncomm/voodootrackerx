@@ -457,7 +457,8 @@ struct PlaybackSongSameChannelReplacementEvent: Equatable {
             target: 0,
             totalFrames: oldVoiceRampDurationFrames,
             positionFrame: boundaryFrame - replacementFrame,
-            deactivateAfterRamp: true
+            deactivateAfterRamp: true,
+            songRetirement: true
         )
     }
 }
@@ -1871,10 +1872,9 @@ final class PlaybackSongOfflineRenderer {
             case .sameChannelReplacementRamp:
                 let replacements = sameChannelLifetime.replacementEvents
                 precondition(replacements.indices.contains(candidate.sourceDiagnosticIndex))
-                _ = mixer.scheduleVoiceRampDownAndDeactivate(
+                _ = mixer.scheduleSongVoiceRetirement(
                     voiceIndex: voiceIndex,
-                    scheduledFrame: localFrame,
-                    rampFrames: replacements[candidate.sourceDiagnosticIndex].oldVoiceRampDurationFrames
+                    scheduledFrame: localFrame
                 )
             }
         }
@@ -2396,10 +2396,9 @@ final class PlaybackSongOfflineRenderer {
                replacement.replacementFrame >= windowEndFrame {
                 continue
             }
-            _ = mixer.scheduleVoiceRampDownAndDeactivate(
+            _ = mixer.scheduleSongVoiceRetirement(
                 voiceIndex: voiceIndex,
-                scheduledFrame: replacement.replacementFrame - windowStartFrame,
-                rampFrames: replacement.oldVoiceRampDurationFrames
+                scheduledFrame: replacement.replacementFrame - windowStartFrame
             )
         }
     }
@@ -2799,7 +2798,7 @@ final class PlaybackSongOfflineRenderer {
             plan: plan,
             before: replacementFrame,
             includingUpdatesAtBoundary: true
-        ).gain
+        ).effectiveGain
     }
 
     private static func sampleStepUpdates(
@@ -2953,7 +2952,7 @@ final class PlaybackSongOfflineRenderer {
             return lhs.eventIndex < rhs.eventIndex
         }
 
-        let rampFrames = CSoftwareMixer.replacementStopRampFrameCount
+        let rampFrames = CSoftwareMixer.songReplacementRampFrameCount(sampleRate: plan.timingConfig.sampleRate)
         let renderedFrameCount = max(0, renderedFrameCount)
         var activeByChannel = [Int: [SameChannelActiveVoice]]()
         var maxVoicesByChannel = [Int: Int]()
@@ -2972,6 +2971,8 @@ final class PlaybackSongOfflineRenderer {
                 )
             }
             for index in activeVoices.indices {
+                // Each generation owns one immutable retirement interval, even during rapid replacement.
+                guard activeVoices[index].rampCompletionFrame == nil else { continue }
                 let oldEventIndex = activeVoices[index].eventIndex
                 let completionFrame = info.frame + rampFrames
                 replacementEvents.append(PlaybackSongSameChannelReplacementEvent(
@@ -2984,7 +2985,7 @@ final class PlaybackSongOfflineRenderer {
                     oldVoiceRampDurationFrames: rampFrames
                 ))
                 activeVoices[index].rampCompletionFrame = completionFrame
-                // Repeated replacements restart retirement, but never reopen the old pitch stream.
+                // The pre-replacement physical pitch stream remains closed for this generation (R02).
                 if activeVoices[index].pitchUpdateEndFrame == nil {
                     activeVoices[index].pitchUpdateEndFrame = info.frame
                 }
@@ -3373,7 +3374,8 @@ final class PlaybackSongOfflineRenderer {
                 fadeoutValue: fadeoutValue,
                 gainRamp: audibleOutputState == nil || gainRamp?.deactivateAfterRamp == true ? gainRamp : nil,
                 panRamp: audibleOutputState == nil ? panRamp : nil,
-                sourceOnsetElapsedFrames: elapsedFrames
+                sourceOnsetElapsedFrames: gainRamp?.songRetirement == true
+                    ? min(elapsedFrames, max(0, (pitchUpdateEndFrame ?? boundaryFrame) - eventStartFrame)) : elapsedFrames
             ),
             keyOffFrame: localKeyOffFrame,
             carriedTonePortamentoActive: carriedTonePortamentoActive,
@@ -3403,6 +3405,10 @@ final class PlaybackSongOfflineRenderer {
             fadeoutFrameDecrement: event.fadeoutFrameDecrement
         )
         if let voiceIndex = result.voiceIndex {
+            if continuation.playbackStep == 0 {
+                // This is imported physical state, not a later write to a retiring generation.
+                precondition(mixer.setContinuationPlaybackStep(0, forVoiceAt: voiceIndex))
+            }
             mixer.setFadeoutDecrement(continuation.fadeoutDecrement ?? event.fadeoutFrameDecrement, forVoiceAt: voiceIndex)
             if let semantic = continuation.envelopeSemanticState {
                 mixer.setEnvelopeSemanticState(semantic, forVoiceAt: voiceIndex)
@@ -3411,10 +3417,6 @@ final class PlaybackSongOfflineRenderer {
                 mixer.setAudibleOutputState(output, forVoiceAt: voiceIndex)
             }
             mixer.setRuntimeState(continuation.runtimeState, forVoiceAt: voiceIndex)
-            if continuation.playbackStep == 0 {
-                // Continuation is not a new zero-step trigger: restore hold before rendering.
-                mixer.scheduleVoicePlaybackStepUpdate(voiceIndex: voiceIndex, scheduledFrame: 0, playbackStep: 0)
-            }
         }
         return result
     }

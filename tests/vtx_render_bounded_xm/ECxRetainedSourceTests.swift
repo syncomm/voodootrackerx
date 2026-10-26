@@ -202,9 +202,9 @@ final class ECxRetainedSourceTests: XCTestCase {
             XCTAssertEqual(target.scheduledFrame, n)
             XCTAssertEqual(target.amplitude, 0)
             XCTAssertNil(target.activation)
-            // The existing replacement tail remains 32 frames (G03), independently
+            // The displaced source's 5 ms tail is independent
             // of the newborn's zero target and retained moving source.
-            XCTAssertTrue(full.block.interleavedPCM[((n + 32) * 2)..<(18 * Int(rate / 50) * 2)].allSatisfy { $0 == 0 })
+            XCTAssertTrue(full.block.interleavedPCM[((n + Int(rate * 0.005)) * 2)..<(18 * Int(rate / 50) * 2)].allSatisfy { $0 == 0 })
             XCTAssertGreaterThan(full.block.interleavedPCM[(18 * Int(rate / 50) + Int(rate * 0.005)) * 2], 0)
             XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, full.block.interleavedPCM)
         } } }

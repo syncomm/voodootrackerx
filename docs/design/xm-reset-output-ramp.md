@@ -1,8 +1,9 @@
 # XM Non-retriggering Reset Output Contract
 
 This note owns the implemented XM semantic tick, ordinary audible final-L/R,
-non-retriggering 5 ms reset, G02 new-source onset, and bounded G04 ECx
-retained-source contracts. G02 implementation does not establish its closure.
+non-retriggering 5 ms reset, G02 new-source onset, G03 song retirement, and
+bounded G04 ECx retained-source contracts. G02 is closed within its bounded
+onset contract; G03 remains open pending independent acceptance.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
 [XM volume ownership](xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
 Instrument-only dispatch reuses these contracts. Ordinary note-only carries
@@ -70,15 +71,60 @@ elapsed output frames from the original event start, including during attack;
 reset restores the installed initial age. Generic primitive C clients retain
 their existing behavior unless they explicitly opt into source onset.
 
-The old source retains its existing 32-frame retirement and cursor/pitch.
-G03 remains open, including its known runtime/offline retrigger retirement
-difference. G04, generic G05 ramps, G40, interpolation and callback safety
-remain separately owned. `NewSourceOnsetTests` and runtime-core controls cover
+G03 separately supplies the old-source tail below; its known runtime/offline
+retrigger retirement difference remains open. G04, generic G05 ramps, G40,
+interpolation and callback safety remain separately owned. `NewSourceOnsetTests`
+and runtime-core controls cover
 native curve/cursor, silent/held/completed sources, replacement tails, exact
 chunks, prepared/indexed/scan/window delivery and both rates. The original
 `new-source-onset.xm` phrase provides two distinct sample attacks for external
-before/after listening. G02 remains unclosed pending independent review and
-maintainer listening.
+before/after listening. G02 is **CLOSED, bounded 5 ms new-source onset**:
+the qualified implementation passed CI, and Gregory independently listened to
+and accepted it. This records maintainer acceptance, not listening by the agent
+or broad FT2 PCM equality.
+
+### G03 same-channel outgoing-source retirement
+
+Status: **IMPLEMENTED; CLOSURE OPEN** pending independent review and Gregory's
+listening acceptance. Ordinary song replacement snapshots the currently audible
+old scalar or final mono/L/R value. At output age `k` its tail is `1 - k/N`
+for `0 <= k < N`, with `N = max(1, floor(sampleRate * 0.005))`; it retires before
+frame `N`. Thus the first frame retains the current value, midpoint is 0.5,
+the last is `1/N`, and `N` and later are silent. G02's new generation still
+advances its cursor at age zero and uses `min(k/N, 1)` independently.
+
+Fresh project-generated signed-16 controls isolate original +16384 outgoing
+and -8192 incoming sample identities, then sum them. Both frequency modes and
+44.1/48 kHz confirm the pinned reference's 220/240-frame interval and `k/N`
+old-side indexing, including noncenter pan and quiet headers. Instrumented and
+uninstrumented reference exports agree byte for byte. The reference's accumulated
+Float32 line differs from the ideal by at most `3.32e-6` normalized in these
+controls; VTX deliberately evaluates the linear fraction directly. It does not
+reproduce the small accumulation residual or claim reference mix/pan equality.
+Observed reference current/delta values reconstruct every outgoing Float32
+sample exactly for the full-level center-pan controls, establishing that
+residual's accumulation mechanism independently of VTX.
+
+The shared C duration policy and opt-in song transition serve runtime, whole
+and prepared renders, indexed/scan windows and imported mid-tail state. Existing
+retirement fields distinguish the song convention from the unchanged generic
+32-frame `(k+1)/32` primitive. No C voice/event storage is added. Managed output
+uses its final tuple once; its scalar timer only retires the voice. An interrupted
+G02 attack holds its reached multiplier while the old tail fades. The old PCM
+cursor, pre-displacement physical pitch and loop direction continue independently.
+
+Each source generation retires once. Later replacements leave earlier fade
+progress, target and deadline intact. Stale queued writes cannot reopen a tail;
+empty/refused routes retain their existing cut/admission rules and ECx retains
+its source. No extra note, canonical tick or semantic clock is created.
+`SongSourceRetirementTests`, runtime rapid-replacement controls and the extended
+R02 controls pin numerical endpoints, interruption, fixed-pool reuse, dispatch,
+pitch/cursor and continuation/partition invariance.
+
+G21 remains a specific follow-up: E9/Rxy's offline explicit retrigger cuts omit
+the old generation, while runtime starts this song tail. Their source-generation,
+counter and semantic-carry rules are unchanged; this work does not claim full
+retrigger parity. Generic G05 updates and G40 remain separate.
 
 ### G06 panning-envelope factor
 
@@ -264,11 +310,11 @@ publication frames and trigger generation; boundary publications remain queued
 at local zero. Runtime checks generation/channel ownership and C rejects
 completed or retiring voices. Imports never reactivate a completed source.
 
-Replacement snapshots current final output and uses the existing `(k + 1) / 32`
-retirement convention, identity and lifetime. Its old scalar timer still owns
-retirement, while only the final-output state supplies managed PCM. This avoids
-double multiplication. G02's independent new-side onset is described above;
-replacement parity remains G03. ECx uses the retained-source contract below; internal
+Song replacement uses the G03 `1 - k/N` convention above. Its scalar timer owns
+retirement, while only final-output state supplies managed PCM, avoiding double
+multiplication. Generic clients retain their separate `(k + 1) / 32` convention.
+G02's independent new-side onset is described above; G03 acceptance remains open.
+ECx uses the retained-source contract below; internal
 hard stop remains immediate and separate.
 
 Constant-PCM tests pin rising/falling stereo interiors, unchanged-target holds,

@@ -2,7 +2,7 @@ import AppKit
 import AudioToolbox
 import XCTest
 
-/// Public, nonconstant PCM controls for ordinary replacement under the current 32-frame policy.
+/// Public, nonconstant PCM controls for ordinary replacement under the song-specific 5 ms policy.
 final class R02ReplacementParityTests: XCTestCase {
     func testOrdinaryReplacementRetainsPhysicalPitchAcrossOfflinePaths() throws {
         for linear in [true, false] { for rate in [44_100.0, 48_000] { for modulated in [false, true] {
@@ -24,7 +24,7 @@ final class R02ReplacementParityTests: XCTestCase {
                 instrumentsByIndex: instruments, restartOrderIndex: 0, endBehavior: .stopAtEnd,
                 initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
-            let plan = try XCTUnwrap(runtime.plan), n = 12 * Int(rate / 50), end = n + 64
+            let plan = try XCTUnwrap(runtime.plan), n = 12 * Int(rate / 50), end = n + Int(rate * 0.005) + 64
             let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
             let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
             let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: end)
@@ -39,7 +39,7 @@ final class R02ReplacementParityTests: XCTestCase {
             let q16 = modulated ? (rate == 48_000 ? (linear ? 10787 : 11013) : (linear ? 11741 : 11986))
                 : (rate == 48_000 ? 11418 : 12428)
             var pcm = [Float](), frame = 0
-            for boundary in [n, n+1, n+15, n+30, n+31, n+32, end] {
+            for boundary in [n, n+1, n+15, n+30, n+31, n+32, n+Int(rate * 0.005)-1, n+Int(rate * 0.005), end] {
                 while frame < boundary {
                     let count = min(4093, boundary-frame)
                     pcm += renderRuntimePCM(core, frames: count); frame += count
@@ -67,7 +67,7 @@ final class R02ReplacementParityTests: XCTestCase {
             XCTAssertEqual(ramp.replacementRampStartState?.sampleStep, Double(q16) / 65536)
             XCTAssertEqual(ramp.replacementRampStartState?.gainRampStart, 0.5)
             XCTAssertEqual(ramp.replacementRampTargetGain, 0)
-            XCTAssertEqual(ramp.replacementRampFrames, 32)
+            XCTAssertEqual(ramp.replacementRampFrames, Int(rate * 0.005))
             let paths = [("whole", renderer.render(request).block.interleavedPCM),
                 ("indexed", renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM),
                 ("scan", renderer.renderWindowedUsingScanPerWindowSchedulingReference(request, windowRows: 1).block.interleavedPCM),
@@ -4864,7 +4864,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 XCTAssertEqual(window.plan, offline.plan)
                 assertFixturePCMEqual(window.block.interleavedPCM, offline.block.interleavedPCM[...])
             }
-            // Only explicit retrigger cuts retain the established runtime 32-frame retirement tail.
+            // Only explicit retrigger cuts retain the runtime song-retirement tail; G21 offline explicit cuts remain open.
             let retirementFrames = Set(offline.diagnostics.retriggerEffects.flatMap {
                 $0.replacementFrames ?? Array($0.retriggerFrames.prefix($0.replacedEventIndices.count))
             })
@@ -4884,7 +4884,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 for offset in 0..<count {
                     let frame = rendered + offset
                     let difference = abs(pcm[offset] - offline.block.interleavedPCM[frame])
-                    if (0..<32).contains(where: { retirementFrames.contains(frame - $0) }) {
+                    if (0..<Int(rate * 0.005)).contains(where: { retirementFrames.contains(frame - $0) }) {
                         insideMaximum = max(insideMaximum, difference)
                     } else { outsideMaximum = max(outsideMaximum, difference) }
                 }
@@ -4933,7 +4933,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 let differences = zip(pcm, offline.block.interleavedPCM).map { abs($0 - $1) }
                 XCTAssertGreaterThan(differences.max() ?? 0, 1e-7)
                 XCTAssertTrue(differences.enumerated().allSatisfy { frame, difference in
-                    difference <= 1e-7 || starts.contains { (0..<32).contains(frame - $0) }
+                    difference <= 1e-7 || starts.contains { (0..<Int(rate * 0.005)).contains(frame - $0) }
                 })
                 XCTAssertEqual(core.snapshot().rampDownStartCount, 4)
                 XCTAssertEqual(core.snapshot().rampDownCompletionCount, 4)
@@ -8163,6 +8163,59 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(output, (0..<3).map { (Float(0.25) * Float($0) / 220) * gain })
     }
 
+    func testG03RapidAdapterReplacementsKeepGenerationDeadlinesAndExactCallbackPCM() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let n = Int(rate * 0.005), starts = [0, n / 2, n / 2 + 17, n / 2 + 34]
+            let instruments = Dictionary(uniqueKeysWithValues: (1...2).map { i in
+                (i, PlaybackInstrument(index: i, samples: [.init(instrumentIndex: i, sampleIndex: 0,
+                    pcm: Array(repeating: i == 1 ? 0.5 : -0.25, count: 4096), volume: 0.25,
+                    relativeNote: 0, finetune: 0, baseSampleRate: 8363,
+                    loopStart: 0, loopLength: 4096, loopType: 1)], noteSampleMap: Array(repeating: 0, count: 96)))
+            })
+            let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: (0..<4).map {
+                makePlaybackRow(index: $0, note: 49, instrument: UInt8($0 % 2 + 1))
+            }], instrumentsByIndex: instruments, usesLinearFrequencyTable: linear)
+            let seed = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
+            let events = zip(seed.pattern.events, starts).map { event, start in
+                SyntheticTrackerEvent(row: 0, scheduledStartFrame: start, sample: event.sample,
+                    gain: event.gain, pan: event.pan, playbackStep: event.playbackStep, loop: event.loop)
+            }
+            let plan = PlaybackSongSyntheticPlan(timingConfig: seed.timingConfig,
+                pattern: .init(rowCount: 4, events: events), diagnostics: seed.diagnostics,
+                canonicalTickClock: seed.canonicalTickClock, selectionDispatchFacts: .notAdapterProduced)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
+            let config = MixerRenderConfig(sampleRate: rate, channelCount: 1), end = starts.last! + n + 2
+            let reference = PlaybackSongOfflineRenderer(preparedPlan: plan)
+                .render(.init(song: song, config: config, frames: end)).block.interleavedPCM
+            for chunk in [1, 17, 256, 997] {
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float]()
+                while pcm.count < end { pcm += renderRuntimePCM(core, frames: min(chunk, end - pcm.count)) }
+                XCTAssertEqual(pcm, reference)
+                let applied = core.drainAppliedAdapterEventDiagnostics()
+                XCTAssertEqual(applied.map(\.event.id), runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex].id })
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+                let births = applied.filter { if case .noteTrigger = $0.result { return true }; return false }
+                XCTAssertEqual(births.map(\.event.activeEventIndex), [0, 1, 2, 3])
+                for (index, birth) in births.enumerated() where index > 0 {
+                    guard case let .noteTrigger(result) = birth.result else { return XCTFail("Missing generation") }
+                    let stop = try XCTUnwrap(result.channelStopBeforeAdd)
+                    XCTAssertEqual(stop.rampedVoiceCount, 1)
+                    XCTAssertEqual(stop.replacementRampFrames, n)
+                    XCTAssertEqual(stop.replacementOldVoiceState?.sampleStep, events[index - 1].playbackStep)
+                }
+                XCTAssertEqual(core.snapshot().rampDownStartCount, 3)
+                XCTAssertEqual(core.snapshot().rampDownCompletionCount, 3)
+                XCTAssertEqual(core.snapshot().activeVoiceCount, 1)
+                XCTAssertEqual(core.snapshot().abruptRampDownStopCount, 0)
+                XCTAssertEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 3)?.samplePosition,
+                    Double(end - starts[3]) * events[3].playbackStep)
+            }
+        } }
+    }
+
     func testRuntimeCMixerRenderCoreRampsPriorVoiceOnSameChannelReplacement() {
         let core = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
@@ -8182,7 +8235,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertTrue(replacement.succeeded)
         XCTAssertEqual(replacement.channelStopBeforeAdd?.stoppedVoiceCount, 0)
         XCTAssertEqual(replacement.channelStopBeforeAdd?.rampedVoiceCount, 1)
-        XCTAssertEqual(replacement.channelStopBeforeAdd?.replacementRampFrames, CSoftwareMixer.replacementStopRampFrameCount)
+        XCTAssertEqual(replacement.channelStopBeforeAdd?.replacementRampFrames, CSoftwareMixer.songReplacementRampFrameCount(sampleRate: 44_100))
         XCTAssertEqual(replacement.channelStopBeforeAdd?.replacementVoicesOverlap, true)
         XCTAssertEqual(replacement.snapshotAfter.activeVoiceCount, 3)
         XCTAssertEqual(replacement.snapshotAfter.rampingOutVoiceCount, 1)
@@ -8192,14 +8245,14 @@ final class RuntimeCMixerTests: XCTestCase {
         output.withUnsafeMutableBufferPointer { buffer in
             XCTAssertTrue(core.render(into: buffer, frameCount: 34))
         }
-        // All three sources were installed at the same frame; old-side retirement stays 32 frames.
+        // The displaced age-zero attack stays silent; the other two onsets progress normally.
         XCTAssertEqual(output[0], 0, accuracy: 0.000_001)
-        XCTAssertEqual(output[30], 0.78125 * 30 / 220, accuracy: 0.000_001)
+        XCTAssertEqual(output[30], 0.75 * 30 / 220, accuracy: 0.000_001)
         XCTAssertEqual(output[31], 0.75 * 31 / 220, accuracy: 0.000_001)
         XCTAssertEqual(output[33], 0.75 * 33 / 220, accuracy: 0.000_001)
-        XCTAssertEqual(core.snapshot().activeVoiceCount, 2)
-        XCTAssertEqual(core.snapshot().rampingOutVoiceCount, 0)
-        XCTAssertEqual(core.snapshot().rampDownCompletionCount, 1)
+        XCTAssertEqual(core.snapshot().activeVoiceCount, 3)
+        XCTAssertEqual(core.snapshot().rampingOutVoiceCount, 1)
+        XCTAssertEqual(core.snapshot().rampDownCompletionCount, 0)
         XCTAssertEqual(core.snapshot().abruptRampDownStopCount, 0)
     }
 
@@ -9059,7 +9112,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(replacementStop?.adapterEventCategory, "replacement")
         XCTAssertNil(replacementStop?.stoppedVoiceCount)
         XCTAssertEqual(replacementStop?.rampedVoiceCount, 1)
-        XCTAssertEqual(replacementStop?.replacementRampFrames, CSoftwareMixer.replacementStopRampFrameCount)
+        XCTAssertEqual(replacementStop?.replacementRampFrames, CSoftwareMixer.songReplacementRampFrameCount(sampleRate: 44_100))
         XCTAssertEqual(replacementStop?.replacementVoicesOverlap, true)
         XCTAssertEqual(replacementStop?.stopChannelCount, 0)
         XCTAssertEqual(replacementStop?.replacementRampCount, 1)

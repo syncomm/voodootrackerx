@@ -462,7 +462,7 @@ final class InstrumentAutovibratoPublicationTests: XCTestCase {
             Array((command.replacementFrames ?? command.retriggerFrames).prefix(command.replacedEventIndices.count))
         })
         if error > 1e-7, !retirementFrames.isEmpty, let off = depthOffWitness?() {
-            // Existing G03/G21 debt is precisely a runtime 32-frame retiring voice
+            // G21 debt is precisely a runtime song-retirement voice (G03's 5 ms)
             // versus offline immediate retrigger cut. Keep every other sample exact.
             XCTAssertTrue(commands.allSatisfy { $0.effectType == 27 || ($0.effectType == 14 && $0.effectParam >> 4 == 9) })
             let baseline = RuntimeCMixerAdapterEventPlan.make(song: off, sampleRate: request.config.sampleRate)
@@ -475,7 +475,8 @@ final class InstrumentAutovibratoPublicationTests: XCTestCase {
             XCTAssertEqual(retirementFrames, baselineFrames, label, file: file, line: line)
             var baselineInside: Float = 0, baselineOutside: Float = 0, candidateOutside: Float = 0
             for frame in expected.indices {
-                let knownTail = (0..<32).contains { retirementFrames.contains(frame - $0) }
+                let duration = CSoftwareMixer.songReplacementRampFrameCount(sampleRate: request.config.sampleRate)
+                let knownTail = (0..<duration).contains { retirementFrames.contains(frame - $0) }
                 let baselineDifference = abs(baselinePCM[frame] - baselineCore[frame])
                 if knownTail { baselineInside = max(baselineInside, baselineDifference) }
                 else {
@@ -504,7 +505,8 @@ final class InstrumentAutovibratoPublicationTests: XCTestCase {
             outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
         core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
         var rendered = 0
-        for (generation, start) in births.sorted(by: { $0.1 < $1.1 }) { for offset in [1, 15, 31, 32] {
+        let duration = CSoftwareMixer.songReplacementRampFrameCount(sampleRate: request.config.sampleRate)
+        for (generation, start) in births.sorted(by: { $0.1 < $1.1 }) { for offset in [1, 15, duration / 2, duration - 1, duration, duration + 1] {
             let boundary = start + offset
             while rendered < boundary {
                 let count = min(997, boundary - rendered); _ = renderRuntimePCM(core, frames: count); rendered += count

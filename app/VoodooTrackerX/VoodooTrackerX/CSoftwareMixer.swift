@@ -261,7 +261,8 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
             target: diagnostic.gain_ramp_target,
             totalFrames: Int(diagnostic.gain_ramp_total_frames),
             positionFrame: Int(diagnostic.gain_ramp_position_frame),
-            deactivateAfterRamp: diagnostic.deactivate_after_gain_ramp != 0
+            deactivateAfterRamp: diagnostic.deactivate_after_gain_ramp != 0,
+            songRetirement: diagnostic.deactivate_after_gain_ramp == VTX_C_MIXER_RETIRE_SONG
         )
         deactivateAfterGainRamp = diagnostic.deactivate_after_gain_ramp != 0
         panRamp = diagnostic.pan_ramp_active == 0 ? nil : CSoftwareMixerValueRampRuntimeState(
@@ -279,19 +280,22 @@ struct CSoftwareMixerValueRampRuntimeState: Equatable {
     let totalFrames: Int
     let positionFrame: Int
     let deactivateAfterRamp: Bool
+    let songRetirement: Bool
 
     init(
         start: Float,
         target: Float,
         totalFrames: Int,
         positionFrame: Int,
-        deactivateAfterRamp: Bool = false
+        deactivateAfterRamp: Bool = false,
+        songRetirement: Bool = false
     ) {
         self.start = start.isFinite ? start : 0
         self.target = target.isFinite ? target : 0
         self.totalFrames = max(1, totalFrames)
         self.positionFrame = min(max(0, positionFrame), max(0, totalFrames - 1))
         self.deactivateAfterRamp = deactivateAfterRamp
+        self.songRetirement = songRetirement && deactivateAfterRamp
     }
 }
 
@@ -343,6 +347,10 @@ final class CSoftwareMixer {
     static let maximumVoiceStateEventCount = Int(VTX_C_MIXER_MAX_VOICE_STATE_EVENTS)
     static let gainPanUpdateRampFrameCount = Int(vtx_c_mixer_gain_pan_update_ramp_frame_count())
     static let replacementStopRampFrameCount = Int(vtx_c_mixer_replacement_stop_ramp_frame_count())
+    /// Song tails share C's output-frame policy; generic clients keep their separate 32-frame default.
+    static func songReplacementRampFrameCount(sampleRate: Double) -> Int {
+        Int(vtx_c_mixer_song_retirement_frame_count(sampleRate))
+    }
     static let interpolationMode = "linear"
     static let interpolationEnabled = true
     static let interpolationKernel = "floor_index_linear_fractional_blend"
@@ -774,6 +782,13 @@ final class CSoftwareMixer {
         Self.requireOK(rampStatus)
     }
 
+    /// Restores a continuation's held pitch before its carried retirement can reject queued writes.
+    @discardableResult
+    func setContinuationPlaybackStep(_ step: Double, forVoiceAt voiceIndex: Int) -> Bool {
+        guard voiceIndex >= 0, voiceIndex <= Int(UInt32.max) else { return false }
+        return vtx_c_mixer_set_continuation_sample_step(state, UInt32(voiceIndex), step) == VTX_C_MIXER_STATUS_OK
+    }
+
     /// Tags an existing C-backed voice with an opaque caller-owned channel identifier.
     ///
     /// The C mixer does not interpret the tag. Runtime playback uses it to stop/release voices for one
@@ -834,6 +849,26 @@ final class CSoftwareMixer {
         )
         Self.requireOK(status)
         return Int(rampedCount)
+    }
+
+    /// Retires each displaced song generation once, without extending an already retiring tail.
+    @discardableResult
+    func retireSongVoices(channel: Int) -> Int {
+        precondition(channel >= 0 && channel <= Int(UInt32.max), "C mixer channel tag is out of range")
+        var count = UInt32(0)
+        Self.requireOK(vtx_c_mixer_retire_song_voices_for_channel_tag(state, UInt32(channel), &count))
+        return Int(count)
+    }
+
+    /// Schedules the same C-owned song tail used by runtime replacement.
+    @discardableResult
+    func scheduleSongVoiceRetirement(voiceIndex: Int, scheduledFrame: Int) -> CSoftwareMixerVoiceStateUpdateResult {
+        guard voiceIndex >= 0, scheduledFrame >= 0 else {
+            return .init(wasAccepted: false, rejectionReason: .invalidVoiceStateUpdate)
+        }
+        let status = vtx_c_mixer_schedule_song_voice_retirement(state, UInt32(clamping: voiceIndex), UInt64(scheduledFrame))
+        return .init(wasAccepted: status == VTX_C_MIXER_STATUS_OK,
+            rejectionReason: status == VTX_C_MIXER_STATUS_OK ? nil : Self.voiceStateUpdateRejectionReason(for: status))
     }
 
     /// Schedules a generic gain and/or pan update for an existing offline voice.
@@ -1255,7 +1290,7 @@ final class CSoftwareMixer {
             target: state.target,
             total_frames: UInt32(clamping: state.totalFrames),
             position_frame: UInt32(clamping: state.positionFrame),
-            deactivate_after_ramp: state.deactivateAfterRamp ? 1 : 0
+            deactivate_after_ramp: state.songRetirement ? VTX_C_MIXER_RETIRE_SONG : (state.deactivateAfterRamp ? 1 : 0)
         )
     }
 

@@ -66,8 +66,13 @@ typedef struct {
     float target;
     uint32_t total_frames;
     uint32_t position_frame;
-    int deactivate_after_ramp;
+    int deactivate_after_ramp; // 0, VTX_C_MIXER_RETIRE_GENERIC, or VTX_C_MIXER_RETIRE_SONG.
 } VTXCMixerValueRampRuntimeState;
+
+// Reuse the existing retirement fields without growing voice/event storage.
+// Generic ramps retain their historical next-frame convention; song tails start at k = 0.
+#define VTX_C_MIXER_RETIRE_GENERIC 1
+#define VTX_C_MIXER_RETIRE_SONG 2
 
 typedef struct {
     const VTXCMixerEnvelopePoint *points;
@@ -121,7 +126,7 @@ typedef struct {
     VTXCMixerOutputGains target;
     uint32_t duration_frames;
     uint32_t position_frame;
-    int retiring;
+    int retiring; // Uses the same generic/song retirement modes as the scalar lifetime timer.
 } VTXCMixerOutputState;
 
 /// Composes pre-headroom output gains using the existing static pan law.
@@ -135,6 +140,8 @@ VTXCMixerStatus vtx_c_mixer_output_publish(VTXCMixerOutputState *output, VTXCMix
 void vtx_c_mixer_output_advance(VTXCMixerOutputState *output, uint32_t frames);
 /// Snapshots current output for the established replacement-tail endpoint convention.
 void vtx_c_mixer_output_retire(VTXCMixerOutputState *output, uint32_t duration);
+/// Snapshots song output for a 1 - k / duration tail; repeated retirement is a no-op.
+void vtx_c_mixer_output_retire_song(VTXCMixerOutputState *output, uint32_t duration);
 
 typedef struct {
     float *sample_pcm;
@@ -257,6 +264,18 @@ typedef struct {
 
 /// Returns the truncated 5 ms new-source duration in output frames.
 uint32_t vtx_c_mixer_source_onset_frame_count(double sample_rate);
+/// Returns the song-specific 5 ms retirement duration, independent of generic gain/pan ramps.
+uint32_t vtx_c_mixer_song_retirement_frame_count(double sample_rate);
+/// Retires only live, sounding, not-yet-retiring generations tagged with this song channel.
+VTXCMixerStatus vtx_c_mixer_retire_song_voices_for_channel_tag(
+    VTXCMixerState *state, uint32_t channel_tag, uint32_t *out_ramped_count);
+/// Schedules the same song retirement transition at an exact output frame.
+VTXCMixerStatus vtx_c_mixer_schedule_song_voice_retirement(
+    VTXCMixerState *state, uint32_t voice_index, uint64_t scheduled_frame);
+/// Restores a held step on a freshly installed continuation before retirement state is imported.
+/// Rejects completed/retiring voices and any source that has already rendered.
+VTXCMixerStatus vtx_c_mixer_set_continuation_sample_step(
+    VTXCMixerState *state, uint32_t voice_index, double sample_step);
 /// Enables onset on a freshly installed playable source, or imports its age at a window boundary.
 /// Rejects an existing onset, completed or retiring voice. Generic clients opt in at source installation.
 VTXCMixerStatus vtx_c_mixer_set_voice_source_onset(VTXCMixerState *state,

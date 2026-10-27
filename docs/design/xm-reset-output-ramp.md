@@ -1,9 +1,10 @@
 # XM Non-retriggering Reset Output Contract
 
 This note owns the implemented XM semantic tick, ordinary audible final-L/R,
-non-retriggering 5 ms reset, G02 new-source onset, G03 song retirement, and
-bounded G04 ECx retained-source contracts. G02, G03 and G04 are closed within
-their stated bounds; G21 retrigger-tail reconstruction remains open.
+non-retriggering 5 ms reset, G02 new-source onset, G03 song retirement,
+bounded G04 ECx retained-source behavior and G05 represented-XM final-output
+admission. G02–G05 are closed within their stated bounds; G21 retrigger-tail
+reconstruction remains open.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
 [XM volume ownership](xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
 Instrument-only dispatch reuses these contracts. Ordinary note-only carries
@@ -34,16 +35,24 @@ publications retain their established C-side deduplication.
 There is no new semantic tick history for plain plans, generic activation replay,
 or second gain/pan stage. Empty/refused routes create no source; completed and
 retiring generations cannot be revived by a publication. Generic C clients and
-editor preview retain their existing policy. This implementation is pending
-qualification, independent review and maintainer listening; G05 remains open.
+editor preview retain their existing policy.
+
+G05 is **CLOSED, bounded final-output admission** after
+[PR #512](https://github.com/syncomm/voodootrackerx/pull/512) merged with two
+commits and [native arm64 CI run #1054](https://github.com/syncomm/voodootrackerx/actions/runs/40521590031)
+passed after the second-commit strict Float32 managed-contribution rounding
+repair. On October 27, 2026, Gregory reported no audible issues and that it
+sounds great so far in an additional maintainer listening pass. This records
+acceptance of the bounded G05 musical-listening gate. It does not establish
+universal FT2 parity, a hardware measurement or a guarantee for every module.
+
 Native event construction reserves the original G32 physical ID interval before
 numbering additional output entries. One scalar observes preexisting semantic
 publication slots during the existing generation fold, including slots pruned
 from sparse output. It supplies identity provenance only: targets, source
 ownership and DSP do not consume it. Output IDs remain monotone in source order;
 G32 requests and introduced holds retain their shipped IDs without translation
-or changes to the ordering comparators. G05 remains unaccepted, with submission
-on hold pending separate manager authorization and maintainer listening.
+or changes to the ordering comparators.
 
 The target amplitude is `output/64 * global/64 * envelope * fadeout`; L/R
 additionally multiply the existing pan-law factors. Mono retains
@@ -55,7 +64,14 @@ adding it to the channel sum. Contraction is disabled only in that managed
 block, so an overlap of incoming and retiring sources sums the same two rounded
 terms when runtime slot reuse reverses their physical order relative to offline
 scheduling. Voice order, output interpolation and the generic gain/pan path
-retain their existing behavior; summation across more voices is still Float32.
+retain their existing behavior. The original exact test assertions were preserved;
+arbitrary multi-voice Float32 sums remain non-associative.
+
+G05 closure leaves these obligations **OPEN**: G21 retrigger-tail reconstruction,
+the historical PCM16 residual below, G33–G41, remaining pan/envelope/volume-Lxx/
+cold boundaries, the absent-keymap Policy B adapter gap, callback RT-safety
+(`VTX-D1-001`), anonymized 021's approximately 1.9 s first-Play debt,
+performance/memory attribution and the integrated Phase 2 freeze gate.
 
 ### G02 new-source onset
 
@@ -95,7 +111,7 @@ reset restores the installed initial age. Generic primitive C clients retain
 their existing behavior unless they explicitly opt into source onset.
 
 G03 separately supplies the old-source tail below; its known runtime/offline
-retrigger retirement difference remains open. G04, generic G05 ramps, G40,
+retrigger retirement difference remains open. G04, G05 final-output admission, G40,
 interpolation and callback safety remain separately owned. `NewSourceOnsetTests`
 and runtime-core controls cover
 native curve/cursor, silent/held/completed sources, replacement tails, exact
@@ -151,10 +167,11 @@ CoreAudio controls, full suites, performance/memory gates and CLI provenance
 reconciliation. That qualification predates this documentation reconciliation.
 
 G21 remains a specific follow-up: E9/Rxy's offline explicit retrigger cuts omit
-the old generation, while runtime starts this song tail. Their source-generation,
+the outgoing generation's runtime 5 ms retirement tail. Their source-generation,
 counter and semantic-carry rules are unchanged; this work does not claim full
-retrigger parity. The separate strict one-LSB host/offline musical-study
-discrepancy, generic G05 updates and G40 remain open before backend freeze.
+retrigger parity. The historical at-most-one-LSB PCM16 host/offline musical-study
+residual remains open with an unproven cause; it is distinct from #512's fixed
+strict Float32 test failure. G40 remains open before backend freeze.
 
 ### G06 panning-envelope factor
 
@@ -739,6 +756,6 @@ at both rates. The matching CoreAudio 48 kHz PCM16 capture agrees exactly with
 offline. These are bounded controls, not general reference-audio bit parity:
 reference Float32 accumulation/interpolation residuals remain, and exhaustive
 envelope/global/pan/other-writer combinations are not source-confirmed here.
-G02 onset, G03 retirement and G32 autovibrato are closed under their separate
-bounded contracts. G21 retrigger-tail reconstruction, G05 generic ramps, G40
+G02 onset, G03 retirement, G05 final-output admission and G32 autovibrato are closed
+under their separate bounded contracts. G21 retrigger-tail reconstruction, G40
 pan law, broader interactions and callback real-time safety remain open.

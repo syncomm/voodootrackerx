@@ -138,6 +138,7 @@ enum PlaybackSongSyntheticAdapter {
         var rRetriggerCounter: UInt8 = 0
         // The channel-owned latch uses existing byte-alignment padding.
         var tonePortamentoDirection: PlaybackSongSyntheticTonePortamentoDirection = .none
+        var panningSlideMemory: UInt8 = 0 // Own whole byte; admitted only by executed nonzero ticks.
         var triggeredSampleDefaultVolume = 0
         var triggeredSampleDefaultPan: UInt8 = 128
         var keyOffWithoutVoice = false
@@ -2880,7 +2881,12 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = state
                 continue
             }
-            if columnSlide != nil {
+            if cell.effectType == 0x19 {
+                context.voiceStateUpdates.append(contentsOf: applyPxyPanningSlide(
+                    cell: cell, columnSlide: columnSlide, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, rowSpeed: timingConfig.speed, timingPlan: timingPlan,
+                    state: &context.channelStates[channelIndex], globalVolume: context.globalVolumeState.volumeValue))
+            } else if columnSlide != nil {
                 if cell.effectType == 0x0A || cell.effectType == 0x05 {
                     context.voiceStateUpdates.append(contentsOf: applyEffectColumnVolumeSlide(
                         from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,

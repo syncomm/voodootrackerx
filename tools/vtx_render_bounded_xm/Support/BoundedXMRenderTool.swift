@@ -4174,6 +4174,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
         put(update.gainAfter.map { Double($0) }, forKey: "gain_after", into: &object)
         put(update.panBefore.map { Double($0) }, forKey: "pan_before", into: &object)
         put(update.panAfter.map { Double($0) }, forKey: "pan_after", into: &object)
+        if case .pxyPanningSlide = update.command {
+            put(update.channelPanningValueAfter, forKey: "panning_value_after", into: &object)
+        }
         switch update.command {
         case let .axyVolumeSlide(up, down):
             let rawUp = update.volumeSlideRawUpNibble ?? update.effectParam.map { Int(($0 & 0xF0) >> 4) }
@@ -5047,6 +5050,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return ["name": "cxxSetVolume", "label": command.label, "value": value]
         case let .effect8xxSetPanning(value):
             return ["name": "effect8xxSetPanning", "label": command.label, "value": value]
+        case let .pxyPanningSlide(parameter, before):
+            return ["name": "pxyPanningSlide", "label": command.label,
+                    "resolved_parameter": Int(parameter), "panning_value_before": before]
         case let .axyVolumeSlide(up, down):
             return ["name": "axyVolumeSlide", "label": command.label, "up": up, "down": down]
         case let .gxxSetGlobalVolume(value):
@@ -5111,6 +5117,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "cxxSetVolume"
         case .effect8xxSetPanning:
             return "effect8xxSetPanning"
+        case .pxyPanningSlide:
+            return "pxyPanningSlide"
         case .axyVolumeSlide:
             return "axyVolumeSlide"
         case .gxxSetGlobalVolume:

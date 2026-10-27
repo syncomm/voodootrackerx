@@ -66,8 +66,8 @@ final class VolumeColumnPanSlideTimingTests: XCTestCase {
         XCTAssertEqual(zero.xmChannelRows.map { $0.controls.panningValue }, [128, 113, 113, 128, 0])
         XCTAssertTrue(zero.xmChannelRows.allSatisfy { $0.controls.volumeSlideMemory == nil })
         let pxy = adapt(song([cell(note: 49, instrument: 1, volume: 0xD1, effect: 0x19, param: 1)]))
-        XCTAssertTrue(pxy.diagnostics.deferredCellFields.contains { $0.field == .effect })
-        XCTAssertEqual(slides(pxy).map(\.channelPanningValueAfter), [127, 126, 125, 124, 123])
+        XCTAssertFalse(pxy.diagnostics.deferredCellFields.contains { $0.field == .effect })
+        XCTAssertEqual(slides(pxy).map(\.channelPanningValueAfter), [127, 125, 123, 121, 119])
     }
 
     func testSilentAndCompletedSourcesCarryPanWithoutFabricatingVoice() {

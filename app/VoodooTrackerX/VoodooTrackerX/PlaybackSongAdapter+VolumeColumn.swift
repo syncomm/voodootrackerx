@@ -181,6 +181,41 @@ extension PlaybackSongSyntheticAdapter {
         )]
     }
 
+    /// Executes ordered column/P writers without requiring a physical source. Zero memory
+    /// is inert; unchanged stored pan keeps its established header/static conversion.
+    static func applyPxyPanningSlide(
+        cell: PlaybackCell, columnSlide: PlaybackSongSyntheticVolumeColumnDiagnostic?,
+        source: PlaybackPosition, channelIndex: Int, syntheticRow: Int, rowSpeed: Int,
+        timingPlan: PlaybackSongFxxTimingPlan, state: inout ChannelState, globalVolume: Int
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
+        for tick in 1..<max(1, rowSpeed) {
+            updates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell, source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
+                timingPlan: timingPlan, state: &state, globalVolume: globalVolume))
+            if cell.effectParam != 0 { state.panningSlideMemory = cell.effectParam }
+            let parameter = state.panningSlideMemory
+            guard parameter != 0 else { continue }
+            let before = state
+            let amount = parameter >> 4 == 0 ? -Int(parameter & 15) : Int(parameter >> 4)
+            let next = clampedPanningValue(state.panningValue + Double(amount))
+            if next != state.panningValue { state.applyChannelPanningValue(next) }
+            updates.append(voiceStateUpdateDiagnostic(
+                source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick), cell: cell,
+                commandSource: .effectColumn,
+                command: .pxyPanningSlide(parameter: parameter, panningBefore: before.panningValue),
+                rawVolumeColumn: nil, effectType: cell.effectType, effectParam: cell.effectParam,
+                status: .applied, behavior: .tickLevelAfterTick0,
+                channelStateBefore: before, channelStateAfter: state,
+                globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
+                effectMemoryReused: cell.effectParam == 0,
+                activeVoiceUpdatedOverride: before.activeEventIndex != nil && before.activeSampleVolume != nil,
+                channelPanningValueAfter: state.panningValue))
+        }
+        return updates
+    }
+
     static func appendDeferredFields(
         from cell: PlaybackCell,
         source: PlaybackPosition,

@@ -2,6 +2,62 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+/// G33 uses the production scheduler and existing final-output state at every block size.
+final class PanningSlideRuntimeTests: XCTestCase {
+    func testPxyKeepsExactFramesCursorAndOneOutputRampInBothModesAndRates() throws {
+        for linear in [true,false] { for rate in [44_100.0,48_000] {
+            let samples = (0...1).map { i in PlaybackSample(instrumentIndex:1,sampleIndex:i,
+                pcm:Array(repeating:i == 0 ? 0.25 : -0.125,count:256),volume:0.5,panning:128,
+                relativeNote:0,finetune:0,baseSampleRate:8363,loopStart:0,loopLength:256,loopType:1) }
+            var map = Array(repeating:0,count:96);map[49]=1
+            let cells: [PlaybackCell] = [
+                .init(note:49,instrument:1,volumeColumn:0,effectType:25,effectParam:52),
+                .init(note:0,instrument:0,volumeColumn:0xD1,effectType:25,effectParam:0),
+                .init(note:0,instrument:1,volumeColumn:0,effectType:25,effectParam:0),
+                .init(note:97,instrument:0,volumeColumn:0,effectType:25,effectParam:0),
+                .init(note:50,instrument:1,volumeColumn:0,effectType:25,effectParam:0),
+                .init(note:0,instrument:0,volumeColumn:0,effectType:0,effectParam:0)]
+            let song = PlaybackSong(title:"Original G33 runtime",orders:[.init(orderIndex:0,patternIndex:0)],
+                patternsByIndex:[0:.init(index:0,rows:cells.enumerated().map { .init(index:$0.offset,cells:[$0.element]) })],
+                instrumentsByIndex:[1:.init(index:1,samples:samples,noteSampleMap:map)],restartOrderIndex:0,
+                endBehavior:.stopAtEnd,initialTiming:.init(speed:6,bpm:125),usesLinearFrequencyTable:linear)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song:song,sampleRate:rate)
+            let plan = try XCTUnwrap(runtime.plan), config = MixerRenderConfig(sampleRate:rate)
+            let tick = Int(rate/50), end = 36*tick
+            let request = PlaybackSongOfflineRenderRequest(song:song,config:config,frames:end)
+            let renderer = PlaybackSongOfflineRenderer(preparedPlan:plan), expected = renderer.render(request).block
+            for block in [1,17,257,4093] {
+                let core = RuntimeCMixerRenderCore(config:config,maximumRenderFrames:4096,
+                    outputPolicy:.resolve(environment:[RuntimeCMixerOutputPolicy.gainEnvironmentKey:"1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events,runtimeFrameOffset:0)
+                var pcm = [Float](), frame = 0
+                for boundary in [1,tick,tick+1,end] {
+                    while frame < boundary {
+                        let count = min(block,boundary-frame)
+                        pcm += renderRuntimePCM(core,frames:count);frame += count
+                    }
+                    if boundary == tick+1 {
+                        let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex:0))
+                        XCTAssertTrue(voice.active)
+                        XCTAssertEqual(voice.samplePosition,Double(frame)*plan.pattern.events[0].playbackStep,accuracy:1e-9)
+                        XCTAssertEqual(voice.audibleOutputState?.durationFrames,tick)
+                        XCTAssertEqual(voice.audibleOutputState?.positionFrame,1)
+                        XCTAssertNil(voice.gainRamp);XCTAssertNil(voice.panRamp)
+                    }
+                }
+                let applied = core.drainAppliedAdapterEventDiagnostics()
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+                XCTAssertEqual(applied.map { $0.event.id },runtime.events.filter { $0.scheduledFrame < end }.map(\.id))
+                XCTAssertEqual(pcm,expected.interleavedPCM)
+                let latest = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex:1))
+                XCTAssertTrue(latest.active)
+                XCTAssertEqual(latest.sampleStep,plan.pattern.events[1].playbackStep)
+                XCTAssertEqual(plan.diagnostics.eventMappings.last?.sampleIndex,1)
+            }
+        } }
+    }
+}
+
 /// Plain XM admission exercises the production event scheduler and C render core together.
 final class XMFinalOutputAdmissionRuntimeTests: XCTestCase {
     func testPlainAndUnityEnvelopeShareBirthTargetsCursorAndScheduledOutput() throws {

@@ -391,7 +391,10 @@ final class FxxTimingTests: XCTestCase {
     private func clockSnapshot(_ value: Any) -> String {
         let mirror = Mirror(reflecting: value)
         if mirror.children.isEmpty { return String(describing: value) }
-        let fields = mirror.children.map { "\($0.label ?? "_"):\(clockSnapshot($0.value))" }
+        // Preserve every frozen pre-G33 field/hash, and pin the new no-P byte separately.
+        if let controls = value as? PlaybackSongSyntheticAdapter.ChannelState { XCTAssertEqual(controls.panningSlideMemory, 0) }
+        let fields = mirror.children.filter { !(value is PlaybackSongSyntheticAdapter.ChannelState && $0.label == "panningSlideMemory") }
+            .map { "\($0.label ?? "_"):\(clockSnapshot($0.value))" }
         // Coverage diagnostics contain dictionaries; iteration order is deliberately not evidence.
         return (mirror.displayStyle == .dictionary || mirror.displayStyle == .set ? fields.sorted() : fields).joined(separator: "|")
     }

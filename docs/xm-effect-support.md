@@ -52,7 +52,7 @@ Its exit criterion is:
 
 Remaining FT2/XM v1 targets include:
 
-- `Pxy` panning slide, `Txy` tremor, and `EEx` pattern delay;
+- `Pxy` qualification, `Txy` tremor, and `EEx` pattern delay;
 - remaining relevant E-command gaps;
 - volume-column vibrato and effect-memory gaps; and
 - broader Amiga-table pitch parity where it remains in v1 scope.
@@ -214,7 +214,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Hxy` / `H00` | Global volume slide | Implemented | Closed G12 timing / G13 memory; retained cold artifact difference | Independent channel-local whole byte; cold `H00` is a true no-op | Not applicable | Nonzero ticks `1..<effectiveSpeed`, upper nibble wins, clamp `0...64`. F01 neither seeds nor replaces memory. Seeded H00 uses G12 ascending channel turns and held targets against one song-global volume; later writers do not revise earlier targets. FT2's cold zero-memory target-refresh artifact is intentionally not emulated. |
 | `Kxx` | Key off | Implemented | Partial | None | Not applicable | G24 bounded precedence closed: raw K00 suppresses ordinary starts and owns note97+K00 once; release → cached restore → column/Cxx/8xx writers. Nonzero Kxx uses low five bits after column writers; K20 has no invocation, out-of-row omits release. Cold key/fadeout carry and once-per-tick finalization preserve source/cache ownership. Both-rate canonical-host delivery and startup attribution pass; the overall product ≤1 s startup target remains outstanding. |
 | `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Existing volume positioning is preserved. Bounded G07 pan positioning is closed under the sounding instrument's raw volume-sustain flag, including disabled volume envelopes and silent-channel clocks. Volume loop/end positioning, cold before-first initialization, pan arithmetic/sustain and G40 remain open; bounded volume Q8 follows G31. |
-| `Pxy` | Panning slide | Deferred | Open | Own byte; pinned `P00` replays it | Not applicable | Real FT2/XM v1 target G33. Legacy handler support is not C-adapter support; remaining timing/writer/pan-envelope interactions need characterization. |
+| `Pxy` | Panning slide | Implemented | Partial; qualification/listening pending | Own whole byte; admitted only on executed nonzero ticks | Not applicable | G33: high nibble selects rightward movement, otherwise low nibble selects leftward; clamp stored pan to 0...255. P00 replays the channel byte; speed 1 neither seeds nor replaces it. Column slides precede P, then the existing G06/G07 projection and single final-output authority consume the result. Pan-only commands retain held scalar gain. Cold initialization, G40 and pan-clock quirks remain separate. See [the bounded contract](design/xm-volume-ownership.md#g33-effect-column-panning-slide). |
 | `Rxy` | Multi retrigger | Implemented | Closed G20 memory / G21 counter and carry / G22 integer volume modes | Independent zero-initialized interval/mode bytes and persistent counter | Not applicable | Memory resolves before invocation gating. Eligible ticks increment the counter; reaching the interval resets it and restarts the exact retained route at cursor zero, carrying semantic state. Interval zero executes every eligible tick. Volume modes use exact pinned FT2 integer arithmetic over 0...64. Only fully uninitialized volume bookkeeping is excluded as C; retirement reconstruction debt remains separate. |
 | `Txy` | Tremor | Deferred | Open | Own byte; pinned `T00` replays it | Not applicable | Real FT2/XM v1 target G34. Counter/phase, cold state, trigger carry and volume-writer interactions still need characterization. |
 | `X1x` / `X2x` | Extra fine portamento | Implemented | Closed G18 Linear / G29 in-range Amiga | Own independent per-channel up/down amount/origin | Both | Tick-zero Linear `x` / Amiga `4 * x`; seeded X10/X20 replay their direction independently of E1/E2. Cold restoration, deduplication and source eligibility are preserved. Fine:extra-fine granularity is 4:1; combined G30 closes bounded native-word extremes below. |
@@ -753,7 +753,8 @@ or explicit accepted rationale; aggregate audio correlation is not closure.
 
 ## Pending FT2 targets and exclusions
 
-- Deferred FT2 parents: E3x, EEx, Pxy, Txy and volume-column vibrato.
+- Deferred FT2 parents: E3x, EEx, Txy and volume-column vibrato.
+  G33 Pxy is implemented; qualification and maintainer listening remain pending.
   G32 instrument autovibrato is closed under its bounded VTX policy above.
   Fine-slide zero memory and missing Amiga paths remain in v1 scope.
 - E0x/E8x/EFx are FT2-inert. Adding an audible filter, E8 panning alias, MOD

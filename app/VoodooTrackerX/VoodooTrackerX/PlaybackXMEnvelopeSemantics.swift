@@ -434,7 +434,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         let positionsByChannel = Dictionary(grouping: plan.diagnostics.envelopePositionEffects, by: \.channelIndex)
         let cutsBySource = Dictionary(grouping: plan.diagnostics.noteCutEffects.filter(\.applied), by: { $0.activeEventIndex ?? -1 })
         let panSlidesByChannel = Dictionary(grouping: plan.diagnostics.voiceStateUpdates.filter {
-            $0.applied && (0xD0...0xEF).contains($0.rawVolumeColumn ?? 0)
+            $0.applied && $0.channelPanningValueAfter != nil
         }, by: \.channelIndex)
         struct Change {
             let scheduledFrame: Int

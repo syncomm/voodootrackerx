@@ -602,8 +602,10 @@ The adapter records canonical H mutations separately from explicit
 `hxyChannelTarget` publications, interleaved by tick/channel. Each target consumes
 channel output volume and its visible global value once. Unchanged targets
 produce no redundant mixer gain event. The existing final-L/R path applies
-envelope/fadeout downstream and preserves its clocks and ramps; plain voices
-retain the existing generic ramp policy (G05 remains open).
+envelope/fadeout downstream and preserves its clocks and ramps. Previously plain
+represented XM voices join that same authority from birth under the closed,
+bounded G05 admission contract; generic non-XM/editor-preview ramps retain their
+existing policy.
 
 After Hxy ends, a plain target can retain an intermediate factor across blank
 rows and pan-only commands. A later note starts with the final canonical state;

@@ -686,8 +686,15 @@ support alone does not close these domains:
   Preview availability and safety gain are unchanged. G02 bounded 5 ms onset and
   G03 bounded 5 ms song retirement are closed after CI and Gregory's listening
   acceptance ([PR #510](https://github.com/syncomm/voodootrackerx/pull/510) for G03).
-  G21 offline retrigger-tail reconstruction, the separate strict one-LSB
-  host/offline musical-study discrepancy and G05 generic ramps remain open.
+  G05 represented-XM final-output admission is closed after merged
+  [PR #512](https://github.com/syncomm/voodootrackerx/pull/512), green native arm64
+  CI and Gregory's October 27, 2026 bounded musical-listening acceptance. Valid
+  sources, including zero gain, join the single C-owned final mono/L/R authority
+  at birth; sparse changed targets retain ordinary tick-length/quick 5 ms policies.
+  Generic non-XM/editor-preview ramps are unchanged. G21 offline retrigger-tail
+  reconstruction and the historical at-most-one-LSB PCM16 host/offline
+  musical-study residual remain open; that residual's cause is unproven and
+  distinct from #512's fixed strict Float32 test failure.
   G04 closes bounded ECx retained-source/cursor and quick-output behavior. Existing
   cached defaults and shared final-L/R reset targets are established foundations.
 - **Panning:** exact header/8xx state, final stereo pan law (G40), semantic pan

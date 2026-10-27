@@ -84,9 +84,18 @@ host.
   deadline per displaced generation and retained physical pitch/cursor. Its bounded
   contract is closed after [PR #510](https://github.com/syncomm/voodootrackerx/pull/510),
   green CI and Gregory's listening acceptance. G21 offline retrigger-tail
-  reconstruction and the separate strict one-LSB host/offline musical-study
-  discrepancy remain open. See the
+  reconstruction and the historical at-most-one-LSB PCM16 host/offline musical-study
+  residual remain open. Its cause is unproven and distinct from #512's fixed
+  strict Float32 test failure. See the
   [onset contract](design/xm-reset-output-ramp.md#g02-new-source-onset).
+- G05 represented XM song sources join the single C-owned final mono/L/R
+  authority at valid birth, including zero initial gain; previously plain sources
+  receive sparse changed targets under existing ordinary tick-length/quick 5 ms
+  policies. The bounded final-output admission contract is closed after merged
+  [PR #512](https://github.com/syncomm/voodootrackerx/pull/512), green native arm64
+  CI and Gregory's October 27, 2026 bounded musical-listening acceptance.
+  G02/G03/G04, G32 physical IDs/order, exact source/keymap identity and generic
+  non-XM/editor-preview ramp policy remain protected.
 - G26 Amiga `0xy` is closed for in-range quantized pitches. It reuses G25's
   phase selector and the existing Amiga note/finetune lookup and sample-step
   conversion. Tuning, relative-note/octave crossings, effective Fxx speed,

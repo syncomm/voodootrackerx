@@ -2703,3 +2703,151 @@ private final class LockedResultBox<Value>: @unchecked Sendable {
         lock.unlock()
     }
 }
+
+// A logical source contributes the same rounded Float32 product in either physical slot.
+extension CSoftwareMixerTests {
+    private enum ContributionCase: CaseIterable {
+        case retirement, ordinary, quickReset, zeroBirth, holdResume, generic32
+    }
+
+    private struct ContributionRun {
+        let pcm: [Float]
+        let checkpoints: [Int: [CSoftwareMixerVoiceDiagnostic]]
+    }
+
+    func testManagedContributionsRoundBeforeSummingAcrossReusedVoiceSlots() throws {
+        for rate in [44_100.0, 48_000] {
+            for channels in [1, 2] {
+                for profile in [MixerMixProfile.vtx, .ft2] {
+                    for bpm in [125, 250] {
+                        let config = MixerRenderConfig(sampleRate: rate, channelCount: channels, mixProfile: profile)
+                        for scenario in ContributionCase.allCases where scenario != .generic32 {
+                            let context = "rate=\(rate) channels=\(channels) profile=\(profile) bpm=\(bpm) case=\(scenario)"
+                            let forward = try contributionRun(config, bpm: bpm, scenario: scenario, roles: [0, 1], chunk: 1)
+                            let reverse = try contributionRun(config, bpm: bpm, scenario: scenario, roles: [1, 0], chunk: 17)
+                            let medium = try contributionRun(config, bpm: bpm, scenario: scenario, roles: [0, 1], chunk: 256)
+                            let whole = try contributionRun(config, bpm: bpm, scenario: scenario, roles: [0, 1], chunk: 997)
+                            assertContributionBits(forward.pcm, reverse.pcm, context)
+                            assertContributionBits(forward.pcm, medium.pcm, context)
+                            assertContributionBits(forward.pcm, whole.pcm, context)
+                            XCTAssertEqual(forward.checkpoints, reverse.checkpoints, context)
+                            XCTAssertEqual(forward.checkpoints, medium.checkpoints, context)
+                            XCTAssertEqual(forward.checkpoints, whole.checkpoints, context)
+                            if profile == .vtx {
+                                let old = try contributionRun(config, bpm: bpm, scenario: scenario, roles: [0], chunk: 997)
+                                let new = try contributionRun(config, bpm: bpm, scenario: scenario, roles: [1], chunk: 17)
+                                // Each isolated render has already rounded its Float32
+                                // sample-times-output-gain product before this addition.
+                                let expected = zip(old.pcm, new.pcm).map { $0 + $1 }
+                                assertContributionBits(forward.pcm, expected, context)
+                                XCTAssertEqual(forward.checkpoints[0], old.checkpoints[0], context)
+                                XCTAssertEqual(forward.checkpoints[1], new.checkpoints[1], context)
+                            }
+                            let oldFinal = try XCTUnwrap(forward.checkpoints[0]?.last)
+                            let newFinal = try XCTUnwrap(forward.checkpoints[1]?.last)
+                            XCTAssertEqual(oldFinal.active, scenario != .retirement, context)
+                            XCTAssertTrue(newFinal.active, context)
+                            XCTAssertGreaterThan(newFinal.samplePosition, 0, context)
+                            XCTAssertEqual(newFinal.sourceOnsetElapsedFrames, Int(rate * 0.005), context)
+                            XCTAssertNotNil(newFinal.audibleOutputState, context)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testGenericContributionUpdatesKeepTheirThirtyTwoFrameRampAndChunkDelivery() throws {
+        for rate in [44_100.0, 48_000] {
+            for channels in [1, 2] {
+                for profile in [MixerMixProfile.vtx, .ft2] {
+                    let config = MixerRenderConfig(sampleRate: rate, channelCount: channels, mixProfile: profile)
+                    for roles in [[0, 1], [1, 0]] {
+                        let short = try contributionRun(config, bpm: 125, scenario: .generic32, roles: roles, chunk: 1)
+                        let whole = try contributionRun(config, bpm: 125, scenario: .generic32, roles: roles, chunk: 997)
+                        assertContributionBits(short.pcm, whole.pcm, "generic rate=\(rate) channels=\(channels) profile=\(profile)")
+                        XCTAssertEqual(short.checkpoints, whole.checkpoints)
+                        let atSixteen = try XCTUnwrap(short.checkpoints[0]?[1])
+                        XCTAssertEqual(atSixteen.gainRamp?.totalFrames, 32)
+                        XCTAssertEqual(atSixteen.panRamp?.totalFrames, 32)
+                        XCTAssertNil(atSixteen.audibleOutputState)
+                    }
+                }
+            }
+        }
+    }
+
+    private func contributionRun(_ config: MixerRenderConfig, bpm: Int, scenario: ContributionCase,
+                                 roles: [Int], chunk: Int) throws -> ContributionRun {
+        let mixer = CSoftwareMixer(config: config)
+        let quick = Int(config.sampleRate * 0.005), tick = Int(config.sampleRate * 2.5 / Double(bpm))
+        let total = tick * 2 + 32
+        var slots = [Int: Int]()
+        for role in roles {
+            let pcm = (0..<257).map { Float(($0 * (role == 0 ? 73 : 41) + role * 37) % 251 - 125) / 256 }
+            let gain: Float = role == 0 ? (scenario == .zeroBirth ? 0 : 0.375) : 0.625
+            let pan: Float = role == 0 ? -0.5 : 0.25
+            let age = scenario == .zeroBirth || (scenario == .retirement && role == 1) ? 0 : quick
+            let slot = mixer.addVoice(sample: .init(monoPCM: pcm), gain: gain, pan: pan,
+                playbackStep: role == 0 ? 32_769.0 / 65_536 : 19_201.0 / 65_536,
+                loop: .init(mode: .forward, startFrame: 0, endFrame: 257), sourceOnsetElapsedFrames: age)
+            slots[role] = slot
+            mixer.setChannelTag(role, forVoiceAt: slot)
+            mixer.setRuntimeState(.init(samplePosition: role == 0 ? 17.125 : 0), forVoiceAt: slot)
+            if scenario != .generic32 {
+                XCTAssertTrue(mixer.publishAudibleOutput(contributionTarget(gain, pan, 0, bpm: bpm), forVoiceAt: slot))
+            }
+        }
+        if scenario == .retirement, let old = slots[0] {
+            XCTAssertTrue(mixer.scheduleSongVoiceRetirement(voiceIndex: old, scheduledFrame: 0).wasAccepted)
+        }
+        var at = 0, output = [Float](), checkpoints = [Int: [CSoftwareMixerVoiceDiagnostic]]()
+        while at < total {
+            if let old = slots[0], at == 8 || at == 16 {
+                switch scenario {
+                case .ordinary:
+                    XCTAssertTrue(mixer.publishAudibleOutput(contributionTarget(at == 8 ? 0.75 : 0.25,
+                        at == 8 ? 0.75 : -0.5, tick, bpm: bpm), forVoiceAt: old))
+                case .quickReset:
+                    XCTAssertTrue(mixer.publishAudibleOutput(contributionTarget(at == 8 ? 0.125 : 0.5,
+                        at == 8 ? -0.25 : 0.125, quick, bpm: bpm, current: at == 16), forVoiceAt: old))
+                case .zeroBirth where at == 8:
+                    XCTAssertTrue(mixer.publishAudibleOutput(contributionTarget(0.5, 0.75, quick, bpm: bpm), forVoiceAt: old))
+                case .holdResume:
+                    XCTAssertTrue(mixer.scheduleVoicePlaybackStepUpdate(voiceIndex: old, scheduledFrame: at,
+                        playbackStep: at == 8 ? 0 : 32_769.0 / 65_536).wasAccepted)
+                case .generic32 where at == 8:
+                    XCTAssertTrue(mixer.scheduleVoiceGainPanUpdate(voiceIndex: old, scheduledFrame: at,
+                        gain: 0.75, pan: -0.75).wasAccepted)
+                default: break
+                }
+            }
+            var count = min(chunk, total - at)
+            for boundary in [8, 16] where at < boundary { count = min(count, boundary - at) }
+            output.append(contentsOf: mixer.render(frames: count).interleavedPCM)
+            at += count
+            if at == 8 || at == 16 || at == total {
+                for role in roles {
+                    checkpoints[role, default: []].append(try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: slots[role]!)))
+                }
+            }
+        }
+        return ContributionRun(pcm: output, checkpoints: checkpoints)
+    }
+
+    private func contributionTarget(_ amplitude: Float, _ pan: Float, _ duration: Int, bpm: Int,
+                                    current: Bool = false) -> PlaybackXMAudibleUpdate {
+        .init(eventIndex: 0, channelIndex: 0,
+            source: .init(orderIndex: 0, patternIndex: 0, rowIndex: 0), tick: 0,
+            scheduledFrame: 0, bpm: bpm, speed: 6, amplitude: amplitude, pan: pan,
+            durationFrames: duration, intent: "managed-contribution-rounding", rebaseFromCurrent: current)
+    }
+
+    private func assertContributionBits(_ actual: [Float], _ expected: [Float], _ context: String,
+                                        file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(actual.count, expected.count, context, file: file, line: line)
+        let first = zip(actual, expected).enumerated().first { $0.element.0.bitPattern != $0.element.1.bitPattern }
+        XCTAssertNil(first.map { "sample=\($0.offset) actual=\($0.element.0.bitPattern) expected=\($0.element.1.bitPattern)" },
+                     context, file: file, line: line)
+    }
+}

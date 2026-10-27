@@ -2,6 +2,77 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+/// Plain XM admission exercises the production event scheduler and C render core together.
+final class XMFinalOutputAdmissionRuntimeTests: XCTestCase {
+    func testPlainAndUnityEnvelopeShareBirthTargetsCursorAndScheduledOutput() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+          for bpm in [125, 250] { for profile in MixerMixProfile.allCases {
+            var outputs = [[Float]]()
+            for unity in [false, true] {
+                let song = fixture(linear: linear, bpm: bpm, unity: unity)
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                let plan = try XCTUnwrap(runtime.plan)
+                let config = MixerRenderConfig(sampleRate: rate, mixProfile: profile)
+                let tick = Int(rate * 2.5 / Double(bpm)), quick = Int(rate * 0.005)
+                let end = tick * 24
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float](), frame = 0
+                for boundary in [1, quick + 1, tick * 6, tick * 6 + 1, tick * 6 + quick,
+                                 tick * 12 + 1, tick * 12 + tick, end] {
+                    while frame < boundary {
+                        let count = min(4093, boundary - frame)
+                        pcm += renderRuntimePCM(core, frames: count)
+                        frame += count
+                    }
+                    if boundary == 1 || boundary == tick * 6 + 1 {
+                        let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                        XCTAssertTrue(voice.active)
+                        XCTAssertEqual(voice.samplePosition, Double(frame) * plan.pattern.events[0].playbackStep, accuracy: 1e-9)
+                        XCTAssertEqual(voice.sourceOnsetElapsedFrames, min(frame, quick))
+                        XCTAssertNotNil(voice.audibleOutputState)
+                        XCTAssertNil(voice.gainRamp)
+                        XCTAssertNil(voice.panRamp)
+                        if boundary == 1 {
+                            XCTAssertEqual(voice.audibleOutputState?.target, [0, 0, 0])
+                            XCTAssertEqual(voice.audibleOutputState?.durationFrames, 0)
+                        } else {
+                            XCTAssertEqual(voice.audibleOutputState?.durationFrames, quick)
+                            XCTAssertEqual(voice.audibleOutputState?.positionFrame, 1)
+                        }
+                    }
+                }
+                let applied = core.drainAppliedAdapterEventDiagnostics()
+                let targets = applied.filter { if case .audibleTargetUpdate = $0.event.action { return true }; return false }
+                XCTAssertEqual(targets.count, plan.xmAudibleTimeline?.updates.filter { $0.scheduledFrame < end }.count)
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+                let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
+                let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: end)
+                XCTAssertEqual(pcm, renderer.render(request).block.interleavedPCM)
+                outputs.append(pcm)
+            }
+            XCTAssertEqual(outputs[0], outputs[1])
+          } }
+        } }
+    }
+
+    private func fixture(linear: Bool, bpm: Int, unity: Bool) -> PlaybackSong {
+        let sample = makePlaybackSample(pcm: (0..<4096).map { Float(($0 * 79 + 293) % 2048 - 1024) / 4096 },
+            volume: 0, baseSampleRate: 100, loopStart: 0, loopLength: 4096, loopType: 1)
+        let envelope = PlaybackVolumeEnvelope(enabled: unity, points: [.init(tick: 0, value: 64), .init(tick: 64, value: 64)],
+            sustainPointIndex: nil, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: unity ? 1 : 0, fadeout: 0)
+        return makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1, volumeColumn: 0x30, effectType: 8, effectParam: 192),
+            makePlaybackRow(index: 2, effectType: 8, effectParam: 32),
+            makePlaybackRow(index: 3)]],
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: envelope,
+                noteSampleMap: Array(repeating: 0, count: 96))],
+            initialTiming: .init(speed: 6, bpm: bpm), usesLinearFrequencyTable: linear)
+    }
+}
+
 /// Public, nonconstant PCM controls for ordinary replacement under the song-specific 5 ms policy.
 final class R02ReplacementParityTests: XCTestCase {
     func testOrdinaryReplacementRetainsPhysicalPitchAcrossOfflinePaths() throws {
@@ -33,8 +104,13 @@ final class R02ReplacementParityTests: XCTestCase {
             core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
             let ordered = runtime.eventStorage.ordering.map { runtime.events[$0.eventIndex] }
             if modulated {
-                XCTAssertEqual(ordered.filter { $0.scheduledFrame == n }.map(\.id), [7, 1])
-                XCTAssertEqual(ordered.filter { $0.scheduledFrame == n }.map(\.activeEventIndex), [0, 1])
+                let physical = ordered.filter {
+                    guard $0.scheduledFrame == n else { return false }
+                    if case .audibleTargetUpdate = $0.action { return false }
+                    return true
+                }
+                XCTAssertEqual(physical.map(\.id), [7, 1])
+                XCTAssertEqual(physical.map(\.activeEventIndex), [0, 1])
             }
             let q16 = modulated ? (rate == 48_000 ? (linear ? 10787 : 11013) : (linear ? 11741 : 11986))
                 : (rate == 48_000 ? 11418 : 12428)
@@ -962,7 +1038,7 @@ final class RuntimeCMixerTests: XCTestCase {
         }
     }
 
-    func testPlainVoiceFirstReleaseCarriesGenericRampIntoSharedRuntimeOutput() throws {
+    func testPlainVoiceBirthAndFirstReleaseUseSharedRuntimeOutput() throws {
         let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 256), baseSampleRate: 100,
             loopStart: 0, loopLength: 256, loopType: 1)
         let envelope = PlaybackVolumeEnvelope(enabled: false, points: [], sustainPointIndex: nil,
@@ -978,8 +1054,8 @@ final class RuntimeCMixerTests: XCTestCase {
             let offline = PlaybackSongOfflineRenderer().render(.init(song: song, config: config, rows: 4))
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
             let targets = try XCTUnwrap(runtime.plan?.xmAudibleTimeline?.updates)
-            XCTAssertEqual(targets.first?.scheduledFrame, 24)
-            XCTAssertNotNil(targets.first?.activation)
+            XCTAssertEqual(targets.first?.scheduledFrame, 0)
+            XCTAssertNil(targets.first?.activation)
             let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 64,
                 outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
             core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
@@ -3830,7 +3906,15 @@ final class RuntimeCMixerTests: XCTestCase {
 
         let generatedPlan = audioOutput.configuredPlans.last(where: { $0.generated })
         let consumedContext = audioOutput.consumedContexts.first ?? nil
-        XCTAssertEqual(generatedPlan?.plannedEventCount, 1)
+        XCTAssertEqual(generatedPlan?.plannedEventCount, 2)
+        let generatedEvents = generatedPlan?.events ?? []
+        XCTAssertEqual(generatedEvents.filter { if case .noteTrigger = $0.action { return true }; return false }.map(\.id), [0])
+        let birthTargets = generatedEvents.compactMap { event -> PlaybackXMAudibleUpdate? in
+            if case let .audibleTargetUpdate(target) = event.action { return target }
+            return nil
+        }
+        XCTAssertEqual(birthTargets.map(\.eventIndex), [0])
+        XCTAssertEqual(birthTargets.map(\.durationFrames), [0])
         XCTAssertEqual(audioOutput.consumedContexts.count, 1)
         XCTAssertEqual(consumedContext?.orderIndex, 0)
         XCTAssertEqual(consumedContext?.patternIndex, 0)
@@ -3862,8 +3946,15 @@ final class RuntimeCMixerTests: XCTestCase {
         }
 
         XCTAssertTrue(plan.generated)
-        XCTAssertEqual(plan.plannedEventCount, rows.count)
-        XCTAssertEqual(plan.categories, ["note_trigger", "replacement"])
+        XCTAssertEqual(plan.plannedEventCount, rows.count * 2)
+        XCTAssertEqual(plan.categories, ["note_trigger", "replacement", "xm_audible_output_target"])
+        XCTAssertEqual(plan.events.filter { if case .noteTrigger = $0.action { return true }; return false }.map(\.id), Array(0..<rows.count))
+        let birthTargets = plan.events.compactMap { event -> PlaybackXMAudibleUpdate? in
+            if case let .audibleTargetUpdate(target) = event.action { return target }
+            return nil
+        }
+        XCTAssertEqual(birthTargets.map(\.eventIndex), Array(0..<rows.count))
+        XCTAssertEqual(birthTargets.map(\.durationFrames), Array(repeating: 0, count: rows.count))
         XCTAssertEqual(noteTriggers.count, rows.count)
         for event in noteTriggers {
             XCTAssertEqual(event.sample.frameCount, pcm.count)
@@ -3891,9 +3982,17 @@ final class RuntimeCMixerTests: XCTestCase {
 
         let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
         let sameFrameEvents = plan.events.filter { $0.scheduledFrame == 10 }
+        let physicalEvents = sameFrameEvents.filter { if case .audibleTargetUpdate = $0.action { return false }; return true }
+        let targets = sameFrameEvents.compactMap { event -> PlaybackXMAudibleUpdate? in
+            if case let .audibleTargetUpdate(target) = event.action { return target }
+            return nil
+        }
 
-        XCTAssertEqual(sameFrameEvents.map(\.primaryCategory), ["gain_pan_update", "note_trigger"])
-        XCTAssertEqual(sameFrameEvents.map(\.channelIndex), [0, 1])
+        XCTAssertEqual(physicalEvents.map(\.primaryCategory), ["gain_pan_update", "note_trigger"])
+        XCTAssertEqual(physicalEvents.map(\.channelIndex), [0, 1])
+        XCTAssertEqual(physicalEvents.map(\.id), [2, 1])
+        XCTAssertEqual(targets.map(\.channelIndex), [0, 1])
+        XCTAssertEqual(targets.map(\.durationFrames), [1, 0])
     }
 
     func testRuntimeCMixerAdapterEventPlanUsesSelectedRuntimeSampleRateForFrames() {
@@ -3951,9 +4050,16 @@ final class RuntimeCMixerTests: XCTestCase {
         }
 
         XCTAssertTrue(plan.generated)
-        XCTAssertEqual(plan.plannedEventCount, 3)
-        XCTAssertEqual(plan.events.map(\.scheduledFrame), [0, 48, 96])
-        XCTAssertEqual(plan.events.map(\.categories), [
+        XCTAssertEqual(plan.plannedEventCount, 6)
+        XCTAssertEqual(noteTriggers.map { $0.0.id }, [0, 1, 2])
+        XCTAssertEqual(noteTriggers.map { $0.0.scheduledFrame }, [0, 48, 96])
+        let birthTargets = plan.events.compactMap { event -> PlaybackXMAudibleUpdate? in
+            if case let .audibleTargetUpdate(target) = event.action { return target }
+            return nil
+        }
+        XCTAssertEqual(birthTargets.map(\.scheduledFrame), [0, 48, 96])
+        XCTAssertEqual(birthTargets.map(\.durationFrames), [0, 0, 0])
+        XCTAssertEqual(noteTriggers.map { $0.0.categories }, [
             ["note_trigger"],
             ["note_trigger", "replacement"],
             ["note_trigger", "replacement"],
@@ -3989,10 +4095,17 @@ final class RuntimeCMixerTests: XCTestCase {
         }
 
         XCTAssertTrue(plan.generated)
-        XCTAssertEqual(plan.plannedEventCount, 3)
+        XCTAssertEqual(plan.plannedEventCount, 6)
         XCTAssertEqual(plan.plannedSongEndFrame, 144)
-        XCTAssertEqual(plan.events.map(\.scheduledFrame), [0, 48, 96])
-        XCTAssertEqual(rangeEvents.map(\.scheduledFrame), [48])
+        XCTAssertEqual(plan.events.map(\.scheduledFrame), [0, 0, 48, 48, 96, 96])
+        XCTAssertEqual(rangeEvents.map(\.scheduledFrame), [48, 48])
+        XCTAssertEqual(noteTriggers.map { $0.0.id }, [1])
+        let birthTargets = rangeEvents.compactMap { event -> PlaybackXMAudibleUpdate? in
+            if case let .audibleTargetUpdate(target) = event.action { return target }
+            return nil
+        }
+        XCTAssertEqual(birthTargets.map(\.eventIndex), [1])
+        XCTAssertEqual(birthTargets.map(\.durationFrames), [0])
         XCTAssertEqual(noteTriggers.map { $0.0.source }, [
             PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0)
         ])
@@ -4022,8 +4135,20 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(loopRange.plannedStartFrame, 48)
         XCTAssertEqual(loopRange.plannedEndFrame, 96)
         XCTAssertEqual(loopRange.frameCount, 48)
-        XCTAssertEqual(loopRange.events.map(\.scheduledFrame), [48])
+        XCTAssertEqual(loopRange.events.map(\.scheduledFrame), [48, 48])
+        let physicalEvents = loopRange.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+        let birthTargets = loopRange.events.compactMap { event -> PlaybackXMAudibleUpdate? in
+            if case let .audibleTargetUpdate(target) = event.action { return target }
+            return nil
+        }
+        XCTAssertEqual(physicalEvents.map(\.id), [1])
+        XCTAssertEqual(birthTargets.map(\.eventIndex), [1])
+        XCTAssertEqual(birthTargets.map(\.durationFrames), [0])
+        XCTAssertEqual(physicalEvents.map(\.source), [
+            PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0)
+        ])
         XCTAssertEqual(loopRange.events.map(\.source), [
+            PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0),
             PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0)
         ])
     }
@@ -6330,7 +6455,7 @@ final class RuntimeCMixerTests: XCTestCase {
             let configured = try XCTUnwrap(configuredEvents.last)
             XCTAssertEqual(configured.runtimeAudioBackend, backend.diagnosticName)
             XCTAssertEqual(configured.adapterPlanGenerated, true)
-            XCTAssertEqual(configured.plannedEventCount, 1)
+            XCTAssertEqual(configured.plannedEventCount, 2) // Trigger plus immediate final target.
             XCTAssertGreaterThanOrEqual(configured.adapterPlanGenerationMS ?? -1, 0)
             XCTAssertTrue(harness.audioEngine.hasRuntimeAdapterEventPlan)
             XCTAssertNil(harness.traceWriter.events.first { $0.runtimeAction == "backend_prepared" })
@@ -6728,7 +6853,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(addVoice?.runtimeEventSource, "offline_adapter_plan")
         XCTAssertEqual(addVoice?.adapterPlanGenerated, true)
         XCTAssertEqual(addVoice?.adapterEventCategory, "note_trigger")
-        XCTAssertEqual(addVoice?.plannedEventCount, 1)
+        XCTAssertEqual(addVoice?.plannedEventCount, 2)
         XCTAssertEqual(addVoice?.consumedPlannedEventCount, 1)
         XCTAssertEqual(addVoice?.runtimeEventCategory, "note_trigger")
         XCTAssertEqual(addVoice?.plannedEventFrame, 0)
@@ -6823,7 +6948,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertNil(harness.traceWriter.events.first { $0.runtimeAction == "c_mixer_add_voice" })
         XCTAssertEqual(
             harness.traceWriter.events.first { $0.runtimeAction == "adapter_event_schedule_configured" }?.eventQueueBacklogCount,
-            1
+            2
         )
 
         _ = harness.audioEngine.renderForTesting(frameCount: 1)
@@ -6899,7 +7024,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(addVoices.map(\.channelIndex), [0, 1])
         XCTAssertEqual(addVoices.map(\.plannedRuntimeFrame), [0, 0])
         XCTAssertEqual(addVoices.map(\.eventAppliedFrame), [0, 0])
-        XCTAssertEqual(addVoices.map(\.sameFrameBurstSize), [2, 2])
+        XCTAssertEqual(addVoices.map(\.sameFrameBurstSize), [4, 4]) // Two triggers and two birth targets.
         XCTAssertEqual(addVoices.map(\.plannedVsAppliedDelta), [0, 0])
     }
 
@@ -6942,7 +7067,7 @@ final class RuntimeCMixerTests: XCTestCase {
         let gainUpdate = sameFrameEvents.first
         XCTAssertEqual(gainUpdate?.sameFrameBurstID, 10)
         XCTAssertEqual(gainUpdate?.sameFrameBurstEventOrdinal, 1)
-        XCTAssertEqual(gainUpdate?.sameFrameBurstSize, 2)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstSize, 4)
         XCTAssertTrue(gainUpdate?.sameFrameBurstCategories?.contains("gain_pan_update") == true)
         XCTAssertTrue(gainUpdate?.sameFrameBurstCategories?.contains("note_trigger") == true)
         XCTAssertEqual(gainUpdate?.sameFrameBurstAffectedChannels, [0, 1])
@@ -6952,7 +7077,9 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(gainUpdate?.sameFrameBurstActiveVoiceCountBefore, 1)
         XCTAssertEqual(gainUpdate?.sameFrameBurstActiveVoiceCountAfter, 2)
         XCTAssertEqual(gainUpdate?.sameFrameBurstNewVoicesStarted, 1)
-        XCTAssertEqual(gainUpdate?.sameFrameBurstSustainedVoicesCarried, 1)
+        // This diagnostic counts retained associations per applied publication:
+        // the scalar metadata and both generations' final targets retain theirs.
+        XCTAssertEqual(gainUpdate?.sameFrameBurstSustainedVoicesCarried, 3)
         XCTAssertEqual(gainUpdate?.sameFrameBurstAtOrderStart, true)
         XCTAssertEqual(gainUpdate?.sameFrameBurstAtRowTransition, true)
         XCTAssertEqual(gainUpdate?.adapterActiveEventIndex, 0)
@@ -7980,17 +8107,17 @@ final class RuntimeCMixerTests: XCTestCase {
 
         XCTAssertEqual(renderRuntimePCM(core, frames: 5), Array(repeating: 0, count: 5))
         core.configureAdapterEventScheduleForTesting(plan.events, runtimeFrameOffset: 0)
-        XCTAssertEqual(core.snapshot().eventQueueBacklogCount, 1)
+        XCTAssertEqual(core.snapshot().eventQueueBacklogCount, 2)
         let output = renderRuntimePCM(core, frames: 2)
         let snapshot = core.snapshot()
 
         XCTAssertEqual(output[0], 0)
         XCTAssertGreaterThan(abs(output[1]), 0.000_001)
         XCTAssertEqual(snapshot.currentFrame, 7)
-        XCTAssertEqual(snapshot.appliedPlannedEventCount, 1)
+        XCTAssertEqual(snapshot.appliedPlannedEventCount, 2)
         XCTAssertEqual(snapshot.exactFrameAppliedEventCount, 0)
         XCTAssertEqual(snapshot.callbackBoundaryAppliedEventCount, 0)
-        XCTAssertEqual(snapshot.latePlannedEventCount, 1)
+        XCTAssertEqual(snapshot.latePlannedEventCount, 2)
         XCTAssertEqual(snapshot.maxPlannedVsAppliedDelta, 5)
         XCTAssertEqual(snapshot.eventQueueBacklogCount, 0)
     }
@@ -9200,7 +9327,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(transitionSummaries[0].transitionPhase, "after_events")
         XCTAssertEqual(transitionSummaries[0].activeVoiceCountBefore, 0)
         XCTAssertEqual(transitionSummaries[0].activeVoiceCountAfter, 0)
-        XCTAssertEqual(transitionSummaries[0].eventQueueBacklogCount, 2)
+        XCTAssertEqual(transitionSummaries[0].eventQueueBacklogCount, 4)
         XCTAssertEqual(transitionSummaries[0].transitionReplacementRampCount, 0)
         XCTAssertEqual(transitionSummaries[0].transitionUpdateCount, 0)
         XCTAssertEqual(transitionSummaries[1].previousRowIndex, 0)

@@ -20,19 +20,42 @@ audible factor through this same final-output authority.
 | Final output targets | `PlaybackXMAudibleTimeline` combines typed factor writes with volume/pan-envelope and release targets. `VTXCMixerOutputState` alone interpolates their final mono/L/R gains. |
 | Gain/pan updates | For managed XM voices, scalar/pan writes update factor metadata without a second 32-frame ramp. Generic voices retain the existing independent 32-frame gain/pan path. |
 | New-source onset | An independent C voice multiplier fades each installed song/runtime source from silence over 5 ms of output time, including silent and zero-step sources. It does not change final targets or source stepping. |
-| Stereo output | Sample pan initializes channel pan. G06 consumes the existing semantic pan segment in the final target; static conversions/profile laws remain G40. A neutral pan clock alone does not enable final-output management. |
+| Stereo output | Sample pan initializes channel pan. G06 consumes the existing semantic pan segment in the final target; static conversions/profile laws remain G40. A neutral pan clock adds no changed target. |
 | Output policy | Mixer profile scaling follows voice summation. Runtime fixed `-12 dB` headroom and product WAV auto-headroom to `-1 dB` remain separate downstream policies; runtime auto-headroom is disabled. |
 
-Plain voices retain generic gain/pan behavior until their first release or a
-reset with changed audible factor inputs. Neutral resets leave unfinished
-generic ramps untouched. At activation, existing generic ramp reconstruction
-supplies the current audible factors to the shared C state, preserving earlier
-audio without creating another final-output interpolation formula.
+G05B admits represented XM song sources to final-output management at birth,
+including sources with zero initial gain. The initial actual mono/L/R target
+is immediate (duration zero); G02 independently owns the incoming onset.
+Previously plain sources add only birth and changed factor targets, using the
+existing ordered writer snapshots and semantic history where present. For these
+sources, neutral ticks/resets and pan changes at zero amplitude add no target
+and do not restart an unfinished transition. Existing volume-envelope tick
+publications retain their established C-side deduplication.
+There is no new semantic tick history for plain plans, generic activation replay,
+or second gain/pan stage. Empty/refused routes create no source; completed and
+retiring generations cannot be revived by a publication. Generic C clients and
+editor preview retain their existing policy. This implementation is pending
+qualification, independent review and maintainer listening; G05 remains open.
+Native event construction reserves the original G32 physical ID interval before
+numbering additional output entries. One scalar observes preexisting semantic
+publication slots during the existing generation fold, including slots pruned
+from sparse output. It supplies identity provenance only: targets, source
+ownership and DSP do not consume it. Output IDs remain monotone in source order;
+G32 requests and introduced holds retain their shipped IDs without translation
+or changes to the ordering comparators. G05 remains unaccepted, with submission
+on hold pending separate manager authorization and maintainer listening.
 
 The target amplitude is `output/64 * global/64 * envelope * fadeout`; L/R
 additionally multiply the existing pan-law factors. Mono retains
 its established pan-independent amplitude. The pan-envelope factor changes only
 the target pan; it adds no C envelope clock or interpolation state.
+
+Managed C mixing rounds each voice's mono/L/R contribution to Float32 before
+adding it to the channel sum. Contraction is disabled only in that managed
+block, so an overlap of incoming and retiring sources sums the same two rounded
+terms when runtime slot reuse reverses their physical order relative to offline
+scheduling. Voice order, output interpolation and the generic gain/pan path
+retain their existing behavior; summation across more voices is still Float32.
 
 ### G02 new-source onset
 
@@ -155,9 +178,9 @@ VTX retains the current static baseline: add the difference between the existing
 sample-byte conversion at `P + displacement` and at `P` to the current static
 pan, then clamp to `-1...1`. This isolates envelope displacement from the
 retained header/8xx conversion and stereo profile-law differences (G40).
-Zero displacement returns the original pan exactly. Pan-only voices enter the
-existing managed path only when the audible factor first changes, or through
-an already-supported release/reset. Earlier generic audio remains unchanged.
+Zero displacement returns the original pan exactly. Pan-only sources now enter
+the existing managed path at birth through G05B; their initial neutral factor
+uses the original static pan. Later changed factors use the same final target.
 
 `XMPanningEnvelopeTests` supplies public constant-loop model controls for
 neutral/left/right, static edges, sustain/loop/release, silent and completed
@@ -265,9 +288,9 @@ Offline/window/runtime share this causal source identity/order; no ramp policy,
 G31 arithmetic or source-onset behavior changes.
 
 G14 cold A00 restores output from current base on nonzero ticks and joins this
-same causal local-publication path without seeding slide memory. Managed voices
-recompute the existing envelope/fadeout target; plain voices retain their
-existing generic ramp. Tremolo/E7 state, source identity, target deduplication,
+same causal local-publication path without seeding slide memory. XM sources
+recompute the existing envelope/fadeout target through G05B's birth admission.
+Tremolo/E7 state, source identity, target deduplication,
 speed-1 holds and window carry are preserved. Cold 600's established nonzero-tick
 zero slide also declares local publication when base/output are unchanged;
 the existing held-target comparison refreshes stale gain and deduplicates equal
@@ -292,7 +315,7 @@ unchanged. Sample/header and 8xx bytes keep their existing paths.
 First publication initializes immediately, preserving VTX trigger onset and
 source position. A later explicit non-retriggering reset changes semantic state
 at frame `N` and publishes through the same C output state with
-`D = floor(sampleRate * 0.005)`: 240 frames at 48 kHz, 220 at 44.1 kHz, and 160
+`D = max(1, floor(sampleRate * 0.005))`: 240 frames at 48 kHz, 220 at 44.1 kHz, and 160
 at 32 kHz, independent of BPM/speed. Its start is the **current audible** mono/L/R
 value before publication, including unfinished ordinary interpolation. Same-frame
 accepted volume/pan/global writes contribute to its target with the ordering
@@ -302,7 +325,7 @@ do not restart a ramp. The next ordinary target retains its established
 previous-target rule and tick duration through this same authority; no reset
 overlay or return to a second output path exists. Instrument-only dispatch
 publishes this existing reset; ordinary note-only instead carries semantic state
-and uses the unchanged immediate source-onset path.
+and uses immediate source installation with the independent G02 onset.
 
 Runtime applies targets after trigger/reset/`Lxx` and semantic state, at the
 planned C mixer frame. Offline rendering splits at those same frames. Both use
@@ -684,10 +707,11 @@ controls, but its command diagnostic retains `noActiveVoice` and creates no PCM.
 
 The typed `ecxNoteCut` volume diagnostic joins the existing final-output timeline.
 For an existing source, it publishes one quick zero target over
-`floor(sampleRate * 0.005)` frames: 220 at 44.1 kHz, 240 at 48 kHz. Quick volume
+`max(1, floor(sampleRate * 0.005))` frames: 220 at 44.1 kHz, 240 at 48 kHz. Quick volume
 keeps the established previous-target interpolation; reset alone rebases from
-current audible output. Plain voices enter managed output once using their
-prior generic audible seed. A same-frame newborn EC0 starts silent and never
+current audible output. G05B admits represented sources at birth, so ECx no
+longer reconstructs a prior generic audible seed. A same-frame newborn EC0
+publishes its actual zero target immediately, starts silent and never
 seeds a fabricated fade from header gain. Identical targets retain C deduplication.
 Scalar metadata creates no additional generic 32-frame audible ramp.
 

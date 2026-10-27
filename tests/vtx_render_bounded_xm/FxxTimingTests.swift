@@ -158,18 +158,24 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testNativeSelectionPhysicalBaseline() throws {
-        // G03 changes only old-source tail PCM/state. A fresh merged-base component
-        // audit pins all event/plan/window state and exact Float32 PCM outside retirement.
-        let expected = ["true-44100": "b5bc9732f85041c4542047f599b753757e6f19600c0fe1d70ef53beab04a09db",
-            "true-48000": "e4e7a14286d25050b212b4620399712b69aada2e9f31227c3e9f3130001a8fdf",
-            "false-44100": "4cef4b3a81c2f2c099bbb70157d020ed479b866a5d782637547420463bdc0344",
-            "false-48000": "39c58ecc0a5ade95827e47907a43d039fb508e48e1c8f8e5c28055015b6f392b"]
+        // G05 adds birth/changed final targets. Fresh merged-base component evidence
+        // pins existing events, IDs, diagnostics and source state independently. The
+        // output hash includes admitted transitions and Float32 onset association.
+        let expected = ["false-44100": "ea04fd839d1487a1b1fedc368ec60790efa93f33d75278201f912f87dcb2c06b",
+            "false-48000": "85d60db04aef232fc0aea474114ed76dc044074e07434d999be85436f2075a09",
+            "true-44100": "954a4f1bb62ee51c2a980b7bf41719b5ebe8aef89f15f0fe2de9f49cd166c7f7",
+            "true-48000": "66dae080f58060136c8d76e0f11aaeb3f203a16088470f338ac9350f0e1ca8ec"]
+        let expectedPhysical = ["false-44100": "b6ec4b72c0a4e4531472c59c1b51ca1fde4dab70db0f337a478891c49e6006d0",
+            "false-48000": "dce7f668d8c717b21e03c87dc4c69a4b153710aa8e059e609d6ddfa4df019372",
+            "true-44100": "34e17e1bc2c569f091a9f7a699fdbde6d21458cc6f4599d5f8531bc117d9fa91",
+            "true-48000": "8f792ecb995f54937cb0d538c945304a638a69a1655f7751d562e9d75dd2e538"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
-            var evidence = Data()
+            var evidence = Data(), physical = Data()
             for cells in clockSentinels + selectionSentinels {
                 let song = selectionSong(cells, linear: linear)
                 let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
+                physical.append(protectedClockEvidence(plan, runtime: runtime))
                 for value: Any in [runtime.events, runtime.eventStorage.ordering, plan.pattern, plan.diagnostics,
                     plan.xmChannelRows, plan.xmEmptyRoutes, plan.xmInstrumentSelections, plan.playbackStateEvents,
                     plan.noteOnlyEventIndices, plan.coldReleasedEventIndices, plan.initialHeldPitchEventIndices] {
@@ -187,10 +193,11 @@ final class FxxTimingTests: XCTestCase {
                 let history = PlaybackSongOfflineRenderer.PitchSourceHistory(plan: plan)
                 for i in plan.pattern.events.indices { for row in cells.indices { for delta in [-1, 0, 1] {
                     let frame = row * 6 * Int(rate / 50) + delta
-                    evidence.append(Data(clockSnapshot([history.advancedPosition(for: i, at: frame) as Any,
+                    let source = Data(clockSnapshot([history.advancedPosition(for: i, at: frame) as Any,
                         history.cutFrame(for: i) as Any,
                         PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: i, at: frame, plan: plan),
-                        PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: i, at: frame, plan: plan, pitchHistory: history)]).utf8))
+                        PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: i, at: frame, plan: plan, pitchHistory: history)]).utf8)
+                    evidence.append(source); physical.append(source)
                 } } }
                 #if DEBUG
                 XCTAssertEqual(renderer.renderWindowedUsingScanPerWindowSchedulingReference(request, windowRows: 1).block.interleavedPCM,
@@ -204,6 +211,7 @@ final class FxxTimingTests: XCTestCase {
                 try evidence.write(to: URL(fileURLWithPath: directory).appendingPathComponent("physical-\(key).bin"))
             }
             XCTAssertEqual(digest, expected[key])
+            XCTAssertEqual(SHA256.hash(data: physical).map { String(format: "%02x", $0) }.joined(), expectedPhysical[key])
         } }
     }
 
@@ -238,18 +246,24 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testCanonicalClockPhysicalBaseline() throws {
-        // G03 tail-only differences are qualified against the fresh merged base;
-        // ordered runtime events, IDs, diagnostics and all other PCM remain exact.
-        let expected = ["true44100": "bfb1cc0859e2a9e05a201fa138dbd178838ffbd2ac34dc2e7bcb425da105601d",
-            "true48000": "24e0c9f8f047e4000f6ab57ae61ea37101d30c5cbbb63c55adc9a0b4ed00f215",
-            "false44100": "e078e257dc7676e9de4eeb8883517bce0086128d882edafe1a10b694ed00a4ad",
-            "false48000": "aa769a3a9a77098f3f53bf0a23b092e1ef0094e67e0e1ea5dede4fe242273ba3"]
+        // G05 adds birth/changed final targets. Fresh merged-base component evidence
+        // pins existing events, IDs, diagnostics and source state independently. The
+        // output hash includes admitted transitions and Float32 onset association.
+        let expected = ["false44100": "625a173a6778531c57264106ac29a61108d4656907a5f2bc518d132e59bdcbc9",
+            "false48000": "3e1a7b652d42b9088b25ef67d5915b0929c788caa3917ca3f702a827a1798daa",
+            "true44100": "e40519fe2d2220b2dbebaca778d65c73dc0283f895273d5f663073653f09482e",
+            "true48000": "2f3c8ea8d3db4aa4c21cdde641995e006820cc21233e7d9389fbae6b9ff7f7fc"]
+        let expectedPhysical = ["false44100": "ba4ee982f64c18033eedbf4a196a9c61f1b6d443f3f542628920741ed47195cd",
+            "false48000": "d3586f7d9d711591b5f51ccb1638a653528ee77b4738115a0ecab86d47b4ebda",
+            "true44100": "0fd35f23c05281d3b1bac46befe3d83c7844c1a2b5ee6e729f80afb69c37e06f",
+            "true48000": "299e61a521cf9a4635228c9e529924af9e30b2e09fe2470e3b33459c00a63573"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
-            var evidence = Data()
+            var evidence = Data(), physical = Data()
             for cells in clockSentinels {
                 let song = clockSong(cells, linear: linear)
                 let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
+                physical.append(protectedClockEvidence(plan, runtime: runtime))
                 let clock = plan.canonicalTickClock
                 XCTAssertEqual(clock.runs.count, cells.count)
                 XCTAssertEqual(clock.totalCanonicalTicks, cells.count * 6)
@@ -267,6 +281,7 @@ final class FxxTimingTests: XCTestCase {
                 pcm.withUnsafeBytes { evidence.append(contentsOf: $0) }
             }
             XCTAssertEqual(SHA256.hash(data: evidence).map { String(format: "%02x", $0) }.joined(), expected["\(linear)\(Int(rate))"])
+            XCTAssertEqual(SHA256.hash(data: physical).map { String(format: "%02x", $0) }.joined(), expectedPhysical["\(linear)\(Int(rate))"])
         } }
     }
 
@@ -353,6 +368,24 @@ final class FxxTimingTests: XCTestCase {
             XCTAssertEqual(plan.canonicalTickClock.coordinate(syntheticRow: 1, tick: 3, channel: 0)?.absoluteFrame,
                 rate == 48_000 ? 8640 : 7938)
         } }
+    }
+
+    /// Pins existing payloads/IDs and source state separately from newly admitted output targets.
+    private func protectedClockEvidence(_ plan: PlaybackSongSyntheticPlan,
+                                        runtime: RuntimeCMixerAdapterEventPlan) -> Data {
+        let physical = runtime.events.filter { if case .audibleTargetUpdate = $0.action { return false }; return true }
+        let ordering = runtime.eventStorage.ordering.compactMap { entry -> [Int]? in
+            if case .audibleTargetUpdate = runtime.events[entry.eventIndex].action { return nil }
+            // New targets shift array offsets; the original ID/frame/priority remains authority.
+            return [entry.eventID, entry.scheduledFrame, entry.priority]
+        }
+        var result = Data()
+        for value: Any in [physical, ordering, plan.diagnostics, plan.pattern, plan.xmChannelRows,
+            plan.xmEmptyRoutes, plan.xmInstrumentSelections, plan.playbackStateEvents,
+            plan.noteOnlyEventIndices, plan.coldReleasedEventIndices, plan.initialHeldPitchEventIndices] {
+            result.append(Data(clockSnapshot(value).utf8))
+        }
+        return result
     }
 
     private func clockSnapshot(_ value: Any) -> String {

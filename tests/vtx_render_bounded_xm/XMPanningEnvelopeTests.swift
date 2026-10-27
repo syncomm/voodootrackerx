@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 final class XMPanningEnvelopeTests: XCTestCase {
-    func testNeutralAndDisabledEnvelopePreserveStaticAudioAndGenericRamps() throws {
+    func testNeutralAndDisabledEnvelopePreserveStaticAudioAndFinalTargets() throws {
         for rate in [44_100.0, 48_000] {
             for header: UInt8 in [0, 64, 128, 224, 255] {
                 let commands = [1: cell(effect: 8, param: 224), 2: cell(volume: 0x30), 3: cell(instrument: 1)]
@@ -256,20 +256,21 @@ final class XMPanningEnvelopeTests: XCTestCase {
         }
     }
 
-    func testPanOnlyActivationPreservesEarlierAudioAndOneOutputRamp() throws {
+    func testPanOnlyBirthPreservesEarlierAudioAndOneOutputRamp() throws {
         let pan = envelope([(0, 32), (2, 32), (4, 16), (8, 48)])
         for rate in [44_100.0, 48_000] {
             let result = render(song(pan, volumeEnvelope: false), rate)
             let baseline = render(song(volumeEnvelope: false), rate)
             let first = try XCTUnwrap(result.plan.xmAudibleTimeline?.updates.first)
-            XCTAssertEqual(first.scheduledFrame, Int(rate / 50) * 3)
-            XCTAssertNotNil(first.activation)
-            XCTAssertEqual(Array(result.block.interleavedPCM[..<(first.scheduledFrame * 2)]),
-                Array(baseline.block.interleavedPCM[..<(first.scheduledFrame * 2)]))
+            XCTAssertEqual(first.scheduledFrame, 0)
+            XCTAssertNil(first.activation)
+            let firstMotion = Int(rate / 50) * 3
+            XCTAssertEqual(Array(result.block.interleavedPCM[..<(firstMotion * 2)]),
+                Array(baseline.block.interleavedPCM[..<(firstMotion * 2)]))
             let mixer = CSoftwareMixer(config: .init(sampleRate: rate))
             let voices = SyntheticPatternScheduler(config: result.plan.timingConfig).schedule(result.plan.pattern, on: mixer)
             PlaybackSongOfflineRenderer.schedulePlaybackStateEvents(result.plan, voiceIndexByEventIndex: [0: voices[0]!], on: mixer)
-            _ = mixer.render(frames: first.scheduledFrame + 1)
+            _ = mixer.render(frames: firstMotion + 1)
             let diagnostic = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: voices[0]!))
             XCTAssertNotNil(diagnostic.audibleOutputState)
             XCTAssertNil(diagnostic.gainRamp)

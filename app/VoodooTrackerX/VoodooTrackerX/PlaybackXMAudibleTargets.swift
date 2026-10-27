@@ -71,6 +71,8 @@ struct PlaybackXMAudibleTimeline: Equatable {
     let updates: [PlaybackXMAudibleUpdate]
     let updatesByEvent: [Int: [PlaybackXMAudibleUpdate]]
     let planningHistoryDiagnostics: PlaybackXMHistoryLookupDiagnostics
+    // Construction identity slots preceding automatic pitch, including pruned publications.
+    let preexistingPublicationCount: Int
 
     init(plan: PlaybackSongSyntheticPlan) {
         var all = [PlaybackXMAudibleUpdate]()
@@ -80,10 +82,34 @@ struct PlaybackXMAudibleTimeline: Equatable {
         work.indexBuildCount = 1
         work.entriesIndexed = changes.values.reduce(0) { $0 + $1.count }
         let resets = Dictionary(grouping: PlaybackSongOfflineRenderer.carriedPlaybackStateEvents(for: plan), by: \.activeEventIndex)
-        for (index, history) in plan.xmEnvelopeTimeline?.updatesByEvent ?? [:] {
-            guard plan.pattern.events.indices.contains(index), !history.isEmpty else { continue }
-            let event = plan.pattern.events[index]
-            // Seed reconstruction retains source order; tick target consumption uses frame order.
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        var preexistingCount = 0
+        var mappingsByIndex: [Int: PlaybackSongSyntheticEventMapping]?
+        for (index, event) in plan.pattern.events.enumerated() {
+            let mapping: PlaybackSongSyntheticEventMapping?
+            if plan.diagnostics.eventMappings.indices.contains(index),
+               plan.diagnostics.eventMappings[index].eventIndex == index {
+                mapping = plan.diagnostics.eventMappings[index]
+            } else {
+                // Native producers append mappings with their generations. Only manual
+                // or orphaned histories need this temporary index, built at most once.
+                if mappingsByIndex == nil {
+                    mappingsByIndex = Dictionary(plan.diagnostics.eventMappings.map { ($0.eventIndex, $0) },
+                        uniquingKeysWith: { _, last in last })
+                }
+                mapping = mappingsByIndex?[index]
+            }
+            let history = plan.xmEnvelopeTimeline?.updatesByEvent[index] ?? []
+            let emitsOutput = mapping != nil && event.sample.frameCount > 0 &&
+                event.initialSourceFrame < event.sample.frameCount
+            // Planned legacy identities existed even when C refused the source.
+            if event.volumeEnvelope != nil { preexistingCount += history.count }
+            guard emitsOutput || (event.volumeEnvelope == nil && !history.isEmpty) else { continue }
+            let birth = emitsOutput ? scheduler.frame(for: event) : history[0].scheduledFrame
+            let channel = mapping?.channelIndex ?? history[0].channelIndex
+            // Consume the existing semantic clock where it is needed. Plain sources add
+            // only their birth and actual factor-write frames, never a neutral tick clock.
+            let retainsTickPublications = event.volumeEnvelope != nil
             let sourceWrites = changes[index] ?? []
             let writes = sourceWrites.enumerated().sorted {
                 $0.element.scheduledFrame == $1.element.scheduledFrame ? $0.offset < $1.offset :
@@ -92,16 +118,52 @@ struct PlaybackXMAudibleTimeline: Equatable {
             let resetFrames = Set((resets[index] ?? []).compactMap { update -> Int? in
                 if case .reset = update.change { return update.scheduledFrame }; return nil
             })
-            guard event.volumeEnvelope != nil || event.panEnvelope != nil ||
-                history.contains(where: { !$0.state.keyOn }) || !resetFrames.isEmpty ||
-                sourceWrites.contains(where: { $0.command == .ecxNoteCut }) else { continue }
             var gain = event.gain
             var pan = event.pan
             var writeIndex = 0
-            var managesOutput = event.volumeEnvelope != nil
-            for (offset, semantic) in history.enumerated() {
-                let frame = semantic.scheduledFrame
-                let priorGain = gain, priorPan = pan
+            var semanticIndex = 0
+            var observedPriorGain = event.gain
+            var observedPriorPan = event.pan
+            var observedActivation = false
+            var state = MixerEnvelopeSemanticState()
+            var channelPanning = 128.0
+            var initial = true
+            var lastAmplitude: Float?
+            var lastPan: Float?
+            let birthRow = mapping?.syntheticRow ?? event.row
+            let birthTiming = plan.diagnostics.rowTiming.indices.contains(birthRow)
+                ? plan.diagnostics.rowTiming[birthRow] : nil
+            while initial || semanticIndex < history.count || writeIndex < writes.count {
+                let frame = initial ? birth : min(
+                    semanticIndex < history.count ? history[semanticIndex].scheduledFrame : Int.max,
+                    writeIndex < writes.count ? writes[writeIndex].scheduledFrame : Int.max)
+                // Global projection records a prospective first-tail target. It only
+                // becomes audible when the existing semantic timeline extends there.
+                if !initial, frame >= (plan.xmEnvelopeTimeline?.endFrame ?? Int.max) { break }
+                var source = mapping?.source ?? history[0].source
+                var tick = mapping?.syntheticTick ?? history[0].tick
+                var bpm = birthTiming?.effectiveBPM ?? plan.timingConfig.bpm
+                var speed = birthTiming?.effectiveSpeed ?? plan.timingConfig.speed
+                // A write between canonical ticks consumes held semantic factors. It
+                // does not invent another envelope advancement or source generation.
+                if writeIndex < writes.count, writes[writeIndex].scheduledFrame == frame {
+                    let write = writes[writeIndex]
+                    source = write.source; tick = write.syntheticTick
+                    if plan.diagnostics.rowTiming.indices.contains(write.syntheticRow) {
+                        let timing = plan.diagnostics.rowTiming[write.syntheticRow]
+                        bpm = timing.effectiveBPM; speed = timing.effectiveSpeed
+                    } else {
+                        bpm = plan.xmEnvelopeTimeline?.timing.finalBPM ?? bpm
+                        speed = plan.xmEnvelopeTimeline?.timing.finalSpeed ?? speed
+                    }
+                }
+                let firstSemanticIndex = semanticIndex
+                while semanticIndex < history.count && history[semanticIndex].scheduledFrame <= frame {
+                    let semantic = history[semanticIndex]
+                    state = semantic.state; channelPanning = semantic.channelPanningValue
+                    source = semantic.source; tick = semantic.tick; bpm = semantic.bpm; speed = semantic.speed
+                    semanticIndex += 1
+                }
                 var visibleGain = gain
                 var quickVolume = false
                 var noteCut = false
@@ -112,7 +174,7 @@ struct PlaybackXMAudibleTimeline: Equatable {
                         // Reference targets see global writes only through their own channel's turn.
                         let laterGlobal: Bool
                         if case .gxxSetGlobalVolume = write.command {
-                            laterGlobal = write.scheduledFrame == frame && write.channelIndex > semantic.channelIndex
+                            laterGlobal = write.scheduledFrame == frame && write.channelIndex > channel
                         } else { laterGlobal = false }
                         if !laterGlobal { visibleGain = gain }
                     }
@@ -128,40 +190,53 @@ struct PlaybackXMAudibleTimeline: Equatable {
                     writeIndex += 1
                 }
                 let audiblePan = event.panEnvelope == nil ? pan : Self.envelopePan(
-                    staticPan: pan, channelPanning: semantic.channelPanningValue, value: semantic.state.panValue)
-                var activation: MixerAudibleOutputSeed?
-                if !managesOutput {
-                    // A future release/reset must never change the earlier generic gain/pan audio.
-                    // A neutral reset must also leave an unfinished generic ramp untouched.
-                    let changedReset = resetFrames.contains(frame) && (visibleGain != priorGain || pan != priorPan)
-                    guard !semantic.state.keyOn || changedReset || noteCut || audiblePan != pan else { continue }
-                    managesOutput = true
-                    // A newborn EC0 has no earlier audible source value to seed.
-                    // Its zero target must not manufacture a fade from header gain.
-                    if offset > 0 {
-                        work.lookupCount += 1
-                        work.entriesVisited += sourceWrites.count
-                        activation = PlaybackSongOfflineRenderer.audibleActivationSeed(
-                            for: event, eventIndex: index, voiceStateUpdates: sourceWrites, before: frame)
+                    staticPan: pan, channelPanning: channelPanning, value: state.panValue)
+                if event.volumeEnvelope == nil && !observedActivation && firstSemanticIndex < semanticIndex {
+                    // Observe only original semantic records, never added birth/write
+                    // contexts. The first legacy activation reserves every later slot,
+                    // including equal/zero targets that sparse G05 output now prunes.
+                    for ordinal in firstSemanticIndex..<semanticIndex {
+                        let semantic = history[ordinal]
+                        let first = ordinal == firstSemanticIndex
+                        let observedGain = first ? visibleGain : gain
+                        let priorGain = first ? observedPriorGain : gain
+                        let priorPan = first ? observedPriorPan : pan
+                        let observedPan = ordinal == semanticIndex - 1 || event.panEnvelope == nil ? audiblePan :
+                            Self.envelopePan(staticPan: pan, channelPanning: semantic.channelPanningValue,
+                                value: semantic.state.panValue)
+                        let changedReset = resetFrames.contains(semantic.scheduledFrame) &&
+                            (observedGain != priorGain || pan != priorPan)
+                        // Equal-frame records consumed writes only on their first turn.
+                        if !semantic.state.keyOn || changedReset || (first && noteCut) || observedPan != pan {
+                            preexistingCount += history.count - ordinal
+                            observedActivation = true
+                            break
+                        }
                     }
+                    observedPriorGain = gain; observedPriorPan = pan
                 }
-                let initial = offset == 0 && !noteCut
+                guard emitsOutput else { initial = false; continue }
+                let amplitude = visibleGain * state.volumeValue * state.fadeoutValue
+                // C deduplicates dense envelope targets. Formerly plain sources also
+                // prune equal tuples here, avoiding new per-tick runtime event storage.
+                if !initial && !retainsTickPublications && amplitude == lastAmplitude &&
+                    (amplitude == 0 || audiblePan == lastPan) { continue }
                 let reset = !initial && resetFrames.contains(frame)
-                let duration = initial ? 0 : reset || noteCut ? Int((plan.timingConfig.sampleRate * 0.005).rounded(.down)) :
-                    max(1, Int((plan.timingConfig.sampleRate * (quickVolume ? 0.005 : 2.5 / Double(semantic.bpm))).rounded(.down)))
-                all.append(PlaybackXMAudibleUpdate(eventIndex: index, channelIndex: semantic.channelIndex,
-                    source: semantic.source, tick: semantic.tick, scheduledFrame: frame,
-                    bpm: semantic.bpm, speed: semantic.speed,
-                    amplitude: visibleGain * semantic.state.volumeValue * semantic.state.fadeoutValue,
-                    pan: audiblePan, durationFrames: duration,
+                let duration = initial ? 0 : reset || noteCut ? max(1, Int((plan.timingConfig.sampleRate * 0.005).rounded(.down))) :
+                    max(1, Int((plan.timingConfig.sampleRate * (quickVolume ? 0.005 : 2.5 / Double(bpm))).rounded(.down)))
+                all.append(PlaybackXMAudibleUpdate(eventIndex: index, channelIndex: channel,
+                    source: source, tick: tick, scheduledFrame: frame, bpm: bpm, speed: speed,
+                    amplitude: amplitude, pan: audiblePan, durationFrames: duration,
                     intent: initial ? "initial" : reset ? "nonretriggering_reset" :
-                        (quickVolume ? "quick_volume" : "ordinary_tick"), activation: activation,
-                    rebaseFromCurrent: reset))
+                        (quickVolume ? "quick_volume" : "ordinary_tick"), rebaseFromCurrent: reset))
+                lastAmplitude = amplitude; lastPan = audiblePan
+                initial = false
             }
         }
         updates = all.sorted { $0.scheduledFrame == $1.scheduledFrame ? $0.eventIndex < $1.eventIndex : $0.scheduledFrame < $1.scheduledFrame }
         updatesByEvent = Dictionary(grouping: updates, by: \.eventIndex)
         planningHistoryDiagnostics = work
+        preexistingPublicationCount = preexistingCount
     }
 
     /// Applies the observed byte-domain envelope displacement while retaining the static conversion baseline.

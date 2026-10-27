@@ -286,7 +286,8 @@ final class G23ChildlessPitchInvocationTests: XCTestCase {
         // Each partial reset companion adds 24 inline bytes; G23 runs stay 32 bytes.
         // Sparse reset storage makes the native semantic companion 56 inline bytes.
         // Automatic requests and introduced-hold provenance add two storage references.
-        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 1096)
+        // G05's physical-ID reservation adds one inline identity-provenance Int.
+        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 1104)
     }
 
     private func observations(_ plan: PlaybackSongSyntheticPlan) throws -> [E.Observation] {

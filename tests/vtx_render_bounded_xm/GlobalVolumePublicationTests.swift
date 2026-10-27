@@ -35,7 +35,7 @@ final class GlobalVolumePublicationTests: XCTestCase {
         }
     }
 
-    func testExplicitPublicationComparesHeldTargetIncludingRepeatedAndZeroValues() {
+    func testExplicitPublicationComparesHeldTargetIncludingRepeatedAndZeroValues() throws {
         let publications: [(PlaybackCell, Int, UInt8, Float, Int)] = [
             (c(effect: 12, param: 32), 0, 16, 0.125, 16),
             (c(effect: 12, param: 64), 0, 16, 0.25, 16),
@@ -62,11 +62,22 @@ final class GlobalVolumePublicationTests: XCTestCase {
                 assertCausalGainEvents(runtime)
                 let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
                 let full = PlaybackSongOfflineRenderer().render(.init(song: module, config: config, rows: 5))
-                // The constant sample makes a wrong held target audible independently
-                // of the diagnostics. Check settled PCM after the existing 32-frame ramp.
+                // The constant sample separates the held scalar from source PCM.
+                // Local set-volume writers are quick; Gxx retains ordinary tick duration.
                 let tick = Int(rate / 50)
+                let duration = publication.effectType == 12 || publication.volumeColumn == 0x50
+                    ? Int(rate * 0.005) : tick
+                let audible = try XCTUnwrap(full.plan.xmAudibleTimeline?.updates.first {
+                    $0.eventIndex == 0 && $0.scheduledFrame == 18 * tick
+                })
+                XCTAssertEqual(audible.amplitude, expected)
+                XCTAssertEqual(audible.durationFrames, duration)
                 XCTAssertEqual(full.block.interleavedPCM[12 * tick + 100], 1 / 32, accuracy: 1e-7)
-                XCTAssertEqual(full.block.interleavedPCM[18 * tick + 100], expected / 32, accuracy: 1e-7)
+                for offset in [0, 1, 100, duration / 2, duration, duration + 1] {
+                    let fraction = min(Float(offset) / Float(duration), 1)
+                    let gain = 1 + (expected - 1) * fraction
+                    XCTAssertEqual(full.block.interleavedPCM[18 * tick + offset], gain / 32, accuracy: 1e-7)
+                }
                 for window in [1, 2] {
                     let split = PlaybackSongOfflineRenderer().renderWindowed(.init(song: module, config: config, rows: 5), windowRows: window)
                     XCTAssertLessThanOrEqual(maxError(full.block.interleavedPCM, split.block.interleavedPCM), 1e-7)
@@ -87,7 +98,20 @@ final class GlobalVolumePublicationTests: XCTestCase {
                 let plan = adapt(song([[g(64)], [note(0), g(16)], [], [nonwriter], []]), rate)
                 XCTAssertTrue(targets(plan, row: 3).isEmpty)
                 XCTAssertNil(plan.pattern.events[0].volumeEnvelope)
-                XCTAssertTrue(plan.xmAudibleTimeline?.updates.isEmpty ?? true)
+                let plainOutput = plan.xmAudibleTimeline?.updates ?? []
+                let writesPan = nonwriter.effectType == 8 || nonwriter.volumeColumn == 0xC8
+                XCTAssertEqual(plainOutput.count, writesPan ? 2 : 1)
+                XCTAssertEqual(plainOutput.first?.scheduledFrame, 6 * Int(rate / 50))
+                XCTAssertEqual(plainOutput.first?.durationFrames, 0)
+                // A later-channel Gxx never leaks into a blank row or pan-only target.
+                XCTAssertTrue(plainOutput.allSatisfy { $0.amplitude == 1 })
+                XCTAssertFalse(plainOutput.contains { $0.source.rowIndex == 2 })
+                if writesPan {
+                    let value = nonwriter.effectType == 8 ? 64 : 128
+                    XCTAssertEqual(plainOutput.last?.scheduledFrame, 18 * Int(rate / 50))
+                    XCTAssertEqual(plainOutput.last?.pan, PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: value))
+                    XCTAssertEqual(plainOutput.last?.durationFrames, Int(rate / 50))
+                }
             }
         }
     }

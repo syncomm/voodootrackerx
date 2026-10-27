@@ -1030,29 +1030,41 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories: envelopeSemanticCategories))
         }
         let audibleTargetCategories = ["xm_audible_output_target"]
-        for update in adaptedPlan.xmAudibleTimeline?.updates ?? [] {
-            events.append(RuntimeCMixerAdapterEvent(id: events.count, source: update.source,
+        let audibleIDStart = events.count
+        let preexistingAudibleCount = adaptedPlan.xmAudibleTimeline?.preexistingPublicationCount ?? 0
+        // Preserve the shipped G32 interval before assigning IDs to added G05
+        // publications. IDs are plan-local keys, independent of storage indices.
+        // Guarded-out pitch requests can leave unused slots; uniqueness and the
+        // monotone output sequence preserve both existing ordering comparators.
+        let reservedPitchIDCount = adaptedPlan.instrumentAutovibratoRequests.count +
+            adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.count
+        var nextPitchID = audibleIDStart + preexistingAudibleCount
+        for (ordinal, update) in (adaptedPlan.xmAudibleTimeline?.updates ?? []).enumerated() {
+            let id = audibleIDStart + ordinal + (ordinal < preexistingAudibleCount ? 0 : reservedPitchIDCount)
+            events.append(RuntimeCMixerAdapterEvent(id: id, source: update.source,
                 channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
                 action: .audibleTargetUpdate(update), categories: audibleTargetCategories))
         }
         let instrumentAutoPitchCategories = ["step_update", "instrument_auto_pitch"]
         for request in adaptedPlan.instrumentAutovibratoRequests {
             guard adaptedPlan.diagnostics.rowMappings.indices.contains(request.syntheticRow) else { continue }
-            events.append(.init(id: events.count,
+            events.append(.init(id: nextPitchID,
                 source: adaptedPlan.diagnostics.rowMappings[request.syntheticRow].source,
                 channelIndex: request.channelIndex, syntheticTick: request.syntheticTick,
                 scheduledFrame: request.scheduledFrame,
                 action: .stepUpdate(activeEventIndex: request.activeEventIndex, playbackStep: request.playbackStep),
                 categories: instrumentAutoPitchCategories))
+            nextPitchID += 1
         }
 
         let introducedHoldCategories = ["step_update", "initial_pitch_hold"]
         for eventIndex in adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.sorted() {
             guard let mapping = eventMappingsByIndex[eventIndex] else { continue }
-            events.append(.init(id: events.count, source: mapping.source,
+            events.append(.init(id: nextPitchID, source: mapping.source,
                 channelIndex: mapping.channelIndex, syntheticTick: mapping.syntheticTick,
                 scheduledFrame: scheduler.frame(for: adaptedPlan.pattern.events[eventIndex]),
                 action: .stepUpdate(activeEventIndex: eventIndex, playbackStep: 0), categories: introducedHoldCategories))
+            nextPitchID += 1
         }
         profileSession?.recordPhase("adapter_semantic_event_materialization", startedAt: semanticMaterializationStart)
         let sortingStart = profileSession?.beginPhase()

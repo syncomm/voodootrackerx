@@ -3767,7 +3767,17 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(metadata, beforeMetadata)
         XCTAssertEqual(loadedSong, beforeLoadedSong)
         XCTAssertTrue(plan.generated)
-        XCTAssertEqual(plan.plannedEventCount, 1)
+        XCTAssertEqual(plan.plannedEventCount, 2)
+        let birthTarget = try XCTUnwrap(plan.events.first { event in
+            if case .audibleTargetUpdate = event.action { return true }
+            return false
+        })
+        guard case let .audibleTargetUpdate(target) = birthTarget.action else {
+            return XCTFail("expected initial XM output target")
+        }
+        XCTAssertEqual(target.eventIndex, noteTrigger.activeEventIndex)
+        XCTAssertEqual(target.durationFrames, 0)
+        XCTAssertEqual(birthTarget.source, noteTrigger.source)
         XCTAssertEqual(noteTrigger.source, PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0))
         XCTAssertEqual(noteTrigger.channelIndex, 0)
         guard case let .noteTrigger(_, _, mapping) = noteTrigger.action else {
@@ -3801,7 +3811,15 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(playbackRange.patternIndex, 0)
         XCTAssertEqual(loopRange.playbackRange, playbackRange)
         XCTAssertEqual(loopRange.frameCount, 40)
-        XCTAssertEqual(loopRange.events.map(\.source), [
+        XCTAssertEqual(loopRange.events.count, 4)
+        let noteEvents = loopRange.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+        let birthEvents = loopRange.events.filter { if case .audibleTargetUpdate = $0.action { return true }; return false }
+        XCTAssertEqual(birthEvents.map(\.source), noteEvents.map(\.source))
+        XCTAssertTrue(birthEvents.allSatisfy {
+            if case let .audibleTargetUpdate(target) = $0.action { return target.durationFrames == 0 }
+            return false
+        })
+        XCTAssertEqual(noteEvents.map(\.source), [
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 2),
         ])
@@ -3853,7 +3871,15 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertTrue(plan.generated)
         XCTAssertEqual(loopRange.playbackRange.orderIndex, 0)
         XCTAssertEqual(loopRange.playbackRange.patternIndex, 0)
-        XCTAssertEqual(loopRange.events.map(\.source), [
+        XCTAssertEqual(loopRange.events.count, 4)
+        let noteEvents = loopRange.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+        let birthEvents = loopRange.events.filter { if case .audibleTargetUpdate = $0.action { return true }; return false }
+        XCTAssertEqual(birthEvents.map(\.source), noteEvents.map(\.source))
+        XCTAssertTrue(birthEvents.allSatisfy {
+            if case let .audibleTargetUpdate(target) = $0.action { return target.durationFrames == 0 }
+            return false
+        })
+        XCTAssertEqual(noteEvents.map(\.source), [
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 2),
         ])
@@ -4323,8 +4349,15 @@ final class BlankTrackerDocumentTests: XCTestCase {
         engine.play(from: startContext, loopEnabled: true, timingSession: nil)
 
         let latestGeneratedPlan = try XCTUnwrap(audioOutput.configuredPlans.last { $0.generated })
-        XCTAssertEqual(latestGeneratedPlan.plannedEventCount, 2)
-        XCTAssertEqual(latestGeneratedPlan.events.map(\.source), [
+        XCTAssertEqual(latestGeneratedPlan.plannedEventCount, 4)
+        let noteEvents = latestGeneratedPlan.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+        let birthEvents = latestGeneratedPlan.events.filter { if case .audibleTargetUpdate = $0.action { return true }; return false }
+        XCTAssertEqual(birthEvents.map(\.source), noteEvents.map(\.source))
+        XCTAssertTrue(birthEvents.allSatisfy {
+            if case let .audibleTargetUpdate(target) = $0.action { return target.durationFrames == 0 }
+            return false
+        })
+        XCTAssertEqual(noteEvents.map(\.source), [
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 1),
         ])

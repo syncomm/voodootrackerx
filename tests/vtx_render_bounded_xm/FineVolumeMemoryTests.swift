@@ -221,7 +221,7 @@ final class FineVolumeMemoryTests: XCTestCase {
         }
     }
 
-    func testEnvelopeFadeoutCompositionAndProtectedColdPolicies() {
+    func testEnvelopeFadeoutCompositionAndProtectedColdPolicies() throws {
         for rate in [44_100.0, 48_000] {
             for zero: UInt8 in [0xA0, 0xB0] {
                 func render(_ effect: UInt8, _ parameter: UInt8) -> PlaybackSongOfflineRenderResult {
@@ -235,7 +235,9 @@ final class FineVolumeMemoryTests: XCTestCase {
                 XCTAssertEqual(fine.plan.xmAudibleTimeline?.updates.map(\.amplitude), set.plan.xmAudibleTimeline?.updates.map(\.amplitude))
                 assertPCM(fine.block.interleavedPCM, render(14, zero == 0xA0 ? 0xB0 : 0xA0).block.interleavedPCM)
                 for target in fine.plan.xmAudibleTimeline?.updates.filter({ $0.source.rowIndex >= 2 }) ?? [] {
-                    let semantic = fine.plan.xmEnvelopeTimeline!.updatesByEvent[target.eventIndex]!.first { $0.scheduledFrame == target.scheduledFrame }!
+                    let semantic = try XCTUnwrap(fine.plan.xmEnvelopeTimeline?.updatesByEvent[target.eventIndex]?.first {
+                        $0.scheduledFrame == target.scheduledFrame
+                    }, "missing semantic target at \(target.scheduledFrame), event \(target.eventIndex), rate \(rate)")
                     XCTAssertEqual(target.amplitude, 0.125 * semantic.state.volumeValue * semantic.state.fadeoutValue)
                 }
                 for family: UInt8 in [10, 5, 6, 17] {

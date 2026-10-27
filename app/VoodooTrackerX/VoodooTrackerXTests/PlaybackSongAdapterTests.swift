@@ -5142,7 +5142,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let cut = try XCTUnwrap(result.diagnostics.noteCutEffects.first)
         let effect = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 0, 0])
+        // Even at 100 Hz the quick interval has one frame: old output at k=0.
+        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 1, 0])
         XCTAssertEqual(cut.status, .applied)
         XCTAssertEqual(cut.requestedTick, 2)
         XCTAssertEqual(cut.scheduledFrame, 2)
@@ -5177,7 +5178,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [3, 3])
         XCTAssertEqual(cut.scheduledFrame, 5)
         XCTAssertEqual(cut.rowSpeed, 3)
-        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 0, 1, 1, 0, 0, 0, 0])
     }
 
     func testPlaybackSongAdapterNoteCutECxNoActiveVoiceIsDiagnosed() throws {
@@ -5255,7 +5256,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(mapping.loopMode, .forward)
         XCTAssertEqual(result.diagnostics.noteCutEffects.first?.status, .applied)
-        XCTAssertEqual(result.block.interleavedPCM, [0, 0.5, 0, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0.5, 1, 0, 0])
     }
 
     func testPlaybackSongAdapterNoteCutECxPreservesKeyAndFadeout() throws {
@@ -5278,7 +5279,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
 
-        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 0])
         XCTAssertEqual(result.diagnostics.noteCutEffects.first?.status, .applied)
         XCTAssertEqual(result.diagnostics.keyOffEvents, [])
         XCTAssertFalse(mapping.volumeEnvelopeSemantics.keyOffApplied)
@@ -7183,7 +7184,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.hasEmptyNote && $0.commandSource == .volumeColumn })
 
-        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [0, 0.984375, 0.96875])
+        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [0, 1, 0.5])
         XCTAssertEqual(update.scheduledFrame, 1)
         XCTAssertEqual(update.activeVoiceUpdated, true)
         XCTAssertEqual(update.effectiveVolumeBefore, 64)
@@ -7220,7 +7221,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.hasEmptyNote && $0.commandSource == .volumeColumn })
 
-        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [0, 0, 0.9724265, 1, 0.94485295, 1])
+        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [0, 0, 1, 1, Float(2) / 17, 1])
         XCTAssertEqual(update.activeVoiceUpdated, true)
         XCTAssertEqual(update.effectivePanBefore, 0)
         XCTAssertEqual(update.effectivePanAfter, Float(15) / 17)
@@ -7255,8 +7256,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.rawVolumeColumn == 0x30 })
         let tonePortamento = try XCTUnwrap(result.diagnostics.tonePortamentoEffects.first)
 
-        // At this 100 Hz test rate, the existing 5 ms semantic reset is zero frames.
-        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [0, 0.5, 0.5])
+        // The 5 ms reset clamps to one frame at 100 Hz and retains k=0 output.
+        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [0, 1, 0.5])
         XCTAssertEqual(result.diagnostics.eventMappings.count, 1)
         XCTAssertEqual(result.plan.pattern.events.count, 1)
         XCTAssertEqual(tonePortamento.status, .applied)
@@ -7862,11 +7863,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let cxxUpdate = try XCTUnwrap(volume.diagnostics.voiceStateUpdates.first { $0.effectType == 0x0C })
         let panUpdate = try XCTUnwrap(pan.diagnostics.voiceStateUpdates.first { $0.effectType == 0x08 })
 
-        XCTAssertFloatArrayEqual(volume.block.interleavedPCM, [0, 0.984375, 0.96875])
+        XCTAssertFloatArrayEqual(volume.block.interleavedPCM, [0, 1, 0.5])
         XCTAssertEqual(cxxUpdate.activeVoiceUpdated, true)
         XCTAssertEqual(cxxUpdate.effectiveVolumeBefore, 64)
         XCTAssertEqual(cxxUpdate.effectiveVolumeAfter, 32)
-        XCTAssertFloatArrayEqual(pan.block.interleavedPCM, [0, 0, 0.96875, 1, 0.9375, 1])
+        XCTAssertFloatArrayEqual(pan.block.interleavedPCM, [0, 0, 1, 1, 0, 1])
         XCTAssertEqual(panUpdate.activeVoiceUpdated, true)
         XCTAssertEqual(panUpdate.effectivePanBefore, 0)
         XCTAssertEqual(panUpdate.effectivePanAfter, 1)
@@ -7926,7 +7927,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let defaultRender = renderer.render(request)
         let windowed = renderer.renderWindowed(request, windowRows: 1)
 
-        XCTAssertFloatArrayEqual(defaultRender.block.interleavedPCM, [0, 0.984375, 0.96875])
+        XCTAssertFloatArrayEqual(defaultRender.block.interleavedPCM, [0, 1, 0.5])
         XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
         XCTAssertEqual(windowed.windowedRenderSummary?.windowRows, 1)
         XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedVoices ?? 0, 0)
@@ -8101,7 +8102,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.block.interleavedPCM[128], 1, accuracy: 0.000_001)
     }
 
-    func testPlaybackSongAdapterWindowedCarryoverPreservesActiveGainRampState() throws {
+    func testPlaybackSongAdapterWindowedCarryoverPreservesFinalOutputTargetState() throws {
         let sample = makePlaybackSample(pcm: [1, 1, 1, 1], volume: 1, baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -8127,9 +8128,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let defaultRender = renderer.render(request)
         let windowed = renderer.renderWindowed(request, windowRows: 2)
 
-        XCTAssertFloatArrayEqual(defaultRender.block.interleavedPCM, [0, 0.984375, 0.96875, 0.953125])
+        XCTAssertFloatArrayEqual(defaultRender.block.interleavedPCM, [0, 1, 0.5, 0.5])
         XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
         XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedVoices ?? 0, 0)
+        let carriedOutput = try XCTUnwrap(defaultRender.plan.xmAudibleTimeline?.state(
+            eventIndex: 0, before: 2, config: request.config))
+        XCTAssertEqual(carriedOutput.current, [0.5, 0.5, 0.5])
+        XCTAssertEqual(carriedOutput.durationFrames, 1)
+        XCTAssertEqual(carriedOutput.positionFrame, 1)
     }
 
     func testPlaybackSongAdapterAxyAndHxyGlobalVolumeSlidesUpdateActiveVoiceGain() throws {
@@ -8632,14 +8638,25 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         let runtimePlan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
         let syntheticPlan = try XCTUnwrap(runtimePlan.plan)
+        let physicalEvents = runtimePlan.events.filter {
+            if case .audibleTargetUpdate = $0.action { return false }; return true
+        }
+        let audibleTargets = runtimePlan.events.compactMap { event -> PlaybackXMAudibleUpdate? in
+            if case let .audibleTargetUpdate(target) = event.action { return target }; return nil
+        }
 
         XCTAssertTrue(runtimePlan.generated)
-        XCTAssertEqual(runtimePlan.plannedEventCount, 5)
+        XCTAssertEqual(runtimePlan.plannedEventCount, 10)
+        XCTAssertEqual(audibleTargets.map(\.scheduledFrame), [0, 0, 2, 2, 5])
+        XCTAssertEqual(audibleTargets.map(\.eventIndex), [0, 1, 0, 1, 2])
+        XCTAssertEqual(audibleTargets.map(\.amplitude), [1, 0.5, 0.5, 0.25, 0.5])
+        XCTAssertEqual(audibleTargets.map(\.durationFrames), [0, 0, 1, 1, 0])
         XCTAssertEqual(runtimePlan.plannedSongEndFrame, 6)
-        XCTAssertEqual(runtimePlan.events.map(\.channelIndex), [0, 1, 0, 1, 0])
-        XCTAssertEqual(runtimePlan.events.map(\.scheduledFrame), [0, 0, 2, 2, 5])
-        XCTAssertEqual(runtimePlan.events.map(\.syntheticTick), [0, 0, 0, 0, 1])
-        XCTAssertEqual(runtimePlan.events.map(\.categories), [
+        XCTAssertEqual(physicalEvents.map(\.id), [0, 1, 3, 4, 2])
+        XCTAssertEqual(physicalEvents.map(\.channelIndex), [0, 1, 0, 1, 0])
+        XCTAssertEqual(physicalEvents.map(\.scheduledFrame), [0, 0, 2, 2, 5])
+        XCTAssertEqual(physicalEvents.map(\.syntheticTick), [0, 0, 0, 0, 1])
+        XCTAssertEqual(physicalEvents.map(\.categories), [
             ["note_trigger"],
             ["note_trigger"],
             ["gain_pan_update", "gxx_channel_target", "global_volume_update", "gxx_global_volume_update"],
@@ -8647,7 +8664,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             ["note_trigger", "replacement", "note_delay"],
         ])
 
-        guard case let .noteTrigger(firstEventIndex, firstEvent, firstMapping) = runtimePlan.events[0].action else {
+        guard case let .noteTrigger(firstEventIndex, firstEvent, firstMapping) = physicalEvents[0].action else {
             return XCTFail("expected first event to be a note trigger")
         }
         XCTAssertEqual(firstEventIndex, 0)
@@ -8655,7 +8672,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(firstMapping.note, 49)
         XCTAssertEqual(firstMapping.effectiveGlobalVolumeValue, 64)
 
-        guard case let .noteTrigger(secondEventIndex, secondEvent, secondMapping) = runtimePlan.events[1].action else {
+        guard case let .noteTrigger(secondEventIndex, secondEvent, secondMapping) = physicalEvents[1].action else {
             return XCTFail("expected second event to be a note trigger")
         }
         XCTAssertEqual(secondEventIndex, 1)
@@ -8663,21 +8680,21 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(secondMapping.note, 52)
         XCTAssertEqual(secondMapping.effectiveVolumeValue, 32)
 
-        guard case let .gainPanUpdate(firstActiveEventIndex, firstGain, firstPan) = runtimePlan.events[2].action else {
+        guard case let .gainPanUpdate(firstActiveEventIndex, firstGain, firstPan) = physicalEvents[2].action else {
             return XCTFail("expected third event to be a gain update")
         }
         XCTAssertEqual(firstActiveEventIndex, 0)
         XCTAssertEqual(try XCTUnwrap(firstGain), 0.5, accuracy: 0.000_001)
         XCTAssertNil(firstPan)
 
-        guard case let .gainPanUpdate(secondActiveEventIndex, secondGain, secondPan) = runtimePlan.events[3].action else {
+        guard case let .gainPanUpdate(secondActiveEventIndex, secondGain, secondPan) = physicalEvents[3].action else {
             return XCTFail("expected fourth event to be a gain update")
         }
         XCTAssertEqual(secondActiveEventIndex, 1)
         XCTAssertEqual(try XCTUnwrap(secondGain), 0.25, accuracy: 0.000_001)
         XCTAssertNil(secondPan)
 
-        guard case let .noteTrigger(delayedEventIndex, delayedEvent, delayedMapping) = runtimePlan.events[4].action else {
+        guard case let .noteTrigger(delayedEventIndex, delayedEvent, delayedMapping) = physicalEvents[4].action else {
             return XCTFail("expected final event to be a delayed note trigger")
         }
         XCTAssertEqual(delayedEventIndex, 2)
@@ -8714,7 +8731,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
 
         XCTAssertTrue(plan.generated)
-        XCTAssertEqual(plan.plannedEventCount, orderCount - 1)
+        XCTAssertEqual(plan.plannedEventCount, 2 * (orderCount - 1))
+        let births = plan.events.compactMap { event -> PlaybackXMAudibleUpdate? in
+            if case let .audibleTargetUpdate(target) = event.action { return target }; return nil
+        }
+        XCTAssertEqual(births.count, orderCount - 1)
+        XCTAssertTrue(births.allSatisfy { $0.durationFrames == 0 && $0.amplitude == 1 })
+        XCTAssertEqual(births.map(\.scheduledFrame), Array(0..<(orderCount - 1)))
         XCTAssertEqual(plan.plan?.diagnostics.traversalGuardHit, true)
         XCTAssertEqual(plan.plan?.diagnostics.traversalStopReason, .traversalGuardHit)
         XCTAssertEqual(plan.plan?.diagnostics.traversalPathLength, orderCount)

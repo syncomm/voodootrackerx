@@ -15247,6 +15247,548 @@
       "xm_output": "generated/new-source-onset.xm",
       "xm_sha256": "6b2db4f91bd5f1b75c9c15f63fe5006fc382b202afbb957ef5ee3971decbe69d",
       "xm_size_bytes": 1237
+    },
+    {
+      "id": "panning-slide-semantics",
+      "intended_tests": ["PanningSlideTests", "PanningSlideRuntimeTests"],
+      "module": {
+        "bpm": 125,
+        "channels": 4,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "Original G33 pulse",
+            "note_sample_map": [
+              {"end_note": 50, "sample": 1, "start_note": 50},
+              {"end_note": 51, "sample": 2, "start_note": 51}
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "Original pulse",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "pulse"},
+                "pcm_sha256": "f7d1e3755f6b048622384321f2ba80086d73db0b1a1ea7d2bf48e29dba17cff8",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "Original triangle",
+                "panning": 224,
+                "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "ca6a786f61898c464e7b96528294d5b21d03d044b1ef44b10f494ba9731a5cd2",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "Original saw",
+                "panning": 64,
+                "pcm_recipe": {"amplitude": 64, "frame_count": 0, "period_frames": 16, "waveform": "saw"},
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 2,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [0, 1, 1],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 128, "effect_type": 8, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 1, "effect_parameter": 128, "effect_type": 8, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 8, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 3, "effect_parameter": 255, "effect_type": 8, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 0, "effect_parameter": 1, "effect_type": 25, "note": 0, "row": 1},
+              {"channel": 1, "effect_parameter": 52, "effect_type": 25, "note": 0, "row": 1},
+              {"channel": 2, "effect_parameter": 16, "effect_type": 25, "note": 0, "row": 1, "volume_column": 209},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 25, "note": 0, "row": 1, "volume_column": 225},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 2},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 2},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 2},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 2},
+              {"channel": 0, "effect_parameter": 16, "effect_type": 25, "note": 0, "row": 3, "volume_column": 196},
+              {"channel": 1, "effect_parameter": 17, "effect_type": 25, "note": 0, "row": 3, "volume_column": 200},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "instrument": 1, "note": 0, "row": 3},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 25, "note": 50, "row": 3},
+              {"channel": 0, "effect_parameter": 64, "effect_type": 8, "note": 0, "row": 4, "volume_column": 207},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 25, "instrument": 1, "note": 49, "row": 4},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "instrument": 1, "note": 51, "row": 4},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 25, "note": 97, "row": 4},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 5},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 5},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 5},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 5},
+              {"channel": 0, "effect_parameter": 1, "effect_type": 25, "note": 0, "row": 6},
+              {"channel": 1, "effect_parameter": 52, "effect_type": 25, "note": 0, "row": 6},
+              {"channel": 2, "effect_parameter": 1, "effect_type": 25, "note": 0, "row": 6},
+              {"channel": 3, "effect_parameter": 1, "effect_type": 15, "note": 0, "row": 6},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 7},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 7},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 7},
+              {"channel": 3, "effect_parameter": 3, "effect_type": 15, "note": 0, "row": 7},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 8},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 8},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 49, "row": 8},
+              {"channel": 3, "effect_parameter": 6, "effect_type": 15, "note": 0, "row": 8},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 9, "volume_column": 208},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 9, "volume_column": 224},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 9},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 25, "instrument": 1, "note": 49, "row": 9}
+            ],
+            "rows": 12
+          },
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 0},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 0},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 0},
+              {"channel": 3, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 0}
+            ],
+            "rows": 2
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX PXY SEMANTICS",
+        "tracker_name": "VTX synthetic source"
+      },
+      "name": "panning-slide-semantics.xm",
+      "purpose": "G33 ordinary Pxy memory, writer order, effective speed and exact empty routing.",
+      "significant_rows": [
+        {
+          "pattern": 0,
+          "purpose": "Original source onset",
+          "row": 0
+        },
+        {
+          "pattern": 0,
+          "purpose": "Nonzero-tick panning movement",
+          "row": 1
+        }
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": ["G40 final pan law; fractional pan-envelope clocks; traversal extensions"],
+      "xm_output": "generated/panning-slide-semantics.xm",
+      "xm_sha256": "59fde328e02e91f8131415cb0533820ad3a92edd561c49875330b123539b47e5",
+      "xm_size_bytes": 1902
+    },
+    {
+      "id": "panning-slide-musical-study",
+      "intended_tests": ["PanningSlideTests", "PanningSlideRuntimeTests"],
+      "module": {
+        "bpm": 125,
+        "channels": 3,
+        "flags": 1,
+        "instruments": [
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "Original G33 triangle",
+            "note_sample_map": [
+              {"end_note": 50, "sample": 1, "start_note": 50},
+              {"end_note": 51, "sample": 2, "start_note": 51}
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "Original triangle",
+                "panning": 128,
+                "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "ca6a786f61898c464e7b96528294d5b21d03d044b1ef44b10f494ba9731a5cd2",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "Original triangle",
+                "panning": 224,
+                "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "ca6a786f61898c464e7b96528294d5b21d03d044b1ef44b10f494ba9731a5cd2",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 32
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "Original saw",
+                "panning": 64,
+                "pcm_recipe": {"amplitude": 64, "frame_count": 0, "period_frames": 16, "waveform": "saw"},
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 2,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "Original G33 saw",
+            "note_sample_map": [
+              {"end_note": 50, "sample": 1, "start_note": 50},
+              {"end_note": 51, "sample": 2, "start_note": 51}
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "Original saw",
+                "panning": 64,
+                "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "saw"},
+                "pcm_sha256": "e1c0d56aeb0b9e80c7d18bcf349828f3902d06d3a489938d5b6d5c885ace6881",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 16
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "Original triangle",
+                "panning": 224,
+                "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "ca6a786f61898c464e7b96528294d5b21d03d044b1ef44b10f494ba9731a5cd2",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 16
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "Original saw",
+                "panning": 64,
+                "pcm_recipe": {"amplitude": 64, "frame_count": 0, "period_frames": 16, "waveform": "saw"},
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 2,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          },
+          {
+            "autovibrato": {
+              "depth": 0,
+              "rate": 0,
+              "sweep": 0,
+              "type": 0
+            },
+            "fadeout": 0,
+            "name": "Original G33 pulse",
+            "note_sample_map": [
+              {"end_note": 50, "sample": 1, "start_note": 50},
+              {"end_note": 51, "sample": 2, "start_note": 51}
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "samples": [
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "Original pulse",
+                "panning": 192,
+                "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "pulse"},
+                "pcm_sha256": "f7d1e3755f6b048622384321f2ba80086d73db0b1a1ea7d2bf48e29dba17cff8",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 12
+              },
+              {
+                "encoding": "signed_16_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 256,
+                  "mode": "forward",
+                  "start_frame": 0
+                },
+                "name": "Original triangle",
+                "panning": 224,
+                "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "triangle"},
+                "pcm_sha256": "ca6a786f61898c464e7b96528294d5b21d03d044b1ef44b10f494ba9731a5cd2",
+                "relative_note": 0,
+                "slot": 1,
+                "volume": 12
+              },
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "Original saw",
+                "panning": 64,
+                "pcm_recipe": {"amplitude": 64, "frame_count": 0, "period_frames": 16, "waveform": "saw"},
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "relative_note": 0,
+                "slot": 2,
+                "volume": 32
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [0],
+        "patterns": [
+          {
+            "events": [
+              {"channel": 0, "effect_parameter": 32, "effect_type": 25, "instrument": 1, "note": 49, "row": 0},
+              {"channel": 1, "instrument": 2, "note": 25, "row": 0},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 1},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 2},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 3},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 4},
+              {"channel": 1, "instrument": 2, "note": 25, "row": 4},
+              {"channel": 2, "effect_parameter": 1, "effect_type": 25, "instrument": 3, "note": 61, "row": 4},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 5},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 5},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 6},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 6},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 7},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 7},
+              {"channel": 0, "effect_parameter": 2, "effect_type": 25, "note": 56, "row": 8},
+              {"channel": 1, "instrument": 2, "note": 25, "row": 8},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 9},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 10},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 11},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 12},
+              {"channel": 1, "instrument": 2, "note": 25, "row": 12},
+              {"channel": 2, "effect_parameter": 1, "effect_type": 25, "instrument": 3, "note": 61, "row": 12},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 13},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 13},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 14},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 14},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 15},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 15},
+              {"channel": 0, "effect_parameter": 32, "effect_type": 25, "instrument": 1, "note": 46, "row": 16},
+              {"channel": 1, "instrument": 2, "note": 22, "row": 16},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 17},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 18},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 19},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 20},
+              {"channel": 1, "instrument": 2, "note": 22, "row": 20},
+              {"channel": 2, "effect_parameter": 16, "effect_type": 25, "instrument": 3, "note": 58, "row": 20},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 21},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 21},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 22},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 22},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 23},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 23},
+              {"channel": 0, "effect_parameter": 2, "effect_type": 25, "note": 53, "row": 24},
+              {"channel": 1, "instrument": 2, "note": 22, "row": 24},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 25},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 26},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 27},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 28},
+              {"channel": 1, "instrument": 2, "note": 22, "row": 28},
+              {"channel": 2, "effect_parameter": 16, "effect_type": 25, "instrument": 3, "note": 58, "row": 28},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 29},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 29},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 30},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 30},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 31},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 31},
+              {"channel": 0, "effect_parameter": 32, "effect_type": 25, "instrument": 1, "note": 54, "row": 32},
+              {"channel": 1, "instrument": 2, "note": 30, "row": 32},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 33},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 34},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 35},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 36},
+              {"channel": 1, "instrument": 2, "note": 30, "row": 36},
+              {"channel": 2, "effect_parameter": 1, "effect_type": 25, "instrument": 3, "note": 66, "row": 36},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 37},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 37},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 38},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 38},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 39},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 39},
+              {"channel": 0, "effect_parameter": 2, "effect_type": 25, "note": 61, "row": 40},
+              {"channel": 1, "instrument": 2, "note": 30, "row": 40},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 41},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 42},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 43},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 44},
+              {"channel": 1, "instrument": 2, "note": 30, "row": 44},
+              {"channel": 2, "effect_parameter": 1, "effect_type": 25, "instrument": 3, "note": 66, "row": 44},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 45},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 45},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 46},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 46},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 47},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 47},
+              {"channel": 0, "effect_parameter": 32, "effect_type": 25, "instrument": 1, "note": 56, "row": 48},
+              {"channel": 1, "instrument": 2, "note": 32, "row": 48},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 49},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 50},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 51},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 52},
+              {"channel": 1, "instrument": 2, "note": 32, "row": 52},
+              {"channel": 2, "effect_parameter": 16, "effect_type": 25, "instrument": 3, "note": 68, "row": 52},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 53},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 53},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 54},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 54},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 55},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 55},
+              {"channel": 0, "effect_parameter": 2, "effect_type": 25, "note": 63, "row": 56},
+              {"channel": 1, "instrument": 2, "note": 32, "row": 56},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 57},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 58},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 59},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 60},
+              {"channel": 1, "instrument": 2, "note": 32, "row": 60},
+              {"channel": 2, "effect_parameter": 16, "effect_type": 25, "instrument": 3, "note": 68, "row": 60},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 61},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 61},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 62},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 25, "note": 0, "row": 62},
+              {"channel": 0, "effect_parameter": 0, "effect_type": 12, "note": 0, "row": 63},
+              {"channel": 1, "effect_parameter": 0, "effect_type": 12, "note": 0, "row": 63},
+              {"channel": 2, "effect_parameter": 0, "effect_type": 12, "note": 0, "row": 63}
+            ],
+            "rows": 64
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX PAN MOTION",
+        "tracker_name": "VTX synthetic source"
+      },
+      "name": "panning-slide-musical-study.xm",
+      "purpose": "Original signed mathematical lead, bass and countervoice with audible G33 stereo motion.",
+      "significant_rows": [
+        {
+          "pattern": 0,
+          "purpose": "Original source onset",
+          "row": 0
+        },
+        {
+          "pattern": 0,
+          "purpose": "Nonzero-tick panning movement",
+          "row": 1
+        }
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": ["G40 final pan law; fractional pan-envelope clocks; traversal extensions"],
+      "xm_output": "generated/panning-slide-musical-study.xm",
+      "xm_sha256": "1e9bf24f1353e21b68f41e53025fd861dec039429e543182851a2286ba60f87b",
+      "xm_size_bytes": 4931
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

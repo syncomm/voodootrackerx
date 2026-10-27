@@ -6,6 +6,14 @@ remain intentionally deferred.
 
 ## Purpose
 
+`panning-slide-semantics.xm` is an original four-channel G33 control with distinct
+mathematical PCM, exact keymaps and empty S03. It covers whole-byte memory,
+column/P order, effective F01/F03/F06, reset/note-only/release and repeated orders.
+`panning-slide-musical-study.xm` supplies an original triangle lead, saw bass and
+pulse countervoice with opposing pan movement. Automated evidence and local
+before/after WAVs do not establish maintainer listening acceptance. G40, cold
+initialization and pan-clock quirks remain separate.
+
 `new-source-onset.xm` is an original 2.88-second, one-channel phrase with two
 distinct looped sample identities (mathematical pulse and saw PCM). Both start
 with a large nonzero sample. Exact keymap routing, note-only changes, ED1 and

@@ -358,7 +358,7 @@ extension PlaybackSongSyntheticAdapter {
         switch cell.effectType {
         case 0x00:
             return cell.effectParam != 0
-        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x15, 0x1B, 0x21:
+        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x15, 0x19, 0x1B, 0x21:
             return true
         default:
             return false
@@ -390,6 +390,9 @@ extension PlaybackSongSyntheticAdapter {
             return .applied
         case 0x08, 0x0C:
             return .applied
+        case 0x19:
+            return timingConfig.speed > 1 && (cell.effectParam != 0 || channelState.panningSlideMemory != 0)
+                ? .applied : .ignoredNoOp
         case 0x0A:
             return cell.effectParam == 0 && timingConfig.speed == 1 ? .ignoredNoOp : .applied
         case 0x0F:
@@ -496,6 +499,8 @@ extension PlaybackSongSyntheticAdapter {
             return "Kxx key off"
         case 0x15:
             return "Lxx set envelope position"
+        case 0x19:
+            return "Pxy panning slide"
         case 0x1B:
             return "Rxy multi retrigger"
         case 0x21:
@@ -580,7 +585,7 @@ extension PlaybackSongSyntheticAdapter {
             return false
         }
         switch cell.effectType {
-        case 0x07, 0x08, 0x0A, 0x0C:
+        case 0x07, 0x08, 0x0A, 0x0C, 0x19:
             return false
         case 0x0E where cell.effectParam >> 4 == 0x07:
             return false

@@ -64,6 +64,8 @@ ALL_FIXTURES = [
     "instrument-autovibrato-musical-study-linear.xm",
     "instrument-autovibrato-musical-study-amiga.xm",
     "new-source-onset.xm",
+    "panning-slide-semantics.xm",
+    "panning-slide-musical-study.xm",
 ]
 
 
@@ -718,6 +720,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "instrument-autovibrato-musical-study-linear.xm").resolve(),
                     (output_dir / "generated" / "instrument-autovibrato-musical-study-amiga.xm").resolve(),
                     (output_dir / "generated" / "new-source-onset.xm").resolve(),
+                    (output_dir / "generated" / "panning-slide-semantics.xm").resolve(),
+                    (output_dir / "generated" / "panning-slide-musical-study.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -763,6 +767,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/note-only-routing.xm",
                     "generated/noteoff-kxx-precedence.xm",
                     "generated/ordinary-trigger-tone-target-lifetime.xm",
+                    "generated/panning-slide-musical-study.xm",
+                    "generated/panning-slide-semantics.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/regular-portamento-memory-admission.xm",
@@ -874,6 +880,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/note-only-routing.xm",
                     "generated/noteoff-kxx-precedence.xm",
                     "generated/ordinary-trigger-tone-target-lifetime.xm",
+                    "generated/panning-slide-musical-study.xm",
+                    "generated/panning-slide-semantics.xm",
                     "generated/portamento-scaling-amiga.xm",
                     "generated/portamento-scaling-linear.xm",
                     "generated/regular-portamento-memory-admission.xm",
@@ -986,6 +994,8 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:instrument-autovibrato-musical-study-linear.xm": "generated/instrument-autovibrato-musical-study-linear.xm",
                     "xm:instrument-autovibrato-musical-study-amiga.xm": "generated/instrument-autovibrato-musical-study-amiga.xm",
                     "xm:new-source-onset.xm": "generated/new-source-onset.xm",
+                    "xm:panning-slide-semantics.xm": "generated/panning-slide-semantics.xm",
+                    "xm:panning-slide-musical-study.xm": "generated/panning-slide-musical-study.xm",
                     "xm:extreme-pitch-state-linear.xm": "generated/extreme-pitch-state-linear.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",

@@ -674,6 +674,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case keyOffWithoutEnvelope
     case ecxNoteCut
     case effect8xxSetPanning(value: Int)
+    case pxyPanningSlide(parameter: UInt8, panningBefore: Double)
     case axyVolumeSlide(up: Int, down: Int)
     case gxxSetGlobalVolume(value: Int)
     case gxxChannelTarget(globalVolume: Int, reason: String)
@@ -702,6 +703,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "ECx zero channel volume"
         case .effect8xxSetPanning:
             return "8xx set panning"
+        case .pxyPanningSlide:
+            return "Pxy panning slide"
         case .axyVolumeSlide:
             return "Axy volume slide"
         case .gxxSetGlobalVolume:

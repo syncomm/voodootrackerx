@@ -698,6 +698,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 }
             case .volumeColumn:
                 categories.append("volume_column_update")
+            case .pxyPanningSlide:
+                categories.append("pxy_panning_slide")
+                if update.effectMemoryReused { categories.append("effect_memory_reused") }
             case .instrumentDefaultVolume:
                 categories.append("instrument_default_volume_update")
             case .eaxFineVolumeSlideUp:

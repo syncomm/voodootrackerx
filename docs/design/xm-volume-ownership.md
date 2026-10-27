@@ -404,6 +404,23 @@ law agree per rate. Canonical CoreAudio delivery applies all 261 control events
 per rate with zero frame delta; capture/offline PCM error is below `1.91e-5`.
 Header/8xx and G08/G09 baseline controls remain byte-identical. Full Xcode passes.
 
+## G33 effect-column panning slide
+
+Pxy owns one zero-initialized channel byte. Only ticks `1..<effective speed`
+admit a nonzero byte or replay P00; speed 1 cannot seed or replace it. A nonzero
+high nibble moves right by that nibble and suppresses the low nibble; otherwise
+the low nibble moves left. Each stored-pan write clamps to `0...255` after the
+existing column writer's independent clamp. Notes, cached resets, release,
+completion and order changes retain memory; note-only retains pan as well.
+
+Typed P observations feed the existing G06/G07 stored-pan projection and single
+final-output path. Cold P00 creates no P publication; equal/clamped targets do
+not start another ramp or change the static conversion. Pan alone never refreshes
+a held Gxx/Hxy scalar. Source-less semantic writes create no physical source.
+`PanningSlideTests`, runtime controls, `panning-slide-semantics.xm` and the original
+musical study cover the bounded parent. Qualification/listening acceptance is
+pending; G40, cold 127.5 initialization and pan-clock quirks remain separate.
+
 ## Runtime, offline, and diagnostics
 
 `RuntimeCMixerAdapterEventPlan` and bounded/windowed offline rendering consume

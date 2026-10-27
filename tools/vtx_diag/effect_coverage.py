@@ -85,7 +85,7 @@ COMMAND_RECOMMENDATION_STATUSES = {
     "Hxy global volume slide": IMPLEMENTED_PARITY_WATCH_PRIORITY,
     "Kxx key off": IMPLEMENTED_PRIORITY,
     "Lxx set envelope position": IMPLEMENTED_PARITY_WATCH_PRIORITY,
-    "Pxy panning slide": DEFERRED_BY_DESIGN_PRIORITY,
+    "Pxy panning slide": IMPLEMENTED_PARITY_WATCH_PRIORITY,
     "Rxy multi retrigger": RXY_CLOSED_PRIORITY,
     "Txy tremor": DEFERRED_BY_DESIGN_PRIORITY,
     "Xxy extra fine portamento": IMPLEMENTED_PARITY_WATCH_PRIORITY,

@@ -306,6 +306,11 @@ host.
   closed bounded G30 contract. C DSP, onset,
   interpolation rounding and generic 32-frame ramps remain separate from G03
   song retirement.
+- G33 Pxy now uses the native adapter's ordered nonzero-tick pan writer and own
+  channel byte, feeding the existing G06/G07 and final-output path. Speed 1 does
+  not admit memory; pan-only commands preserve held global gain. Qualification
+  and maintainer musical listening remain pending; G40/cold/pan-clock boundaries
+  and legacy-engine cleanup remain separate.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

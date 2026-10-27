@@ -286,6 +286,19 @@ depth/rate zero restores a previously affected retained source once. Existing
 strict-before source history admits these requests alongside fine pitch before
 runtime/offline/window scheduling. Auto-only requests and introduced zero-birth
 holds receive IDs after existing events; original hold/writer IDs stay unchanged.
+G05 admission preserves this rule at native event construction. Let `P` be the
+existing prefix size, `L` the preexisting audible publication-slot count observed
+in the same generation fold, and `G` the automatic-request/introduced-hold capacity.
+The physical interval starts at `P + L`; its cursor advances only for accepted
+events. Current output ordinal `j` receives `P + j` below `L`, otherwise
+`P + j + G`, leaving that physical interval reserved. Output IDs remain strictly
+monotone, so the existing cold/runtime priority and source-order comparators
+preserve every action's order. Pruned or guarded-out slots may leave unused IDs.
+These plan-local keys are distinct from storage indices, source generations and
+request ordinals. No existing event is renumbered after construction, and the
+slot count never participates in musical target or source-lifetime decisions.
+Its one inline `Int` adds eight bytes per plan (current stride 1104), with no
+per-target storage or change to channel, request, event or C voice strides.
 The seven ordinary families and their order remain physical authority. Capture
 failure refuses new automatic row/tail work, preserving the already proven
 prefix and ordinary intents; existing capture-failure diagnostics remain visible.

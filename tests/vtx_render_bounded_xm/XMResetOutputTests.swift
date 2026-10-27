@@ -178,12 +178,12 @@ final class XMResetOutputTests: XCTestCase {
         XCTAssertEqual(output, [0, 0])
     }
 
-    func testNoEnvelopeResetRestoresReleasedOutputButNeutralResetPreservesGenericRamp() throws {
+    func testNoEnvelopeResetRestoresReleasedOutputButNeutralResetPreservesFinalRamp() throws {
         let neutral = fixture(commands: [1: cell(volume: 0x30, effect: 8, param: 192)], hasEnvelope: false)
         let config = MixerRenderConfig(sampleRate: 100)
         let request = PlaybackSongOfflineRenderRequest(song: neutral, config: config, rows: 8)
         let neutralPlan = prepared(neutral, rate: 100, frame: 24)
-        XCTAssertTrue(try XCTUnwrap(neutralPlan.xmAudibleTimeline?.updates).isEmpty)
+        XCTAssertFalse(try XCTUnwrap(neutralPlan.xmAudibleTimeline?.updates).contains { $0.scheduledFrame == 24 })
         XCTAssertEqual(PlaybackSongOfflineRenderer(preparedPlan: neutralPlan).render(request).block.interleavedPCM,
             PlaybackSongOfflineRenderer().render(request).block.interleavedPCM)
         for rate in [44_100.0, 48_000] {
@@ -197,9 +197,9 @@ final class XMResetOutputTests: XCTestCase {
             XCTAssertEqual(pcm[(n + d) * 2], 0.25)
             XCTAssertTrue(pcm[(n + d)...].suffix(100).allSatisfy { $0 == 0.25 })
             let changedPlan = prepared(neutral, rate: rate, frame: n / 2)
-            let publication = try XCTUnwrap(changedPlan.xmAudibleTimeline?.updates.first)
+            let publication = try XCTUnwrap(changedPlan.xmAudibleTimeline?.updates.first { $0.scheduledFrame == n / 2 })
             XCTAssertEqual(publication.scheduledFrame, n / 2)
-            XCTAssertEqual(publication.activation, .init(amplitude: 1, pan: 0))
+            XCTAssertNil(publication.activation)
             XCTAssertEqual(publication.amplitude, 0.5)
             let changedConfig = MixerRenderConfig(sampleRate: rate)
             let changedRequest = PlaybackSongOfflineRenderRequest(song: neutral, config: changedConfig, rows: 8)

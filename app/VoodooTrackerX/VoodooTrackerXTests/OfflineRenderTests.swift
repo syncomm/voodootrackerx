@@ -1230,7 +1230,9 @@ final class OfflineRenderTests: XCTestCase {
         let normal = renderer.render(request)
         let windowed = renderer.renderWindowed(request, windowRows: 1)
 
-        XCTAssertEqual(normal.block.interleavedPCM, [0, 0, 0])
+        // G05 publishes the retained source's old target at k=0, then reaches
+        // zero after the one-frame quick interval at this synthetic sample rate.
+        XCTAssertEqual(normal.block.interleavedPCM, [0, 1, 0])
         XCTAssertEqual(windowed.block, normal.block)
         XCTAssertEqual(windowed.diagnostics.noteCutEffects.first?.scheduledFrame, 1)
         XCTAssertEqual(windowed.windowedRenderSummary?.totalBoundaryContinuations, 2)

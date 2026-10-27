@@ -179,7 +179,8 @@ final class XMAudibleOutputTests: XCTestCase {
             let frame = Int(rate * 2.5 / 125) * 12
             XCTAssertEqual(Array(result.block.interleavedPCM[..<(frame * 2)]),
                 Array(baseline.block.interleavedPCM[..<(frame * 2)]))
-            XCTAssertEqual(result.plan.xmAudibleTimeline?.updates.first?.scheduledFrame, frame)
+            XCTAssertEqual(result.plan.xmAudibleTimeline?.updates.first?.scheduledFrame, 0)
+            XCTAssertNil(result.plan.xmAudibleTimeline?.updates.first?.activation)
             XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM,
                 result.block.interleavedPCM)
             XCTAssertEqual(Array(result.block.interleavedPCM[(frame * 2)..<(frame * 2 + 2)]),

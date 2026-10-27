@@ -400,22 +400,15 @@ final class XMPlanningHistoryIndexTests: XCTestCase {
             XCTAssertEqual(rowWork.entriesIndexed, rows * 4)
             XCTAssertEqual(rowWork.lookupCount, plan.pattern.events.count * 2)
             XCTAssertLessThan(rowWork.entriesVisited, rowWork.entriesIndexed * 8)
-            XCTAssertGreaterThan(voiceWork.lookupCount, 0)
-            XCTAssertEqual(voiceWork.lookupCount, plan.pattern.events.count)
-            XCTAssertLessThanOrEqual(voiceWork.entriesVisited, voiceWork.entriesIndexed)
+            XCTAssertEqual(voiceWork.lookupCount, 0) // Birth admission removes activation reconstruction.
+            XCTAssertEqual(voiceWork.entriesVisited, 0)
             XCTAssertEqual(rowWork.fallbackFullScanCount + voiceWork.fallbackFullScanCount, 0)
             if let previous { XCTAssertLessThan(rowWork.entriesVisited, previous.entriesVisited * 3) }
             previous = rowWork
-            let histories = Dictionary(grouping: plan.diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated),
-                by: { $0.activeEventIndex ?? -1 })
-            for update in plan.xmAudibleTimeline?.updates ?? [] where update.activation != nil {
-                XCTAssertEqual(update.activation, PlaybackSongOfflineRenderer.audibleActivationSeed(
-                    for: plan.pattern.events[update.eventIndex], eventIndex: update.eventIndex,
-                    voiceStateUpdates: plan.diagnostics.voiceStateUpdates, before: update.scheduledFrame))
-                XCTAssertEqual(update.activation, PlaybackSongOfflineRenderer.audibleActivationSeed(
-                    for: plan.pattern.events[update.eventIndex], eventIndex: update.eventIndex,
-                    voiceStateUpdates: histories[update.eventIndex] ?? [], before: update.scheduledFrame))
-            }
+            let targets = try XCTUnwrap(plan.xmAudibleTimeline?.updates)
+            XCTAssertTrue(targets.allSatisfy { $0.activation == nil })
+            XCTAssertEqual(targets.filter { $0.intent == "initial" && $0.durationFrames == 0 }.count,
+                plan.pattern.events.count)
         }
     }
 

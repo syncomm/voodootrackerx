@@ -2296,6 +2296,9 @@ VTXCMixerStatus vtx_c_mixer_render(
             }
 
             if (voice->output.enabled) {
+                // Round each managed contribution before adding it. Reused slots can
+                // reverse incoming/retiring voice order during an overlap of two sources.
+#pragma clang fp contract(off)
                 VTXCMixerOutputGains gains = vtx_c_mixer_output_value(voice->output);
                 mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index) * onset;
                 if (channel_count_size == 1) {

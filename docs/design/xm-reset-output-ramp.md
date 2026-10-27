@@ -50,6 +50,13 @@ additionally multiply the existing pan-law factors. Mono retains
 its established pan-independent amplitude. The pan-envelope factor changes only
 the target pan; it adds no C envelope clock or interpolation state.
 
+Managed C mixing rounds each voice's mono/L/R contribution to Float32 before
+adding it to the channel sum. Contraction is disabled only in that managed
+block, so an overlap of incoming and retiring sources sums the same two rounded
+terms when runtime slot reuse reverses their physical order relative to offline
+scheduling. Voice order, output interpolation and the generic gain/pan path
+retain their existing behavior; summation across more voices is still Float32.
+
 ### G02 new-source onset
 
 Every playable song/runtime source installation opts into the existing C mixer

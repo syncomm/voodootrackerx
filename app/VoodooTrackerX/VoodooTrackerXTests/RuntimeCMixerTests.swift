@@ -2,6 +2,135 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+/// G34 delivers semantic tremor only through generation-addressed final output.
+final class TremorRuntimeTests: XCTestCase {
+    func testTremorQuickTargetsKeepExactPCMFramesIDsAndCursorAtEveryBlockSize() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let song = fixture(linear: linear)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), tick = Int(rate / 50), quick = Int(rate * 0.005)
+            let targets = try XCTUnwrap(plan.xmAudibleTimeline?.updates)
+            XCTAssertEqual(targets.map(\.scheduledFrame), [0, 3*tick, 5*tick, 8*tick, 10*tick])
+            XCTAssertEqual(targets.map(\.amplitude), [0.75, 0, 0.75, 0, 0.75])
+            XCTAssertEqual(targets.map(\.durationFrames), [0, quick, quick, quick, quick])
+            XCTAssertEqual(plan.diagnostics.voiceStateUpdates.filter {
+                if case .txyTremor = $0.command { return true }; return false
+            }.count, 10)
+            XCTAssertFalse(runtime.events.contains { if case .gainPanUpdate = $0.action { return true }; return false })
+            XCTAssertEqual(Set(runtime.events.map(\.id)).count, runtime.events.count)
+            let config = MixerRenderConfig(sampleRate: rate), end = 18 * tick
+            let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan)
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: config, frames: end)
+            let expected = renderer.render(request).block.interleavedPCM
+            XCTAssertEqual(expected, renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM)
+            for block in [1, 17, 257, 4093] {
+                let core = makeCore(config)
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float](), frame = 0
+                for boundary in [1, 3*tick, 3*tick+1, 3*tick+quick/2, 3*tick+quick, 5*tick+1, end] {
+                    while frame < boundary {
+                        let count = min(block, boundary-frame)
+                        pcm.append(contentsOf: renderRuntimePCM(core, frames: count)); frame += count
+                    }
+                    let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                    XCTAssertTrue(voice.active)
+                    XCTAssertEqual(voice.samplePosition,
+                        (Double(frame) * plan.pattern.events[0].playbackStep).truncatingRemainder(dividingBy: 256), accuracy: 1e-9)
+                    XCTAssertEqual(voice.sampleStep, plan.pattern.events[0].playbackStep)
+                    XCTAssertEqual(voice.gain, 0.75) // T never enters the scalar control queue.
+                    XCTAssertNil(voice.gainRamp); XCTAssertNil(voice.panRamp)
+                    if boundary > 3*tick && boundary <= 3*tick+quick {
+                        let output = try XCTUnwrap(voice.audibleOutputState)
+                        XCTAssertEqual(output.durationFrames, quick)
+                        XCTAssertEqual(output.positionFrame, min(quick, boundary-3*tick))
+                        XCTAssertEqual(output.target, [0, 0, 0])
+                    }
+                }
+                XCTAssertEqual(pcm, expected)
+                let applied = core.drainAppliedAdapterEventDiagnostics()
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+                XCTAssertEqual(applied.map { $0.event.id }, ordered(runtime.events).filter { $0.scheduledFrame < end }.map(\.id))
+                XCTAssertEqual(applied.filter { if case .noteTrigger = $0.event.action { return true }; return false }.count, 1)
+            }
+        } }
+    }
+
+    func testLateTremorTargetCannotChangeReplacementOrReviveCompletedSource() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for finite in [false, true] {
+            let song = fixture(linear: linear, replacement: !finite, finite: finite)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), tick = Int(rate / 50), staleFrame = 6*tick+1
+            let config = MixerRenderConfig(sampleRate: rate), end = 18*tick
+            let expected = PlaybackSongOfflineRenderer(preparedPlan: plan)
+                .render(.init(song: song, config: config, frames: end)).block.interleavedPCM
+            let source = plan.diagnostics.eventMappings[0].source
+            let staleTarget = PlaybackXMAudibleUpdate(eventIndex: 0, channelIndex: 0, source: source,
+                tick: 0, scheduledFrame: staleFrame, bpm: 125, speed: 6, amplitude: 1, pan: -1,
+                durationFrames: Int(rate * 0.005), intent: "quick_volume")
+            let staleID = try XCTUnwrap(runtime.events.map(\.id).max()) + 1
+            let stale = RuntimeCMixerAdapterEvent(id: staleID, source: source, channelIndex: 0,
+                syntheticTick: 0, scheduledFrame: staleFrame, action: .audibleTargetUpdate(staleTarget),
+                categories: ["xm_audible_output_target", "authored_stale_tremor_witness"])
+            let events = runtime.events + [stale]
+            for block in [1, 17, 257, 4093] {
+                let core = makeCore(config)
+                core.configureAdapterEventScheduleForTesting(events, runtimeFrameOffset: 0)
+                var pcm = [Float](), frame = 0
+                while frame < end {
+                    let count = min(block, end-frame)
+                    pcm.append(contentsOf: renderRuntimePCM(core, frames: count)); frame += count
+                }
+                XCTAssertEqual(pcm, expected)
+                let applied = core.drainAppliedAdapterEventDiagnostics()
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+                XCTAssertEqual(applied.map { $0.event.id }, ordered(events).filter { $0.scheduledFrame < end }.map(\.id))
+                let rejected = try XCTUnwrap(applied.first { $0.event.id == staleID })
+                guard case let .playbackStateChange(_, accepted) = rejected.result else {
+                    XCTFail("Expected final-output application result"); continue
+                }
+                XCTAssertFalse(accepted)
+                if finite {
+                    XCTAssertNotEqual(core.adapterVoiceDiagnosticForTesting(eventIndex: 0)?.active, true)
+                    XCTAssertTrue(pcm.dropFirst(2*tick).allSatisfy { $0 == 0 })
+                } else {
+                    let current = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 1))
+                    XCTAssertTrue(current.active)
+                    XCTAssertEqual(current.sampleStep, plan.pattern.events[1].playbackStep)
+                    XCTAssertEqual(plan.diagnostics.eventMappings.last?.sampleIndex, 1)
+                }
+            }
+        } } }
+    }
+
+    private func makeCore(_ config: MixerRenderConfig) -> RuntimeCMixerRenderCore {
+        RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+            outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+    }
+
+    private func ordered(_ events: [RuntimeCMixerAdapterEvent]) -> [RuntimeCMixerAdapterEvent] {
+        RuntimeCMixerAdapterEventStorage(events: events).ordering.map { events[$0.eventIndex] }
+    }
+
+    private func fixture(linear: Bool, replacement: Bool = false, finite: Bool = false) -> PlaybackSong {
+        let samples = (0...1).map { sample in PlaybackSample(instrumentIndex: 1, sampleIndex: sample,
+            pcm: (0..<(finite ? 16 : 256)).map { frame in
+                Float((frame * (sample == 0 ? 37 : 61) + 29) % 127 - 63) / 256
+            }, volume: 0.75, panning: 128, relativeNote: 0, finetune: 0, baseSampleRate: 8363,
+            loopStart: 0, loopLength: finite ? 0 : 256, loopType: finite ? 0 : 1) }
+        var map = Array(repeating: 0, count: 96); map[49] = 1
+        let cells: [PlaybackCell] = [
+            .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 29, effectParam: 0x11),
+            .init(note: replacement ? 50 : 0, instrument: replacement ? 1 : 0,
+                volumeColumn: 0, effectType: 29, effectParam: replacement ? 0x21 : 0),
+            .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]
+        return PlaybackSong(title: "Original G34 runtime control", orders: [.init(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [0: .init(index: 0, rows: cells.enumerated().map {
+                .init(index: $0.offset, cells: [$0.element])
+            })], instrumentsByIndex: [1: .init(index: 1, samples: samples, noteSampleMap: map)],
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+    }
+}
+
 /// G33 uses the production scheduler and existing final-output state at every block size.
 final class PanningSlideRuntimeTests: XCTestCase {
     func testPxyKeepsExactFramesCursorAndOneOutputRampInBothModesAndRates() throws {

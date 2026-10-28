@@ -619,6 +619,7 @@ extension PlaybackSongSyntheticAdapter {
             return result
         }
         // A dispatched E9 calls triggerInstrument even when triggerNote has no source.
+        channelState.tremorPhase = 0
         channelState.rRetriggerCounter = 0
         guard let activeEventIndex = activeEventIndexBefore,
               let activeMappingIndex = activeMappingIndexBefore,

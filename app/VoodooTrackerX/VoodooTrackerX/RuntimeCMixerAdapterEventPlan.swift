@@ -674,6 +674,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             }
             var categories = ["gain_pan_update"]
             switch update.command {
+            case .txyTremor, .txyChannelTarget:
+                break // Final output alone owns physical T gain; pan remains independently deliverable.
             case .tremolo:
                 categories.append("tremolo_7xy")
                 if update.effectMemoryReused { categories.append("effect_memory_reused") }
@@ -1197,12 +1199,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
     }
 
     private static func changedGain(from update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic) -> Float? {
-        guard let before = update.gainBefore,
-              let after = update.gainAfter,
-              before != after else {
-            return nil
-        }
-        return after
+        update.physicalGainChange
     }
 
     private static func changedPan(from update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic) -> Float? {

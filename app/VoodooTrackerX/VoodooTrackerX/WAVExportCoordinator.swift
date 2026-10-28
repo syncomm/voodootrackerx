@@ -598,6 +598,7 @@ struct WAVExportCoordinator {
                     ))
                     try cancellationToken.checkCancellation()
                 }
+                try renderResult?.controlAdmission.requireSuccess()
             }
             try cancellationToken.checkCancellation()
             guard let renderResult else {
@@ -711,6 +712,10 @@ struct WAVExportCoordinator {
             try? fileManager.removeItem(at: finalTempURL)
             return .cancelled
         } catch let error as WAVExportPlanError {
+            try? fileManager.removeItem(at: rawTempURL)
+            try? fileManager.removeItem(at: finalTempURL)
+            return .failed(.renderFailed(errorMessage(from: error)))
+        } catch let error as OfflineControlFailure {
             try? fileManager.removeItem(at: rawTempURL)
             try? fileManager.removeItem(at: finalTempURL)
             return .failed(.renderFailed(errorMessage(from: error)))

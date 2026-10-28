@@ -666,6 +666,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateStatus: Equatable {
 }
 
 enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
+    case txyTremor(parameter: UInt8, memoryBefore: UInt8, phaseBefore: Int8, phaseAfter: Int8, baseVolume: Int)
+    case txyChannelTarget(globalVolume: Int)
     case tremolo(PlaybackSongSyntheticTremoloTick)
     case tremoloControl(value: Int)
     case volumeColumn(PlaybackSongSyntheticVolumeColumnCommand)
@@ -685,8 +687,14 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case effect5xyVolumeSlide(up: Int, down: Int)
     case effect6xyVolumeSlide(up: Int, down: Int)
 
+    var isTremorPublication: Bool {
+        switch self { case .txyTremor, .txyChannelTarget: return true; default: return false }
+    }
+
     var label: String {
         switch self {
+        case .txyTremor: return "Txy tremor"
+        case .txyChannelTarget: return "Txy channel-turn gain target"
         case .tremolo:
             return "7xy tremolo"
         case .tremoloControl:
@@ -748,6 +756,18 @@ enum PlaybackSongSyntheticGlobalVolumeSlideDirection: String, Equatable {
 }
 
 struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
+    func withTremorOrigin(globalVolume: Int) -> Self {
+        var result = self
+        result.command = .txyChannelTarget(globalVolume: globalVolume)
+        return result
+    }
+
+    /// T scalar factors belong solely to final-output delivery, including causal G/H refreshes.
+    var physicalGainChange: Float? {
+        guard !command.isTremorPublication, let before = gainBefore, let after = gainAfter, before != after else { return nil }
+        return after
+    }
+
     let source: PlaybackPosition
     let channelIndex: Int
     let syntheticRow: Int
@@ -756,7 +776,7 @@ struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
     let cellNote: UInt8
     let instrumentIndex: Int
     let commandSource: PlaybackSongSyntheticVoiceStateUpdateSource
-    let command: PlaybackSongSyntheticVoiceStateUpdateCommand
+    var command: PlaybackSongSyntheticVoiceStateUpdateCommand
     let rawVolumeColumn: UInt8?
     let effectType: UInt8?
     let effectParam: UInt8?

@@ -15,7 +15,7 @@ audible factor through this same final-output authority.
 
 | Stage | Authority and behavior |
 | --- | --- |
-| Tracker base/output volume | Base writes synchronize output; tremolo can change output independently. Both use `0...64`. |
+| Tracker base/output volume | Base writes synchronize output; tremolo and tremor can change output independently. Both use `0...64`. |
 | Planned scalar gain | The shared adapter consumes output volume once with global volume. The sample header initializes/restores base/output defaults, with no independent song multiplier (G01). |
 | Semantic envelope/fadeout | `PlaybackXMEnvelopeTimeline` publishes instantaneous state at canonical Fxx tick frames, separately from audible interpolation. |
 | Final output targets | `PlaybackXMAudibleTimeline` combines typed factor writes with volume/pan-envelope and release targets. `VTXCMixerOutputState` alone interpolates their final mono/L/R gains. |
@@ -52,7 +52,10 @@ publication slots during the existing generation fold, including slots pruned
 from sparse output. It supplies identity provenance only: targets, source
 ownership and DSP do not consume it. Output IDs remain monotone in source order;
 G32 requests and introduced holds retain their shipped IDs without translation
-or changes to the ordering comparators.
+or changes to the ordering comparators. This preservation is plan-local;
+[G34's comparison boundary](xm-final-pitch-publication.md#enabled-physical-materialization)
+allows genuine new T-driven metadata/publications to change construction counts
+and cross-implementation absolute numbers. No-T IDs, frames and PCM are unchanged.
 
 The target amplitude is `output/64 * global/64 * envelope * fadeout`; L/R
 additionally multiply the existing pan-law factors. Mono retains
@@ -282,6 +285,15 @@ on managed voices join the ordinary tick target; no effect handler, memory or
 clamp policy changes. Same-channel `Gxx` is visible immediately; a later-channel
 `Gxx` reaches an earlier channel's target on the next tick, matching the measured
 channel-turn ordering. The adapter's global semantic state is unchanged.
+
+G34 T publications change held output through this final mono/L/R authority
+alone, leaving base volume independent. Held output zero does not imply zero
+native scalar metadata. An instrument-only reset after T OFF restores the real
+scalar metadata through the ordinary default writer.
+If that metadata is zero, including a note-only source born while OFF, it
+changes from zero to the cached header default. A changed final target uses one
+quick transition over 220/240 frames at 44.1/48 kHz, preserving source/cursor;
+the metadata write creates no second scalar gain ramp or output multiplier.
 
 G08 ordinary `6x/7x` channel writes join the existing nonzero-tick target with
 its tick duration. They add no gain factor, quick-volume reset or second ramp;

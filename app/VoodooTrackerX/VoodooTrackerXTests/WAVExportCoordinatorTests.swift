@@ -1138,6 +1138,48 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertTrue(try exportTempFiles(in: directory).isEmpty)
     }
 
+    func testControlAdmissionFailurePreservesDestinationBeforeAndAfterStreamedWindow() throws {
+        let product = AudioExportRenderProfile.productWAVExport
+        let configuration = WAVExportConfiguration(productExportProfile: AudioExportRenderProfile(
+            scope: product.scope, sampleRate: product.sampleRate, channelCount: product.channelCount,
+            wavFormat: product.wavFormat, mixProfile: product.mixProfile, tailSeconds: 0,
+            windowRows: 130, autoHeadroomEnabled: product.autoHeadroomEnabled,
+            allowLongRender: product.allowLongRender, maximumFrameCount: product.maximumFrameCount
+        ))
+        for neutralRows in [0, 130] {
+            let directory = try temporaryDirectory()
+            let destination = directory.appendingPathComponent("admission-failure.wav")
+            let originalDestination = Data("Existing destination remains intact.".utf8)
+            try originalDestination.write(to: destination)
+            let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+                playbackSong: makeControlAdmissionFailureSong(neutralRows: neutralRows),
+                displayName: nil, isPlaybackActive: false
+            ), configuration: configuration)
+            let progressRecorder = TestWAVExportProgressRecorder()
+            let pipelineRecorder = TestWAVExportPipelineEventRecorder()
+
+            let completion = WAVExportCoordinator.export(
+                plan: plan, to: destination,
+                progress: { progressRecorder.append($0) },
+                pipelineEvents: { pipelineRecorder.append($0) }
+            )
+
+            guard case let .failed(.renderFailed(message)) = completion else {
+                return XCTFail("Expected real control-admission render failure, got \(completion)")
+            }
+            XCTAssertTrue(message.contains(OfflineControlFailure.Reason.stateQueueCapacity.rawValue))
+            XCTAssertEqual(try Data(contentsOf: destination), originalDestination)
+            XCTAssertTrue(try exportTempFiles(in: directory).isEmpty)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), [destination.lastPathComponent])
+            let writtenWindows = progressRecorder.events.filter { $0.stage == .rendering }.map(\.completedWindows).max() ?? 0
+            XCTAssertEqual(writtenWindows, neutralRows == 0 ? 0 : 1)
+            XCTAssertFalse(progressRecorder.events.contains {
+                $0.stage == .applyingHeadroom || $0.stage == .writingFile || $0.stage == .completed
+            })
+            XCTAssertFalse(pipelineRecorder.events.contains(.headroomPostProcessStarted))
+        }
+    }
+
     func testHeadroomPostProcessFailureRemovesTemporaryOutputs() throws {
         let directory = try temporaryDirectory()
         let destination = directory.appendingPathComponent("postprocess-failure.wav")
@@ -1192,6 +1234,43 @@ final class WAVExportCoordinatorTests: XCTestCase {
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+    }
+
+    /// Original source/reset cells saturate one explicitly requested window without adding voices.
+    private func makeControlAdmissionFailureSong(neutralRows: Int) -> PlaybackSong {
+        let rowCount = neutralRows + 130
+        let sample = PlaybackSample(
+            instrumentIndex: 1, sampleIndex: 0,
+            pcm: (0..<256).map { Float($0 - 128) / 512 }, volume: 0.75,
+            panning: 128, relativeNote: 0, finetune: 0, baseSampleRate: 8_363,
+            loopStart: 0, loopLength: 256, loopType: 1
+        )
+        let rows = (0..<rowCount).map { row in
+            (0..<32).map { _ in
+                let tremor = row >= neutralRows
+                return PlaybackCell(
+                    note: row == 0 ? 49 : 0, instrument: row == 0 || tremor ? 1 : 0,
+                    volumeColumn: 0, effectType: tremor ? 29 : 0, effectParam: 0
+                )
+            }
+        }
+        let patternCount = (rowCount + 127) / 128
+        let patterns = Dictionary(uniqueKeysWithValues: (0..<patternCount).map { pattern in
+            let start = pattern * 128, end = min(rowCount, start + 128)
+            return (pattern, PlaybackPattern(index: pattern, rows: (start..<end).map {
+                PlaybackRow(index: $0 - start, cells: rows[$0])
+            }))
+        })
+        return PlaybackSong(
+            title: "Original offline control admission failure",
+            orders: (0..<patternCount).map { PlaybackOrderEntry(orderIndex: $0, patternIndex: $0) },
+            patternsByIndex: patterns,
+            instrumentsByIndex: [1: PlaybackInstrument(
+                index: 1, samples: [sample], volumeEnvelope: .disabled, panningEnvelope: .disabled,
+                noteSampleMap: Array(repeating: 0, count: 96)
+            )], restartOrderIndex: 0, endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250), usesLinearFrequencyTable: true
         )
     }
 

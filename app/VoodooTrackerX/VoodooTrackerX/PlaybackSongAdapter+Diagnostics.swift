@@ -585,7 +585,7 @@ extension PlaybackSongSyntheticAdapter {
             return false
         }
         switch cell.effectType {
-        case 0x07, 0x08, 0x0A, 0x0C, 0x19:
+        case 0x07, 0x08, 0x0A, 0x0C, 0x19, 0x1D:
             return false
         case 0x0E where cell.effectParam >> 4 == 0x07:
             return false

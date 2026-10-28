@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 @testable import VoodooTrackerXPlaybackSupport
 import XCTest
@@ -138,17 +139,56 @@ final class OfflineControlAdmissionTests: XCTestCase {
     }
 
     func testStagingBudgetAndCheckedArithmeticFailBeforeAllocatingOrRendering() throws {
-        let limit = OfflineControlAdmission.byteLimit / MemoryLayout<OfflineControlKey>.stride
+        let byteLimit = OfflineControlAdmission.byteLimit
+        XCTAssertEqual(byteLimit, 8 * 1024 * 1024)
+        let keyStride = MemoryLayout<OfflineControlKey>.stride
+        let limit = byteLimit / keyStride
         for count in [limit + 1, Int.max, -1] {
             let admission = OfflineControlAdmission(stagingCount: count)
             XCTAssertEqual(admission.snapshot.failure?.reason, .controlStagingBudgetExceeded)
             XCTAssertEqual(admission.snapshot.allocatedBytes, 0)
             XCTAssertThrowsError(try admission.snapshot.requireSuccess())
         }
+
+        let positiveCount = limit / 2, positiveBytes = positiveCount * keyStride
+        XCTAssertGreaterThan(positiveCount, 0)
+        XCTAssertLessThanOrEqual(malloc_good_size(positiveBytes), byteLimit)
+        let positive = OfflineControlAdmission(stagingCount: positiveCount)
+        try positive.snapshot.requireSuccess()
+        XCTAssertGreaterThan(positive.snapshot.allocatedBytes, 0)
+        XCTAssertGreaterThanOrEqual(positive.snapshot.allocatedBytes, positiveBytes)
+        XCTAssertLessThanOrEqual(positive.snapshot.allocatedBytes, byteLimit)
+
+        let (requestedBytes, overflow) = limit.multipliedReportingOverflow(by: keyStride)
+        XCTAssertFalse(overflow)
+        XCTAssertLessThanOrEqual(requestedBytes, byteLimit)
+        let goodSize = malloc_good_size(requestedBytes)
         let maximum = OfflineControlAdmission(stagingCount: limit)
-        try maximum.snapshot.requireSuccess()
-        XCTAssertLessThanOrEqual(maximum.snapshot.allocatedBytes, 8 * 1024 * 1024)
-        XCTAssertEqual(maximum.snapshot.sortScratchBytes, 0)
+        let boundary = maximum.snapshot
+        XCTAssertTrue(boundary.usedSlowPath)
+        XCTAssertEqual(boundary.stagedKeyCount, limit)
+        XCTAssertEqual(boundary.accepted, 0)
+        XCTAssertEqual(boundary.cancelled, 0)
+        XCTAssertEqual(boundary.rejected, 0)
+        XCTAssertEqual(boundary.sortScratchBytes, 0)
+        // Exact-request admission can vary with allocator backing; the actual-byte ceiling cannot.
+        if goodSize > byteLimit {
+            XCTAssertEqual(boundary.failure?.reason, .controlStagingBudgetExceeded)
+        }
+        if let failure = boundary.failure {
+            let expected = OfflineControlFailure(reason: .controlStagingBudgetExceeded, key: nil, voice: nil, frameOrigin: 0)
+            XCTAssertEqual(failure, expected)
+            XCTAssertEqual(boundary.allocatedBytes, 0)
+            XCTAssertEqual(boundary.intended, limit)
+            XCTAssertThrowsError(try boundary.requireSuccess()) { error in
+                XCTAssertEqual(error as? OfflineControlFailure, expected)
+            }
+        } else {
+            try boundary.requireSuccess()
+            XCTAssertGreaterThanOrEqual(boundary.allocatedBytes, requestedBytes)
+            XCTAssertLessThanOrEqual(boundary.allocatedBytes, byteLimit)
+            XCTAssertEqual(boundary.intended, 0)
+        }
         let (song, plan) = resetPlan(count: limit + 1, frame: { $0 / 100 + 1 })
         let request = AdmissionInputs.request(song, rate: 48_000, frames: (limit + 1) / 100 + 2)
         let session = R(preparedPlan: plan).prepare(request)

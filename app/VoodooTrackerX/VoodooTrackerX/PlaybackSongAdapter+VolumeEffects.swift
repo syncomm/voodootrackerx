@@ -305,6 +305,7 @@ extension PlaybackSongSyntheticAdapter {
     static func resetTremoloTriggerPhases(state: inout ChannelState) {
         // triggerInstrument resets the R counter, independently of its nibble memories.
         state.rRetriggerCounter = 0
+        state.tremorPhase = 0
         if state.tremolo.control & 4 == 0 { state.tremolo.phase = 0 }
         if state.tremoloVibratoControl & 4 == 0 { state.tremoloVibratoPhase = 0 }
         // The same existing instrument-trigger gate owns pitch-phase resets.
@@ -358,6 +359,41 @@ extension PlaybackSongSyntheticAdapter {
                 effectMemoryReused: speed == 0 || depth == 0,
                 activeVoiceUpdatedOverride: state.activeEventIndex != nil && state.activeSampleVolume != nil
             ))
+        }
+        return updates
+    }
+
+    /// Advances the logical channel only on actual T invocations; output is a held writer, not a gate.
+    static func applyTremor(cell: PlaybackCell, columnSlide: PlaybackSongSyntheticVolumeColumnDiagnostic?,
+        source: PlaybackPosition, channelIndex: Int, syntheticRow: Int, rowSpeed: Int,
+        timingPlan: PlaybackSongFxxTimingPlan, state: inout ChannelState, globalVolume: Int
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
+        for tick in 1..<max(1, rowSpeed) {
+            updates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell, source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
+                timingPlan: timingPlan, state: &state, globalVolume: globalVolume))
+            let before = state
+            if cell.effectParam != 0 { state.tremorMemory = cell.effectParam }
+            // Signed intervals include their current invocation. A byte replacement only
+            // changes the next reload, so the unfinished interval keeps its duration.
+            switch state.tremorPhase {
+            case 2...16: state.tremorPhase -= 1
+            case 1: state.tremorPhase = -Int8((state.tremorMemory & 15) + 1)
+            case -16 ... -2: state.tremorPhase += 1
+            default: state.tremorPhase = Int8((state.tremorMemory >> 4) + 1)
+            }
+            state.outputChannelVolume = state.tremorPhase > 0 ? state.baseChannelVolume : 0
+            updates.append(voiceStateUpdateDiagnostic(source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, syntheticTick: tick, scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                cell: cell, commandSource: .effectColumn,
+                command: .txyTremor(parameter: state.tremorMemory, memoryBefore: before.tremorMemory,
+                    phaseBefore: before.tremorPhase, phaseAfter: state.tremorPhase, baseVolume: state.baseChannelVolume),
+                rawVolumeColumn: nil, effectType: cell.effectType, effectParam: cell.effectParam,
+                status: .applied, behavior: .tickLevelAfterTick0, channelStateBefore: before, channelStateAfter: state,
+                globalVolumeBefore: globalVolume, globalVolumeAfter: globalVolume,
+                effectMemoryReused: cell.effectParam == 0 && before.tremorMemory != 0,
+                activeVoiceUpdatedOverride: state.activeEventIndex != nil && state.activeSampleVolume != nil))
         }
         return updates
     }
@@ -1203,6 +1239,7 @@ extension PlaybackSongSyntheticAdapter {
                     let channel = rowControl.channelIndex
                     var outputVolume = controls[projectionIndex].outputVolume
                     var localVolumePublication = false
+                    var tremorPublication = false
                     for ordinal in turns[channel] ?? [] {
                         let update = original[ordinal]
                         switch update.command {
@@ -1212,6 +1249,7 @@ extension PlaybackSongSyntheticAdapter {
                             if update.applied, isVolumePublicationWriter(update.command) {
                                 if let output = update.effectiveVolumeAfter { outputVolume = output }
                                 localVolumePublication = true
+                                tremorPublication = update.command.isTremorPublication
                             }
                         }
                         var retained = update
@@ -1236,6 +1274,7 @@ extension PlaybackSongSyntheticAdapter {
                         frame: frame, state: state, globalVolume: visibleGlobal,
                         gxxReason: affected.contains(event) ? nil : hasG ? "global_volume_set" :
                             localVolumePublication ? "local_volume_writer" : "envelope_or_release_tick")
+                    if tremorPublication { target = target.withTremorOrigin(globalVolume: visibleGlobal) }
                     target.gainBefore = heldGains[event] ?? context.events[event].gain
                     heldGains[event] = target.gainAfter
                     result.append(target)
@@ -1267,7 +1306,7 @@ extension PlaybackSongSyntheticAdapter {
     private static func isVolumePublicationWriter(_ command: PlaybackSongSyntheticVoiceStateUpdateCommand) -> Bool {
         switch command {
         case .instrumentDefaultVolume, .cxxSetVolume, .keyOffWithoutEnvelope, .ecxNoteCut, .axyVolumeSlide,
-             .eaxFineVolumeSlideUp, .ebxFineVolumeSlideDown, .effect5xyVolumeSlide, .effect6xyVolumeSlide, .tremolo:
+             .eaxFineVolumeSlideUp, .ebxFineVolumeSlideDown, .effect5xyVolumeSlide, .effect6xyVolumeSlide, .tremolo, .txyTremor:
             return true
         case let .volumeColumn(column):
             switch column {

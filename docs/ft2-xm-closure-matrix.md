@@ -129,7 +129,7 @@ the audible-factor closure does not resolve or justify them.
 | Cold volume before a nonzero first point | KNOWN-REFERENCE-DIFFERENCE | VTX emits the first value while the pinned reference starts at zero. | Public numeric control starts at tick 3/value 48; ticks 0...2 remain VTX `48/64` versus reference zero. | S; separate initialization/admission question |
 | G32 instrument autovibrato | CLOSED, bounded VTX composition policy | Independent instrument phase/sweep composes after ordered native effects, including folded births and blank-tick physical delivery. | Public numeric/publication/runtime controls cover approved VTX policies in both modes/rates; [arithmetic and intentional reference differences](design/xm-final-pitch-publication.md). | Maintainer-accepted closure; issue #488 is closed. Intentional reference differences remain explicit; G02/G03 are separate. |
 | G33 Pxy | IMPLEMENTED; QUALIFICATION-PENDING | Nonzero-tick stored-pan movement with own whole-byte memory and existing final-output delivery. | [PanningSlideTests](../tests/vtx_render_bounded_xm/PanningSlideTests.swift), runtime controls and original public fixtures pin priority, speed-1 admission, ordered column/P clamps, silent carry, G06/G07 projection and held-global non-refresh. G33A pinned-source/reference characterization supports the bounded contract; manager qualification and musical listening acceptance remain pending. | S, O, M reused; G40/cold/pan-clock boundaries unchanged |
-| G34 Txy | MISSING-PARENT | Missing alternating audible/silent intervals. | Z; T11 control; pinned source confirms own whole-byte T00 replay. Counter/phase, cold state, trigger carry and channel-volume writer precedence still need characterization. | S, O, M |
+| G34 Txy | IMPLEMENTED; LISTENING/PR-REVIEW-PENDING | Nonzero-tick alternating held output uses the shared quick final mono/L/R target, preserving base volume and source cursor. | [TremorTests](../tests/vtx_render_bounded_xm/TremorTests.swift), runtime controls and [offline admission tests](../tests/vtx_render_bounded_xm/OfflineControlAdmissionTests.swift) pin whole-byte T00 replay, signed durations, Fxx, reset/source carry and writer precedence in both modes/rates. Gregory listening and PR review remain pending. | S, O, M reused; G05/G32 boundaries preserved |
 | G35 EEx | MISSING-TIMING | High structural impact: row duration and every following event can diverge. | Z; EE1 control; recognized hazard currently has no traversal implementation. | T; tick replay rules |
 | G36 E3x glissando | MISSING-PARENT | Tone-portamento output lacks reference quantization. | Z; E31 control plus pinned handler; audible target grid still needs a focused oracle. | F, M; tone target exists |
 | G37 E6x implicit initial loop start | MISSING-TIMING | High structural impact: omitted repetition changes following song timing. | Z; E61 without E60 yields FT2 rows 0,1,2,0,1,2,3 vs VTX 0,1,2,3 / missing-loop-start diagnostic. | T |
@@ -170,7 +170,7 @@ Temporary controls are evidence, not newly committed regression tests.
 | G31 | CLOSED above; one volume-only Q8 policy in existing direct/carried S/O factors. | Signed nongrid slopes, endpoints, carry/clamps, sustain/release and both-rate delivery are pinned. | No state growth, extra pass or C change; volume-Lxx/cold initialization and pan/G40 remain separate. |
 | G32 | CLOSED, bounded VTX policy; reuses period update path with independent instrument phase/sweep state. | Approved waveform, bounded sweep, release/reset and note-only controls; intentional reference differences remain explicit. | Medium: planned state and independent effect-vibrato ownership. |
 | G33 | Existing pan/tick writer with channel memory. | High for absent parent, bounded quirks; nonzero ticks, P00/mixed nibbles and PE interaction. | Low/medium: pan writer precedence. |
-| G34 | Existing O volume factor, new tremor counter/memory. | High for absent parent, bounded counter rules; T00, trigger carry, envelope/volume writers. | Medium: independent output mute versus base-volume mutation. |
+| G34 | Implemented counter/memory through the existing O final-output authority. | High for bounded T00 replay, signed phase, Fxx, trigger carry and envelope/volume writers; listening/PR review pending. | Medium: independent output mute versus base-volume mutation. |
 | G35 | Reuses T but affects every later planned event. | High for missing delay, bounded interactions; EE × Fxx/B/D/E6 and multi-channel cases. | Medium/high: traversal/tick replay; no callback rewrite. |
 | G36 | Reuses tone target/F; isolate glissando output quantization. | Bounded; Linear/Amiga semitone crossing and E30 disable. | Low/medium: quantization must not mutate continuous base target. |
 | G37 | Existing loop state; add reference initial-start contract. | High; E61 without E60, channels, pattern boundaries and window equivalence. | Medium: traversal expansion/guards. |
@@ -326,9 +326,10 @@ label nor an aggregate audio correlation proves a difference inaudible.
 | OpenMPT/ModPlug X5/X6/X9/XA and Y/Z extensions | NOT-V1 | Outside original FT2 target; zero stored cases in this population. Classification grants no playback support. Adding them requires a separate compatibility decision. |
 | Vxx/Wxx diagnostic unknowns | NOT-V1 | Classification-only, unused/dummy in pinned FT2. Zero stored cases in this audit population; historical diagnostics do not establish an FT2 effect or prove these bytes are extensions. |
 
-G33 Pxy is implemented with qualification/listening pending. Txy, E3x, EEx,
-missing Amiga paths and missing memory are **currently
-deferred implementation**, not automatically NOT-V1. No new product exclusion
+G33 Pxy is implemented with qualification/listening pending. Txy is implemented
+with Gregory listening and PR review pending. E3x, EEx, missing Amiga paths and
+missing memory are **currently deferred implementation**, not automatically
+NOT-V1. No new product exclusion
 is adopted by this audit. Bounded export's finite one-pass/end/loop-guard policy
 is distinct from reference indefinite replay; document and test that boundary
 without ignoring supported in-song traversal. Editable Amiga admission and RT

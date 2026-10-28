@@ -303,6 +303,15 @@ The seven ordinary families and their order remain physical authority. Capture
 failure refuses new automatic row/tail work, preserving the already proven
 prefix and ordinary intents; existing capture-failure diagnostics remain visible.
 
+G34 clarifies the comparison boundary: numeric IDs are plan-local. Newly
+supported T behavior can create genuine ordinary-family reset metadata and
+audible publication slots, changing `P`, `L` and absolute numbers across
+implementations. It does not renumber an already constructed event. Matching
+candidate plans preserve source generations, G32 pitch-request tuples, frames,
+IDs, priority and delivery order; G34 leaves no-T physical IDs, frames and PCM
+byte-identical. The accepted G05/G32 allocation and ordering rules above remain
+unchanged.
+
 The immutable causal carrier is 32 bytes. Its Array reference and the introduced-hold
 provenance Set change plan stride from 1080 to 1096 bytes. ChannelState remains 1152, native records 48,
 reset runs 24 and clock anchors 48 bytes. Bounds are 32-byte cached values,

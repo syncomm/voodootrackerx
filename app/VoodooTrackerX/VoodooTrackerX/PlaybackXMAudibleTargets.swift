@@ -181,6 +181,7 @@ struct PlaybackXMAudibleTimeline: Equatable {
                     if let after = write.panAfter, write.panBefore != after { pan = after }
                     if write.scheduledFrame == frame {
                         switch write.command {
+                        case .txyTremor, .txyChannelTarget: quickVolume = true
                         case .ecxNoteCut: quickVolume = true; noteCut = true
                         case .cxxSetVolume, .keyOffWithoutEnvelope, .volumeColumn(.setVolume): quickVolume = true
                         case .instrumentDefaultVolume where write.cellNote == 0: quickVolume = true

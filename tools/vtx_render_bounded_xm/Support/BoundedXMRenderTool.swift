@@ -714,6 +714,7 @@ struct RenderTool {
         }
         if arguments.progress {
             let result = renderWithProgress(request, renderer: renderer, arguments: arguments)
+            try result.controlAdmission.requireSuccess()
             emitProgress(renderCompletedProgressLine(for: result, startedAt: startedAt), arguments: arguments)
             emitProgress(wavWritingProgressLine(arguments: arguments), arguments: arguments)
             let exportPolicy = arguments.exportPolicy(for: result.block)
@@ -727,6 +728,7 @@ struct RenderTool {
             return result.replacingExportDiagnostics(diagnostics)
         }
         let result = renderer.render(request)
+        try result.controlAdmission.requireSuccess()
         let exportPolicy = arguments.exportPolicy(for: result.block)
         let diagnostics = try MixerWAVExporter.writeWAV(
             from: result.block,
@@ -753,6 +755,7 @@ struct RenderTool {
                 arguments: arguments
             )
         }
+        try result.controlAdmission.requireSuccess()
         emitProgress(wavWritingProgressLine(arguments: arguments), arguments: arguments)
         let exportPolicy = arguments.exportPolicy(for: result.block)
         let diagnostics = try MixerWAVExporter.writeWAV(
@@ -780,7 +783,7 @@ struct RenderTool {
         while completedFrames < totalFrames {
             let requestedFrames = min(chunkSize, totalFrames - completedFrames)
             let chunk = session.render(frames: requestedFrames)
-            guard chunk.frameCount > 0 else {
+            guard session.controlAdmission.failure == nil, chunk.frameCount > 0 else {
                 break
             }
             completedFrames += chunk.frameCount
@@ -793,11 +796,12 @@ struct RenderTool {
             interleavedPCM: interleavedPCM
         )
         return PlaybackSongOfflineRenderResult(
-            request: session.request.replacingFrameCount(completedFrames),
+            request: session.request,
             plan: session.plan,
             block: block,
             scheduledVoiceIndices: session.scheduledVoiceIndices,
-            scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons
+            scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons,
+            controlAdmission: session.controlAdmission
         )
     }
 
@@ -5027,6 +5031,13 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return ["name": "key_off_without_envelope", "label": command.label]
         case .ecxNoteCut:
             return ["name": "ecxNoteCut", "label": command.label, "value": 0]
+        case let .txyTremor(parameter, memory, before, after, base):
+            return ["name": "txyTremor", "label": command.label, "resolved_parameter": Int(parameter),
+                "memory_before": Int(memory), "phase_before": Int(before), "phase_after": Int(after),
+                "base_volume": base, "quick_volume": true, "final_output_only": true]
+        case let .txyChannelTarget(global):
+            return ["name": "txyChannelTarget", "label": command.label, "visible_global_volume": global,
+                "quick_volume": true, "final_output_only": true]
         case let .tremolo(tick):
             return [
                 "name": "tremolo", "label": command.label,
@@ -5101,6 +5112,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         _ command: PlaybackSongSyntheticVoiceStateUpdateCommand
     ) -> String {
         switch command {
+        case .txyTremor: return "txyTremor"
+        case .txyChannelTarget: return "txyChannelTarget"
         case .tremolo:
             return "tremolo"
         case .tremoloControl:

@@ -769,10 +769,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
             initialTiming: PlaybackTiming(speed: 4, bpm: 125)
         )
+        // Use an unimplemented opcode for ignored-effect isolation.
         let volumeAndEffectSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
-                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x20, effectType: 0x1D, effectParam: 0x43)]
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x20, effectType: 0x22, effectParam: 0x43)]
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
             initialTiming: PlaybackTiming(speed: 4, bpm: 125)
@@ -4872,7 +4873,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         )
         let otherEffectSong = makePlaybackSong(
             orderPatternIndices: [2],
-            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x1D, effectParam: 0x42)]],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x22, effectParam: 0x42)]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
         )
         let renderer = PlaybackSongOfflineRenderer()
@@ -4886,7 +4887,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(mapping.sampleOffset.status, .notPresent)
         XCTAssertTrue(mapping.hasIgnoredEffect)
         XCTAssertEqual(other.diagnostics.deferredCellFields.map(\.field), [.effect])
-        XCTAssertEqual(other.diagnostics.deferredCellFields.first?.effectType, 0x1D)
+        XCTAssertEqual(other.diagnostics.deferredCellFields.first?.effectType, 0x22)
     }
 
     func testPlaybackSongAdapterSampleOffset9xxSplitResetAndWAVExportRemainDeterministic() throws {

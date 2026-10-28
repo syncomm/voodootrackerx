@@ -143,6 +143,8 @@ enum PlaybackSongSyntheticAdapter {
         var triggeredSampleDefaultPan: UInt8 = 128
         var keyOffWithoutVoice = false
         var volumeValueZeroedByAxy = false
+        var tremorMemory: UInt8 = 0
+        var tremorPhase: Int8 = 0 // Signed calls remaining, including the last invocation; zero is ready.
         var panningValue = 127.5
         var pan: Float = 0
         var activeEventIndex: Int?
@@ -2881,7 +2883,12 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = state
                 continue
             }
-            if cell.effectType == 0x19 {
+            if cell.effectType == 0x1D {
+                context.voiceStateUpdates.append(contentsOf: applyTremor(
+                    cell: cell, columnSlide: columnSlide, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, rowSpeed: timingConfig.speed, timingPlan: timingPlan,
+                    state: &context.channelStates[channelIndex], globalVolume: context.globalVolumeState.volumeValue))
+            } else if cell.effectType == 0x19 {
                 context.voiceStateUpdates.append(contentsOf: applyPxyPanningSlide(
                     cell: cell, columnSlide: columnSlide, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, rowSpeed: timingConfig.speed, timingPlan: timingPlan,

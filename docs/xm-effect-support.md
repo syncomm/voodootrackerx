@@ -198,7 +198,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `E3x` | Glissando control | Deferred | Open | Special; persistent enable/disable control | Not applicable | Genuine FT2 v1 target G36, separate from inert E0/E8/EF. Linear/Amiga tone-output quantization still needs a focused oracle. |
 | `E4x` | Vibrato control | Implemented | Closed | Special; persistent control for `4xy`/`6xy` | Not applicable | All 16 controls: sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 ignored. Bounded control contract only. |
 | `E5x` | Set finetune | Implemented | Partial; G29 in-range Amiga trigger closed | None; no-note form inert | Both | Ordinary exact mapped note trigger uses `16 * nibble - 128` instead of header finetune, preserving relative note, defaults/reset and latent tone target/direction/speed. No-note E5 does not retune current/later sources. Amiga reports inert; the Linear legacy no-note diagnostic is unchanged. G30B supplies ordinary admission below. |
-| `E6x` | Pattern loop | Implemented | Partial | Special; channel loop start/counter | Not applicable | Explicit E60 start exists. Implicit initial loop start missing (G37); B/D/E6 ordering remains G38. |
+| `E6x` | Pattern loop | Implemented | Partial | Special; channel loop start/counter | Not applicable | G37A initial-state fallback is implemented/qualified: use row-array index zero only before that channel's first executed E60 since playback start. Existing local explicit anchors/counters remain unchanged. Inherited anchors and next-pattern entry remain OPEN for G38. |
 | `E7x` | Tremolo control | Implemented | Closed | Special; persistent control independent of E4 | Not applicable | All nibble aliases and phase-reset suppression are supported; ramp retains FT2's vibrato-phase sign quirk. Full `7xy` audio remains G39. |
 | `E8x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; current no-op matches. OpenMPT's audible panning alias is outside FT2 v1; use supported `8xx`. |
 | `E9x` | Retrigger note | Implemented | Partial | Special; no ordinary interval replay | Not applicable | G19 `E90` row-entry routing/carry/reset is closed. E91...E9F retain existing nonzero-tick resets and offsets. Onset/ramp parity and `Rxy` are separate. |
@@ -730,8 +730,12 @@ support alone does not close these domains:
   semantic carry and exact integer volume arithmetic are closed under G20–G22.
   G23 delayed instrument-only retained-note dispatch is closed separately;
   G24 note97/Kxx/default/writer precedence and both-rate host delivery are closed without broadening continuation effects. The overall product startup target remains separate.
-- **Traversal:** EEx is a dedicated timing contract (G35). Bxx/Dxx/E6x
-  precedence and E6's implicit loop start remain G37–G38; safe finite export
+- **Traversal:** G37A initial-state E6 looping is locally qualified in both
+  modes/rates, including later orders without prior channel E60 history.
+  Prior-channel E60 without a local anchor retains the observable missing-start
+  refusal; pinned FT2 inherited anchors and next-pattern entry remain OPEN for
+  G38 product-policy/design work. G37 remains Partial. EEx timing stays G35;
+  Bxx/Dxx/E6x precedence stays G38; safe finite export
   guards do not establish reference in-song traversal parity.
 - **Pitch and mode:** Linear in-range arpeggio ordering is closed under G25;
   Amiga quantized arpeggio reuses it under G26; G27 upward slides and G28

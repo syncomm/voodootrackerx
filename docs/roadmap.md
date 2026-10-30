@@ -143,6 +143,10 @@ and final integrated gate. Semantic/output closure precedes callback hardening;
 both precede the freeze and later product phases. Effects, DSP, host, real-time
 safety, and editor contracts remain separate PRs.
 
+[Cold selected-order planning](https://github.com/syncomm/voodootrackerx/issues/516)
+blocks Phase 2/v0.5 release qualification and backend freeze; the cross-family
+planning/performance audit owns it after G41.
+
 ## Next milestone — Native Editable Amiga Mode
 
 The native editable Amiga-frequency decision follows Phase 2's correctness and

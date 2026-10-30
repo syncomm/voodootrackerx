@@ -2,6 +2,61 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+/// Repeated G37A visits enter the existing runtime schedule as distinct cursor-zero generations.
+final class ImplicitPatternLoopRuntimeTests: XCTestCase {
+    func testImplicitLoopBirthFramesCursorAndPCMMatchWholeOffline() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+                pcm: (0..<256).map { Float(($0 * 37 + 29) % 127 - 63) / 256 }, volume: 0.75,
+                panning: 128, relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 256, loopType: 1)
+            let rows = (0..<4).map { row in PlaybackRow(index: row, cells: [PlaybackCell(
+                note: UInt8(49 + row * 2), instrument: 1, volumeColumn: 0,
+                effectType: row == 2 ? 14 : 0, effectParam: row == 2 ? 0x61 : 0)]) }
+            let song = PlaybackSong(title: "Original G37A runtime control", orders: [.init(orderIndex: 0, patternIndex: 0)],
+                patternsByIndex: [0: .init(index: 0, rows: rows)],
+                instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+                restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), config = MixerRenderConfig(sampleRate: rate)
+            let frames = (0..<7).map { $0 * 6 * Int(rate / 50) }, end = 42 * Int(rate / 50)
+            let births = runtime.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+            XCTAssertEqual(births.map(\.scheduledFrame), frames)
+            XCTAssertEqual(births.map(\.activeEventIndex), (0..<7).map(Optional.some))
+            XCTAssertEqual(births.map(\.source.rowIndex), [0, 1, 2, 0, 1, 2, 3])
+            let expected = PlaybackSongOfflineRenderer(preparedPlan: plan)
+                .render(.init(song: song, config: config, frames: end)).block.interleavedPCM
+            for block in [17, 4093] {
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float](), frame = 0
+                for (generation, birth) in frames.enumerated() {
+                    while frame < birth {
+                        let count = min(block, birth - frame)
+                        pcm += renderRuntimePCM(core, frames: count); frame += count
+                    }
+                    pcm += renderRuntimePCM(core, frames: 1); frame += 1
+                    let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: generation))
+                    XCTAssertTrue(voice.active)
+                    // One frame after dispatch must equal one source step from an initial cursor of zero.
+                    XCTAssertEqual(voice.samplePosition, plan.pattern.events[generation].playbackStep, accuracy: 1e-12)
+                    XCTAssertEqual(voice.sampleStep, plan.pattern.events[generation].playbackStep)
+                }
+                while frame < end {
+                    let count = min(block, end - frame)
+                    pcm += renderRuntimePCM(core, frames: count); frame += count
+                }
+                XCTAssertEqual(pcm, expected)
+                let applied = core.drainAppliedAdapterEventDiagnostics()
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+                let triggered = applied.filter { if case .noteTrigger = $0.event.action { return true }; return false }
+                XCTAssertEqual(triggered.map { $0.event.id }, births.map(\.id))
+                XCTAssertEqual(triggered.map { $0.event.activeEventIndex }, (0..<7).map(Optional.some))
+            }
+        } }
+    }
+}
+
 /// G34 delivers semantic tremor only through generation-addressed final output.
 final class TremorRuntimeTests: XCTestCase {
     func testTremorQuickTargetsKeepExactPCMFramesIDsAndCursorAtEveryBlockSize() throws {

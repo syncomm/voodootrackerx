@@ -8570,10 +8570,11 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(plan.diagnostics.traversalDiagnostics.filter(\.loopTaken).map(\.loopRemaining), [1, 0])
     }
 
-    func testTraversalE6xMissingLoopStartIsDiagnosedWithoutInventingLoop() throws {
+    func testTraversalE6xInheritedLoopStartRemainsDiagnosedWithoutInventingLoop() throws {
         let song = makePlaybackSong(
-            orderPatternIndices: [2],
+            orderPatternIndices: [3, 2],
             patternRowsByIndex: [
+                3: [makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x60)],
                 2: [
                     makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x61),
                     makePlaybackRow(index: 1)
@@ -8582,10 +8583,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
-        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
-        let traversal = try XCTUnwrap(plan.diagnostics.traversalDiagnostics.first)
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 0, orderCount: 2, sampleRate: 100)
+        let traversal = try XCTUnwrap(plan.diagnostics.traversalDiagnostics.first(where: \.missingLoopStart))
 
-        XCTAssertEqual(plan.diagnostics.rowMappings.map { $0.source.rowIndex }, [0, 1])
+        XCTAssertEqual(plan.diagnostics.rowMappings.map { $0.source.rowIndex }, [0, 0, 1])
         XCTAssertEqual(traversal.status, .missingLoopStart)
         XCTAssertTrue(traversal.missingLoopStart)
         XCTAssertEqual(traversal.policy, "missing_e60_loop_start_diagnosed_no_loop")

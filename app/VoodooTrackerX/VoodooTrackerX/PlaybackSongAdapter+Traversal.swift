@@ -108,6 +108,7 @@ enum PlaybackSongTraversalPlanner {
         var diagnostics = [PlaybackSongSyntheticTraversalDiagnostic]()
         var loopStarts = [LoopKey: Int]()
         var loopRemaining = [LoopCountKey: Int]()
+        var explicitLoopStartChannels = Set<Int>()
         var visitedPositions = Set<TraversalPositionKey>()
         var currentOrderIndex = startOrderIndex
         var currentRowIndex = 0
@@ -209,6 +210,7 @@ enum PlaybackSongTraversalPlanner {
                     maxTraversalRows: maxTraversalRows,
                     loopStarts: &loopStarts,
                     loopRemaining: &loopRemaining,
+                    explicitLoopStartChannels: &explicitLoopStartChannels,
                     visitedPositions: visitedPositions,
                     diagnostics: &diagnostics
                 )
@@ -269,6 +271,7 @@ enum PlaybackSongTraversalPlanner {
         maxTraversalRows: Int,
         loopStarts: inout [LoopKey: Int],
         loopRemaining: inout [LoopCountKey: Int],
+        explicitLoopStartChannels: inout Set<Int>,
         visitedPositions: Set<TraversalPositionKey>,
         diagnostics: inout [PlaybackSongSyntheticTraversalDiagnostic]
     ) -> NextPositionDecision {
@@ -286,6 +289,7 @@ enum PlaybackSongTraversalPlanner {
             let loopKey = LoopKey(orderIndex: source.orderIndex, patternIndex: source.patternIndex, channelIndex: command.channelIndex)
             if value == 0 {
                 loopStarts[loopKey] = currentRowIndex
+                explicitLoopStartChannels.insert(command.channelIndex)
                 diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
                     kind: .e6xPatternLoop,
                     status: .loopStartMarked,
@@ -453,7 +457,13 @@ enum PlaybackSongTraversalPlanner {
                 continue
             }
             let loopKey = LoopKey(orderIndex: source.orderIndex, patternIndex: source.patternIndex, channelIndex: command.channelIndex)
-            guard let loopStart = loopStarts[loopKey] else {
+            var loopStart = loopStarts[loopKey]
+            // Only executed E60 commands create history. Inherited anchors remain
+            // unresolved under G38; a cold channel uses this pattern's first slot.
+            if loopStart == nil, !explicitLoopStartChannels.contains(command.channelIndex) {
+                loopStart = 0
+            }
+            guard let loopStart else {
                 diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
                     kind: .e6xPatternLoop,
                     status: .missingLoopStart,

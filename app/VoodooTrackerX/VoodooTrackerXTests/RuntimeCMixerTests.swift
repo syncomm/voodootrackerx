@@ -2,6 +2,143 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+/// Ordinary held rows keep the native render core on the planner's actual tick clock.
+final class PatternDelayRuntimeTests: XCTestCase {
+    func testDenseEEFControlsReachTheNativeRuntimeAtTheirExactFrames() throws {
+        for rate in [44_100.0, 48_000] {
+            let seed = fixture(linear: true, effect: 29, parameter: 0)
+            let cells = (0..<32).map { channel in PlaybackCell(note: 49, instrument: 1,
+                volumeColumn: 0x20, effectType: channel == 0 ? 14 : 29,
+                effectParam: channel == 0 ? 0xEF : 0) }
+            let song = PlaybackSong(title: seed.title, orders: seed.orders,
+                patternsByIndex: [0: .init(index: 0, rows: [.init(index: 0, cells: cells),
+                    .init(index: 1, cells: cells.map { _ in .init(note: 97, instrument: 0,
+                        volumeColumn: 0, effectType: 0, effectParam: 0) })])],
+                instrumentsByIndex: seed.instrumentsByIndex, restartOrderIndex: 0,
+                endBehavior: .stopAtEnd, initialTiming: .init(speed: 31, bpm: 125), usesLinearFrequencyTable: true)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), end = 527 * Int(rate / 50)
+            XCTAssertEqual(plan.pattern.events.count, 32)
+            XCTAssertEqual(plan.diagnostics.rowTiming[0].actualTickCount, 496)
+            let config = MixerRenderConfig(sampleRate: rate)
+            let expected = PlaybackSongOfflineRenderer(preparedPlan: plan)
+                .render(.init(song: song, config: config, frames: end)).block.interleavedPCM
+            let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var pcm = [Float](), frame = 0
+            var applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            while frame < end {
+                let count = min(4093, end-frame)
+                pcm += renderRuntimePCM(core, frames: count); frame += count
+                // Drain the bounded diagnostic ring between callbacks, as the host does.
+                while true {
+                    let batch = core.drainAppliedAdapterEventDiagnostics()
+                    if batch.isEmpty { break }
+                    applied += batch
+                }
+            }
+            XCTAssertEqual(pcm, expected)
+            XCTAssertGreaterThan(applied.count, 4096)
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+            let ordered = RuntimeCMixerAdapterEventStorage(events: runtime.events).ordering
+                .map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end }
+            XCTAssertEqual(applied.map { $0.event.id }, ordered.map(\.id))
+        }
+    }
+
+    func testHeldTremorPCMIDsFramesAndContinuousCursor() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let song = fixture(linear: linear, effect: 29, parameter: 0x11)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), tick = Int(rate / 50), end = 24 * tick
+            let config = MixerRenderConfig(sampleRate: rate)
+            let expected = PlaybackSongOfflineRenderer(preparedPlan: plan)
+                .render(.init(song: song, config: config, frames: end)).block.interleavedPCM
+            XCTAssertEqual(plan.pattern.events.count, 1)
+            XCTAssertEqual(Set(runtime.events.map(\.id)).count, runtime.events.count)
+            for block in [17, 4093] {
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float](), frame = 0
+                // Inspect before, at and after held zero and the quick-ramp endpoint.
+                for boundary in [12*tick-1, 12*tick, 12*tick+1, 13*tick+Int(rate*0.005), end] {
+                    while frame < boundary {
+                        let count = min(block, boundary-frame)
+                        pcm += renderRuntimePCM(core, frames: count); frame += count
+                    }
+                    let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                    XCTAssertTrue(voice.active)
+                    XCTAssertEqual(voice.samplePosition,
+                        (Double(frame)*plan.pattern.events[0].playbackStep).truncatingRemainder(dividingBy: 256), accuracy: 1e-8)
+                }
+                XCTAssertEqual(pcm, expected)
+                let applied = core.drainAppliedAdapterEventDiagnostics()
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+                let ordered = RuntimeCMixerAdapterEventStorage(events: runtime.events).ordering
+                    .map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end }
+                XCTAssertEqual(applied.map { $0.event.id }, ordered.map(\.id))
+            }
+        } }
+    }
+
+    func testHeldEDAndRetriggerBirthsApplyAsDistinctCursorZeroGenerations() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            for (effect, parameter): (UInt8, UInt8) in [(14, 0xD0), (14, 0xD1), (14, 0x92), (27, 2)] {
+                let song = fixture(linear: linear, effect: effect, parameter: parameter)
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                let plan = try XCTUnwrap(runtime.plan), tick = Int(rate / 50)
+                let births = runtime.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+                XCTAssertGreaterThan(births.count, 1)
+                XCTAssertEqual(Set(births.compactMap(\.activeEventIndex)).count, births.count)
+                let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate), maximumRenderFrames: 4096,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var frame = 0
+                for birth in births {
+                    while frame < birth.scheduledFrame {
+                        let count = min(257, birth.scheduledFrame-frame)
+                        _ = renderRuntimePCM(core, frames: count); frame += count
+                    }
+                    _ = renderRuntimePCM(core, frames: 1); frame += 1
+                    let index = try XCTUnwrap(birth.activeEventIndex)
+                    let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: index))
+                    XCTAssertTrue(voice.active)
+                    XCTAssertEqual(voice.samplePosition, plan.pattern.events[index].playbackStep, accuracy: 1e-12)
+                }
+                while frame < 24*tick {
+                    let count = min(257, 24*tick-frame)
+                    _ = renderRuntimePCM(core, frames: count); frame += count
+                }
+                let applied = core.drainAppliedAdapterEventDiagnostics()
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+                XCTAssertEqual(applied.filter { if case .noteTrigger = $0.event.action { return true }; return false }
+                    .map { $0.event.id }, births.map(\.id))
+            }
+        } }
+    }
+
+    private func fixture(linear: Bool, effect: UInt8, parameter: UInt8) -> PlaybackSong {
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+            pcm: (0..<256).map { Float(($0 * 37 + 29) % 127 - 63) / 256 }, volume: 0.75,
+            panning: 128, relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 256, loopType: 1)
+        let cells: [[PlaybackCell]] = [
+            [.init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+             .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)],
+            [.init(note: effect == 14 && parameter >> 4 == 13 ? 49 : 0,
+                   instrument: effect == 14 && parameter >> 4 == 13 ? 1 : 0,
+                   volumeColumn: 0, effectType: effect, effectParam: parameter),
+             .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 14, effectParam: 0xE1)],
+            [.init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+             .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]]
+        return PlaybackSong(title: "Original ordinary EEx runtime control", orders: [.init(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [0: .init(index: 0, rows: cells.enumerated().map { .init(index: $0.offset, cells: $0.element) })],
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+    }
+}
+
 /// Repeated G37A visits enter the existing runtime schedule as distinct cursor-zero generations.
 final class ImplicitPatternLoopRuntimeTests: XCTestCase {
     func testImplicitLoopBirthFramesCursorAndPCMMatchWholeOffline() throws {

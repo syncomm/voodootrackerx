@@ -13,6 +13,8 @@ final class PlaybackSongCanonicalTickClock: Equatable, Sendable {
         let channel: Int
         let absoluteFrame: Int
         let canonicalTickOrdinal: Int
+        let localEffectPhase: Int
+        let isFreshEntry: Bool
     }
 
     let runs: [ClockRun]
@@ -38,13 +40,14 @@ final class PlaybackSongCanonicalTickClock: Equatable, Sendable {
         guard rowTiming.indices.contains(run.timingRowIndex), rowDiagnostics.indices.contains(syntheticRow) else { return nil }
         let timing = rowTiming[run.timingRowIndex]
         guard timing.syntheticRow == syntheticRow, rowDiagnostics[syntheticRow].syntheticRow == syntheticRow,
-              tick >= 0, tick < timing.effectiveSpeed,
+              tick >= 0, tick < timing.actualTickCount,
               channel >= 0, channel < rowDiagnostics[syntheticRow].cellCount else { return nil }
         let ordinal = run.firstCanonicalTickOrdinal.addingReportingOverflow(tick)
         guard !ordinal.overflow else { return nil }
         return Coordinate(syntheticRow: syntheticRow, tick: tick, channel: channel,
             absoluteFrame: PlaybackSongFxxRowTiming.frame(rowStartExactFrame: timing.rowStartExactFrame,
-                tick: tick, bpm: timing.effectiveBPM, sampleRate: sampleRate), canonicalTickOrdinal: ordinal.partialValue)
+                tick: tick, bpm: timing.effectiveBPM, sampleRate: sampleRate), canonicalTickOrdinal: ordinal.partialValue,
+            localEffectPhase: tick % timing.effectiveSpeed, isFreshEntry: tick == 0)
     }
 
     static func == (lhs: PlaybackSongCanonicalTickClock, rhs: PlaybackSongCanonicalTickClock) -> Bool {
@@ -71,6 +74,8 @@ struct PlaybackSongFxxRowTiming: Equatable {
     let rowEndExactFrame: Double
     let effectiveSpeed: Int
     let effectiveBPM: Int
+    var patternDelayCycles: Int = 0
+    var actualTickCount: Int { effectiveSpeed * (patternDelayCycles + 1) }
 
     var rowStartFrame: Int {
         Self.floorFrame(rowStartExactFrame)
@@ -93,7 +98,8 @@ struct PlaybackSongFxxRowTiming: Equatable {
             rowStartFrame: rowStartFrame,
             rowDurationFrames: rowDurationFrames,
             effectiveSpeed: effectiveSpeed,
-            effectiveBPM: effectiveBPM
+            effectiveBPM: effectiveBPM,
+            patternDelayCycles: patternDelayCycles
         )
     }
 
@@ -133,32 +139,40 @@ struct PlaybackSongFxxTimingPlan: Equatable {
         return SyntheticTrackerTimingConfig(
             speed: timing.speed,
             bpm: timing.bpm,
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            patternDelayCycles: timing.delay
         )
+    }
+
+    func actualTickCount(for row: Int) -> Int { timingFor(syntheticRow: row).ticks }
+
+    func localEffectPhase(row: Int, elapsedTick: Int) -> Int {
+        elapsedTick % timingFor(syntheticRow: row).speed
     }
 
     func frameFor(row: Int, tick: Int = 0) -> Int {
         let safeRow = max(0, row)
         let timing = timingFor(syntheticRow: safeRow)
-        let safeTick = min(max(0, tick), timing.speed - 1)
+        let safeTick = min(max(0, tick), timing.ticks - 1)
         return PlaybackSongFxxRowTiming.frame(rowStartExactFrame: timing.rowStartExactFrame,
             tick: safeTick, bpm: timing.bpm, sampleRate: sampleRate)
     }
 
-    private func timingFor(syntheticRow: Int) -> (rowStartExactFrame: Double, speed: Int, bpm: Int) {
+    private func timingFor(syntheticRow: Int) -> (rowStartExactFrame: Double, speed: Int, bpm: Int, delay: Int, ticks: Int) {
         if rowTimings.indices.contains(syntheticRow),
            rowTimings[syntheticRow].syntheticRow == syntheticRow {
             let rowTiming = rowTimings[syntheticRow]
             return (
                 rowStartExactFrame: rowTiming.rowStartExactFrame,
                 speed: rowTiming.effectiveSpeed,
-                bpm: rowTiming.effectiveBPM
+                bpm: rowTiming.effectiveBPM,
+                delay: rowTiming.patternDelayCycles, ticks: rowTiming.actualTickCount
             )
         }
 
         let extraRows = max(0, syntheticRow - rowTimings.count)
         let rowStart = endExactFrame + (Double(extraRows) * rowDuration(speed: finalSpeed, bpm: finalBPM))
-        return (rowStartExactFrame: rowStart, speed: finalSpeed, bpm: finalBPM)
+        return (rowStartExactFrame: rowStart, speed: finalSpeed, bpm: finalBPM, delay: 0, ticks: finalSpeed)
     }
 
     private func framesPerTick(bpm: Int) -> Double {
@@ -249,18 +263,21 @@ enum PlaybackSongFxxTimingPlanner {
 
             currentSpeed = nextSpeed
             currentBPM = nextBPM
+            let delay = row.cells.last(where: { $0.effectType == 0x0E && $0.effectParam >> 4 == 0x0E })
+                .map { Int($0.effectParam & 15) } ?? 0
             currentExactFrame += rowDuration(
                 speed: currentSpeed,
                 bpm: currentBPM,
                 sampleRate: initialConfig.sampleRate
-            )
+            ) * Double(delay + 1)
             rowTimings.append(PlaybackSongFxxRowTiming(
                 source: source,
                 syntheticRow: syntheticRow,
                 rowStartExactFrame: rowStartExactFrame,
                 rowEndExactFrame: currentExactFrame,
                 effectiveSpeed: currentSpeed,
-                effectiveBPM: currentBPM
+                effectiveBPM: currentBPM,
+                patternDelayCycles: delay
             ))
         }
 

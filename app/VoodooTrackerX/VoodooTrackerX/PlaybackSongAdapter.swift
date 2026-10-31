@@ -519,6 +519,8 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     struct AdapterRowContext {
+        // The row dispatcher owns this clock even when a direct probe omits semantic capture.
+        var currentRowActualTickCount: Int?
         var semanticPitchBuilder = PlaybackSongSemanticPitchProjection.Builder()
         var heldPitchObserver = PlaybackSongHeldPitchProvenance.Observer()
         var nativePitchWriterObserver = PlaybackSongNativePitchWriterSpans.Observer()
@@ -762,16 +764,17 @@ enum PlaybackSongSyntheticAdapter {
                 SyntheticTrackerTimingConfig(
                     speed: timing.effectiveSpeed,
                     bpm: timing.effectiveBPM,
-                    sampleRate: timingPlan.sampleRate
+                    sampleRate: timingPlan.sampleRate,
+                    patternDelayCycles: timing.patternDelayCycles
                 )
             } ?? timingPlan.timingConfig(forSyntheticRow: traversalRow.syntheticRow)
-            let nextOrdinal = canonicalTickCount.addingReportingOverflow(rowTimingConfig.speed)
+            let nextOrdinal = canonicalTickCount.addingReportingOverflow(rowTimingConfig.actualTickCount)
             precondition(!nextOrdinal.overflow, "Canonical tick ordinal overflow")
             clockRuns.append(.init(timingRowIndex: traversalRow.syntheticRow, firstCanonicalTickOrdinal: canonicalTickCount))
             canonicalTickCount = nextOrdinal.partialValue
             let eventGenerationStart = profileSession == nil ? nil : DispatchTime.now().uptimeNanoseconds
             context.semanticPitchBuilder.begin(states: context.channelStates, count: traversalRow.row.cells.count,
-                firstOrdinal: canonicalTickCount - rowTimingConfig.speed, speed: rowTimingConfig.speed, linear: song.usesLinearFrequencyTable,
+                firstOrdinal: canonicalTickCount - rowTimingConfig.actualTickCount, speed: rowTimingConfig.actualTickCount, linear: song.usesLinearFrequencyTable,
                 retriggers: context.retriggerEffects.count, rowResets: context.rowEntryTriggerResetObserver.facts.count,
                 delayedResets: context.delayedInstrumentResetObserver.facts.count, exits: context.rowExitObserver.references.count, rows: context.xmChannelRows.count)
             context.semanticPitchBuilder.firstRelease = context.keyOffEvents.count
@@ -1136,6 +1139,8 @@ enum PlaybackSongSyntheticAdapter {
         nextRow: PlaybackRow? = nil,
         context: inout AdapterRowContext
     ) -> PlaybackSongSyntheticRowDiagnostic {
+        context.currentRowActualTickCount = timingConfig.actualTickCount
+        defer { context.currentRowActualTickCount = nil }
         context.rowExitObserver.beginRow(syntheticRow, firstVibratoDiagnosticIndex: context.vibratoEffects.count,
             domain: song.usesLinearFrequencyTable ? .linear : .amigaVTX4x)
         let eventStartCount = context.events.count
@@ -1200,7 +1205,7 @@ enum PlaybackSongSyntheticAdapter {
             }
             // A row establishes H memory only when its nonzero-tick handler runs.
             // Planning knows the effective speed, so F01 neither seeds nor replaces it.
-            if cell.effectType == 0x11, cell.effectParam != 0, timingConfig.speed > 1 {
+            if cell.effectType == 0x11, cell.effectParam != 0, timingConfig.actualTickCount > 1 {
                 channelState.globalVolumeSlideMemory = .init(parameter: cell.effectParam,
                     source: effectMemorySource(source: source, channelIndex: channelIndex, cell: cell))
             }
@@ -1214,7 +1219,8 @@ enum PlaybackSongSyntheticAdapter {
             let defersOrdinaryTriggerState = retainsDelayedTrigger || delaysOrdinaryEmpty
             let delaysRefusedTrigger = refusedSelection != nil && isNonzeroOrdinaryDelay(cell)
             let ordinaryDelayedBx = isNonzeroOrdinaryDelay(cell) && cell.volumeColumn >> 4 == 0xB && !delaysRefusedTrigger
-            if isDelayedInstrumentOnly(cell) || delaysRefusedTrigger {
+            let heldOrdinaryDelay = timingConfig.patternDelayCycles > 0 && isNonzeroOrdinaryDelay(cell)
+            if isDelayedInstrumentOnly(cell) || delaysRefusedTrigger || heldOrdinaryDelay {
                 // ED1...EDF selects the carried owner now; source/default/reset work
                 // waits for the nonzero-tick pass after all row-entry writers.
                 if song.instrumentsByIndex[Int(cell.instrument)] != nil {
@@ -2106,9 +2112,9 @@ enum PlaybackSongSyntheticAdapter {
                     // E9x repeats the selected empty route at the existing tick cadence.
                     // Its instrument reset belongs to the channel, with no source event.
                     let repeatInterval = retriggerIntervalNibble(from: cell)
-                    if extendedSubcommand == 9, repeatInterval > 0, repeatInterval < timingConfig.speed {
+                    if extendedSubcommand == 9, repeatInterval > 0, repeatInterval < timingConfig.speed || timingConfig.patternDelayCycles > 0 {
                         resetTremoloTriggerPhases(state: &channelState)
-                        for tick in stride(from: repeatInterval, to: timingConfig.speed, by: repeatInterval) {
+                        for tick in timingConfig.nonzeroDispatchTicks where timingConfig.localEffectPhase(for: tick) % repeatInterval == 0 {
                             context.semanticPitchBuilder.add(tick: tick, channel: channelIndex, action: .automaticReset(.retrigger))
                             context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
                                 scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
@@ -2793,13 +2799,16 @@ enum PlaybackSongSyntheticAdapter {
         // A later channel's Gxx must not see a future slide or tremolo value.
         for channelIndex in row.cells.indices {
             let cell = row.cells[channelIndex]
-            if isDelayedInstrumentOnly(cell) {
+            if isDelayedInstrumentOnly(cell) || (timingConfig.patternDelayCycles > 0 &&
+                cell.note == 0 && cell.instrument > 0 && cell.effectType == 14 && cell.effectParam == 0xD0) {
                 handleDelayedInstrumentOnly(cell: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, song: song, timingConfig: timingConfig,
                     timingPlan: timingPlan, context: &context)
                 continue
             }
-            if isNonzeroOrdinaryDelay(cell), let selection = refusedOrdinarySelection(cell: cell,
+            if isNonzeroOrdinaryDelay(cell) || timingConfig.patternDelayCycles > 0 &&
+                (1...96).contains(cell.note) && cell.effectType == 14 && cell.effectParam == 0xD0,
+               let selection = refusedOrdinarySelection(cell: cell,
                 instrumentIndex: cell.instrument == 0 ? context.channelStates[channelIndex].carriedInstrumentIndex ?? 0 : Int(cell.instrument), song: song) {
                 handleDelayedRefusedOrdinary(selection, cell: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, song: song, timingConfig: timingConfig,
@@ -2808,15 +2817,24 @@ enum PlaybackSongSyntheticAdapter {
             }
             let columnSlide = isOrdinaryVolumeColumnSlide(cell.volumeColumn)
                 ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
-            if isNoteCutEffect(cell), extendedEffectTick(cell) > 0 {
+            if timingConfig.patternDelayCycles > 0, (1...96).contains(cell.note),
+               refusedOrdinarySelection(cell: cell, instrumentIndex: cell.instrument == 0
+                    ? context.channelStates[channelIndex].carriedInstrumentIndex ?? 0 : Int(cell.instrument), song: song) == nil,
+               cell.effectType == 0x0E, cell.effectParam >> 4 == 0x0D {
+                handleHeldOrdinaryNoteDelay(cell: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, song: song, timingConfig: timingConfig,
+                    timingPlan: timingPlan, context: &context)
+                continue
+            }
+            if isNoteCutEffect(cell), extendedEffectTick(cell) > 0 || timingConfig.patternDelayCycles > 0 {
                 // Column slides precede ECx on each actual tick. Do not expose a future
                 // zero to tick-zero snapshots or to another channel's row-entry writers.
-                for tick in 1..<max(1, timingConfig.speed) {
+                for tick in timingConfig.nonzeroDispatchTicks {
                     context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell,
                         source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick,
                         rowSpeed: timingConfig.speed, timingPlan: timingPlan,
                         state: &context.channelStates[channelIndex], globalVolume: context.globalVolumeState.volumeValue))
-                    if tick == extendedEffectTick(cell) {
+                    if timingConfig.localEffectPhase(for: tick) == extendedEffectTick(cell) {
                         applyNoteCutVolume(cell: cell, source: source, channelIndex: channelIndex,
                             syntheticRow: syntheticRow, tick: tick, timingPlan: timingPlan,
                             globalVolume: context.globalVolumeState.volumeValue,
@@ -2834,17 +2852,17 @@ enum PlaybackSongSyntheticAdapter {
                         volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
                         channelState: &state, context: &context)
                 }
-                for tick in 1..<max(1, timingConfig.speed) {
+                for tick in timingConfig.nonzeroDispatchTicks {
                     context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell,
                         source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick,
                         rowSpeed: timingConfig.speed, timingPlan: timingPlan, state: &state,
                         globalVolume: context.globalVolumeState.volumeValue))
                     // Release consumes this tick's column write, not a future row mutation.
-                    if cell.effectParam != 0 && tick == releaseTick {
+                    if cell.effectParam != 0 && timingConfig.localEffectPhase(for: tick) == releaseTick {
                         handleKxxKeyOff(from: cell, source: source, channelIndex: channelIndex,
                             syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
                             volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
-                            channelState: &state, context: &context)
+                            channelState: &state, context: &context, elapsedTick: tick)
                     }
                 }
                 context.channelStates[channelIndex] = state
@@ -2857,7 +2875,7 @@ enum PlaybackSongSyntheticAdapter {
                     $0.syntheticRow == syntheticRow && $0.channelIndex == channelIndex
                 }!
                 var state = context.channelStates[channelIndex]
-                for tick in 1..<max(1, timingConfig.speed) {
+                for tick in timingConfig.nonzeroDispatchTicks {
                     context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell,
                         source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick,
                         rowSpeed: timingConfig.speed, timingPlan: timingPlan, state: &state,
@@ -2901,7 +2919,7 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &context.channelStates[channelIndex], usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                         globalVolumeValue: context.globalVolumeState.volumeValue,
                         volumeColumnSlide: columnSlide))
-                } else if cell.effectType != 0x06 && cell.effectType != 0x07 && timingConfig.speed > 1 {
+                } else if cell.effectType != 0x06 && cell.effectType != 0x07 && timingConfig.actualTickCount > 1 {
                     var firstTick = 1
                     if cell.effectType == 0x0E && cell.effectParam >> 4 == 0x0D,
                        let eventIndex = context.channelStates[channelIndex].activeEventIndex,
@@ -2912,7 +2930,7 @@ enum PlaybackSongSyntheticAdapter {
                        isNonzeroOrdinaryDelay(cell), extendedEffectTick(cell) < timingConfig.speed {
                         firstTick = extendedEffectTick(cell) + 1
                     }
-                    for tick in firstTick..<timingConfig.speed {
+                    for tick in firstTick..<timingConfig.actualTickCount {
                         context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell, source: source,
                             channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
                             timingPlan: timingPlan, state: &context.channelStates[channelIndex],
@@ -2926,7 +2944,7 @@ enum PlaybackSongSyntheticAdapter {
                 channelState: &context.channelStates[channelIndex], globalVolumeValue: context.globalVolumeState.volumeValue,
                 volumeColumnSlide: columnSlide
             ))
-            advanceTremoloVibratoObserver(cell: cell, rowSpeed: timingConfig.speed,
+            advanceTremoloVibratoObserver(cell: cell, rowSpeed: timingConfig.actualTickCount,
                                          state: &context.channelStates[channelIndex])
             context.voiceStateUpdates.append(contentsOf: applyTremolo(
                 cell: cell, source: source, channelIndex: channelIndex,
@@ -2935,8 +2953,8 @@ enum PlaybackSongSyntheticAdapter {
                 state: &context.channelStates[channelIndex], volumeColumnSlide: columnSlide
             ))
         }
-        if timingConfig.speed > 1 {
-            for tick in 1..<timingConfig.speed {
+        if timingConfig.actualTickCount > 1 {
+            for tick in timingConfig.nonzeroDispatchTicks {
                 for channelIndex in row.cells.indices where row.cells[channelIndex].effectType == 0x11 {
                     // Cold H00 has no publication. Seeded replay enters G12 unchanged.
                     guard row.cells[channelIndex].effectParam != 0 || context.channelStates[channelIndex].globalVolumeSlideMemory != nil else { continue }

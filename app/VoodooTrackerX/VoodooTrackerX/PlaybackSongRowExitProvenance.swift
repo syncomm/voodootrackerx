@@ -202,7 +202,8 @@ extension PlaybackSongSyntheticPlan {
             case .arpeggioDiagnostic: return nil
             }
         }
-        guard let generation, row >= 0, scalar.syntheticTick == rowSpeed,
+        let actualTicks = diagnostics.rowTiming.indices.contains(row) ? diagnostics.rowTiming[row].actualTickCount : rowSpeed
+        guard let generation, row >= 0, scalar.syntheticTick == actualTicks,
               matchesIncomingRowExit(reference, outgoingRow: row, channel: channel,
                 generation: generation, frame: scalar.scheduledFrame) else { return nil }
         return .init(cause: cause, outgoingDiagnosticIndex: outgoing, incomingFamily: reference.incomingFamily,

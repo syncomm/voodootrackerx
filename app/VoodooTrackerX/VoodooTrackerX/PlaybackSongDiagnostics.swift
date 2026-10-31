@@ -350,6 +350,8 @@ struct PlaybackSongSyntheticRowTimingDiagnostic: Equatable {
     let rowDurationFrames: Int
     let effectiveSpeed: Int
     let effectiveBPM: Int
+    var patternDelayCycles: Int = 0
+    var actualTickCount: Int { effectiveSpeed * (patternDelayCycles + 1) }
 }
 
 struct PlaybackSongSyntheticKeyOffDiagnostic: Equatable {

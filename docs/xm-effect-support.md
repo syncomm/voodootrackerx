@@ -52,7 +52,7 @@ Its exit criterion is:
 
 Remaining FT2/XM v1 targets include:
 
-- `EEx` pattern delay;
+- combined `EEx` with Bxx/Dxx/E6x traversal under G38;
 - remaining relevant E-command gaps;
 - volume-column vibrato and effect-memory gaps; and
 - broader Amiga-table pitch parity where it remains in v1 scope.
@@ -66,8 +66,8 @@ contracts from remaining timing, memory, output and frequency-mode differences.
 
 Bounded Q2 offline source admission is closed under the
 [delivery foundation](ft2-xm-closure-matrix.md#closed-foundations). It preserves
-source order/continuation and the 256/4096 native limits; it does not implement
-EEx musical timing or qualify full EEx PCM. High variable process RSS remains
+source order/continuation and the 256/4096 native limits. G35 ordinary EEx now
+uses that foundation under the bounded contract below. High variable process RSS remains
 unresolved under the post-G41 planning/memory audit, with #516 still open.
 
 Each effect-family slice uses the smallest sufficient project-generated public
@@ -86,6 +86,30 @@ of semantic correctness. Historical retired-backend behavior may inform an
 investigation, but the current CoreAudio/C-mixer architecture remains
 authoritative. See `docs/design/synthetic-xm-reference-fixture-pack.md` and
 `docs/audio-comparison.md` for the fixture and comparison contracts.
+
+## Ordinary EEx pattern delay
+
+G35 is **CLOSED, bounded ordinary timing/dispatch**, for the submitted post-merge
+contract. Effective speed remains S and the winning EEx value adds x cycles.
+Only elapsed tick zero reads cells and performs entry/fine effects; every later
+tick uses nonzero dispatch at local phase `elapsed % S`. This includes speed-1
+held-zero effects, speed-5 arpeggio countdown, T11, sustained/envelope/release
+clocks and once-per-actual-tick G32 composition. ED0/ED1, including instrument-only
+held ED0, and E9/R create real source generations rather than synthetic row reads.
+
+[PatternDelayTests](../tests/vtx_render_bounded_xm/PatternDelayTests.swift) and
+app `PatternDelayRuntimeTests` pin both frequency modes/rates, exact frames,
+cursor-zero children, source identity and whole/split/stream/window delivery.
+The existing 256/4096/8 MiB admission limits and visible real-capacity failures
+remain unchanged. Delayed-row JSON adds cycle count, actual ticks and phase/entry
+policies; no-EEx JSON/WAV/event identities retain their existing bytes.
+EE0/cancelled rows retain historical diagnostic labels for receipt compatibility;
+those labels do not indicate missing ordinary timing.
+
+Combined EEx+Bxx/Dxx/E6x, E61+EE1 pending-position skip, inherited anchors and
+conflicting/nested traversal remain **OPEN G38**. #516 remains a separate release
+blocker. Existing G21 retirement tails, interpolation/onset residuals and the
+historical PCM16 host residual do not establish universal FT2 PCM parity.
 
 ## Instrument-only cells
 
@@ -109,7 +133,9 @@ through that instrument's exact map and starts one new cursor-zero source.
 Header/default and instrument resets wait until that tick. Empty routes retire
 without a new voice; no retained note creates none. Out-of-row delays keep the
 row-entry owner but perform no delayed reset/start. Instrument-only ED0 retains
-ordinary immediate cached-default/reset behavior without a source restart.
+immediate cached-default/reset behavior without a source restart on fresh entry.
+Under EEx, its held local-zero dispatch restarts the retained note through the
+same exact-map authority.
 
 Ordinary explicit notes with an exact present keymap to a declared zero-payload
 header cut the old source generation at dispatch: ED0 at row entry, ED1...EDF
@@ -211,8 +237,8 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `EAx` | Fine volume slide up | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-up amount | Not applicable | Tick-zero +x, clamped to 64; seeded EA0 replays up memory. Cold EA0 restores base to output and publishes against the held target without seeding memory. Independent of EB/A/5/6 and volume-column 8x/9x. |
 | `EBx` | Fine volume slide down | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-down amount | Not applicable | Tick-zero -x, clamped to 0; seeded EB0 replays down memory. Cold EB0 restores base to output and publishes against the held target without seeding memory. Independent of EA/A/5/6 and volume-column 8x/9x. |
 | `ECx` | Note cut | Implemented | Closed, bounded | None | Linear + Amiga | At actual tick x, zero base/output and publish a 5 ms final-output target without retiring the source, releasing its key or resetting its cursor/pitch. Later Cxx reveals progressed PCM. EC0/EC3, effective Fxx speeds, both rates, newborn/silent routes and runtime/offline/windows are covered by G04. Internal hard stop and G02/G03/G05 remain separate. |
-| `EDx` | Note delay | Implemented | Partial | None | Not applicable | Ordinary delayed notes remain supported. G23 retained-note instrument-only ED1...EDF dispatch is closed: row-entry owner, delayed exact route/default/reset and one cursor-zero generation. Instrument-only ED0 resets immediately without a restart; out-of-row retains owner only. G24 bounded release/default precedence is closed below. |
-| `EEx` | Pattern delay | Deferred | Open | None | Not applicable | Standard FT2/XM v1 traversal/timing target G35. Row-duration/tick replay needs its own contract, separate from unrelated E effects. |
+| `EDx` | Note delay | Implemented | Partial | None | Not applicable | Ordinary delayed notes remain supported. G23 retained-note instrument-only ED1...EDF dispatch is closed: row-entry owner, delayed exact route/default/reset and one cursor-zero generation per eligible dispatch. Instrument-only ED0 resets without restarting on fresh entry; G35 held local-zero dispatch restarts the retained note. Out-of-row retains owner only. G24 bounded release/default precedence is closed below. |
+| `EEx` | Pattern delay | Implemented | Closed, bounded G35 ordinary timing | None | Not applicable | Last-channel x holds (x+1)*S actual ticks at effective same-row Fxx speed/BPM; EE0 cancels an earlier delay. One fresh entry, then nonzero dispatch on every elapsed tick including wrapped zero. Combined EEx+B/D/E6 remains OPEN G38. |
 | `EFx` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; no destructive MOD invert-loop/funk behavior. OpenMPT XM macro hacks are outside FT2 v1. |
 | `F01...F1F` / `F20...FFF` | Speed / BPM | Implemented | Closed | None | Not applicable | Nonzero command-row tick-zero timing is closed. `F20` is valid XM BPM 32. Last speed and last BPM each win in left-to-right channel order. |
 | `F00` | Zero speed boundary | Implemented | Known difference | None | Not applicable | VTX ignores it; pinned FT2 writes zero speed/tick state. Resulting traversal needs characterization and explicit closure rationale; nonzero Fxx stays closed. |
@@ -504,7 +530,7 @@ G30 is closed for:
 
 Combined verification covers both rates, whole/window/runtime-core/canonical-host
 delivery, matched reference audio and paired Release guardrails. Remaining
-G35–G38/G39/G40/G41 and callback real-time safety stay open;
+G36–G38/G39/G40/G41 and callback real-time safety stay open;
 G32/G33/G34 are closed under their separate bounded contracts.
 
 ### Retained-source arpeggio row handoff
@@ -760,7 +786,10 @@ support alone does not close these domains:
 - **Sources and loops:** 9xx/900 offset/end/loop boundaries and ping-pong
   turnaround precision remain under G41 where unclosed. Sample/instrument
   changes must preserve exact routing, defaults, silent clocks and note-only
-  carry; their unusual delay/retrigger/release precedence stays open.
+  carry; their unusual delay/retrigger/release precedence stays open. In particular,
+  note97+ED1 releases immediately in VTX even with EE0 while the pinned reference
+  retains key-on. The post-G41 cross-family trigger/release audit owns this preexisting
+  interaction independently of ordinary EEx timing.
 
 See [volume ownership](design/xm-volume-ownership.md) and
 [reset/output targets](design/xm-reset-output-ramp.md) for retained policies and
@@ -769,7 +798,7 @@ or explicit accepted rationale; aggregate audio correlation is not closure.
 
 ## Pending FT2 targets and exclusions
 
-- Deferred FT2 parents: E3x, EEx and volume-column vibrato.
+- Deferred FT2 parents include E3x; combined EEx traversal remains OPEN G38.
   Bounded G33 Pxy and G34 Txy are closed through accepted PRs #514/#515;
   G39/G40 and retained pan/cold boundaries remain open.
   G32 instrument autovibrato is closed under its bounded VTX policy above.

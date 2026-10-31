@@ -148,14 +148,14 @@ host.
   G21 execution/carry semantics are unchanged.
 - G23 instrument-only `ED1...EDF` selects the valid carried instrument at row
   entry, then dispatches the retained note through its exact map at tick x.
-  Represented routes start one new cursor-zero generation and reset defaults,
-  envelopes, key/fadeout and permitted modulation phases then. Empty routes
+  Represented routes start one new cursor-zero generation per eligible dispatch
+  and reset defaults, envelopes, key/fadeout and permitted modulation phases then. Empty routes
   retire the old source without PCM; cold channels invent no retained note.
   Explicit column volume/pan setters follow the delayed reset; ordinary slides
   keep their nonzero ticks and fine/Ax tick-zero writers are skipped. Out-of-row
   delays keep the owner without a delayed reset/start; instrument-only ED0
-  resets immediately without restarting. Ordinary delayed notes, Rxy and mixer
-  ramps are unchanged.
+  resets immediately without restarting on fresh entry; G35 held local-zero
+  dispatch restarts the retained note. Rxy and mixer ramps retain their own contracts.
 - G24 note97/raw `K00` selects the carried owner, releases once, restores
   admitted cached defaults, then applies volume/pan writers. Raw K00 suppresses
   ordinary starts and skips instrument reset; note97+K00 is one release.
@@ -321,11 +321,19 @@ host.
   continuations and logical generation ownership. Same-frame physical stops
   free capacity before an atomic 256-source group; a concurrent 257-source group
   fails visibly. The 256/4096 native limits and 8 MiB selector budget remain.
-  G35 EEx timing/dispatch remains unimplemented; full EEx PCM parity remains
-  unqualified.
   High variable process RSS remains unresolved despite measured reusable VM
   pages, owned by the post-G41 planning/memory audit; selected-order blocker
   [#516](https://github.com/syncomm/voodootrackerx/issues/516) remains open.
+- G35 ordinary EEx is CLOSED for the bounded post-merge contract: last-channel
+  delay (including EE0 cancellation) holds `(x+1)*S` actual ticks at effective
+  same-row Fxx speed/BPM. Cells and fine/reset entry execute once; later elapsed
+  ticks use nonzero dispatch, including wrapped local zero. Envelopes, release,
+  G32 composition, T11 and pitch clocks continue; ED/E9/R create real cursor-zero
+  generations at eligible dispatches. Both-mode/rate chronology, bounded delivery,
+  protected no-EEx identities and actual-host frames are qualified. Combined
+  EEx+B/D/E6 precedence, including E61+EE1's pending-position skip, stays OPEN
+  under G38. Existing G21 retirement tails and baseline audio residuals remain
+  separately owned; this does not claim universal FT2 PCM parity.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

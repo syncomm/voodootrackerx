@@ -2,11 +2,12 @@ import Foundation
 
 extension PlaybackSongSyntheticAdapter {
     /// Observes only an already-produced child list, in diagnostic append order.
+    /// Direct helper probes outside row dispatch use their command speed without requiring semantic capture.
     static func appendPitchWriter(_ command: PlaybackSongSyntheticTonePortamentoDiagnostic, to context: inout AdapterRowContext, invocationTick: Int? = 1) {
         let spanIndex = context.nativePitchWriterObserver.record(family: .tonePortamento, diagnosticIndex: context.tonePortamentoEffects.count,
-            rowSpeed: command.rowSpeed, children: command.stepUpdates)
+            rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates)
         context.semanticPitchBuilder.writer(span: spanIndex, family: .tonePortamento, index: context.tonePortamentoEffects.count,
-            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates, generation: command.activeEventIndex)
+            channel: command.channelIndex, rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates, generation: command.activeEventIndex)
         let before = command.currentLinearPeriodBefore ?? command.currentAmigaPeriodBefore
         let target = command.targetLinearPeriod ?? command.targetAmigaPeriod
         // The real handler's equal-target branch restores held output without a child.
@@ -20,17 +21,17 @@ extension PlaybackSongSyntheticAdapter {
 
     static func appendPitchWriter(_ command: PlaybackSongSyntheticPortamentoSlideDiagnostic, to context: inout AdapterRowContext) {
         let spanIndex = context.nativePitchWriterObserver.record(family: .portamentoSlide, diagnosticIndex: context.portamentoSlideEffects.count,
-            rowSpeed: command.rowSpeed, children: command.stepUpdates)
+            rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates)
         context.semanticPitchBuilder.writer(span: spanIndex, family: .portamentoSlide, index: context.portamentoSlideEffects.count,
-            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates, generation: command.activeEventIndex)
+            channel: command.channelIndex, rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates, generation: command.activeEventIndex)
         context.portamentoSlideEffects.append(command)
     }
 
     static func appendPitchWriter(_ command: PlaybackSongSyntheticVibratoDiagnostic, to context: inout AdapterRowContext) {
         let spanIndex = context.nativePitchWriterObserver.record(family: .vibrato, diagnosticIndex: context.vibratoEffects.count,
-            rowSpeed: command.rowSpeed, children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates)
+            rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates)
         context.semanticPitchBuilder.writer(span: spanIndex, family: .vibrato, index: context.vibratoEffects.count,
-            channel: command.channelIndex, rowSpeed: command.rowSpeed,
+            channel: command.channelIndex, rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed,
             children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates, generation: command.activeEventIndex)
         context.rowExitObserver.registerVibrato(diagnosticIndex: context.vibratoEffects.count, spanIndex: spanIndex)
         context.vibratoEffects.append(command)
@@ -67,7 +68,7 @@ extension PlaybackSongSyntheticAdapter {
             slideAmount = requestedSlideAmount
             // A complete row is planned here. Project the first nonzero tick's
             // store only when that invocation exists; later stores are identical.
-            if timingConfig.speed > 1 {
+            if timingConfig.actualTickCount > 1 {
                 let memory = PortamentoSlideMemory(amount: requestedSlideAmount, source: targetMemorySource)
                 if direction == .up {
                     channelState.portamentoUpMemory = memory
@@ -160,9 +161,8 @@ extension PlaybackSongSyntheticAdapter {
            let baseSampleRate = channelState.activeSampleBaseSampleRate {
             var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
             var clamped = false
-            let rowSpeed = max(1, timingConfig.speed)
             let slideUnits = Double(slideAmount) * xmAmigaPortamentoUnitsPerParam * (direction == .up ? -1.0 : 1)
-            for tick in 1..<rowSpeed {
+            for tick in timingConfig.nonzeroDispatchTicks {
                 let beforePeriod = currentAmigaPeriod
                 let beforeStep = currentPlaybackStep
                 let rawAfter = currentAmigaPeriod + slideUnits
@@ -250,7 +250,7 @@ extension PlaybackSongSyntheticAdapter {
                 effectMemoryMissing: effectMemoryMissing,
                 memorySource: memorySource,
                 memoryUnavailableReason: nil,
-                policy: rowSpeed == 1 ? "regular_portamento_no_nonzero_ticks_no_memory_admission" : effectMemoryReused
+                policy: timingConfig.actualTickCount == 1 ? "regular_portamento_no_nonzero_ticks_no_memory_admission" : effectMemoryReused
                     ? (direction == .up ? "amiga_zero_param_reuses_prior_1xx_portamento_up_memory" : "amiga_zero_param_reuses_prior_2xx_portamento_down_memory")
                     : "amiga_period_units_per_tick_first_pass"
             )
@@ -291,8 +291,7 @@ extension PlaybackSongSyntheticAdapter {
 
         var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
         var clamped = false
-        let rowSpeed = max(1, timingConfig.speed)
-        for tick in 1..<rowSpeed {
+        for tick in timingConfig.nonzeroDispatchTicks {
             let beforePeriod = currentLinearPeriod
             let beforeStep = currentPlaybackStep
             let rawAfter = direction == .up
@@ -380,7 +379,7 @@ extension PlaybackSongSyntheticAdapter {
             effectMemoryMissing: effectMemoryMissing,
             memorySource: memorySource,
             memoryUnavailableReason: nil,
-            policy: rowSpeed == 1 ? "regular_portamento_no_nonzero_ticks_no_memory_admission" : effectMemoryReused
+            policy: timingConfig.actualTickCount == 1 ? "regular_portamento_no_nonzero_ticks_no_memory_admission" : effectMemoryReused
                 ? "zero_param_reuses_prior_portamento_slide_memory"
                 : "linear_period_units_per_tick_first_pass"
         )
@@ -458,9 +457,9 @@ extension PlaybackSongSyntheticAdapter {
             syntheticRow: command.syntheticRow, incoming: .arpeggio,
             incomingIndex: context.arpeggioEffects.count, context: &context)
         let spanIndex = context.nativePitchWriterObserver.record(family: .arpeggio, diagnosticIndex: context.arpeggioEffects.count,
-            rowSpeed: command.rowSpeed, children: command.stepUpdates)
+            rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates)
         context.semanticPitchBuilder.writer(span: spanIndex, family: .arpeggio, index: context.arpeggioEffects.count,
-            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates, generation: command.activeEventIndex)
+            channel: command.channelIndex, rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates, generation: command.activeEventIndex)
         context.arpeggioEffects.append(command)
     }
 
@@ -473,9 +472,9 @@ extension PlaybackSongSyntheticAdapter {
             syntheticRow: command.syntheticRow, incoming: .finePortamentoUp,
             incomingIndex: context.finePortamentoUpEffects.count, context: &context)
         let spanIndex = context.nativePitchWriterObserver.record(family: .finePortamentoUp, diagnosticIndex: context.finePortamentoUpEffects.count,
-            rowSpeed: command.rowSpeed, children: command.stepUpdates)
+            rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates)
         context.semanticPitchBuilder.writer(span: spanIndex, family: .finePortamentoUp, index: context.finePortamentoUpEffects.count,
-            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates,
+            channel: command.channelIndex, rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates,
             folded: command.appliedToInitialPlaybackStep ? command.activeEventIndex : nil,
             scalar: command.currentLinearPeriodAfter, calculated: command.applied, generation: command.activeEventIndex)
         context.finePortamentoUpEffects.append(command)
@@ -490,9 +489,9 @@ extension PlaybackSongSyntheticAdapter {
             syntheticRow: command.syntheticRow, incoming: .finePortamentoDown,
             incomingIndex: context.finePortamentoDownEffects.count, context: &context)
         let spanIndex = context.nativePitchWriterObserver.record(family: .finePortamentoDown, diagnosticIndex: context.finePortamentoDownEffects.count,
-            rowSpeed: command.rowSpeed, children: command.stepUpdates)
+            rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates)
         context.semanticPitchBuilder.writer(span: spanIndex, family: .finePortamentoDown, index: context.finePortamentoDownEffects.count,
-            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates,
+            channel: command.channelIndex, rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates,
             folded: command.appliedToInitialPlaybackStep ? command.activeEventIndex : nil,
             scalar: command.currentLinearPeriodAfter, calculated: command.applied, generation: command.activeEventIndex)
         context.finePortamentoDownEffects.append(command)
@@ -507,9 +506,9 @@ extension PlaybackSongSyntheticAdapter {
             syntheticRow: command.syntheticRow, incoming: command.direction == .up ? .extraFinePortamentoUp : .extraFinePortamentoDown,
             incomingIndex: context.extraFinePortamentoEffects.count, context: &context)
         let spanIndex = context.nativePitchWriterObserver.record(family: .extraFinePortamento, diagnosticIndex: context.extraFinePortamentoEffects.count,
-            rowSpeed: command.rowSpeed, children: command.stepUpdates)
+            rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates)
         context.semanticPitchBuilder.writer(span: spanIndex, family: .extraFinePortamento, index: context.extraFinePortamentoEffects.count,
-            channel: command.channelIndex, rowSpeed: command.rowSpeed, children: command.stepUpdates,
+            channel: command.channelIndex, rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates,
             folded: command.appliedToInitialPlaybackStep ? command.activeEventIndex : nil,
             scalar: command.currentLinearPeriodAfter, calculated: command.applied, generation: command.activeEventIndex)
         context.extraFinePortamentoEffects.append(command)
@@ -526,7 +525,7 @@ extension PlaybackSongSyntheticAdapter {
             let command = context.arpeggioEffects[index]
             if command.syntheticRow < syntheticRow - 1 { break }
             guard command.syntheticRow == syntheticRow - 1, command.activeEventIndex == eventIndex,
-                  let exit = command.stepUpdates.last, exit.syntheticTick == command.rowSpeed,
+                  let exit = command.stepUpdates.last, exit.syntheticTick >= command.rowSpeed,
                   exit.reachedTarget, exit.scheduledFrame == update.scheduledFrame else { continue }
             context.arpeggioEffects[index].subsumedRowExit = context.arpeggioEffects[index].stepUpdates.removeLast()
             context.rowExitObserver.recordArpeggio(outgoing: index, incoming: incoming, incomingIndex: incomingIndex)
@@ -546,7 +545,7 @@ extension PlaybackSongSyntheticAdapter {
             if vibrato.syntheticRow < syntheticRow - 1 { break }
             guard vibrato.syntheticRow == syntheticRow - 1,
                   vibrato.activeEventIndex == eventIndex, let exit = vibrato.stepUpdates.last,
-                  exit.syntheticTick == vibrato.rowSpeed, exit.reachedTarget,
+                  exit.syntheticTick >= vibrato.rowSpeed, exit.reachedTarget,
                   exit.scheduledFrame == update.scheduledFrame else { continue }
             context.rowExitObserver.recordVibrato(outgoing: index, outgoingRow: vibrato.syntheticRow,
                 exit: exit, incoming: incoming, incomingIndex: incomingIndex,
@@ -1813,8 +1812,8 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     /// Selects 0xy's remaining-tick phase without owning pitch conversion or source state.
-    static func arpeggioSemitoneOffset(effectiveSpeed: Int, tick: Int, x: Int, y: Int) -> Int {
-        guard tick > 0, tick < effectiveSpeed else { return 0 }
+    static func arpeggioSemitoneOffset(effectiveSpeed: Int, tick: Int, x: Int, y: Int, freshEntry: Bool = true) -> Int {
+        guard tick >= 0, tick < effectiveSpeed, !(freshEntry && tick == 0) else { return 0 }
         switch (effectiveSpeed - tick) % 3 {
         case 1: return x
         case 2: return y
@@ -1908,15 +1907,15 @@ extension PlaybackSongSyntheticAdapter {
         var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
         let rowSpeed = max(1, timingConfig.speed)
         let firstTick = includeTickZeroUpdate ? 0 : 1
-        for tick in firstTick..<rowSpeed {
+        for tick in firstTick..<timingConfig.actualTickCount {
             let beforePeriod = currentPeriod
             let beforeStep = currentPlaybackStep
             let semitoneOffset = arpeggioSemitoneOffset(
-                effectiveSpeed: rowSpeed, tick: tick, x: xSemitoneOffset, y: ySemitoneOffset
+                effectiveSpeed: rowSpeed, tick: timingConfig.localEffectPhase(for: tick), x: xSemitoneOffset, y: ySemitoneOffset, freshEntry: tick == 0
             )
             // G25's base phase holds canonical pitch. X/Y phases project even
             // a zero nibble; projection neither admits a note nor mutates base state.
-            let modulatedPeriod: Double? = tick == 0 ? incomingPeriod : (rowSpeed - tick) % 3 == 0 ? basePeriod
+            let modulatedPeriod: Double? = tick == 0 ? incomingPeriod : (rowSpeed - timingConfig.localEffectPhase(for: tick)) % 3 == 0 ? basePeriod
                 : arpeggioPeriod(basePeriod, finetune: channelState.activeSampleFinetune ?? 0,
                     offset: semitoneOffset, linear: isLinear)
             guard let modulatedPeriod,
@@ -1965,7 +1964,7 @@ extension PlaybackSongSyntheticAdapter {
         if !stepUpdates.isEmpty,
            abs(currentPlaybackStep - basePlaybackStep) > 0.000000001 {
             stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
-                syntheticTick: rowSpeed,
+                syntheticTick: timingConfig.actualTickCount,
                 scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
                 linearPeriodBefore: isLinear ? currentPeriod : 0,
                 linearPeriodAfter: isLinear ? basePeriod : 0,
@@ -2102,9 +2101,9 @@ extension PlaybackSongSyntheticAdapter {
         // Leaving Bx alone holds output; only the existing effect-column family restores it.
         let restoreAtRowEnd = restoreAtRowEnd && effectVibrato
         let targetSource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
-        let writesSpeed = isVibratoEffect(cell) && cell.effectParam >> 4 > 0 && timingConfig.speed > 1
-        let writesDepth = isVibratoEffect(cell) && cell.effectParam & 15 > 0 && timingConfig.speed > 1
-        let columnWritesDepth = columnVibrato && columnDepth > 0 && timingConfig.speed > 1
+        let writesSpeed = isVibratoEffect(cell) && cell.effectParam >> 4 > 0 && timingConfig.actualTickCount > 1
+        let writesDepth = isVibratoEffect(cell) && cell.effectParam & 15 > 0 && timingConfig.actualTickCount > 1
+        let columnWritesDepth = columnVibrato && columnDepth > 0 && timingConfig.actualTickCount > 1
         let speedMemorySource = writesSpeed ? nil : channelState.vibratoSpeedMemorySource
         let depthMemorySource = writesDepth || columnWritesDepth ? nil : channelState.vibratoDepthMemorySource
         let control = channelState.vibratoControl ?? VibratoControlState(
@@ -2138,7 +2137,9 @@ extension PlaybackSongSyntheticAdapter {
         var currentPeriod = outputPeriodBefore ?? basePeriod
         var currentStep = stepBefore
         let executionCount = (columnVibrato ? 1 : 0) + (effectVibrato ? 1 : 0)
-        for tick in executionTicks ?? (1..<max(1, timingConfig.speed)) {
+        let delayedNote = timingConfig.patternDelayCycles > 0 &&
+            ((1...96).contains(cell.note) || (cell.note == 0 && cell.instrument > 0)) && cell.effectType == 14 && cell.effectParam >> 4 == 13
+        for tick in executionTicks ?? (delayedNote ? (1..<timingConfig.speed) : timingConfig.nonzeroDispatchTicks) {
             // Each tick runs Bx first. Effect nibbles then overwrite shared memory
             // before a second execution, including the first tick's old Bx speed.
             for writer in 0..<executionCount {
@@ -2193,7 +2194,7 @@ extension PlaybackSongSyntheticAdapter {
             if restoreAtRowEnd, period != basePeriod,
                let step = step(for: basePeriod) {
                 updates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
-                    syntheticTick: timingConfig.speed,
+                    syntheticTick: timingConfig.actualTickCount,
                     scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
                     linearPeriodBefore: linear ? period : 0, linearPeriodAfter: linear ? basePeriod : 0,
                     amigaPeriodBefore: linear ? nil : period, amigaPeriodAfter: linear ? nil : basePeriod,
@@ -2893,9 +2894,9 @@ extension PlaybackSongSyntheticAdapter {
             }
 
             var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
-            let rowSpeed = max(1, timingConfig.speed)
             directionAtExecution = channelState.tonePortamentoDirection
-            for tick in executionTicks ?? (1..<rowSpeed) {
+            for tick in executionTicks ?? ((timingConfig.patternDelayCycles > 0 && cell.effectType == 14 && cell.effectParam == 0xD0)
+                ? (1..<timingConfig.speed) : timingConfig.nonzeroDispatchTicks) {
                 guard channelState.tonePortamentoDirection != .none else { break }
                 if abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001 {
                     channelState.tonePortamentoDirection = .towardHigherPeriod
@@ -3032,9 +3033,9 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
-        let rowSpeed = max(1, timingConfig.speed)
         directionAtExecution = channelState.tonePortamentoDirection
-        for tick in executionTicks ?? (1..<rowSpeed) {
+        for tick in executionTicks ?? ((timingConfig.patternDelayCycles > 0 && cell.effectType == 14 && cell.effectParam == 0xD0)
+                ? (1..<timingConfig.speed) : timingConfig.nonzeroDispatchTicks) {
             guard channelState.tonePortamentoDirection != .none else { break }
             if abs(currentLinearPeriod - targetLinearPeriod) <= 0.000000001 {
                 channelState.tonePortamentoDirection = .towardHigherPeriod

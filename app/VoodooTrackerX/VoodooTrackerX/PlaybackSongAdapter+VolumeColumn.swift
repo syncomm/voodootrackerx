@@ -120,7 +120,7 @@ extension PlaybackSongSyntheticAdapter {
         tick: Int, rowSpeed: Int, timingPlan: PlaybackSongFxxTimingPlan,
         state: inout ChannelState, globalVolume: Int
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
-        guard let column, tick > 0, tick < rowSpeed else { return [] }
+        guard let column, tick > 0, tick < timingPlan.actualTickCount(for: syntheticRow) else { return [] }
         let delta: Int
         switch column.command {
         case let .volumeSlideDown(amount): delta = -amount
@@ -189,7 +189,7 @@ extension PlaybackSongSyntheticAdapter {
         timingPlan: PlaybackSongFxxTimingPlan, state: inout ChannelState, globalVolume: Int
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
-        for tick in 1..<max(1, rowSpeed) {
+        for tick in 1..<timingPlan.actualTickCount(for: syntheticRow) {
             updates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell, source: source,
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
                 timingPlan: timingPlan, state: &state, globalVolume: globalVolume))

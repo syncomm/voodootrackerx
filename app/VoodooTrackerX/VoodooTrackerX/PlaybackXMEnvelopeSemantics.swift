@@ -377,7 +377,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             guard let source = timing.rowTimings.indices.contains(rowIndex)
                 ? timing.rowTimings[rowIndex].source : timing.rowTimings.last?.source else { break }
             let config = timing.timingConfig(forSyntheticRow: rowIndex)
-            for tick in 0..<config.speed {
+            for tick in 0..<config.actualTickCount {
                 ticks.append(Tick(row: rowIndex, source: source, tick: tick,
                     frame: timing.frameFor(row: rowIndex, tick: tick), bpm: config.bpm, speed: config.speed))
             }

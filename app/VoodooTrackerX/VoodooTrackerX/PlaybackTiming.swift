@@ -48,6 +48,12 @@ struct SyntheticTrackerTimingConfig: Equatable {
     let speed: Int
     let bpm: Int
     let sampleRate: Double
+    /// Extra ordinary row cycles; speed remains the effective effect-dispatch speed.
+    let patternDelayCycles: Int
+    var actualTickCount: Int { speed * (patternDelayCycles + 1) }
+    var nonzeroDispatchTicks: Range<Int> { 1..<actualTickCount }
+    func localEffectPhase(for elapsedTick: Int) -> Int { elapsedTick % speed }
+    func isFreshEntry(_ elapsedTick: Int) -> Bool { elapsedTick == 0 }
 
     /// Creates a deterministic timing configuration from simple tracker-style values.
     ///
@@ -56,9 +62,11 @@ struct SyntheticTrackerTimingConfig: Equatable {
     init(
         speed: Int = PlaybackTiming.xmDefault.speed,
         bpm: Int = PlaybackTiming.xmDefault.bpm,
-        sampleRate: Double = MixerRenderConfig.defaultSampleRate
+        sampleRate: Double = MixerRenderConfig.defaultSampleRate,
+        patternDelayCycles: Int = 0
     ) {
         self.speed = max(1, speed)
+        self.patternDelayCycles = min(15, max(0, patternDelayCycles))
         self.bpm = max(1, bpm)
         self.sampleRate = sampleRate.isFinite && sampleRate > 0
             ? sampleRate

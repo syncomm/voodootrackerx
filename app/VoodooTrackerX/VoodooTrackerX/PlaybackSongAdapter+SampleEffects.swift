@@ -185,7 +185,7 @@ extension PlaybackSongSyntheticAdapter {
         timingPlan: PlaybackSongFxxTimingPlan,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         channelState: inout ChannelState,
-        context: inout AdapterRowContext
+        context: inout AdapterRowContext, elapsedTick: Int? = nil
     ) {
         guard isKxxKeyOffEffect(cell) else {
             return
@@ -214,12 +214,13 @@ extension PlaybackSongSyntheticAdapter {
             ))
             return
         }
-        let keyOffFrame = timingPlan.frameFor(row: syntheticRow, tick: requestedTick)
+        let invocationTick = elapsedTick ?? requestedTick
+        let keyOffFrame = timingPlan.frameFor(row: syntheticRow, tick: invocationTick)
         handleKeyOff(
             source: source,
             channelIndex: channelIndex,
             syntheticRow: syntheticRow,
-            syntheticTick: requestedTick,
+            syntheticTick: invocationTick,
             scheduledFrame: keyOffFrame,
             rowSpeed: timingConfig.speed,
             rowBPM: timingConfig.bpm,
@@ -394,7 +395,8 @@ extension PlaybackSongSyntheticAdapter {
     /// Resolves the retained note through the selected instrument's exact route; cursor restarts at zero.
     static func restartRetainedSource(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
         syntheticRow: Int, tick: Int, frame: Int, song: PlaybackSong, timingConfig: SyntheticTrackerTimingConfig,
-        resetsInstrument: Bool = false, state: inout ChannelState, context: inout AdapterRowContext,
+        resetsInstrument: Bool = false, delayedTrigger: Bool = false,
+        state: inout ChannelState, context: inout AdapterRowContext,
         didResetEffectPhases: ((PlaybackSongRowEntryTriggerResetFacts.Scalars,
             PlaybackSongRowEntryTriggerResetFacts.Scalars) -> Void)? = nil) -> (Bool, Bool) {
         guard (1...96).contains(state.carriedNote), let instrumentIndex = state.carriedInstrumentIndex,
@@ -404,8 +406,8 @@ extension PlaybackSongSyntheticAdapter {
             var selectedHeader = false
             context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
                 scheduledFrame: frame, instrumentIndex: instrumentIndex, sampleIndex: selection.mappedSampleIndex,
-                stoppedEventIndex: state.activeEventIndex, preservesChannelState: !resetsInstrument,
-                tick: resetsInstrument ? tick : 0))
+                stoppedEventIndex: state.activeEventIndex, preservesChannelState: !resetsInstrument && !delayedTrigger,
+                tick: resetsInstrument || delayedTrigger ? tick : 0))
             if let header = song.xmSampleSlotProvenanceByInstrument[instrumentIndex]?.first(where: {
                 $0.sampleIndex == selection.mappedSampleIndex && $0.declaredPayloadLength == 0 && $0.decodedPayloadLength == 0
             }) {
@@ -441,8 +443,11 @@ extension PlaybackSongSyntheticAdapter {
             state.triggeredSampleDefaultPan = sample.panning
             resetDelayedInstrument(cell: cell, state: &state, didResetEffectPhases: didResetEffectPhases)
         }
-        let pitch = playbackStepMapping(note: state.carriedNote, sample: sample,
-            usesLinearFrequencyTable: song.usesLinearFrequencyTable, timingConfig: timingConfig)
+        let pitch = delayedTrigger && ordinaryPitchAdmission(note: state.carriedNote, relativeNote: sample.relativeNote) == .retained
+            ? retainedPitchMapping(sample: sample, state: state,
+                usesLinearFrequencyTable: song.usesLinearFrequencyTable, timingConfig: timingConfig, finetune: sample.finetune)
+            : playbackStepMapping(note: state.carriedNote, sample: sample,
+                usesLinearFrequencyTable: song.usesLinearFrequencyTable, timingConfig: timingConfig)
         let envelope = mixerVolumeEnvelope(from: instrument.volumeEnvelope, timingConfig: timingConfig)
         let gain = songGain(outputChannelVolume: state.outputChannelVolume, globalVolume: context.globalVolumeState.volumeValue)
         let existing = state.activeEventIndex.flatMap { context.events[$0].scheduledStartFrame == frame ? $0 : nil }
@@ -487,7 +492,7 @@ extension PlaybackSongSyntheticAdapter {
             context.events[existing] = event
             context.eventMappings[state.activeEventMappingIndex!] = mapping
         } else {
-            if !resetsInstrument { context.noteOnlyEventIndices.insert(eventIndex) }
+            if !resetsInstrument && !delayedTrigger { context.noteOnlyEventIndices.insert(eventIndex) }
             if state.activeEventIndex == nil && state.keyOffWithoutVoice { context.coldReleasedEventIndices.insert(eventIndex) }
             context.events.append(event)
             state.activeEventMappingIndex = context.eventMappings.count
@@ -496,6 +501,7 @@ extension PlaybackSongSyntheticAdapter {
                 firstPlayableSampleFallbackUsed: selection.firstPlayableSampleFallbackUsed,
                 sampleMapKeymapBehaviorDeferred: selection.sampleMapKeymapBehaviorDeferred)
         }
+        if delayedTrigger && pitch.playbackStep == 0 { context.initialHeldPitchEventIndices.insert(eventIndex) }
         state.activeEventIndex = eventIndex
         state.activeInstrumentIndex = instrumentIndex; state.activeSampleIndex = sample.sampleIndex
         state.semanticInstrumentIndex = instrumentIndex; state.semanticSampleIndex = sample.sampleIndex
@@ -514,6 +520,83 @@ extension PlaybackSongSyntheticAdapter {
             frame: frame, role: .retainedNoteRestart, linear: song.usesLinearFrequencyTable,
             noteOnly: cell.instrument == 0, tuning: .representedHeader, routedInstrument: instrumentIndex, selection: selection, state: state, context: &context)
         return (true, existing != nil)
+    }
+
+    /// Held ED dispatches the cached cell at its local phase without another row entry.
+    static func handleHeldOrdinaryNoteDelay(cell: PlaybackCell, source: PlaybackPosition,
+        channelIndex: Int, syntheticRow: Int, song: PlaybackSong,
+        timingConfig: SyntheticTrackerTimingConfig, timingPlan: PlaybackSongFxxTimingPlan,
+        context: inout AdapterRowContext) {
+        let requested = extendedEffectTick(cell)
+        guard timingConfig.patternDelayCycles > 0 else { return }
+        var state = context.channelStates[channelIndex]
+        let column = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
+        let slide = isOrdinaryVolumeColumnSlide(cell.volumeColumn) ? column : nil
+        // ED0 already performed genuine row entry. ED1...EDF skipped it and
+        // dispatch the cached note only when their local tick is reached.
+        for tick in timingConfig.nonzeroDispatchTicks {
+            context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(slide, cell: cell,
+                source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                tick: tick, rowSpeed: timingConfig.speed, timingPlan: timingPlan,
+                state: &state, globalVolume: context.globalVolumeState.volumeValue))
+            var vibratoIndex: Int?
+            if (requested > 0 || tick >= timingConfig.speed), cell.volumeColumn >> 4 == 0xB {
+                vibratoIndex = context.vibratoEffects.count
+                appendOrdinaryDelayedVibrato(cell: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, ticks: tick..<(tick + 1), timingConfig: timingConfig,
+                    timingPlan: timingPlan, state: &state, context: &context)
+            }
+            if (requested > 0 || tick >= timingConfig.speed), cell.volumeColumn >> 4 == 0xF {
+                // A delayed row never seeds Fx at tick zero; consume its existing speed.
+                let continuation = PlaybackCell(note: 0, instrument: 0, volumeColumn: 0xF0,
+                    effectType: cell.effectType, effectParam: cell.effectParam)
+                appendPitchWriter(handleTonePortamento(from: continuation, source: source,
+                    channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig,
+                    timingPlan: timingPlan, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                    channelState: &state, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(0xF0),
+                    executionTicks: tick..<(tick + 1)), to: &context, invocationTick: tick)
+            }
+            guard requested < timingConfig.speed, timingConfig.localEffectPhase(for: tick) == requested else { continue }
+            supersedeDelayedVibratoBirth(vibratoIndex, tick: tick, context: &context)
+            let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+            state.carriedNote = cell.note
+            // Explicit instruments restore defaults; note-only ED resets clocks
+            // while retaining current channel volume and pan.
+            if cell.instrument == 0 {
+                resetTremoloTriggerPhases(state: &state)
+                switch column.command {
+                case .setVolume, .setPanning: _ = applyVolumeColumn(column, to: &state)
+                default: break
+                }
+            }
+            let (started, _) = restartRetainedSource(cell: cell, source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, tick: tick, frame: frame, song: song,
+                timingConfig: timingConfig, resetsInstrument: cell.instrument > 0, delayedTrigger: true,
+                state: &state, context: &context)
+            state.keyOffWithoutVoice = false
+            context.semanticPitchBuilder.add(tick: tick, channel: channelIndex,
+                action: .automaticReset(.delayedNote))
+            var diagnostic = PlaybackSongSyntheticNoteDelayDiagnostic(source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,
+                effectType: cell.effectType, effectParam: cell.effectParam, status: .applied,
+                detected: true, applied: true, deferred: false, ignoredAsNoOp: false,
+                outOfRow: false, requestedTick: requested, rowSpeed: timingConfig.speed,
+                rowBPM: timingConfig.bpm, originalFrame: timingPlan.frameFor(row: syntheticRow),
+                delayedFrame: frame, eventIndex: started ? state.activeEventIndex : nil)
+            diagnostic.cachedDefaultVolume = state.triggeredSampleDefaultVolume
+            diagnostic.cachedDefaultPan = state.triggeredSampleDefaultPan
+            diagnostic.delayedPanningValue = state.panningValue
+            context.noteDelayEffects.append(diagnostic)
+        }
+        if requested >= timingConfig.speed {
+            context.noteDelayEffects.append(.init(source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, syntheticTick: requested, effectType: cell.effectType,
+                effectParam: cell.effectParam, status: .outOfRowNoOp, detected: true, applied: false,
+                deferred: false, ignoredAsNoOp: true, outOfRow: true, requestedTick: requested,
+                rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm,
+                originalFrame: timingPlan.frameFor(row: syntheticRow), delayedFrame: nil, eventIndex: nil))
+        }
+        context.channelStates[channelIndex] = state
     }
 
     @discardableResult
@@ -613,7 +696,7 @@ extension PlaybackSongSyntheticAdapter {
             retriggerEffects.append(result)
             return result
         }
-        guard interval < rowSpeed else {
+        guard interval < rowSpeed || timingConfig.patternDelayCycles > 0 else {
             let result = diagnostic(status: .outOfRowNoOp)
             retriggerEffects.append(result)
             return result
@@ -644,8 +727,7 @@ extension PlaybackSongSyntheticAdapter {
         var retriggerGains = [Float]()
         var previousEventIndex = activeEventIndex
 
-        var tick = interval
-        while tick < rowSpeed {
+        for tick in timingConfig.nonzeroDispatchTicks where timingConfig.localEffectPhase(for: tick) % interval == 0 {
             let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
             let volumeBefore = retriggerState.baseChannelVolume
             let gain = songGain(
@@ -694,7 +776,6 @@ extension PlaybackSongSyntheticAdapter {
             volumeValuesAfter.append(retriggerState.baseChannelVolume)
             retriggerGains.append(gain)
             previousEventIndex = eventIndex
-            tick += interval
         }
 
         channelState.activeEventIndex = previousEventIndex
@@ -913,16 +994,32 @@ extension PlaybackSongSyntheticAdapter {
         var status: PlaybackSongSyntheticNoteDelayDiagnostic.Status = !selected ? .instrumentOnlyInvalidInstrument :
             outOfRow ? .instrumentOnlyOutOfRow : .instrumentOnlyNoRetainedNote
         var eventIndex: Int?, defaultVolume: Int?, defaultPan: UInt8?, pan: Double?
-        for tick in 1..<max(1, timingConfig.speed) {
+        var dispatchCount = 0
+        func dispatchDiagnostic(tick: Int) -> PlaybackSongSyntheticNoteDelayDiagnostic {
+            var diagnostic = PlaybackSongSyntheticNoteDelayDiagnostic(source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, syntheticTick: tick, effectType: cell.effectType, effectParam: cell.effectParam,
+                status: status, detected: true, applied: selected && !outOfRow, deferred: false,
+                ignoredAsNoOp: !selected || outOfRow, outOfRow: outOfRow, requestedTick: requested,
+                rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm, originalFrame: timingPlan.frameFor(row: syntheticRow),
+                delayedFrame: selected && !outOfRow ? timingPlan.frameFor(row: syntheticRow, tick: tick) : nil,
+                eventIndex: eventIndex)
+            diagnostic.rowEntryInstrumentSelected = selected
+            diagnostic.retainedNote = (1...96).contains(state.carriedNote) ? state.carriedNote : nil
+            diagnostic.cachedDefaultVolume = defaultVolume
+            diagnostic.cachedDefaultPan = defaultPan
+            diagnostic.delayedPanningValue = pan
+            return diagnostic
+        }
+        for tick in timingConfig.nonzeroDispatchTicks {
             context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(slide, cell: cell, source: source,
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
                 timingPlan: timingPlan, state: &state, globalVolume: context.globalVolumeState.volumeValue))
-            if (0xB0...0xBF).contains(cell.volumeColumn) {
+            if (requested > 0 || tick >= timingConfig.speed), (0xB0...0xBF).contains(cell.volumeColumn) {
                 appendPitchWriter(handleVibrato(from: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
                     channelState: &state, executionTicks: tick..<(tick + 1)), to: &context)
             }
-            if cell.volumeColumn >> 4 == 0x0F {
+            if (requested > 0 || tick >= timingConfig.speed), cell.volumeColumn >> 4 == 0x0F {
                 // Tick zero was skipped, so Fx cannot seed a new portamento speed.
                 let continuation = PlaybackCell(note: 0, instrument: 0, volumeColumn: 0xF0,
                     effectType: cell.effectType, effectParam: cell.effectParam)
@@ -936,7 +1033,7 @@ extension PlaybackSongSyntheticAdapter {
                 context.g23ChildlessPitchInvocationObserver.record(rowCell: cell, tick: tick,
                     diagnosticIndex: diagnosticIndex, diagnostics: context.tonePortamentoEffects)
             }
-            guard selected, tick == requested else { continue }
+            guard selected, !outOfRow, timingConfig.localEffectPhase(for: tick) == requested else { continue }
             let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
             let priorSourceEventIndex = state.activeEventIndex
             // This token is filled only by the real phase-reset call, never by dispatch admission.
@@ -969,20 +1066,10 @@ extension PlaybackSongSyntheticAdapter {
                 context.volumeColumnMappings.append(.init(source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, syntheticTick: tick, volumeColumn: column))
             }
+            context.noteDelayEffects.append(dispatchDiagnostic(tick: tick))
+            dispatchCount += 1
         }
-        var diagnostic = PlaybackSongSyntheticNoteDelayDiagnostic(source: source, channelIndex: channelIndex,
-            syntheticRow: syntheticRow, syntheticTick: requested, effectType: cell.effectType, effectParam: cell.effectParam,
-            status: status, detected: true, applied: selected && !outOfRow, deferred: false,
-            ignoredAsNoOp: !selected || outOfRow, outOfRow: outOfRow, requestedTick: requested,
-            rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm, originalFrame: timingPlan.frameFor(row: syntheticRow),
-            delayedFrame: selected && !outOfRow ? timingPlan.frameFor(row: syntheticRow, tick: requested) : nil,
-            eventIndex: eventIndex)
-        diagnostic.rowEntryInstrumentSelected = selected
-        diagnostic.retainedNote = (1...96).contains(state.carriedNote) ? state.carriedNote : nil
-        diagnostic.cachedDefaultVolume = defaultVolume
-        diagnostic.cachedDefaultPan = defaultPan
-        diagnostic.delayedPanningValue = pan
-        context.noteDelayEffects.append(diagnostic)
+        if dispatchCount == 0 { context.noteDelayEffects.append(dispatchDiagnostic(tick: requested)) }
         context.channelStates[channelIndex] = state
     }
 

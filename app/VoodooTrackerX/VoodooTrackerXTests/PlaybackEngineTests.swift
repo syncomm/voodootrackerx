@@ -2257,6 +2257,27 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testPatternDelayTimerUsesLastChannelIncludingEE0Cancellation() {
+        for parameters: [UInt8] in [[0xE2, 0xE0], [0xE0, 0xE2], [0xE2, 0xE1]] {
+            let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput(), startsRealtimeTimer: false)
+            let row = PlaybackRow(index: 0, cells: parameters.map {
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 14, effectParam: $0)
+            })
+            engine.load(song: makePlaybackSong(orderPatternIndices: [2],
+                patternRowsByIndex: [2: [row, makePlaybackRow(index: 1)]]))
+            engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
+            engine.play(from: PlaybackStartContext(moduleTitle: "original-delay-control",
+                songPosition: 0, patternIndex: 2, row: 0))
+            let count = 2 * (Int(parameters.last! & 15) + 1)
+            for _ in 0..<(count - 1) { engine.advanceOneTick() }
+            XCTAssertEqual(engine.currentPosition?.rowIndex, 0)
+            engine.advanceOneTick()
+            XCTAssertEqual(engine.currentPosition?.rowIndex, 1)
+            engine.stop()
+        }
+    }
+
+    @MainActor
     func testPlaybackEngineAppliesPatternDelayBeforeAdvancingRows() {
         let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
         engine.load(song: makePlaybackSong(

@@ -93,8 +93,14 @@ bounded contracts; they do not establish full command or audible parity.
   G39/G40 interactions and retained pan/cold boundaries remain open.
 - Bounded offline source admission is CLOSED: one mixer admits sequential
   generations through ordered checkpoints, including same-frame physical-stop
-  capacity recovery. G35 EEx musical timing and full EEx PCM parity remain open;
-  Q2 does not qualify general memory optimization or backend closure.
+  capacity recovery. Q2 does not qualify general memory optimization or backend
+  closure.
+- G35 ordinary EEx is CLOSED for the bounded post-merge timing/dispatch contract:
+  real held ticks, effective Fxx clocks, single fresh entry, ongoing effects and
+  real ED/E9/R generations share runtime/offline delivery. Both modes/rates,
+  protected no-EEx controls, actual-host frames and optimized guardrails are
+  qualified. Combined EEx+B/D/E6 traversal, including the pending-position skip,
+  remains OPEN under G38; existing G21 audio tails and #516 stay separate.
 - First-Play performance stabilization covers history indexing, runtime queue
   reuse, compact cold-plan ordering/materialization, semantic row/control
   sharing, and the empty-cell construction fast path.
@@ -109,8 +115,8 @@ bounded contracts; they do not establish full command or audible parity.
 
 - Close remaining evidence-backed FT2/XM commands and cross-cutting output,
   pitch, memory, envelope, trigger/retrigger/cut, and traversal obligations.
-  Known families include pattern delay, relevant E-commands, volume-column
-  gaps, and remaining loaded-Amiga pitch coverage.
+  Known families include combined EEx+B/D/E6 traversal under G38, relevant
+  E-commands, volume-column gaps, and remaining loaded-Amiga pitch coverage.
   Pan-envelope arithmetic/clock quirks, interactions beyond closed bounded
   G02/G03/G04/G05/G32/G33/G34,
   and remaining envelope/pitch arithmetic must be resolved or explicitly
@@ -158,6 +164,13 @@ planning/performance/memory audit owns it after G41. That audit also owns high v
 process RSS, including the Q2 copied-payload pressure measurements. Measured
 reusable VM pages do not resolve this residual; the cold selected-order blocker
 remains open independently of bounded offline source admission.
+
+The post-G41 manager efficiency audit also owns CI duration: the maintainer
+reported roughly 15+ minutes for PR #518's macOS `basic-checks` run #1065.
+Measure per-step wall time, redundant SwiftPM/Xcode tests, build-cache options,
+and focused PR checks versus full merge/release gates while preserving required
+protected coverage. Carry this alongside planning CPU/RSS, offline PCM,
+Speed/BPM UI labels and the cross-family audit; change CI in a separate contract.
 
 ## Next milestone — Native Editable Amiga Mode
 

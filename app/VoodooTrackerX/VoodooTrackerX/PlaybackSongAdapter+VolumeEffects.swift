@@ -154,7 +154,7 @@ extension PlaybackSongSyntheticAdapter {
     /// The same existing reset authority serves immediate and delayed refusal.
     static func applyRefusedOrdinarySelection(_ selection: RefusedOrdinarySelection, cell: PlaybackCell,
         source: PlaybackPosition, channelIndex: Int, syntheticRow: Int, scheduledFrame: Int,
-        timingConfig: SyntheticTrackerTimingConfig, song: PlaybackSong, delayed: Bool = false,
+        timingConfig: SyntheticTrackerTimingConfig, song: PlaybackSong, delayed: Bool = false, elapsedTick: Int? = nil,
         state: inout ChannelState, context: inout AdapterRowContext) {
         let instrument = song.instrumentsByIndex[selection.instrumentIndex]!
         let defaultedBaseRate = state.activeSampleBaseSampleRate == nil, defaultedFinetune = state.activeSampleFinetune == nil
@@ -182,7 +182,7 @@ extension PlaybackSongSyntheticAdapter {
                 resetDimensions: .init(volumeEnvelope: instrument.volumeEnvelope.enabled,
                     panEnvelope: instrument.panningEnvelope.enabled, keyOn: true, fadeout: true))
             resetTremoloTriggerPhases(state: &state)
-            context.semanticPitchBuilder.add(tick: delayed ? extendedEffectTick(cell) : 0,
+            context.semanticPitchBuilder.add(tick: delayed ? elapsedTick ?? extendedEffectTick(cell) : 0,
                 channel: channelIndex, action: .automaticReset(.refused))
             state.keyOffWithoutVoice = false
         }
@@ -206,7 +206,7 @@ extension PlaybackSongSyntheticAdapter {
             hasIgnoredVolumeColumn: false, hasIgnoredEffect: false)
         context.ignoredCells.append(ignored)
         context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
-        captureSelection(source: source, row: syntheticRow, tick: delayed ? extendedEffectTick(cell) : 0, channel: channelIndex,
+        captureSelection(source: source, row: syntheticRow, tick: delayed ? elapsedTick ?? extendedEffectTick(cell) : 0, channel: channelIndex,
             frame: scheduledFrame, role: .refusedDispatch, linear: song.usesLinearFrequencyTable,
             noteOnly: cell.instrument == 0, tuning: .refusedRoute, defaultedBaseRate: defaultedBaseRate, defaultedFinetune: defaultedFinetune,
             state: state, context: &context)
@@ -220,7 +220,7 @@ extension PlaybackSongSyntheticAdapter {
         var state = context.channelStates[channelIndex]
         let requested = extendedEffectTick(cell)
         let slide = isOrdinaryVolumeColumnSlide(cell.volumeColumn) ? PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn) : nil
-        for tick in 1..<max(1, timingConfig.speed) {
+        for tick in timingConfig.nonzeroDispatchTicks {
             if cell.volumeColumn >> 4 == 0xB {
                 appendOrdinaryDelayedVibrato(cell: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, ticks: tick..<(tick + 1), timingConfig: timingConfig,
@@ -229,10 +229,10 @@ extension PlaybackSongSyntheticAdapter {
             context.voiceStateUpdates.append(contentsOf: applyVolumeColumnSlideTick(slide, cell: cell, source: source,
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
                 timingPlan: timingPlan, state: &state, globalVolume: context.globalVolumeState.volumeValue))
-            if tick == requested {
+            if requested < timingConfig.speed, timingConfig.localEffectPhase(for: tick) == requested {
                 applyRefusedOrdinarySelection(selection, cell: cell, source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
-                    timingConfig: timingConfig, song: song, delayed: true, state: &state, context: &context)
+                    timingConfig: timingConfig, song: song, delayed: true, elapsedTick: tick, state: &state, context: &context)
             }
         }
         let inRow = requested < timingConfig.speed
@@ -325,15 +325,15 @@ extension PlaybackSongSyntheticAdapter {
         globalVolume: Int, state: inout ChannelState,
         volumeColumnSlide: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
-        guard cell.effectType == 0x07, timingConfig.speed > 1 else { return [] }
+        guard cell.effectType == 0x07, timingConfig.actualTickCount > 1 else { return [] }
         let speed = Int(cell.effectParam >> 4)
         let depth = Int(cell.effectParam & 15)
         if speed > 0 { state.tremolo.speed = speed }
         if depth > 0 { state.tremolo.depth = depth }
         state.tremolo.activated = true
         var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
-        updates.reserveCapacity((timingConfig.speed - 1) * (volumeColumnSlide == nil ? 1 : 2))
-        for tick in 1..<timingConfig.speed {
+        updates.reserveCapacity((timingConfig.actualTickCount - 1) * (volumeColumnSlide == nil ? 1 : 2))
+        for tick in timingConfig.nonzeroDispatchTicks {
             updates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumnSlide, cell: cell, source: source,
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
                 timingPlan: timingPlan, state: &state, globalVolume: globalVolume))
@@ -369,7 +369,7 @@ extension PlaybackSongSyntheticAdapter {
         timingPlan: PlaybackSongFxxTimingPlan, state: inout ChannelState, globalVolume: Int
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
-        for tick in 1..<max(1, rowSpeed) {
+        for tick in 1..<timingPlan.actualTickCount(for: syntheticRow) {
             updates.append(contentsOf: applyVolumeColumnSlideTick(columnSlide, cell: cell, source: source,
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
                 timingPlan: timingPlan, state: &state, globalVolume: globalVolume))
@@ -700,16 +700,16 @@ extension PlaybackSongSyntheticAdapter {
         volumeColumnSlide: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         let rowSpeed = timingConfig.speed
-        guard cell.effectType == 0x06, rowSpeed > 1 else { return [] }
+        guard cell.effectType == 0x06, timingConfig.actualTickCount > 1 else { return [] }
         rememberVolumeSlide(from: cell, source: source, channelIndex: channelIndex,
-                            rowSpeed: rowSpeed, channelState: &channelState)
+                            rowSpeed: timingConfig.actualTickCount, channelState: &channelState)
         let remembered = cell.effectParam == 0 ? channelState.volumeSlideMemory : nil
-        let slide = resolved6xyVolumeSlide(from: cell, rowSpeed: rowSpeed, channelState: channelState)
+        let slide = resolved6xyVolumeSlide(from: cell, rowSpeed: timingConfig.actualTickCount, channelState: channelState)
         // FT2 runs doVibrato then volSlide on ticks 1..<speed. Initial zero
         // memory still restores output from base on those ticks, never tick 0.
         var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         updates.reserveCapacity((rowSpeed - 1) * (volumeColumnSlide == nil ? 1 : 2))
-        for tick in 1..<rowSpeed {
+        for tick in timingConfig.nonzeroDispatchTicks {
             updates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumnSlide, cell: cell, source: source,
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
                 timingPlan: timingPlan, state: &channelState, globalVolume: globalVolumeValue))
@@ -754,7 +754,7 @@ extension PlaybackSongSyntheticAdapter {
 
         let requestedSlide = axyVolumeSlideAmounts(effectParam: cell.effectParam)
         rememberVolumeSlide(from: cell, source: source, channelIndex: channelIndex,
-                            rowSpeed: timingConfig.speed, channelState: &channelState)
+                            rowSpeed: timingConfig.actualTickCount, channelState: &channelState)
         // Cold A00/500 execute zero independently of tone admission in either
         // mode, without inventing shared A/5/6 history.
         let coldA00 = cell.effectType == 0x0A && cell.effectParam == 0 && channelState.volumeSlideMemory == nil
@@ -792,7 +792,7 @@ extension PlaybackSongSyntheticAdapter {
         }
         let rowSpeed = max(1, timingConfig.speed)
         let command = volumeSlideCommand(for: cell, up: slide.up, down: slide.down)
-        guard slide.amount > 0 || (coldZeroSlide && rowSpeed > 1) else {
+        guard slide.amount > 0 || (coldZeroSlide && timingConfig.actualTickCount > 1) else {
             let before = channelState
             var updates = [
                 voiceStateUpdateDiagnostic(
@@ -826,8 +826,8 @@ extension PlaybackSongSyntheticAdapter {
                     activeVoiceUpdatedOverride: false
                 ),
             ]
-            if volumeColumnSlide != nil && rowSpeed > 1 {
-                for tick in 1..<rowSpeed {
+            if volumeColumnSlide != nil && timingConfig.actualTickCount > 1 {
+                for tick in timingConfig.nonzeroDispatchTicks {
                     updates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumnSlide, cell: cell, source: source,
                         channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
                         timingPlan: timingPlan, state: &channelState, globalVolume: globalVolumeValue))
@@ -836,13 +836,13 @@ extension PlaybackSongSyntheticAdapter {
             return updates
         }
 
-        guard rowSpeed > 1 else {
+        guard timingConfig.actualTickCount > 1 else {
             return []
         }
 
         var updates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         updates.reserveCapacity(rowSpeed - 1)
-        for tick in 1..<rowSpeed {
+        for tick in timingConfig.nonzeroDispatchTicks {
             updates.append(contentsOf: applyVolumeColumnSlideTick(volumeColumnSlide, cell: cell, source: source,
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: rowSpeed,
                 timingPlan: timingPlan, state: &channelState, globalVolume: globalVolumeValue))
@@ -1208,10 +1208,10 @@ extension PlaybackSongSyntheticAdapter {
             let rowHasH = (updatesByRow[row] ?? []).contains { original[$0].effectType == 0x11 && original[$0].syntheticTick > 0 }
             var controls = rowControls.map(GlobalVolumeChannelProjection.init)
             records += controls.count
-            channelTurns += controls.count * timing.effectiveSpeed
+            channelTurns += controls.count * timing.actualTickCount
             peakRecords = max(peakRecords, controls.count)
             if row < firstRow { result.append(contentsOf: (updatesByRow[row] ?? []).map { original[$0] }) }
-            for tick in 0..<timing.effectiveSpeed {
+            for tick in 0..<timing.actualTickCount {
                 let frame = timingPlan.frameFor(row: row, tick: tick)
                 while routeCursor < routes.count && routes[routeCursor].frame <= frame {
                     let route = routes[routeCursor]

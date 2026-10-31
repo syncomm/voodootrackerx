@@ -1946,7 +1946,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
             "Minimal Gxx set-global-volume commands are row-level bounded offline adapter updates that clamp the XM global volume value to 0...64.",
             "Hxy and seeded H00 execute on ticks 1..<speed in ascending channel turns with held gain targets. Hxy memory is channel-local and whole-byte; global volume is song-global. Cold H00 is a true no-op: FT2's zero-memory target-refresh artifact is intentionally not emulated. Mixed nibbles retain upper-nibble precedence.",
-            "Focused traversal planning applies Dxx pattern break, Bxx position jump, and E6x pattern loop in the Swift adapter path; EEx pattern delay remains deferred.",
+            diagnostics.rowTiming.contains(where: { $0.patternDelayCycles > 0 })
+                ? "Ordinary EEx holds (x+1) cycles at effective Fxx speed/BPM, with one fresh entry and nonzero dispatch on every later elapsed tick. Combined EEx+Bxx/Dxx/E6x precedence remains OPEN under G38."
+                : "Focused traversal planning applies Dxx pattern break, Bxx position jump, and E6x pattern loop in the Swift adapter path; EEx pattern delay remains deferred.",
             "Dxx row targets use XM BCD decoding; invalid BCD targets are diagnosed and clamped safely.",
             "When Bxx and Dxx share a row, Bxx selects the target order and Dxx supplies the target row.",
             "E6x loop starts and loop counts are scoped per channel/order/pattern; missing loop starts are diagnosed without inventing a row-0 loop.",
@@ -2322,8 +2324,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "note_cut_effects": diagnostics.noteCutEffects.map { noteCutDiagnosticJSON($0, from: result) },
             "note_delay_effects": diagnostics.noteDelayEffects.map(noteDelayDiagnosticJSON),
             "retrigger_effects": diagnostics.retriggerEffects.map(retriggerDiagnosticJSON),
-            "arpeggio_effects": diagnostics.arpeggioEffects.map(arpeggioDiagnosticJSON),
-            "arpeggio_0xy_effects": diagnostics.arpeggioEffects.map(arpeggioDiagnosticJSON),
+            "arpeggio_effects": diagnostics.arpeggioEffects.map { arpeggioDiagnosticJSON($0,
+                delayedRowTicks: diagnostics.rowTiming.indices.contains($0.syntheticRow) && diagnostics.rowTiming[$0.syntheticRow].patternDelayCycles > 0
+                    ? diagnostics.rowTiming[$0.syntheticRow].actualTickCount : nil) },
+            "arpeggio_0xy_effects": diagnostics.arpeggioEffects.map { arpeggioDiagnosticJSON($0,
+                delayedRowTicks: diagnostics.rowTiming.indices.contains($0.syntheticRow) && diagnostics.rowTiming[$0.syntheticRow].patternDelayCycles > 0
+                    ? diagnostics.rowTiming[$0.syntheticRow].actualTickCount : nil) },
             "tone_portamento_effects": diagnostics.tonePortamentoEffects.map(tonePortamentoDiagnosticJSON),
             "tone_portamento_volume_slide_5xy_effects": tonePortamento5xyEffects.map(tonePortamentoDiagnosticJSON),
             "portamento_slide_effects": diagnostics.portamentoSlideEffects.map(portamentoSlideDiagnosticJSON),
@@ -2895,7 +2901,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
     }
 
     private static func arpeggioDiagnosticJSON(
-        _ diagnostic: PlaybackSongSyntheticArpeggioDiagnostic
+        _ diagnostic: PlaybackSongSyntheticArpeggioDiagnostic, delayedRowTicks: Int? = nil
     ) -> [String: Any] {
         [
             "source": positionJSON(diagnostic.source),
@@ -2936,9 +2942,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "subsumed_row_exit": diagnostic.subsumedRowExit.map(tonePortamentoStepUpdateJSON) as Any? ?? NSNull(),
             "step_updates": diagnostic.stepUpdates.map { update in
                 var fields = tonePortamentoStepUpdateJSON(update)
+                // The row-exit restoration is outside the actual dispatch clock.
+                let phase = delayedRowTicks.map { update.syntheticTick < $0
+                    ? update.syntheticTick % diagnostic.rowSpeed : diagnostic.rowSpeed } ?? update.syntheticTick
                 fields["selected_semitone_offset"] = PlaybackSongSyntheticAdapter.arpeggioSemitoneOffset(
-                    effectiveSpeed: diagnostic.rowSpeed, tick: update.syntheticTick,
-                    x: diagnostic.xSemitoneOffset, y: diagnostic.ySemitoneOffset
+                    effectiveSpeed: diagnostic.rowSpeed,
+                    tick: phase,
+                    x: diagnostic.xSemitoneOffset, y: diagnostic.ySemitoneOffset,
+                    freshEntry: update.syntheticTick == 0
                 )
                 return fields
             },
@@ -3694,7 +3705,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         sampleRate: Double
     ) -> [String: Any] {
         let framesPerTick = sampleRate * 2.5 / Double(max(1, diagnostic.effectiveBPM))
-        return [
+        var fields: [String: Any] = [
             "source": positionJSON(diagnostic.source),
             "synthetic_row": diagnostic.syntheticRow,
             "row_start_exact_frame": diagnostic.rowStartExactFrame,
@@ -3711,6 +3722,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "effective_speed": diagnostic.effectiveSpeed,
             "effective_bpm": diagnostic.effectiveBPM,
         ]
+        // Keep the established no-delay JSON bytes; delayed rows expose elapsed and local coordinates.
+        if diagnostic.patternDelayCycles > 0 {
+            fields["pattern_delay_cycles"] = diagnostic.patternDelayCycles
+            fields["actual_tick_count"] = diagnostic.actualTickCount
+            fields["effect_dispatch_phase_policy"] = "elapsed_tick % effective_speed"
+            fields["fresh_entry_policy"] = "elapsed_tick == 0; all later ticks use nonzero dispatch"
+        }
+        return fields
     }
 
     private static func timingChangeJSON(_ diagnostic: PlaybackSongSyntheticTimingChangeDiagnostic) -> [String: Any] {

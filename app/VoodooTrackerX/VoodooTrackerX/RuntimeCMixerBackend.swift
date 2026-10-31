@@ -865,7 +865,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         }
         let tickFrames: Int?
         if let cMixerPosition {
-            tickFrames = max(1, cMixerPosition.rowDurationFrames / max(1, cMixerPosition.effectiveSpeed))
+            tickFrames = max(1, cMixerPosition.rowDurationFrames / max(1, cMixerPosition.actualTickCount))
         } else {
             let bpm = context?.bpm ?? PlaybackTiming.xmDefault.bpm
             tickFrames = sampleRate.isFinite && sampleRate > 0

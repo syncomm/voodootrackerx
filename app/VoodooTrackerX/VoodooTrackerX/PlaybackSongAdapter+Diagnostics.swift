@@ -374,7 +374,7 @@ extension PlaybackSongSyntheticAdapter {
         case 0x00 where cell.effectParam != 0:
             return .applied
         case 0x07:
-            return timingConfig.speed > 1 ? .applied : .ignoredNoOp
+            return timingConfig.actualTickCount > 1 ? .applied : .ignoredNoOp
         case 0x05:
             return .applied
         case 0x04:
@@ -382,7 +382,7 @@ extension PlaybackSongSyntheticAdapter {
             let depth = Int(cell.effectParam & 0x0F)
             return cell.effectParam == 0 || speed == 0 || depth == 0 ? .ignoredNoOp : .applied
         case 0x06:
-            return timingConfig.speed > 1 || resolved6xyVolumeSlide(from: cell, rowSpeed: timingConfig.speed, channelState: channelState).amount > 0
+            return timingConfig.actualTickCount > 1 || resolved6xyVolumeSlide(from: cell, rowSpeed: timingConfig.speed, channelState: channelState).amount > 0
                 ? .applied : .ignoredNoOp
         case 0x01...0x02:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
@@ -391,16 +391,16 @@ extension PlaybackSongSyntheticAdapter {
         case 0x08, 0x0C:
             return .applied
         case 0x19:
-            return timingConfig.speed > 1 && (cell.effectParam != 0 || channelState.panningSlideMemory != 0)
+            return timingConfig.actualTickCount > 1 && (cell.effectParam != 0 || channelState.panningSlideMemory != 0)
                 ? .applied : .ignoredNoOp
         case 0x0A:
-            return cell.effectParam == 0 && timingConfig.speed == 1 ? .ignoredNoOp : .applied
+            return cell.effectParam == 0 && timingConfig.actualTickCount == 1 ? .ignoredNoOp : .applied
         case 0x0F:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x10:
             return .applied
         case 0x11:
-            return timingConfig.speed > 1 && (cell.effectParam != 0 || channelState.globalVolumeSlideMemory != nil) ? .applied : .ignoredNoOp
+            return timingConfig.actualTickCount > 1 && (cell.effectParam != 0 || channelState.globalVolumeSlideMemory != nil) ? .applied : .ignoredNoOp
         case 0x15:
             return .applied
         case 0x1B:
@@ -418,7 +418,7 @@ extension PlaybackSongSyntheticAdapter {
             guard interval > 0 else {
                 return .ignoredNoOp
             }
-            return interval < timingConfig.speed ? .applied : .ignoredNoOp
+            return interval < timingConfig.speed || timingConfig.patternDelayCycles > 0 ? .applied : .ignoredNoOp
         case 0x0E where isSetFinetuneEffect(cell):
             return (1...96).contains(cell.note) ? .applied : .deferredUnsupported
         case 0x0E where isFinePortamentoUpEffect(cell):
@@ -439,6 +439,9 @@ extension PlaybackSongSyntheticAdapter {
                 return .deferredUnsupported
             }
             return .applied
+        case 0x0E where cell.effectParam >> 4 == 0x0E:
+            // Frozen EE0/cancelled-delay receipts retain their historical classification.
+            return timingConfig.patternDelayCycles > 0 ? .applied : .deferredUnsupported
         case 0x0E where isE6xPatternLoopEffect(cell):
             return .deferredUnsupported
         case 0x0B, 0x0D, 0x0E:

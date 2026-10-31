@@ -3369,7 +3369,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(summary["total_e9x_retrigger"] as? Int, 1)
         XCTAssertEqual(summary["total_other_e_commands"] as? Int, 0)
         XCTAssertEqual(summary["total_traversal_hazards"] as? Int, 3)
-        XCTAssertEqual(summary["likely_ignores_structure_changing_behavior"] as? Bool, true)
+        // Applied ordinary EEx no longer reports ignored structure; B/D out-of-range is explicit.
+        XCTAssertEqual(summary["likely_ignores_structure_changing_behavior"] as? Bool, false)
         XCTAssertEqual(firstHazards.count, 3)
         XCTAssertEqual((firstHazards.first?["source"] as? [String: Any])?["order"] as? Int, 0)
         XCTAssertEqual((firstHazards.first?["source"] as? [String: Any])?["pattern"] as? Int, 2)
@@ -3377,7 +3378,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(firstHazards.first?["channel_index"] as? Int, 0)
         XCTAssertEqual(bxx["current_status"] as? String, "out_of_range")
         XCTAssertEqual(dxx["current_status"] as? String, "out_of_range")
-        XCTAssertEqual(eex["current_status"] as? String, "deferred/unsupported")
+        // Ordinary delay timing is applied; this combined B/D witness does not qualify G38 precedence.
+        XCTAssertEqual(eex["current_status"] as? String, "applied")
         XCTAssertEqual(e9x["current_status"] as? String, "applied")
         XCTAssertEqual(fxx["current_status"] as? String, "applied")
         XCTAssertEqual(fxx["is_traversal_hazard"] as? Bool, false)

@@ -287,7 +287,8 @@ final class G23ChildlessPitchInvocationTests: XCTestCase {
         // Sparse reset storage makes the native semantic companion 56 inline bytes.
         // Automatic requests and introduced-hold provenance add two storage references.
         // G05's physical-ID reservation adds one inline identity-provenance Int.
-        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 1104)
+        // G35 adds one inline timing Int to distinguish held duration from effective speed.
+        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 1112)
     }
 
     private func observations(_ plan: PlaybackSongSyntheticPlan) throws -> [E.Observation] {

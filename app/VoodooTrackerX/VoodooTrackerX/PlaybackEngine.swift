@@ -1460,7 +1460,7 @@ final class PlaybackEngine: PlaybackTransport {
         case let .setGlobalVolume(volume):
             globalState.setVolume(volume)
         case let .patternDelay(rowDurations):
-            rowDelayDurationsRemaining = max(rowDelayDurationsRemaining, rowDurations)
+            rowDelayDurationsRemaining = max(0, rowDurations)
         }
     }
 

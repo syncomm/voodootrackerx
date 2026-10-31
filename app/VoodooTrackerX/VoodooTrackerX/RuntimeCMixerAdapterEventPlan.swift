@@ -1183,7 +1183,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }) else {
             return nil
         }
-        let tickInRow = min(max(0, context.tickInRow ?? 0), max(0, timing.effectiveSpeed - 1))
+        let tickInRow = min(max(0, context.tickInRow ?? 0), max(0, timing.actualTickCount - 1))
         let framesPerTick = sampleRate * 2.5 / Double(max(1, timing.effectiveBPM))
         let exactFrame = timing.rowStartExactFrame + (Double(tickInRow) * framesPerTick)
         guard exactFrame.isFinite else {
@@ -1224,6 +1224,10 @@ struct PlaybackSongSampleTimePosition: Equatable {
     let effectiveSpeed: Int
     let effectiveBPM: Int
     let status: String
+    var patternDelayCycles: Int = 0
+    var actualTickCount: Int { effectiveSpeed * (patternDelayCycles + 1) }
+    var localEffectPhase: Int { tickInRow % effectiveSpeed }
+    var isFreshEntry: Bool { tickInRow == 0 }
 }
 
 struct PlaybackSongSampleTimePositionResolver: Equatable {
@@ -1305,7 +1309,8 @@ struct PlaybackSongSampleTimePositionResolver: Equatable {
             frameOffsetInRow: max(0, frame - timing.rowStartFrame),
             effectiveSpeed: timing.effectiveSpeed,
             effectiveBPM: timing.effectiveBPM,
-            status: status
+            status: status,
+            patternDelayCycles: timing.patternDelayCycles
         )
     }
 
@@ -1316,11 +1321,11 @@ struct PlaybackSongSampleTimePositionResolver: Equatable {
     ) -> Int {
         guard framesPerTick.isFinite,
               framesPerTick > 0,
-              timing.effectiveSpeed > 1 else {
+              timing.actualTickCount > 1 else {
             return 0
         }
         var result = 0
-        for tick in 1..<timing.effectiveSpeed {
+        for tick in 1..<timing.actualTickCount {
             let tickFrame = Self.floorFrame(timing.rowStartExactFrame + (Double(tick) * framesPerTick))
             guard frame >= tickFrame else {
                 break

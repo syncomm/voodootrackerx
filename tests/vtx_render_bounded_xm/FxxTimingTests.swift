@@ -397,8 +397,12 @@ final class FxxTimingTests: XCTestCase {
             XCTAssertEqual(controls.tremorMemory, 0)
             XCTAssertEqual(controls.tremorPhase, 0)
         }
+        if let timing = value as? PlaybackSongSyntheticRowTimingDiagnostic {
+            XCTAssertEqual(timing.patternDelayCycles, 0)
+        }
         let fields = mirror.children.filter { !(value is PlaybackSongSyntheticAdapter.ChannelState &&
-            ($0.label == "panningSlideMemory" || $0.label == "tremorMemory" || $0.label == "tremorPhase")) }
+            ($0.label == "panningSlideMemory" || $0.label == "tremorMemory" || $0.label == "tremorPhase")) &&
+            !(value is PlaybackSongSyntheticRowTimingDiagnostic && $0.label == "patternDelayCycles") }
             .map { "\($0.label ?? "_"):\(clockSnapshot($0.value))" }
         // Coverage diagnostics contain dictionaries; iteration order is deliberately not evidence.
         return (mirror.displayStyle == .dictionary || mirror.displayStyle == .set ? fields.sorted() : fields).joined(separator: "|")

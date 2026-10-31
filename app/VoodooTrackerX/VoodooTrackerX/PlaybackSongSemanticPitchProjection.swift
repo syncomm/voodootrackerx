@@ -108,7 +108,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
             guard plan.diagnostics.arpeggioEffects.indices.contains(ref.index) else { return .notCaptured }
             let command = plan.diagnostics.arpeggioEffects[ref.index]
             guard let child = command.subsumedRowExit ?? command.stepUpdates.last,
-                  child.syntheticTick == command.rowSpeed else { return .notCaptured }
+                  child.syntheticTick == (plan.diagnostics.rowTiming.indices.contains(command.syntheticRow) ? plan.diagnostics.rowTiming[command.syntheticRow].actualTickCount : command.rowSpeed) else { return .notCaptured }
             return known(linear ? child.linearPeriodAfter : child.amigaPeriodAfter)
         case .vibratoExit:
             guard plan.diagnostics.vibratoEffects.indices.contains(ref.index) else { return .notCaptured }
@@ -116,7 +116,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
             let child = ref.child > 0 && plan.nativePitchWriterSpans.spans.indices.contains(ref.child - 1)
                 ? plan.nativePitchWriterSpans.spans[ref.child - 1].originalChildren.last
                 : command.stepUpdates.last ?? command.inactiveSourceStepUpdates.last
-            guard let child, child.syntheticTick == command.rowSpeed else { return .notCaptured }
+            guard let child, child.syntheticTick == (plan.diagnostics.rowTiming.indices.contains(command.syntheticRow) ? plan.diagnostics.rowTiming[command.syntheticRow].actualTickCount : command.rowSpeed) else { return .notCaptured }
             return known(linear ? child.linearPeriodAfter : child.amigaPeriodAfter)
         case .suppressedExit:
             return known(plan.suppressedRowExit(at: ref.index)?.nativePeriodAfter)

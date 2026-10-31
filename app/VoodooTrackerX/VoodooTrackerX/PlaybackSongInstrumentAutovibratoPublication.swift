@@ -113,7 +113,7 @@ struct PlaybackSongInstrumentAutovibratoPublication {
             for index in input.indices {
                 let child = input[index]
                 let tick: Int
-                if terminal { guard child.syntheticTick == rowSpeed else { continue }; tick = -1 }
+                if terminal { guard child.syntheticTick == context.semanticPitchBuilder.speed else { continue }; tick = -1 }
                 else if commandRow == row, child.syntheticTick < speed { tick = child.syntheticTick }
                 else if commandRow == row - 1, child.scheduledFrame == rowStartFrame { tick = 0 }
                 else { continue }
@@ -260,7 +260,7 @@ extension PlaybackSongSyntheticAdapter {
         // A capture gap cannot authorize a new automatic phase or native value.
         // Keep the already proven physical prefix; ordinary intents retain authority.
         guard context.semanticPitchBuilder.automatic.valid else { return }
-        builder.prepare(context: context, channelCount: channelCount, speed: timingConfig.speed,
+        builder.prepare(context: context, channelCount: channelCount, speed: timingConfig.actualTickCount,
             rowStartFrame: timingPlan.frameFor(row: row, tick: 0))
         // Existing family order is physical authority. Each native intermediate
         // receives the same tick delta; the final semantic value never replaces it.

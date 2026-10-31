@@ -160,13 +160,15 @@ final class OfflineRenderTests: XCTestCase {
 
         XCTAssertEqual(result.diagnostics.eventCoverage.normalNoteCells, attemptedVoiceCount)
         XCTAssertEqual(result.diagnostics.eventCoverage.scheduledNoteEvents, attemptedVoiceCount)
-        XCTAssertEqual(result.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, 1)
+        XCTAssertEqual(result.controlAdmission.failure?.reason, .sourceVoiceCapacity)
+        XCTAssertEqual(result.renderedFrameCount, 0)
+        XCTAssertEqual(result.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, attemptedVoiceCount)
         XCTAssertTrue(result.diagnostics.eventCoverage.skipReasonCounts.contains { item in
-            item.reason == .cMixerVoiceCapacityLimit && item.count == 1
+            item.reason == .cMixerVoiceCapacityLimit && item.count == attemptedVoiceCount
         })
-        XCTAssertEqual(result.scheduledVoiceIndices.compactMap { $0 }.count, CSoftwareMixer.maximumScheduledVoiceCount)
-        XCTAssertEqual(result.scheduledVoiceIndices.filter { $0 == nil }.count, 1)
-        XCTAssertEqual(result.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, 1)
+        XCTAssertEqual(result.scheduledVoiceIndices.compactMap { $0 }.count, 0)
+        XCTAssertEqual(result.scheduledVoiceIndices.filter { $0 == nil }.count, attemptedVoiceCount)
+        XCTAssertEqual(result.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, attemptedVoiceCount)
     }
 
     func testPlaybackSongOfflineRendererWindowedSingleWindowMatchesNonWindowedRender() {
@@ -630,7 +632,9 @@ final class OfflineRenderTests: XCTestCase {
         let summary = try XCTUnwrap(windowed.windowedRenderSummary)
 
         XCTAssertEqual(allAtOnce.diagnostics.eventCoverage.normalNoteCells, notesPerRow * rows.count)
-        XCTAssertEqual(allAtOnce.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, 44)
+        try allAtOnce.controlAdmission.requireSuccess()
+        XCTAssertEqual(allAtOnce.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, 0)
+        XCTAssertEqual(allAtOnce.controlAdmission.sources?.imported, notesPerRow * rows.count)
         XCTAssertEqual(windowed.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, 0)
         XCTAssertEqual(windowed.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, 0)
         XCTAssertEqual(summary.windowCount, 3)
@@ -641,7 +645,7 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(summary.windows.map(\.scheduledEventCount), [100, 200, 200])
         XCTAssertEqual(summary.windows.map(\.acceptedScheduledEventCount), [100, 200, 200])
         XCTAssertEqual(summary.windows.map(\.scheduledCapacityRejectedCount), [0, 0, 0])
-        XCTAssertGreaterThan(windowed.block.interleavedPCM.reduce(0, +), allAtOnce.block.interleavedPCM.reduce(0, +))
+        XCTAssertEqual(windowed.block.interleavedPCM, allAtOnce.block.interleavedPCM)
     }
 
     func testPlaybackSongOfflineRendererWindowedDiagnosticsAggregatePerWindowRejects() throws {
@@ -671,14 +675,18 @@ final class OfflineRenderTests: XCTestCase {
         let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
         let summary = try XCTUnwrap(result.windowedRenderSummary)
 
-        XCTAssertEqual(summary.totalScheduledEvents, attemptedVoiceCount + 1)
-        XCTAssertEqual(summary.totalScheduledCapacityRejects, 1)
+        XCTAssertEqual(result.renderedFrameCount, 0)
+        XCTAssertEqual(result.controlAdmission.failure?.reason, .sourceVoiceCapacity)
+        XCTAssertEqual(result.controlAdmission.failure?.frameOrigin, 0)
+        XCTAssertEqual(result.controlAdmission.sources?.deferred, 1)
+        XCTAssertEqual(summary.totalScheduledEvents, attemptedVoiceCount)
+        XCTAssertEqual(summary.totalScheduledCapacityRejects, attemptedVoiceCount)
         XCTAssertEqual(summary.firstWindowsWithRejects.map(\.windowIndex), [0])
-        XCTAssertEqual(summary.windows.map(\.scheduledEventCount), [attemptedVoiceCount, 1])
-        XCTAssertEqual(summary.windows.map(\.scheduledCapacityRejectedCount), [1, 0])
-        XCTAssertEqual(result.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, 1)
+        XCTAssertEqual(summary.windows.map(\.scheduledEventCount), [attemptedVoiceCount])
+        XCTAssertEqual(summary.windows.map(\.scheduledCapacityRejectedCount), [attemptedVoiceCount])
+        XCTAssertEqual(result.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, attemptedVoiceCount)
         XCTAssertTrue(result.diagnostics.eventCoverage.skipReasonCounts.contains { item in
-            item.reason == .cMixerVoiceCapacityLimit && item.count == 1
+            item.reason == .cMixerVoiceCapacityLimit && item.count == attemptedVoiceCount
         })
     }
 
@@ -992,11 +1000,16 @@ final class OfflineRenderTests: XCTestCase {
         let summary = try XCTUnwrap(result.windowedRenderSummary)
         let secondWindow = try XCTUnwrap(summary.windows.last)
 
-        XCTAssertEqual(secondWindow.boundaryContinuationCount, attemptedVoiceCount)
-        XCTAssertEqual(secondWindow.carriedVoiceCount, CSoftwareMixer.maximumScheduledVoiceCount)
-        XCTAssertEqual(secondWindow.droppedAtWindowBoundaryCount, 1)
-        XCTAssertTrue(summary.mayContainBoundaryCuts)
-        XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 1)
+        XCTAssertEqual(result.controlAdmission.failure?.reason, .sourceVoiceCapacity)
+        XCTAssertEqual(result.controlAdmission.failure?.frameOrigin, 0)
+        XCTAssertEqual(result.renderedFrameCount, 0)
+        XCTAssertEqual(secondWindow.renderedFrames, 0)
+        XCTAssertEqual(secondWindow.scheduledCapacityRejectedCount, attemptedVoiceCount)
+        XCTAssertEqual(secondWindow.boundaryContinuationCount, 0)
+        XCTAssertEqual(secondWindow.carriedVoiceCount, 0)
+        XCTAssertEqual(secondWindow.droppedAtWindowBoundaryCount, 0)
+        XCTAssertFalse(summary.mayContainBoundaryCuts)
+        XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 0)
     }
 
     func testPlaybackSongOfflineRendererCanRenderByRowCount() {

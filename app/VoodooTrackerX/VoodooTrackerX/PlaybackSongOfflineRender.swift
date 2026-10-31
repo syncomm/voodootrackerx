@@ -682,7 +682,7 @@ private enum PlaybackSongWindowedSchedulingSource {
 
 /// A failed offline control admission is distinct from source-voice capacity.
 struct OfflineControlFailure: Error, Equatable, LocalizedError {
-    enum Reason: String { case invalidControl, stateQueueCapacity, singleFrameCapacity, controlStagingBudgetExceeded }
+    enum Reason: String { case invalidControl, stateQueueCapacity, singleFrameCapacity, controlStagingBudgetExceeded, sourceVoiceCapacity }
     let reason: Reason
     let key: OfflineControlKey?
     let voice: Int?
@@ -692,6 +692,7 @@ struct OfflineControlFailure: Error, Equatable, LocalizedError {
 
 /// Submission accounting; pending controls remain valid beyond a bounded request's end.
 struct OfflineControlAdmissionSnapshot: Equatable {
+    var sources: OfflineSourceAdmissionSnapshot? = nil
     var intended = 0, accepted = 0, cancelled = 0, rejected = 0
     var usedSlowPath = false
     var stagedKeyCount = 0, allocatedBytes = 0, peakQueuedCount = 0
@@ -708,6 +709,22 @@ struct OfflineControlAdmissionSnapshot: Equatable {
     func requireSuccess() throws { if let failure { throw failure } }
 }
 
+/// Logical births and physical continuation imports are accounted for separately.
+struct OfflineSourceAdmissionSnapshot: Equatable {
+    struct Window: Equatable {
+        let startFrame: Int
+        let endFrame: Int
+        let continuations: Int
+        let births: Int
+    }
+    var intended = 0, imported = 0, started = 0, cancelled = 0, rejected = 0
+    var capacityRejected = 0, invalidRejected = 0
+    var peakLoaded = 0, continuationImports = 0, continuationPayloadBytes = 0
+    var releasedContinuations = 0, pitchContinuations = 0
+    var windows: [Window] = []
+    var deferred: Int { max(0, intended - imported - rejected) }
+}
+
 /// POD selectors reference existing immutable diagnostics, never PCM or copied events.
 struct OfflineControlKey: Equatable {
     let frame: Int64
@@ -716,12 +733,14 @@ struct OfflineControlKey: Equatable {
     let parent: UInt32
     let child: UInt32
     let family: UInt8
+    var sourceStopApplied = false // Uses existing POD padding; selector coordinates stay unchanged.
 }
 
 /// Transient call arguments, shared by eager emission and selector replay.
 enum OfflineControlValue: Equatable {
     case state(MixerPlaybackStateChange), gainPan(Float?, Float?), step(Double), position(Int)
     case cut, retirement, combined(Float?, Float?, Double), rampDown(Int)
+    case semantic(MixerEnvelopeSemanticState), audible(PlaybackXMAudibleUpdate), stop
     func apply(on mixer: CSoftwareMixer, voice: Int, frame: Int) -> CSoftwareMixerVoiceStateUpdateResult {
         switch self {
         case let .state(change): return mixer.schedulePlaybackStateChange(change, voiceIndex: voice, scheduledFrame: frame)
@@ -732,6 +751,9 @@ enum OfflineControlValue: Equatable {
         case .retirement: return mixer.scheduleSongVoiceRetirement(voiceIndex: voice, scheduledFrame: frame)
         case let .combined(gain, pan, step): return mixer.scheduleVoiceGainPanStepUpdate(voiceIndex: voice, scheduledFrame: frame, gain: gain, pan: pan, playbackStep: step)
         case let .rampDown(frames): return mixer.scheduleVoiceRampDownAndDeactivate(voiceIndex: voice, scheduledFrame: frame, rampFrames: frames)
+        case let .semantic(state): return .init(wasAccepted: mixer.setEnvelopeSemanticState(state, forVoiceAt: voice), rejectionReason: nil)
+        case let .audible(target): return .init(wasAccepted: mixer.publishAudibleOutput(target, forVoiceAt: voice), rejectionReason: nil)
+        case .stop: return .init(wasAccepted: mixer.stopVoice(at: voice), rejectionReason: nil)
         }
     }
 }
@@ -745,6 +767,8 @@ final class OfflineControlAdmission {
     private var capacity = 0, initialized = 0, cursor = 0
     private var capturing = false, rehydrating = false
     private var replayCount = 0
+    let capturesSourceSchedules: Bool
+    private let countingOnly: Bool
     private(set) var hadInvalidControl = false
     private let frameOrigin: Int
     var stopsBySource: [Int: Int] = [:] // Populated only on the slow path from existing stop authority.
@@ -752,8 +776,11 @@ final class OfflineControlAdmission {
     struct LedgerEntry: Equatable { let key: OfflineControlKey; let voice: Int; let value: OfflineControlValue; let accepted: Bool }
     var ledger: [LedgerEntry]?
 #endif
-    init(stagingCount: Int? = nil, frameOrigin: Int = 0) {
+    init(stagingCount: Int? = nil, frameOrigin: Int = 0, capturesSourceSchedules: Bool = false, countingOnly: Bool = false) {
         self.frameOrigin = frameOrigin
+        self.capturesSourceSchedules = capturesSourceSchedules
+        self.countingOnly = countingOnly
+        if countingOnly { snapshot.usedSlowPath = true; return }
         guard let count = stagingCount else { return }
         snapshot.usedSlowPath = true
         snapshot.stagedKeyCount = count
@@ -790,13 +817,14 @@ final class OfflineControlAdmission {
         }
         let key = OfflineControlKey(frame: Int64(frame), ordinal: UInt64(ordinal), source: s, parent: p, child: c, family: f)
         snapshot.intended += 1
+        if countingOnly { return }
         if capturing {
             guard initialized < capacity else { fail(.controlStagingBudgetExceeded, key: key); return }
             storage!.advanced(by: initialized).initialize(to: key); initialized += 1
         } else { apply(key, voice: voice, value: value(), on: mixer) }
     }
-    private func apply(_ key: OfflineControlKey, voice: Int, value: OfflineControlValue, on mixer: CSoftwareMixer) {
-        let result = value.apply(on: mixer, voice: voice, frame: Int(key.frame))
+    private func apply(_ key: OfflineControlKey, voice: Int, value: OfflineControlValue, on mixer: CSoftwareMixer, frame: Int? = nil) {
+        let result = value.apply(on: mixer, voice: voice, frame: frame ?? Int(key.frame))
         if result.wasAccepted { snapshot.accepted += 1 }
         else {
             snapshot.rejected += 1
@@ -815,7 +843,12 @@ final class OfflineControlAdmission {
         guard initialized == capacity else { fail(.invalidControl); return }
         // Unique ordinals make an in-place heap sort sufficient: no auxiliary key allocation.
         func less(_ a: OfflineControlKey, _ b: OfflineControlKey) -> Bool {
-            a.frame == b.frame ? a.ordinal < b.ordinal : a.frame < b.frame
+            if capturesSourceSchedules && a.frame == b.frame {
+                // Match CSoftwareMixer.render: stop, envelope, audible target, then native commands.
+                func priority(_ family: UInt8) -> Int { family == 16 ? 0 : family == 14 ? 1 : family == 15 ? 2 : 3 }
+                if priority(a.family) != priority(b.family) { return priority(a.family) < priority(b.family) }
+            }
+            return a.frame == b.frame ? a.ordinal < b.ordinal : a.frame < b.frame
         }
         func sift(_ start: Int, _ end: Int) {
             var parent = start
@@ -836,11 +869,53 @@ final class OfflineControlAdmission {
         while start < initialized {
             var end = start + 1
             while end < initialized && storage![end].frame == storage![start].frame { end += 1 }
-            if end - start > Self.queueLimit { fail(.singleFrameCapacity, key: storage![start]); return }
+            let nativeCount = capturesSourceSchedules ? (start..<end).reduce(0) { $0 + (storage![$1].family < 14 ? 1 : 0) } : end - start
+            if nativeCount > Self.queueLimit { fail(.singleFrameCapacity, key: storage![start]); return }
             start = end
         }
     }
     var nextFrame: Int { cursor < initialized ? Int(storage![cursor].frame) : Int.max }
+    /// Frees current owners before checkpoint occupancy; unadmitted owners stay pending for this frame.
+    func applySourceStopsBeforeCheckpoint(_ frame: Int, on mixer: CSoftwareMixer, voices: [Int: Int],
+                                         isRetired: (Int) -> Bool) {
+        var index = cursor
+        while index < initialized, storage![index].frame == frame, storage![index].family == 16, snapshot.failure == nil {
+            let key = storage![index]; index += 1
+            guard !key.sourceStopApplied, !isRetired(Int(key.source)), let voice = voices[Int(key.source)],
+                  mixer.voiceDiagnostic(forVoiceAt: voice)?.active == true else { continue }
+            // Only the wrapper's immediate physical stop precedes envelope/audible/native commands.
+            apply(key, voice: voice, value: .stop, on: mixer)
+            storage![index - 1].sourceStopApplied = true
+        }
+    }
+    /// Admits only this causal frame; future source owners retain their immutable selectors.
+    func deliverSourceFrame(_ frame: Int, origin: Int, on mixer: CSoftwareMixer, voices: [Int: Int],
+                            isRetired: (Int) -> Bool,
+                            resolve: (OfflineControlKey) -> OfflineControlValue,
+                            accepted: (OfflineControlKey, OfflineControlValue) -> Void) {
+        var queued = 0
+        while cursor < initialized, storage![cursor].frame == frame, snapshot.failure == nil {
+            let key = storage![cursor]; cursor += 1
+            if key.sourceStopApplied { continue }
+            guard !isRetired(Int(key.source)), let voice = voices[Int(key.source)], let state = mixer.voiceDiagnostic(forVoiceAt: voice),
+                  state.active, key.family == 16 || !state.deactivateAfterGainRamp else {
+                snapshot.cancelled += 1; continue
+            }
+            let value = resolve(key)
+            apply(key, voice: voice, value: value, on: mixer, frame: frame - origin)
+            if snapshot.failure == nil { accepted(key, value) }
+            if key.family < 14 { queued += 1 }
+        }
+        snapshot.peakQueuedCount = max(snapshot.peakQueuedCount, queued)
+    }
+    /// Reuses captured keys when a checkpoint session is reset, without a second producer scan.
+    func rewindSourceFrames() {
+        for index in 0..<initialized { storage![index].sourceStopApplied = false }
+        beginReplay(); rehydrating = false
+    }
+    func rejectSourceCapacity(at frame: Int) {
+        snapshot.failure = .init(reason: .sourceVoiceCapacity, key: nil, voice: nil, frameOrigin: frame)
+    }
     func refill(on mixer: CSoftwareMixer, voices: [Int: Int], resolve: (OfflineControlKey) -> OfflineControlValue) {
         guard snapshot.failure == nil else { return }
         var batch = 0
@@ -875,6 +950,38 @@ final class OfflineControlAdmission {
     func endReplay() { rehydrating = false; if replayCount != initialized { fail(.invalidControl) } }
 }
 
+/// Compact forward source references; native slots and per-generation state never outlive a horizon.
+private final class OfflineSourceCursor {
+    struct Key { let frame: Int; let source: Int }
+    let keys: [Key]
+    var nextImport = 0, nextBirth = 0, origin = 0, end = 0
+    var voices: [Int: Int] = [:]
+    var fadeoutRates: [Int: Float] = [:]
+    var cutFrames: [Int: Int] = [:]
+    var pitchSources: Set<Int> = []
+    var snapshot = OfflineSourceAdmissionSnapshot()
+#if DEBUG
+    var boundaries: [Int] = []
+    var births: [(source: Int, frame: Int, cursor: Double)]? = nil
+#endif
+    init(plan: PlaybackSongSyntheticPlan) {
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        keys = plan.pattern.events.enumerated().compactMap { i, event in
+            plan.pattern.contains(row: event.row) ? Key(frame: scheduler.frame(for: event), source: i) : nil
+        }.sorted { $0.frame == $1.frame ? $0.source < $1.source : $0.frame < $1.frame }
+        snapshot.intended = keys.count
+    }
+    func rewind() {
+        nextImport = 0; nextBirth = 0; origin = 0; end = 0
+        voices.removeAll(keepingCapacity: true); fadeoutRates.removeAll(keepingCapacity: true); cutFrames.removeAll(keepingCapacity: true)
+        pitchSources.removeAll(keepingCapacity: true)
+        snapshot = .init(); snapshot.intended = keys.count
+#if DEBUG
+        if births != nil { births = [] }
+#endif
+    }
+}
+
 /// Prepared offline render session for split renders and reset determinism checks.
 final class PlaybackSongOfflineRenderSession {
     let request: PlaybackSongOfflineRenderRequest
@@ -887,18 +994,36 @@ final class PlaybackSongOfflineRenderSession {
     private var controls = OfflineControlAdmission()
     private var slowVoices: [Int: Int] = [:]
     private var renderedFrameCount = 0
+    private var sources: OfflineSourceCursor?
+    private var recordsSourcePerformance = false
+    fileprivate private(set) var sourceSchedulingSeconds = 0.0, sourceRenderSeconds = 0.0
+    fileprivate func takeSourcePayloadDiagnostics() -> CSoftwareMixerSamplePayloadUploadDiagnostics {
+        mixer!.takeSamplePayloadUploadDiagnostics()
+    }
     var config: MixerRenderConfig { mixer?.config ?? request.config }
     var diagnostics: PlaybackSongSyntheticDiagnostics { plan.diagnostics }
-    var controlAdmission: OfflineControlAdmissionSnapshot { controls.snapshot }
+    var controlAdmission: OfflineControlAdmissionSnapshot {
+        var result = controls.snapshot; result.sources = sources?.snapshot; return result
+    }
 
-    init(request: PlaybackSongOfflineRenderRequest, preparedPlan: PlaybackSongSyntheticPlan? = nil) {
+    init(request: PlaybackSongOfflineRenderRequest, preparedPlan: PlaybackSongSyntheticPlan? = nil,
+         samplePayloadUploadMode: CSoftwareMixerSamplePayloadUploadMode = .defensiveSanitizingCopy,
+         sharedSamplePayloadCache: CSoftwareMixerSharedSamplePayloadCache? = nil,
+         recordsSamplePayloadUploads: Bool = false) {
         self.request = request
+        recordsSourcePerformance = recordsSamplePayloadUploads
         let fullPlan = preparedPlan ?? PlaybackSongSyntheticAdapter.adapt(request.song,
             startOrderIndex: request.startOrderIndex, orderCount: request.orderCount, sampleRate: request.config.sampleRate)
         includedEventIndices = PlaybackSongOfflineRenderer.includedEventIndices(for: fullPlan, isolationFilter: request.isolationFilter)
         plan = PlaybackSongOfflineRenderer.plan(fullPlan, mutingEventsNotIn: includedEventIndices)
             .extendingEnvelopeTail(throughFrame: request.boundedFrameCount)
         sameChannelVoiceLifetime = PlaybackSongOfflineRenderer.sameChannelVoiceLifetimeDiagnostics(for: plan, renderedFrameCount: request.boundedFrameCount)
+        if plan.pattern.events.count > CSoftwareMixer.maximumVoiceCount {
+            mixer = CSoftwareMixer(config: request.config, samplePayloadUploadMode: samplePayloadUploadMode,
+                sharedSamplePayloadCache: sharedSamplePayloadCache, recordsSamplePayloadUploads: recordsSamplePayloadUploads)
+            prepareSourceCheckpoints()
+            return
+        }
         installVoices()
         let rejected = scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count
         plan = plan.replacingEventCoverage(plan.diagnostics.eventCoverage.reportingCMixerVoiceCapacityRejections(rejected))
@@ -1025,6 +1150,9 @@ final class PlaybackSongOfflineRenderSession {
         case 11: return .step(plan.instrumentAutovibratoRequests[p].playbackStep)
         case 12: return .cut
         case 13: return .retirement
+        case 14: return .semantic(plan.xmEnvelopeTimeline!.updates[p].state)
+        case 15: return .audible(plan.xmAudibleTimeline!.updates[p])
+        case 16: return .stop
         default: preconditionFailure("Unknown offline selector")
         }
     }
@@ -1033,6 +1161,7 @@ final class PlaybackSongOfflineRenderSession {
         guard controlAdmission.failure == nil, let mixer else {
             return .init(config: config, frameCount: 0, interleavedPCM: [])
         }
+        if let sources { return renderSourceFrames(count, sources: sources, mixer: mixer) }
         guard controls.snapshot.usedSlowPath, count > 0 else {
             let block = mixer.render(frames: count); renderedFrameCount += block.frameCount; return block
         }
@@ -1056,6 +1185,11 @@ final class PlaybackSongOfflineRenderSession {
     func reset() {
         guard controlAdmission.failure == nil else { return }
         renderedFrameCount = 0
+        if let sources {
+            scheduledVoiceIndices = Array(repeating: nil, count: plan.pattern.events.count)
+            scheduledVoiceRejectionReasons = Array(repeating: nil, count: plan.pattern.events.count)
+            sources.rewind(); controls.rewindSourceFrames(); advanceSourceWindow(); return
+        }
         if controls.snapshot.usedSlowPath {
             let previousVoices = scheduledVoiceIndices, previousRejections = scheduledVoiceRejectionReasons
             mixer = nil
@@ -1070,9 +1204,30 @@ final class PlaybackSongOfflineRenderSession {
         } else { mixer?.reset() } // Preexisting eager reset-after-stop debt is deliberately unchanged.
     }
 #if DEBUG
+    /// Forces real checkpoint delivery for below-capacity eager/continuation parity controls.
+    func configureSourceAdmissionForTesting(boundaries: [Int] = []) {
+        precondition(renderedFrameCount == 0)
+        prepareSourceCheckpoints()
+        sources!.boundaries = boundaries.sorted()
+        sources!.births = []
+        controls.ledger = []
+        reset()
+    }
+    var sourceBirthsForTesting: [(source: Int, frame: Int, cursor: Double)] { sources?.births ?? [] }
+    var sourceMixerIdentityForTesting: ObjectIdentifier? { mixer.map(ObjectIdentifier.init) }
+    func sourceSlotForTesting(_ event: Int) -> Int? { sources?.voices[event] }
+    func sourceVoiceForTesting(_ event: Int) -> CSoftwareMixerVoiceDiagnostic? {
+        let slot: Int?
+        if let sources { slot = sources.voices[event] }
+        else { slot = scheduledVoiceIndices.indices.contains(event) ? scheduledVoiceIndices[event] : nil }
+        guard let slot else { return nil }
+        return mixer?.voiceDiagnostic(forVoiceAt: slot)
+    }
+    func advanceSourceWindowForTesting() { precondition(sources?.end == renderedFrameCount); advanceSourceWindow() }
     /// Forces identical producer capture for ledger/parity tests; absent from Release.
     func configureAdmissionForTesting(forceSlow: Bool, recordLedger: Bool = true) {
         precondition(renderedFrameCount == 0)
+        if sources != nil { if recordLedger { controls.ledger = [] }; return }
         mixer = nil; controls = OfflineControlAdmission()
         if recordLedger { controls.ledger = [] }
         installVoices(); emitControls()
@@ -1082,6 +1237,151 @@ final class PlaybackSongOfflineRenderSession {
 #endif
     private static func voiceIndexByEventIndex(from voiceIndices: [Int?]) -> [Int: Int] {
         Dictionary(uniqueKeysWithValues: voiceIndices.enumerated().compactMap { i, voice in voice.map { (i, $0) } })
+    }
+
+    private func prepareSourceCheckpoints() {
+        let started = recordsSourcePerformance ? VTXPerformanceClock.now() : 0
+        // Reuse every existing producer/eligibility rule; placeholders are logical IDs, never C slots.
+        scheduledVoiceIndices = plan.pattern.events.indices.map { Optional($0) }
+        controls = OfflineControlAdmission(capturesSourceSchedules: true, countingOnly: true)
+        emitControls()
+        controls = OfflineControlAdmission(stagingCount: controls.snapshot.intended, capturesSourceSchedules: true)
+        if controls.snapshot.failure == nil { emitControls(); controls.finishCapture() }
+        scheduledVoiceIndices = Array(repeating: nil, count: plan.pattern.events.count)
+        scheduledVoiceRejectionReasons = Array(repeating: nil, count: plan.pattern.events.count)
+        sources = OfflineSourceCursor(plan: plan)
+        if recordsSourcePerformance { sourceSchedulingSeconds += VTXPerformanceClock.seconds(since: started) }
+        advanceSourceWindow()
+    }
+
+    private func advanceSourceWindow() {
+        guard let sources, let mixer, controls.snapshot.failure == nil else { return }
+        let started = recordsSourcePerformance ? VTXPerformanceClock.now() : 0
+        defer { if recordsSourcePerformance { sourceSchedulingSeconds += VTXPerformanceClock.seconds(since: started) } }
+        let origin = renderedFrameCount
+        controls.applySourceStopsBeforeCheckpoint(origin, on: mixer, voices: sources.voices,
+            isRetired: { source in sources.cutFrames[source].map { $0 < origin } ?? false })
+        guard controls.snapshot.failure == nil else { return }
+        let saved = sources.voices.compactMap { source, slot -> (Int, CSoftwareMixerVoiceDiagnostic)? in
+            // Match stem-window eligibility: excluded generations have no later audible writers.
+            guard includedEventIndices?.contains(source) ?? true,
+                  let state = mixer.voiceDiagnostic(forVoiceAt: slot), state.active,
+                  sources.cutFrames[source].map({ $0 >= origin }) ?? true else { return nil }
+            return (source, state)
+        }
+        let states = Dictionary(uniqueKeysWithValues: saved)
+        var cursor = sources.nextImport, count = states.count, end = request.boundedFrameCount
+#if DEBUG
+        if let cut = sources.boundaries.first(where: { $0 > origin }) { end = min(end, cut) }
+#endif
+        while cursor < sources.keys.count, sources.keys[cursor].frame < end {
+            let frame = sources.keys[cursor].frame
+            var groupEnd = cursor + 1
+            while groupEnd < sources.keys.count, sources.keys[groupEnd].frame == frame { groupEnd += 1 }
+            let proposed = count + groupEnd - cursor
+            if proposed > 224 && frame > origin { end = frame; break }
+            if proposed > CSoftwareMixer.maximumVoiceCount {
+                for key in sources.keys[cursor..<groupEnd] { scheduledVoiceRejectionReasons[key.source] = .scheduledVoiceCapacity }
+                sources.snapshot.rejected += groupEnd - cursor
+                sources.snapshot.capacityRejected += groupEnd - cursor
+                controls.rejectSourceCapacity(at: frame)
+                plan = plan.replacingEventCoverage(plan.diagnostics.eventCoverage.reportingCMixerVoiceCapacityRejections(sources.snapshot.rejected))
+                return
+            }
+            count = proposed; cursor = groupEnd
+        }
+        let newKeys = sources.keys[sources.nextImport..<cursor]
+        let newSources = Set(newKeys.map(\.source))
+        let ordered = (Array(states.keys) + newKeys.map(\.source)).sorted()
+        // Clear BEFORE reloading: there is only one native pool, and no stale Swift/C slot owner.
+        mixer.clearScheduledVoices(); mixer.setSourceStopSchedule([]); mixer.reset()
+        sources.voices.removeAll(keepingCapacity: true)
+        sources.fadeoutRates = sources.fadeoutRates.filter { states[$0.key] != nil }
+        sources.cutFrames = sources.cutFrames.filter { states[$0.key] != nil }
+        sources.pitchSources.formIntersection(states.keys)
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        for source in ordered {
+            let event = plan.pattern.events[source]
+            let result: CSoftwareMixerScheduledVoiceResult
+            if let state = states[source] {
+                let continuation = PlaybackSongWindowContinuation(eventIndex: source,
+                    event: event.withGainPan(gain: state.gain, pan: state.pan), playbackStep: state.sampleStep,
+                    runtimeState: .init(samplePosition: state.samplePosition, pingPongDirection: state.pingPongDirection,
+                        volumeEnvelopePositionFrame: state.volumeEnvelopePositionFrame, panEnvelopePositionFrame: state.panEnvelopePositionFrame,
+                        keyOn: state.keyOn, fadeoutValue: state.fadeoutValue, gainRamp: state.gainRamp, panRamp: state.panRamp,
+                        sourceOnsetElapsedFrames: state.sourceOnsetElapsedFrames),
+                    keyOffFrame: event.keyOffFrame.flatMap { $0 >= origin ? $0 - origin : nil },
+                    carriedTonePortamentoActive: sources.pitchSources.contains(source), fadeoutDecrement: sources.fadeoutRates[source] ?? event.fadeoutFrameDecrement,
+                    envelopeSemanticState: state.envelopeSemanticState, audibleOutputState: state.audibleOutputState)
+                result = PlaybackSongOfflineRenderer.scheduleContinuation(continuation, on: mixer)
+                sources.snapshot.continuationImports += result.wasAccepted ? 1 : 0
+                if result.wasAccepted {
+                    sources.snapshot.continuationPayloadBytes += event.sample.frameCount * MemoryLayout<Float>.stride
+                    sources.snapshot.releasedContinuations += state.keyOn ? 0 : 1
+                    sources.snapshot.pitchContinuations += sources.pitchSources.contains(source) ? 1 : 0
+                }
+            } else {
+                result = scheduler.scheduleWithResult(PlaybackSongOfflineRenderer.localEvent(from: event, windowStartFrame: origin, scheduler: scheduler), on: mixer)
+                scheduledVoiceIndices[source] = result.voiceIndex; scheduledVoiceRejectionReasons[source] = result.rejectionReason
+                sources.snapshot.imported += result.wasAccepted ? 1 : 0
+                sources.snapshot.rejected += result.wasAccepted ? 0 : 1
+                sources.snapshot.capacityRejected += result.rejectionReason == .scheduledVoiceCapacity ? 1 : 0
+                sources.snapshot.invalidRejected += result.rejectionReason == .invalidScheduledVoice ? 1 : 0
+                sources.fadeoutRates[source] = event.fadeoutFrameDecrement
+            }
+            guard let slot = result.voiceIndex else { controls.rejectInvalid(); return }
+            sources.voices[source] = slot
+        }
+        precondition(newSources.count == newKeys.count && ordered.count <= CSoftwareMixer.maximumVoiceCount)
+        sources.nextImport = cursor; sources.origin = origin; sources.end = end
+        sources.snapshot.peakLoaded = max(sources.snapshot.peakLoaded, mixer.loadedVoiceCount)
+        sources.snapshot.windows.append(.init(startFrame: origin, endFrame: end, continuations: states.count, births: newKeys.count))
+    }
+
+    private func renderSourceFrames(_ count: Int, sources: OfflineSourceCursor, mixer: CSoftwareMixer) -> MixerRenderBlock {
+        let started = recordsSourcePerformance ? VTXPerformanceClock.now() : 0
+        let oldRender = sourceRenderSeconds, oldScheduling = sourceSchedulingSeconds
+        defer {
+            if recordsSourcePerformance {
+                sourceSchedulingSeconds = oldScheduling + VTXPerformanceClock.seconds(since: started) - (sourceRenderSeconds - oldRender)
+            }
+        }
+        let start = renderedFrameCount, end = start + count
+        var pcm = Array(repeating: Float(0), count: count * config.channelCount)
+        pcm.withUnsafeMutableBufferPointer { buffer in
+            while renderedFrameCount < end, controls.snapshot.failure == nil {
+                if renderedFrameCount == sources.end { advanceSourceWindow() }
+                guard controls.snapshot.failure == nil else { break }
+                while sources.nextBirth < sources.keys.count, sources.keys[sources.nextBirth].frame == renderedFrameCount {
+                    let key = sources.keys[sources.nextBirth]; sources.nextBirth += 1
+                    if let slot = sources.voices[key.source], let state = mixer.voiceDiagnostic(forVoiceAt: slot), state.active {
+                        sources.snapshot.started += 1
+#if DEBUG
+                        if sources.births != nil { sources.births!.append((key.source, key.frame, state.samplePosition)) }
+#endif
+                    } else { sources.snapshot.cancelled += 1 }
+                }
+                controls.deliverSourceFrame(renderedFrameCount, origin: sources.origin, on: mixer, voices: sources.voices,
+                    isRetired: { source in sources.cutFrames[source].map { $0 < self.renderedFrameCount } ?? false }, resolve: resolve,
+                    accepted: { key, value in
+                        if case let .state(.keyOff(decrement)) = value { sources.fadeoutRates[Int(key.source)] = decrement }
+                        if (4...11).contains(key.family) { sources.pitchSources.insert(Int(key.source)) }
+                        if key.family == 12 || key.family == 16 { sources.cutFrames[Int(key.source)] = self.renderedFrameCount }
+                    })
+                guard controls.snapshot.failure == nil else { break }
+                let birth = sources.nextBirth < sources.keys.count ? sources.keys[sources.nextBirth].frame : Int.max
+                let stop = min(end, sources.end, birth, controls.nextFrame)
+                precondition(stop > renderedFrameCount)
+                let frames = stop - renderedFrameCount
+                let output = UnsafeMutableBufferPointer(start: buffer.baseAddress!.advanced(by: (renderedFrameCount - start) * config.channelCount), count: frames * config.channelCount)
+                let nativeStart = recordsSourcePerformance ? VTXPerformanceClock.now() : 0
+                renderedFrameCount += mixer.render(into: output, frames: frames)
+                if recordsSourcePerformance { sourceRenderSeconds += VTXPerformanceClock.seconds(since: nativeStart) }
+            }
+        }
+        let rendered = renderedFrameCount - start
+        if rendered < count { pcm.removeLast((count - rendered) * config.channelCount) }
+        return .init(config: config, frameCount: rendered, interleavedPCM: pcm)
     }
 }
 
@@ -1111,12 +1411,12 @@ final class PlaybackSongOfflineRenderer {
 
     /// Exercises the existing scan-reference continuation path at exact frame splits.
     func renderWindowedAtFrameBoundariesForTesting(_ request: PlaybackSongOfflineRenderRequest,
-        boundaries: [Int]) -> PlaybackSongOfflineRenderResult {
+        boundaries: [Int], usePreindexedScheduling: Bool = false) -> PlaybackSongOfflineRenderResult {
         precondition(boundaries.allSatisfy { $0 > 0 && $0 < request.boundedFrameCount })
         precondition(zip(boundaries, boundaries.dropFirst()).allSatisfy { $0 < $1 })
         verificationFrameBoundaries = boundaries
         defer { verificationFrameBoundaries = nil }
-        return renderWindowed(request, windowRows: 1, schedulingSource: .scanPerWindowReference,
+        return renderWindowed(request, windowRows: 1, schedulingSource: usePreindexedScheduling ? .preindexed : .scanPerWindowReference,
             samplePayloadUploadMode: .preSanitizedBulkCopy, collectPerformanceDiagnostics: false, progress: nil)
     }
 #endif
@@ -1187,10 +1487,11 @@ final class PlaybackSongOfflineRenderer {
     func render(_ request: PlaybackSongOfflineRenderRequest) -> PlaybackSongOfflineRenderResult {
         let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
         let session = PlaybackSongOfflineRenderSession(request: effectiveRequest, preparedPlan: preparedPlan)
+        let block = session.render(frames: effectiveRequest.boundedFrameCount)
         return PlaybackSongOfflineRenderResult(
             request: effectiveRequest,
             plan: session.plan,
-            block: session.render(frames: effectiveRequest.boundedFrameCount),
+            block: block,
             scheduledVoiceIndices: session.scheduledVoiceIndices,
             scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons,
             sameChannelVoiceLifetime: session.sameChannelVoiceLifetime,
@@ -1340,16 +1641,18 @@ final class PlaybackSongOfflineRenderer {
         var continuationBuckets = Array(repeating: [PlaybackSongWindowContinuationCandidate](), count: specs.count)
         var continuations = Array(repeating: [PlaybackSongWindowContinuation](), count: specs.count)
         var updateBuckets = Array(repeating: [PlaybackSongWindowSchedulingUpdateCandidate](), count: specs.count)
-        var windowIndexByRow = [Int: Int]()
+        var windowIndexByRow: [Int: Int] = [:]
+        var hasSubrowWindows = false
         for spec in specs {
             for row in spec.startRow..<spec.endRowExclusive {
-                windowIndexByRow[row] = spec.index
+                if windowIndexByRow.updateValue(spec.index, forKey: row) != nil { hasSubrowWindows = true }
             }
         }
-
         for (eventIndex, event) in plan.pattern.events.enumerated() {
             let scheduledFrame = scheduler.frame(for: event)
-            guard let windowIndex = windowIndexByRow[event.row],
+            // Keep the existing constant-time row shortcut only while rows have one frame window.
+            let destination = hasSubrowWindows ? Self.windowIndex(containingFrame: scheduledFrame, in: specs) : windowIndexByRow[event.row]
+            guard let windowIndex = destination,
                   specs.indices.contains(windowIndex),
                   scheduledFrame >= specs[windowIndex].startFrame,
                   scheduledFrame < specs[windowIndex].endFrame else {
@@ -1550,11 +1853,25 @@ final class PlaybackSongOfflineRenderer {
         let planAdaptDuration = collectPerformanceDiagnostics
             ? VTXPerformanceClock.seconds(since: planAdaptStartTime)
             : 0
-        let windowedRenderIndex: PlaybackSongWindowedRenderIndex?
+        // Detect overfull row windows with compact frame counts before any history reconstruction.
+        var needsSourceCheckpoints = false
+        if adaptedPlan.pattern.events.count > CSoftwareMixer.maximumVoiceCount {
+            var counts = Array(repeating: 0, count: windows.count)
+            for event in adaptedPlan.pattern.events {
+                if let index = Self.windowIndex(containingFrame: scheduler.frame(for: event), in: windows) { counts[index] += 1 }
+            }
+            needsSourceCheckpoints = counts.contains { $0 > CSoftwareMixer.maximumVoiceCount }
+        }
+#if DEBUG
+        if verificationFrameBoundaries != nil && adaptedPlan.pattern.events.count > CSoftwareMixer.maximumVoiceCount {
+            needsSourceCheckpoints = true
+        }
+#endif
+        var windowedRenderIndex: PlaybackSongWindowedRenderIndex?
         switch schedulingSource {
         case .preindexed:
             try cancellationCheck?()
-            windowedRenderIndex = makeWindowedRenderScheduleIndex(
+            windowedRenderIndex = needsSourceCheckpoints ? nil : makeWindowedRenderScheduleIndex(
                 for: adaptedPlan,
                 specs: windows,
                 windowRows: safeWindowRows,
@@ -1565,17 +1882,74 @@ final class PlaybackSongOfflineRenderer {
             )
         case .scanPerWindowReference:
             windowedRenderIndex = nil
+            if !needsSourceCheckpoints && adaptedPlan.pattern.events.count > CSoftwareMixer.maximumVoiceCount {
+                let capacity = makeWindowedRenderScheduleIndex(for: adaptedPlan, specs: windows, windowRows: safeWindowRows,
+                    includedEventIndices: includedEventIndices, sameChannelLifetime: sameChannelLifetime,
+                    buildStartTime: indexBuildStartTime, config: effectiveRequest.config)
+                needsSourceCheckpoints = capacity.windows.contains { $0.scheduledEvents.count + $0.continuations.count > CSoftwareMixer.maximumVoiceCount }
+            }
         }
+        if windowedRenderIndex?.windows.contains(where: { $0.scheduledEvents.count + $0.continuations.count > CSoftwareMixer.maximumVoiceCount }) == true {
+            needsSourceCheckpoints = true
+            windowedRenderIndex = nil
+        }
+        let sharedSamplePayloadCache = samplePayloadUploadMode == .sharedPreSanitizedCache
+            ? CSoftwareMixerSharedSamplePayloadCache() : nil
+        let sourceSession = needsSourceCheckpoints ? PlaybackSongOfflineRenderSession(
+            request: effectiveRequest, preparedPlan: adaptedPlan, samplePayloadUploadMode: samplePayloadUploadMode,
+            sharedSamplePayloadCache: sharedSamplePayloadCache, recordsSamplePayloadUploads: collectPerformanceDiagnostics) : nil
+#if DEBUG
+        if let sourceSession, let boundaries = verificationFrameBoundaries {
+            sourceSession.configureSourceAdmissionForTesting(boundaries: boundaries)
+        }
+#endif
         try cancellationCheck?()
         try preparationCompleted?()
         try cancellationCheck?()
         var preindexedConsumedWindowCount = 0
         var uploadedSamplePayloadIdentities = Set<CSoftwareMixerSamplePayloadIdentity>()
-        let sharedSamplePayloadCache = samplePayloadUploadMode == .sharedPreSanitizedCache
-            ? CSoftwareMixerSharedSamplePayloadCache()
-            : nil
-
         for spec in windows {
+            if let session = sourceSession {
+                try cancellationCheck?()
+                let started = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
+                var before = session.controlAdmission.sources!
+                // Only final results retain the growing receipt list, never per-chunk counter snapshots.
+                before.windows = []; admissionSummary.sources = nil
+                let schedulingBefore = spec.index == 0 ? 0 : session.sourceSchedulingSeconds
+                let renderingBefore = session.sourceRenderSeconds
+                let block = session.render(frames: spec.frameCount)
+                admissionSummary = session.controlAdmission
+                let after = admissionSummary.sources!, payload = session.takeSourcePayloadDiagnostics()
+                uploadedSamplePayloadIdentities.formUnion(payload.uploadedSampleIdentities)
+                let carried = after.continuationImports - before.continuationImports
+                let scheduled = after.started - before.started + after.cancelled - before.cancelled
+                let rejected = after.rejected - (spec.index == 0 ? 0 : before.rejected)
+                let performance = collectPerformanceDiagnostics ? Self.sourceWindowPerformance(
+                    index: spec.index, after: payload,
+                    scheduling: session.sourceSchedulingSeconds - schedulingBefore,
+                    rendering: session.sourceRenderSeconds - renderingBefore,
+                    total: VTXPerformanceClock.seconds(since: started), carried: carried,
+                    carriedBytes: after.continuationPayloadBytes - before.continuationPayloadBytes,
+                    shared: samplePayloadUploadMode == .sharedPreSanitizedCache) : nil
+                let diagnostic = PlaybackSongWindowedRenderWindowDiagnostic(windowIndex: spec.index,
+                    startRow: spec.startRow, endRowExclusive: spec.endRowExclusive,
+                    startFrame: spec.startFrame, endFrame: spec.endFrame, renderedFrames: block.frameCount,
+                    carriedVoiceCount: carried, releasedVoiceCarryoverCount: after.releasedContinuations - before.releasedContinuations,
+                    carriedTonePortamentoVoiceCount: after.pitchContinuations - before.pitchContinuations,
+                    boundaryContinuationCount: carried, droppedAtWindowBoundaryCount: 0, mayContainBoundaryCuts: false,
+                    unsupportedCarryoverReasons: knownUnsupportedCarryoverReasons,
+                    scheduledEventCount: scheduled + rejected, acceptedScheduledEventCount: after.started - before.started,
+                    rejectedScheduledEventCount: rejected,
+                    scheduledCapacityRejectedCount: after.capacityRejected - (spec.index == 0 ? 0 : before.capacityRejected),
+                    invalidScheduledVoiceRejectedCount: after.invalidRejected - (spec.index == 0 ? 0 : before.invalidRejected), performanceDiagnostics: performance)
+                windowDiagnostics.append(diagnostic)
+                if block.frameCount > 0 {
+                    renderedFrames += block.frameCount; collectBlock?(block)
+                    try windowSink(spec.index + 1, windows.count, diagnostic, block)
+                }
+                if admissionSummary.failure != nil || block.frameCount == 0 { break }
+                continue
+            }
             let admission = OfflineControlAdmission(frameOrigin: spec.startFrame)
             try cancellationCheck?()
             let windowStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
@@ -1854,6 +2228,14 @@ final class PlaybackSongOfflineRenderer {
 
         try cancellationCheck?()
 
+        if let session = sourceSession {
+            attempts = session.scheduledVoiceIndices.enumerated().compactMap { source, voice in
+                let reason = session.scheduledVoiceRejectionReasons[source]
+                guard voice != nil || reason != nil else { return nil }
+                return .init(eventIndex: source, voiceIndex: voice, rejectionReason: reason, windowIndex: nil)
+            }
+        }
+
         let scheduledCapacityRejectedCount = attempts.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count
         let eventCoverage = adaptedPlan.diagnostics.eventCoverage
             .reportingCMixerVoiceCapacityRejections(scheduledCapacityRejectedCount)
@@ -1943,6 +2325,27 @@ final class PlaybackSongOfflineRenderer {
         )
     }
 
+    private static func sourceWindowPerformance(index: Int,
+        after: CSoftwareMixerSamplePayloadUploadDiagnostics, scheduling: Double, rendering: Double,
+        total: Double, carried: Int, carriedBytes: Int, shared: Bool) -> PlaybackSongRenderWindowPerformanceDiagnostic {
+        .init(windowIndex: index, schedulingDurationSeconds: scheduling, cMixerRenderDurationSeconds: rendering,
+            totalWindowDurationSeconds: total, cMixerVoiceAddCount: after.cMixerVoiceAddCount,
+            samplePayloadUploadCount: after.uploadCount,
+            approximateSamplePayloadBytesCopied: after.approximateBytesCopied,
+            continuationSamplePayloadUploadCount: shared ? 0 : carried,
+            approximateContinuationSamplePayloadBytesCopied: shared ? 0 : carriedBytes,
+            continuationSharedSamplePayloadVoiceReferenceCount: shared ? carried : 0,
+            uniqueSamplePayloadIdentityCount: after.uniqueSampleIdentityCount,
+            duplicateSamplePayloadUploadCount: after.duplicateUploadCount,
+            defensiveSanitizingUploadCount: after.defensiveSanitizingUploadCount,
+            preSanitizedBulkCopyUploadCount: after.preSanitizedBulkCopyUploadCount,
+            sharedSamplePayloadCreateCount: after.sharedPayloadCreateCount,
+            sharedSamplePayloadBytesAllocated: after.sharedPayloadBytesAllocated,
+            sharedSamplePayloadVoiceReferenceCount: after.sharedPayloadVoiceReferenceCount,
+            avoidedPerVoiceSamplePayloadUploadCount: after.avoidedPerVoiceUploadCount,
+            approximateAvoidedPerVoiceSamplePayloadUploadBytes: after.avoidedPerVoiceUploadBytes)
+    }
+
     func render(_ request: PlaybackSongOfflineRenderRequest, splitFrameCounts: [Int]) -> PlaybackSongOfflineRenderResult {
         let requestedFrames = splitFrameCounts.reduce(0) { partialResult, frames in
             let safeFrames = max(0, frames)
@@ -1958,9 +2361,9 @@ final class PlaybackSongOfflineRenderer {
         for requestedChunkFrames in splitFrameCounts where remainingFrames > 0 {
             let chunkFrames = min(max(0, requestedChunkFrames), remainingFrames)
             let chunk = session.render(frames: chunkFrames)
-            guard session.controlAdmission.failure == nil else { break }
             interleavedPCM.append(contentsOf: chunk.interleavedPCM)
             remainingFrames -= chunk.frameCount
+            if session.controlAdmission.failure != nil { break }
         }
         let block = MixerRenderBlock(
             config: session.config,
@@ -1991,11 +2394,12 @@ final class PlaybackSongOfflineRenderer {
         while renderedFrames < totalFrames {
             let requestedFrames = min(safeChunkFrameCount, totalFrames - renderedFrames)
             let block = session.render(frames: requestedFrames)
-            guard session.controlAdmission.failure == nil, block.frameCount > 0 else {
+            guard block.frameCount > 0 else {
                 break
             }
             renderedFrames += block.frameCount
             try progress?(renderedFrames, totalFrames, block)
+            if session.controlAdmission.failure != nil { break }
         }
         return PlaybackSongOfflineStreamingRenderResult(
             request: effectiveRequest,
@@ -2293,27 +2697,42 @@ final class PlaybackSongOfflineRenderer {
             admission.submit(family: 0, parent: eventIndex, source: eventIndex, voice: voice,
                 frame: frame - windowStartFrame, on: mixer, value: .step(0))
         }
-        mixer.setSourceStopSchedule(plan.xmEmptyRoutes.compactMap { route in
+        mixer.setSourceStopSchedule(plan.xmEmptyRoutes.enumerated().compactMap { parent, route in
             guard route.scheduledFrame >= windowStartFrame, route.scheduledFrame < windowEndFrame,
                   let event = route.stoppedEventIndex, includesEvent(event, includedEventIndices: includedEventIndices),
                   let voice = voiceIndexByEventIndex[event] else { return nil }
+            if admission.capturesSourceSchedules {
+                admission.submit(family: 16, parent: parent, source: event, voice: voice,
+                    frame: route.scheduledFrame - windowStartFrame, on: mixer, value: .stop)
+                return nil
+            }
             // The exact installed stop owns cancellation of not-yet-admitted slow keys.
             if admission.snapshot.usedSlowPath {
                 admission.stopsBySource[event] = min(admission.stopsBySource[event] ?? Int.max, route.scheduledFrame)
             }
             return (frame: route.scheduledFrame - windowStartFrame, voice: voice)
         })
-        mixer.setAudibleOutputSchedule((plan.xmAudibleTimeline?.updates ?? []).compactMap { update in
+        mixer.setAudibleOutputSchedule((plan.xmAudibleTimeline?.updates ?? []).enumerated().compactMap { parent, update in
             guard update.scheduledFrame >= windowStartFrame, update.scheduledFrame < windowEndFrame,
                   includesEvent(update.eventIndex, includedEventIndices: includedEventIndices),
                   let voice = voiceIndexByEventIndex[update.eventIndex] else { return nil }
+            if admission.capturesSourceSchedules {
+                admission.submit(family: 15, parent: parent, source: update.eventIndex, voice: voice,
+                    frame: update.scheduledFrame - windowStartFrame, on: mixer, value: .audible(update))
+                return nil
+            }
             return (frame: update.scheduledFrame - windowStartFrame, voice: voice, target: update)
         })
         let semanticUpdates = plan.xmEnvelopeTimeline?.updates ?? []
-        mixer.setEnvelopeSemanticSchedule(semanticUpdates.compactMap { update in
+        mixer.setEnvelopeSemanticSchedule(semanticUpdates.enumerated().compactMap { parent, update in
             guard update.scheduledFrame >= windowStartFrame, update.scheduledFrame < windowEndFrame,
                   includesEvent(update.eventIndex, includedEventIndices: includedEventIndices),
                   let voice = voiceIndexByEventIndex[update.eventIndex] else { return nil }
+            if admission.capturesSourceSchedules {
+                admission.submit(family: 14, parent: parent, source: update.eventIndex, voice: voice,
+                    frame: update.scheduledFrame - windowStartFrame, on: mixer, value: .semantic(update.state))
+                return nil
+            }
             return (frame: update.scheduledFrame - windowStartFrame, voice: voice, state: update.state)
         })
         _ = carriedPlaybackStateEvents(for: plan, visit: { parent, update in
@@ -4149,7 +4568,7 @@ final class PlaybackSongOfflineRenderer {
         }
     }
 
-    private static func localEvent(
+    fileprivate static func localEvent(
         from event: SyntheticTrackerEvent,
         windowStartFrame: Int,
         scheduler: SyntheticTrackerScheduler

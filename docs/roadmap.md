@@ -87,6 +87,14 @@ bounded contracts; they do not establish full command or audible parity.
 - G08 ordinary volume-column slide timing is closed with effective Fxx speeds,
   silent state and shared runtime/offline/window evidence at both sample rates.
   Other volume-column timing/mapping and envelope/pan arithmetic remain open.
+- Bounded G33 Pxy and G34 Txy contracts are CLOSED through accepted
+  [PR #514](https://github.com/syncomm/voodootrackerx/pull/514) and
+  [PR #515](https://github.com/syncomm/voodootrackerx/pull/515).
+  G39/G40 interactions and retained pan/cold boundaries remain open.
+- Bounded offline source admission is CLOSED: one mixer admits sequential
+  generations through ordered checkpoints, including same-frame physical-stop
+  capacity recovery. G35 EEx musical timing and full EEx PCM parity remain open;
+  Q2 does not qualify general memory optimization or backend closure.
 - First-Play performance stabilization covers history indexing, runtime queue
   reuse, compact cold-plan ordering/materialization, semantic row/control
   sharing, and the empty-cell construction fast path.
@@ -101,9 +109,10 @@ bounded contracts; they do not establish full command or audible parity.
 
 - Close remaining evidence-backed FT2/XM commands and cross-cutting output,
   pitch, memory, envelope, trigger/retrigger/cut, and traversal obligations.
-  Known families include panning slide, tremor, pattern delay, relevant
-  E-commands, volume-column gaps, and remaining loaded-Amiga pitch coverage.
-  Pan-envelope arithmetic/clock quirks, interactions beyond closed bounded G02/G03/G04/G32,
+  Known families include pattern delay, relevant E-commands, volume-column
+  gaps, and remaining loaded-Amiga pitch coverage.
+  Pan-envelope arithmetic/clock quirks, interactions beyond closed bounded
+  G02/G03/G04/G05/G32/G33/G34,
   and remaining envelope/pitch arithmetic must be resolved or explicitly
   justified within that same compatibility target.
 - Reconcile absent-keymap implementation/compatibility with [accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
@@ -145,7 +154,10 @@ safety, and editor contracts remain separate PRs.
 
 [Cold selected-order planning](https://github.com/syncomm/voodootrackerx/issues/516)
 blocks Phase 2/v0.5 release qualification and backend freeze; the cross-family
-planning/performance audit owns it after G41.
+planning/performance/memory audit owns it after G41. That audit also owns high variable
+process RSS, including the Q2 copied-payload pressure measurements. Measured
+reusable VM pages do not resolve this residual; the cold selected-order blocker
+remains open independently of bounded offline source admission.
 
 ## Next milestone — Native Editable Amiga Mode
 

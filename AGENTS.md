@@ -77,6 +77,12 @@ thread.
   `core: add xm reader`.
 - Never merge your own PR. Request review from the primary maintainer before
   merge.
+- Write active documentation for the submitted contract's post-merge state.
+  A fully qualified bounded contract is recorded as `CLOSED` on the PR branch;
+  acceptance is Gregory's merge plus any expressly required release gates.
+  A partial slice identifies exactly what closes and keeps its parent
+  `PARTIAL`/`OPEN` with a named residual owner. Do not require a follow-up PR
+  solely to record that merge.
 
 PR titles use `<scope>: <short description>`. PR descriptions include:
 

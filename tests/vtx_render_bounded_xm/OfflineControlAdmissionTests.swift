@@ -281,6 +281,36 @@ final class OfflineControlAdmissionTests: XCTestCase {
     }
 
     #if DEBUG
+    func testSourceCheckpointsReuseAllFourteenProducerSelectionsWithoutNewTiming() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let song = AdmissionInputs.allFamilies(linear: linear), unit = Int(rate / 50)
+            var plan = AdmissionInputs.plan(song, rate: rate)
+            plan.xmEnvelopeTimeline = nil
+            plan.initialHeldPitchEventIndices = [14]
+            plan.playbackStateEvents += [
+                .init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 1, change: .reset(allReset)),
+                .init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 1, change: .keyOff(fadeoutDecrement: 0))]
+            let request = AdmissionInputs.request(song, rate: rate, frames: 30 * unit)
+            let eager = R(preparedPlan: plan).prepare(request), checkpoint = R(preparedPlan: plan).prepare(request)
+            eager.configureAdmissionForTesting(forceSlow: false)
+            checkpoint.configureSourceAdmissionForTesting(boundaries: [1, 2, unit, unit + 1, 6 * unit + 1, 12 * unit + 1])
+            assertSourcePCM(checkpoint.render(frames: request.boundedFrameCount).interleavedPCM,
+                eager.render(frames: request.boundedFrameCount).interleavedPCM)
+            try checkpoint.controlAdmission.requireSuccess()
+            let reference = Dictionary(uniqueKeysWithValues: eager.controlLedgerForTesting.map { ($0.key.ordinal, $0) })
+            XCTAssertEqual(Set(reference.values.map { Int($0.key.family) }), Set(0...13))
+            XCTAssertEqual(checkpoint.controlAdmission.intended, eager.controlAdmission.intended)
+            XCTAssertEqual(checkpoint.controlAdmission.accepted + checkpoint.controlAdmission.cancelled, checkpoint.controlAdmission.intended)
+            for entry in checkpoint.controlLedgerForTesting {
+                let original = try XCTUnwrap(reference[entry.key.ordinal])
+                // Physical slots change at checkpoints; the logical key and exact value do not.
+                XCTAssertEqual(entry.key, original.key)
+                XCTAssertEqual(entry.value, original.value)
+                XCTAssertEqual(entry.accepted, original.accepted)
+            }
+        } }
+    }
+
     func testForcedSlowLedgerPreservesAllFourteenRealProducerSelectionsAndPhysicalPlans() throws {
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             let song = AdmissionInputs.allFamilies(linear: linear)

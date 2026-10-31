@@ -308,9 +308,24 @@ host.
   song retirement.
 - G33 Pxy now uses the native adapter's ordered nonzero-tick pan writer and own
   channel byte, feeding the existing G06/G07 and final-output path. Speed 1 does
-  not admit memory; pan-only commands preserve held global gain. Qualification
-  and maintainer musical listening remain pending; G40/cold/pan-clock boundaries
-  and legacy-engine cleanup remain separate.
+  not admit memory; pan-only commands preserve held global gain. The bounded
+  contract is CLOSED after accepted [PR #514](https://github.com/syncomm/voodootrackerx/pull/514).
+  G40/cold/pan-clock boundaries and legacy-engine cleanup remain separate.
+- G34 Txy is CLOSED under accepted
+  [PR #515](https://github.com/syncomm/voodootrackerx/pull/515): independent
+  nonzero-tick memory/counter state alternates held output through the existing
+  quick final mono/L/R target while preserving base volume and source cursor.
+  G21 tails, the host PCM16 residual, G39/G40 and planning/RSS debt remain open.
+- Bounded offline source admission is CLOSED: capacity-selected frame
+  checkpoints reuse one native mixer and preserve source-array order, complete
+  continuations and logical generation ownership. Same-frame physical stops
+  free capacity before an atomic 256-source group; a concurrent 257-source group
+  fails visibly. The 256/4096 native limits and 8 MiB selector budget remain.
+  G35 EEx timing/dispatch remains unimplemented; full EEx PCM parity remains
+  unqualified.
+  High variable process RSS remains unresolved despite measured reusable VM
+  pages, owned by the post-G41 planning/memory audit; selected-order blocker
+  [#516](https://github.com/syncomm/voodootrackerx/issues/516) remains open.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

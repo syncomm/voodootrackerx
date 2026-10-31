@@ -471,6 +471,13 @@ final class CSoftwareMixer {
         storedSamplePayloadUploadDiagnostics
     }
 
+    /// Transfers one offline delivery interval's counters without retaining its identity set during later imports.
+    func takeSamplePayloadUploadDiagnostics() -> CSoftwareMixerSamplePayloadUploadDiagnostics {
+        let result = storedSamplePayloadUploadDiagnostics
+        storedSamplePayloadUploadDiagnostics = .zero
+        return result
+    }
+
     init(
         config: MixerRenderConfig = MixerRenderConfig(),
         samplePayloadUploadMode: CSoftwareMixerSamplePayloadUploadMode = .defensiveSanitizingCopy,

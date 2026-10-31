@@ -2323,24 +2323,28 @@ final class VTXRenderBoundedXMTests: XCTestCase {
 
         XCTAssertEqual(coverage["normal_note_cells"] as? Int, attemptedVoiceCount)
         XCTAssertEqual(coverage["scheduled_note_events"] as? Int, attemptedVoiceCount)
-        XCTAssertEqual(coverage["c_mixer_voice_capacity_limit_count"] as? Int, 1)
+        // A genuinely overfull same-frame group is refused atomically, before emitting PCM.
+        XCTAssertEqual(result.renderedFrameCount, 0)
+        XCTAssertEqual(result.controlAdmission.failure?.reason, .sourceVoiceCapacity)
+        XCTAssertEqual(result.controlAdmission.failure?.frameOrigin, 0)
+        XCTAssertEqual(coverage["c_mixer_voice_capacity_limit_count"] as? Int, attemptedVoiceCount)
         XCTAssertEqual(capacity["c_mixer_voice_capacity"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
         XCTAssertEqual(capacity["c_mixer_scheduled_voice_capacity"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
         XCTAssertEqual(capacity["c_mixer_active_voice_capacity"] as? Int, CSoftwareMixer.maximumActiveVoiceCount)
         XCTAssertEqual(capacity["scheduled_voice_capacity"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
         XCTAssertEqual(capacity["active_voice_capacity"] as? Int, CSoftwareMixer.maximumActiveVoiceCount)
         XCTAssertEqual(capacity["scheduled_voice_attempt_count"] as? Int, attemptedVoiceCount)
-        XCTAssertEqual(capacity["scheduled_voice_accepted_count"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
-        XCTAssertEqual(capacity["scheduled_voice_rejected_count"] as? Int, 1)
-        XCTAssertEqual(capacity["scheduled_voice_capacity_rejected_count"] as? Int, 1)
+        XCTAssertEqual(capacity["scheduled_voice_accepted_count"] as? Int, 0)
+        XCTAssertEqual(capacity["scheduled_voice_rejected_count"] as? Int, attemptedVoiceCount)
+        XCTAssertEqual(capacity["scheduled_voice_capacity_rejected_count"] as? Int, attemptedVoiceCount)
         XCTAssertEqual(capacity["active_voice_capacity_rejected_count"] as? Int, 0)
         XCTAssertEqual(capacity["invalid_scheduled_voice_rejected_count"] as? Int, 0)
-        XCTAssertEqual(rejectedCoordinates.count, 1)
+        XCTAssertEqual(rejectedCoordinates.count, attemptedVoiceCount)
         XCTAssertEqual(rejectedCoordinates.first?["reason"] as? String, "scheduled_voice_capacity")
-        XCTAssertEqual(rejectedCoordinates.first?["channel_index"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
+        XCTAssertEqual(rejectedCoordinates.first?["channel_index"] as? Int, 0)
         XCTAssertEqual((rejectedCoordinates.first?["source"] as? [String: Any])?["row"] as? Int, 0)
         XCTAssertTrue(skipReasons.contains { item in
-            item["reason"] as? String == "c_mixer_voice_capacity_limit" && item["count"] as? Int == 1
+            item["reason"] as? String == "c_mixer_voice_capacity_limit" && item["count"] as? Int == attemptedVoiceCount
         })
     }
 

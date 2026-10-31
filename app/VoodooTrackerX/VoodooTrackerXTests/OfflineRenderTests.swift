@@ -1303,7 +1303,8 @@ final class OfflineRenderTests: XCTestCase {
         let normal = renderer.render(request)
         let windowed = renderer.renderWindowed(request, windowRows: 1)
 
-        XCTAssertPCMEqual(normal.block.interleavedPCM, [0, 0.5, 1, 0])
+        // At 100 Hz the one-frame retirement retains old loop cursor 1 (0.5); the new onset is zero.
+        XCTAssertPCMEqual(normal.block.interleavedPCM, [0, 0.5, 1, 0.5])
         XCTAssertEqual(windowed.block, normal.block)
         XCTAssertEqual(windowed.diagnostics.retriggerEffects.first?.status, .applied)
         XCTAssertEqual(windowed.diagnostics.retriggerEffects.first?.retriggerFrames, [3])

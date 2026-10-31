@@ -362,8 +362,10 @@ case uses `rxy_fully_uninitialized_mutation_excluded`. Runtime/window plans
 consume the same generated events and semantic timeline. Runtime trace schema
 is unchanged; planned/applied frames must match exactly at both rates.
 Replay/explicit-equivalent event and PCM agreement holds within each path.
-The existing runtime 32-frame retrigger retirement versus offline immediate
-cut remains separate debt; differences outside those windows fail G21 checks.
+G21's bounded offline retirement now preserves the same native 5 ms outgoing
+tail as runtime, including exact generation and frame ownership. See the
+[retirement contract](design/xm-reset-output-ramp.md#g21-offline-e9r-outgoing-source-retirement)
+and its separately scoped musical-study numerical comparison policy.
 
 XM `E40...E4F` store channel-local FT2 vibrato control for later `4xy`/`6xy`
 rows and emit no direct audio events. The low two bits select sine, ramp,

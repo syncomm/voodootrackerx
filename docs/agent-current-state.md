@@ -83,10 +83,12 @@ host.
   uses the same C-owned 5 ms interval with current-value `1-k/N` output, one
   deadline per displaced generation and retained physical pitch/cursor. Its bounded
   contract is closed after [PR #510](https://github.com/syncomm/voodootrackerx/pull/510),
-  green CI and Gregory's listening acceptance. G21 offline retrigger-tail
-  reconstruction and the historical at-most-one-LSB PCM16 host/offline musical-study
-  residual remain open. Its cause is unproven and distinct from #512's fixed
-  strict Float32 test failure. See the
+  green CI and Gregory's listening acceptance. G21's bounded offline E9/Rxy
+  retirement uses this same native policy. The qualified 48 kHz VTX public
+  musical study has a separate BOUNDED-NUMERICAL-DIFFERENCE of at most one PCM16
+  LSB from Float32 summation order after runtime slot reuse. Broader host/offline
+  mode/rate qualification remains OPEN; #512's fixed strict Float32 failure is
+  distinct. See the
   [onset contract](design/xm-reset-output-ramp.md#g02-new-source-onset).
 - G05 represented XM song sources join the single C-owned final mono/L/R
   authority at valid birth, including zero initial gain; previously plain sources
@@ -141,11 +143,20 @@ host.
   preserving nibble memory; note-only starts and E90 preserve it.
   Initialized source-less channels retain semantic volume changes. Only the
   fully uninitialized bookkeeping mutation is excluded as C: the first
-  note+instrument resets it before observable output. G21 runtime/offline
-  retrigger-tail reconstruction remains separate debt; runtime uses G03's 5 ms
-  retirement. Exact integer volume modes cover all inputs 0...64; mode 6 sums
+  note+instrument resets it before observable output. Exact integer volume
+  modes cover all inputs 0...64; mode 6 sums
   separately truncated `v/2 + v/8 + v/16`, correcting 32→22. G20 memory and
   G21 execution/carry semantics are unchanged.
+- G21 offline E9/Rxy outgoing-source retirement is CLOSED for its bounded
+  post-merge contract. All offline delivery paths use the existing native 5 ms
+  retirement of the exact outgoing generation, preserving its continued cursor,
+  held pitch, reached onset and immutable deadline across overlapping tails and
+  window checkpoints. New generations keep their original birth frame and onset.
+  Both modes/rates, actual CoreAudio PCM16 comparisons and unchanged no-E9/R
+  controls qualify this delivery contract. The musical-study numerical difference
+  has its separate narrow policy; broader host/offline qualification remains OPEN.
+  See the
+  [G21 contract](design/xm-reset-output-ramp.md#g21-offline-e9r-outgoing-source-retirement).
 - G23 instrument-only `ED1...EDF` selects the valid carried instrument at row
   entry, then dispatches the retained note through its exact map at tick x.
   Represented routes start one new cursor-zero generation per eligible dispatch
@@ -315,7 +326,7 @@ host.
   [PR #515](https://github.com/syncomm/voodootrackerx/pull/515): independent
   nonzero-tick memory/counter state alternates held output through the existing
   quick final mono/L/R target while preserving base volume and source cursor.
-  G21 tails, the host PCM16 residual, G39/G40 and planning/RSS debt remain open.
+  Broader host/offline qualification, G39/G40 and planning/RSS debt remain open.
 - Bounded offline source admission is CLOSED: capacity-selected frame
   checkpoints reuse one native mixer and preserve source-array order, complete
   continuations and logical generation ownership. Same-frame physical stops
@@ -332,8 +343,9 @@ host.
   generations at eligible dispatches. Both-mode/rate chronology, bounded delivery,
   protected no-EEx identities and actual-host frames are qualified. Combined
   EEx+B/D/E6 precedence, including E61+EE1's pending-position skip, stays OPEN
-  under G38. Existing G21 retirement tails and baseline audio residuals remain
-  separately owned; this does not claim universal FT2 PCM parity.
+  under G38. G21 retirement and the qualified musical-study numerical difference
+  have separate bounded contracts. Other baseline audio residuals remain OPEN;
+  this does not claim universal FT2 PCM parity.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

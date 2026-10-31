@@ -5320,7 +5320,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(retrigger.replacedEventIndices, [0, 1])
         XCTAssertEqual(effect.decodedLabel, "E9x retrigger")
         XCTAssertEqual(effect.status, .applied)
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.5, 0, 0.5, 0, 0.5])
+        // At 100 Hz the 5 ms tail clamps to one frame: outgoing cursor 2 contributes 0.25; the newborn onset is zero.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.5, 0.25, 0.5, 0.25, 0.5])
     }
 
     func testPlaybackSongAdapterRetriggerE9xUsesFxxTimingForAbsoluteFrames() throws {
@@ -5350,7 +5351,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(retrigger.rowBPM, 250)
         XCTAssertEqual(retrigger.retriggerTicks, [2])
         XCTAssertEqual(retrigger.retriggerFrames, [5])
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0, 0, 0, 0.5, 0, 0.5, 0.25, 0, 0])
+        // Frame 5 retains the outgoing cursor-2 sample for the one-frame retirement; the new source contributes zero.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0, 0, 0, 0.5, 0.25, 0.5, 0.25, 0, 0])
     }
 
     func testPlaybackSongAdapterRetriggerE9xAtOrBeyondSpeedDiagnosesNoOp() throws {
@@ -5471,7 +5473,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(retrigger.pan, 0)
         XCTAssertEqual(retriggerMapping.effectiveVolumeValue, 32)
         XCTAssertEqual(retriggerMapping.effectivePan, 0)
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0, 0, 0])
+        // At frame 3 the outgoing step-2 source reads sample 3 at gain 0.5; the newborn onset contributes zero.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0, 0, 1.5])
     }
 
     func testPlaybackSongAdapterRetriggerE9xPreservesSampleOffset() throws {
@@ -5498,7 +5501,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.plan.pattern.events.map(\.initialSourceFrame), [256, 256])
         XCTAssertEqual(retrigger.initialSourceFrame, 256)
         XCTAssertEqual(result.diagnostics.sampleOffsetEffects.first?.status, .applied)
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.257, 0.258, 0])
+        // The one-frame old-source tail reads cursor 259; the new offset source still has zero onset output.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.257, 0.258, 0.259])
     }
 
     func testPlaybackSongAdapterRetriggerE9xWorksWithLoopedSamples() throws {
@@ -5522,7 +5526,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.plan.pattern.events.map(\.loop.mode), [.forward, .forward, .forward])
         XCTAssertEqual(result.diagnostics.eventMappings.map(\.loopMode), [.forward, .forward, .forward])
         XCTAssertEqual(result.diagnostics.retriggerEffects.first?.status, .applied)
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.5, 0, 0.5, 0, 0.5])
+        // Each loop has returned to sample 1 at retirement; its one-frame tail precedes the incoming onset.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.5, 1, 0.5, 1, 0.5])
     }
 
     func testPlaybackSongAdapterRetriggerE9xRestartsEnvelopeOnGeneratedEvents() throws {
@@ -5551,7 +5556,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(retrigger.envelopePolicy, "fresh_event_restarts_envelope")
         XCTAssertTrue(result.plan.pattern.events.allSatisfy { $0.volumeEnvelope != nil })
         XCTAssertEqual(result.diagnostics.eventMappings.map(\.volumeEnvelopeStatus), [.mapped, .mapped])
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0])
+        // The outgoing held envelope target is 1 at retirement; the freshly reset child still has zero onset output.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 1])
     }
 
     func testPlaybackSongAdapterRetriggerRxyIsDetectedAndSchedulesExpectedTicks() throws {
@@ -5586,7 +5592,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(retrigger.retriggerFrames, [1, 3, 5])
         XCTAssertEqual(retrigger.retriggerEventIndices, [1, 2, 3])
         XCTAssertEqual(retrigger.volumeChangeCount, 0)
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0, 0.5, 0, 0.5, 0])
+        // The one-frame tails retain old cursor 1 at the first restart, then cursor 2 at the later restarts.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.5, 0.5, 0.25, 0.5, 0.25])
     }
 
     func testPlaybackSongAdapterRetriggerRxyZeroIntervalExecutesEveryTick() throws {
@@ -5669,7 +5676,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(result.plan.pattern.events.map(\.tick), [0, 1, 3, 5])
         XCTAssertEqual(result.plan.pattern.events.filter { $0.tick == 0 }.count, 1)
         XCTAssertEqual(retrigger.replacedEventIndices, [0, 1, 2])
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0, 1, 0, 1, 0])
+        // At each restart the constant outgoing source supplies the one-frame tail while the newborn onset is zero.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 1, 1, 1, 1, 1])
     }
 
     func testPlaybackSongAdapterRetriggerRxyVolumeModeAdjustsAndClamps() throws {

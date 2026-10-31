@@ -2,9 +2,9 @@
 
 This note owns the implemented XM semantic tick, ordinary audible final-L/R,
 non-retriggering 5 ms reset, G02 new-source onset, G03 song retirement,
-bounded G04 ECx retained-source behavior and G05 represented-XM final-output
-admission. G02–G05 are closed within their stated bounds; G21 retrigger-tail
-reconstruction remains open.
+bounded G04 ECx retained-source behavior, G05 represented-XM final-output
+admission and G21 offline E9/Rxy outgoing-source retirement. These contracts are
+CLOSED within their stated bounds.
 It does not claim broad FT2 mix parity. Volume/reset ownership is described in
 [XM volume ownership](xm-volume-ownership.md#instrument-only-cached-defaults-and-reset).
 Instrument-only dispatch reuses these contracts. Ordinary note-only carries
@@ -70,8 +70,8 @@ scheduling. Voice order, output interpolation and the generic gain/pan path
 retain their existing behavior. The original exact test assertions were preserved;
 arbitrary multi-voice Float32 sums remain non-associative.
 
-G05 closure leaves these obligations **OPEN**: G21 retrigger-tail reconstruction,
-the historical PCM16 residual below, G33–G41, remaining pan/envelope/volume-Lxx/
+Separately **OPEN** obligations include broader host/offline mode/rate qualification,
+remaining G36–G41 boundaries, pan/envelope/volume-Lxx/
 cold boundaries, the absent-keymap Policy B adapter gap, callback RT-safety
 (`VTX-D1-001`), anonymized 021's approximately 1.9 s first-Play debt,
 performance/memory attribution and the integrated Phase 2 freeze gate.
@@ -113,8 +113,8 @@ elapsed output frames from the original event start, including during attack;
 reset restores the installed initial age. Generic primitive C clients retain
 their existing behavior unless they explicitly opt into source onset.
 
-G03 separately supplies the old-source tail below; its known runtime/offline
-retrigger retirement difference remains open. G04, G05 final-output admission, G40,
+G03 supplies the old-source tail below; G21 separately closes its offline E9/Rxy
+delivery. G04, G05 final-output admission, G40,
 interpolation and callback safety remain separately owned. `NewSourceOnsetTests`
 and runtime-core controls cover
 native curve/cursor, silent/held/completed sources, replacement tails, exact
@@ -169,12 +169,64 @@ The merged PR records qualified both-mode/rate runtime/offline/window and actual
 CoreAudio controls, full suites, performance/memory gates and CLI provenance
 reconciliation. That qualification predates this documentation reconciliation.
 
-G21 remains a specific follow-up: E9/Rxy's offline explicit retrigger cuts omit
-the outgoing generation's runtime 5 ms retirement tail. Their source-generation,
-counter and semantic-carry rules are unchanged; this work does not claim full
-retrigger parity. The historical at-most-one-LSB PCM16 host/offline musical-study
-residual remains open with an unproven cause; it is distinct from #512's fixed
-strict Float32 test failure. G40 remains open before backend freeze.
+### G21 offline E9/R outgoing-source retirement
+
+Status: **CLOSED, bounded post-merge offline delivery contract**. E9/Rxy semantic
+counter, invocation, source-generation and carry contracts remain CLOSED and
+unchanged. Offline delivery now retires each exact outgoing E9/Rxy generation
+through the existing native G03 policy, rather than an immediate physical cut.
+Native DSP, callback policy, semantic ticks and capacity limits are unchanged;
+retirement uses the existing fade authority.
+
+All eager, staged, indexed, scan and window paths preserve the old source's
+continued cursor, held physical pitch and reached incoming-onset multiplier while
+native retirement owns its final output. Each retiring generation keeps its own
+original deadline through later retriggers. Boundary reconstruction restores the
+native source/output/onset/retirement state and keeps boundary events at local
+zero; a new generation retains its original birth frame and independent onset.
+Physical hard stops remain immediate. Semantic generation closure still occurs
+at the retrigger frame, so later gain/pan/pitch writes cannot revive the old voice.
+
+Window import merges surviving generations and local births in original plan
+source-array order, matching eager and source-checkpoint admission. This preserves
+Float32 summation order through indexed, scan and arbitrary-frame continuation;
+qualified whole/window PCM remains bit exact. Runtime physical-slot reuse and the
+separate bounded numerical policy below are unchanged.
+
+Focused whole/window/source-checkpoint controls and actual Release CoreAudio
+comparisons qualify both frequency modes and 44.1/48 kHz, including interval-zero
+R00 overlaps faster than the 5 ms tail. Matched profile, gain and unshifted PCM16
+comparisons agree exactly for the bounded primary controls. Existing no-E9/R
+controls remain unchanged. G35 ordinary EEx remains CLOSED; combined traversal
+G38, selected-order blocker #516 and post-G41 performance/CI audits remain OPEN.
+
+### Bounded musical-study numerical difference
+
+Status: **BOUNDED-NUMERICAL-DIFFERENCE**, limited to the original public
+`instrument-autovibrato-musical-study-linear.xm`, 48 kHz stereo VTX profile
+(linear pan, scale 1), unity output gain, no auto-headroom and the tested song
+bounds including the 100 ms end tail. A maximum difference of one PCM16 LSB is
+accepted for this comparison only. This introduces no Float32 error threshold
+and no tolerance for frame timing, source identity, cursor, pitch, envelope or
+other state.
+
+The modeled runtime core projects exactly to actual Release CoreAudio PCM16 for
+all 742,080 compared frames. It reproduces all 102 host/offline differing sample
+coordinates, with the first at frame 54,708 left. At that frame, the three native
+voice contributions and source/output states are identical; runtime slot reuse
+orders lead/arp/bass while offline source order is lead/bass/arp. Adding those
+same native Float32 contributions in each physical order reconstructs both
+original Float32 outputs bit for bit: `0x3e16752d` projects to runtime PCM16 4815,
+while `0x3e16752c` projects to offline 4814. This establishes Float32 addition
+reassociation, separately from G21 semantics/retirement and #512's fixed strict
+Float32 contribution failure. It does not claim a direct hardware Float32 capture.
+
+The focused public-study prefix regression pins this first coordinate and both
+Float32 results without allowing a frame or birth shift. Archived historical
+counts are not byte-reproduced claims because the original files are unavailable.
+Broader whole-runtime and mode/rate qualification remains **OPEN**; this narrow
+policy grants no general one-LSB allowance, fitted gain/time correction or
+universal FT2/host PCM-equality claim. G40 remains open before backend freeze.
 
 ### G06 panning-envelope factor
 
@@ -372,7 +424,8 @@ completed or retiring voices. Imports never reactivate a completed source.
 Song replacement uses the G03 `1 - k/N` convention above. Its scalar timer owns
 retirement, while only final-output state supplies managed PCM, avoiding double
 multiplication. Generic clients retain their separate `(k + 1) / 32` convention.
-G02's independent new-side onset and G03's bounded retirement are closed above.
+G02's independent new-side onset, G03 retirement and G21 offline E9/Rxy
+retirement delivery are closed above.
 ECx uses the retained-source contract below; internal
 hard stop remains immediate and separate.
 
@@ -768,6 +821,8 @@ at both rates. The matching CoreAudio 48 kHz PCM16 capture agrees exactly with
 offline. These are bounded controls, not general reference-audio bit parity:
 reference Float32 accumulation/interpolation residuals remain, and exhaustive
 envelope/global/pan/other-writer combinations are not source-confirmed here.
-G02 onset, G03 retirement, G05 final-output admission and G32 autovibrato are closed
-under their separate bounded contracts. G21 retrigger-tail reconstruction, G40
-pan law, broader interactions and callback real-time safety remain open.
+G02 onset, G03 retirement, G05 final-output admission, G21 offline E9/Rxy
+retirement and G32 autovibrato are closed under their separate bounded contracts.
+Broader host/offline mode/rate qualification, G40 pan law, broader interactions
+and callback real-time safety remain open. The qualified musical-study numerical
+difference has its separate narrow policy above.

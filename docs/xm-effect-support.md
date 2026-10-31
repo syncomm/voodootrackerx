@@ -108,8 +108,10 @@ those labels do not indicate missing ordinary timing.
 
 Combined EEx+Bxx/Dxx/E6x, E61+EE1 pending-position skip, inherited anchors and
 conflicting/nested traversal remain **OPEN G38**. #516 remains a separate release
-blocker. Existing G21 retirement tails, interpolation/onset residuals and the
-historical PCM16 host residual do not establish universal FT2 PCM parity.
+blocker. G21 offline E9/Rxy retirement has its separate bounded closure;
+interpolation/onset residuals and broader host/offline qualification remain
+separately owned. The qualified musical-study numerical difference has its own
+narrow policy. These contracts do not establish universal FT2 PCM parity.
 
 ## Instrument-only cells
 
@@ -199,8 +201,8 @@ K00 suppresses a normal note-only trigger; ED0 carries ordinary state, valid
 nonzero EDx resets at its delayed tick, and out-of-row EDx does not trigger.
 E9x retains repeat resets; Rxy uses its persistent counter and sample restarts
 that preserve instrument semantic state (G21). G02's bounded 5 ms new-source
-onset and G03's bounded old-side retirement are closed; G21 offline retrigger-tail
-reconstruction remains open. See
+onset and G03's bounded old-side retirement are closed; G21 separately closes
+bounded offline E9/Rxy retirement through the same native policy. See
 [volume ownership](design/xm-volume-ownership.md#note-only-routing-and-state-carry).
 
 ## Effect Column Commands
@@ -247,8 +249,8 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Kxx` | Key off | Implemented | Partial | None | Not applicable | G24 bounded precedence closed: raw K00 suppresses ordinary starts and owns note97+K00 once; release → cached restore → column/Cxx/8xx writers. Nonzero Kxx uses low five bits after column writers; K20 has no invocation, out-of-row omits release. Cold key/fadeout carry and once-per-tick finalization preserve source/cache ownership. Both-rate canonical-host delivery and startup attribution pass; the overall product ≤1 s startup target remains outstanding. |
 | `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Existing volume positioning is preserved. Bounded G07 pan positioning is closed under the sounding instrument's raw volume-sustain flag, including disabled volume envelopes and silent-channel clocks. Volume loop/end positioning, cold before-first initialization, pan arithmetic/sustain and G40 remain open; bounded volume Q8 follows G31. |
 | `Pxy` | Panning slide | Implemented | Closed, bounded G33 contract | Own whole byte; admitted only on executed nonzero ticks | Not applicable | G33: high nibble selects rightward movement, otherwise low nibble selects leftward; clamp stored pan to 0...255. P00 replays the channel byte; speed 1 neither seeds nor replaces it. Column slides precede P, then the existing G06/G07 projection and single final-output authority consume the result. Pan-only commands retain held scalar gain. Accepted [PR #514](https://github.com/syncomm/voodootrackerx/pull/514) closes the bounded contract. Cold initialization, G40 and pan-clock quirks remain separate. See [the bounded contract](design/xm-volume-ownership.md#g33-effect-column-panning-slide). |
-| `Rxy` | Multi retrigger | Implemented | Closed G20 memory / G21 counter and carry / G22 integer volume modes | Independent zero-initialized interval/mode bytes and persistent counter | Not applicable | Memory resolves before invocation gating. Eligible ticks increment the counter; reaching the interval resets it and restarts the exact retained route at cursor zero, carrying semantic state. Interval zero executes every eligible tick. Volume modes use exact pinned FT2 integer arithmetic over 0...64. Only fully uninitialized volume bookkeeping is excluded as C; retirement reconstruction debt remains separate. |
-| `Txy` | Tremor | Implemented | Closed, bounded G34 contract | Own whole byte; admitted only on executed nonzero ticks | Not applicable | G34: T00 replays the byte; signed x+1/y+1 intervals advance after tick zero and hold across blank/no-T rows. Column 6x/7x precedes T; base volume, trigger/reset domains and exact source identity remain independent. Changed output uses the G05 quick 5 ms final target alone. Linear/Amiga and both-rate controls cover writer/envelope interactions and bounded offline admission. Accepted [PR #515](https://github.com/syncomm/voodootrackerx/pull/515) closes the bounded G34 contract; G21/host PCM, G39/G40 and planning/RSS debt remain open. |
+| `Rxy` | Multi retrigger | Implemented | Closed G20 memory / G21 counter and carry / G22 integer volume modes | Independent zero-initialized interval/mode bytes and persistent counter | Not applicable | Memory resolves before invocation gating. Eligible ticks increment the counter; reaching the interval resets it and restarts the exact retained route at cursor zero, carrying semantic state. Interval zero executes every eligible tick. Volume modes use exact pinned FT2 integer arithmetic over 0...64. Only fully uninitialized volume bookkeeping is excluded as C; G21 offline outgoing-source retirement closes separately through the existing native policy. |
+| `Txy` | Tremor | Implemented | Closed, bounded G34 contract | Own whole byte; admitted only on executed nonzero ticks | Not applicable | G34: T00 replays the byte; signed x+1/y+1 intervals advance after tick zero and hold across blank/no-T rows. Column 6x/7x precedes T; base volume, trigger/reset domains and exact source identity remain independent. Changed output uses the G05 quick 5 ms final target alone. Linear/Amiga and both-rate controls cover writer/envelope interactions and bounded offline admission. Accepted [PR #515](https://github.com/syncomm/voodootrackerx/pull/515) closes the bounded G34 contract; broader host/offline qualification, G39/G40 and planning/RSS debt remain open. |
 | `X1x` / `X2x` | Extra fine portamento | Implemented | Closed G18 Linear / G29 in-range Amiga | Own independent per-channel up/down amount/origin | Both | Tick-zero Linear `x` / Amiga `4 * x`; seeded X10/X20 replay their direction independently of E1/E2. Cold restoration, deduplication and source eligibility are preserved. Fine:extra-fine granularity is 4:1; combined G30 closes bounded native-word extremes below. |
 | `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug commands | Extension | Outside v1 | Not applicable | Not applicable | No runtime/offline support. Extension/hack families require a separately accepted compatibility target. |
 | `Vxx`, `Wxx` | High-byte diagnostic unknowns | Classification-only | Outside v1 | None in pinned FT2 | Not applicable | Unused/dummy in pinned FT2 dispatch. Diagnostic occurrence does not establish an FT2 effect or identify an extension. |
@@ -342,10 +344,9 @@ instrument, completion, release, order and loop transitions retain the bytes.
 Same-cell routing or counter-dispatch gates cannot suppress memory mutation.
 `RxyNibbleMemoryTests` and runtime controls close G20 memory at both rates:
 positive-interval replay matches explicit-equivalent event plans and PCM in
-whole/window offline and runtime paths. The G21 runtime/offline retrigger-retirement
-difference remains: runtime uses G03 song retirement over 5 ms while offline
-cuts the old source immediately. That separate reconstruction debt does not
-close with G20.
+whole/window offline and runtime paths. G21 separately closes offline E9/Rxy
+outgoing-source retirement through G03's existing native 5 ms policy; G20's
+memory semantics remain unchanged.
 
 G21 closes the persistent R counter, tick-zero dispatch and semantic carry.
 Every eligible invocation increments the channel counter, then executes and
@@ -373,10 +374,15 @@ an explicitly excluded C bookkeeping artifact: the first note+instrument resets
 it and matches the blank-control PCM. This exclusion does not cover initialized
 source-less, empty, completed or released channels. Public
 `rxy-counter-timing-carry.xm`, focused tests and both-rate runtime/window controls
-cover G21. Replay matches explicit-equivalent commands within each render path;
-PCM differences between runtime and offline stay inside G03's 5 ms retirement
-windows; offline explicit retrigger cuts still omit the runtime old tail.
-G22 closes integer volume arithmetic independently of that open reconstruction debt.
+cover G21 semantics. Its separate bounded offline retirement contract preserves
+that closure while retiring each exact old generation through the same native
+5 ms policy as runtime. Whole/window/checkpoint and actual CoreAudio comparisons
+cover both modes/rates, including overlapping tails and unchanged no-E9/R controls.
+The qualified 48 kHz VTX musical-study comparison has a separate
+BOUNDED-NUMERICAL-DIFFERENCE of at most one PCM16 LSB from Float32 summation order;
+broader host/offline mode/rate qualification remains OPEN. See the
+[G21 retirement contract](design/xm-reset-output-ramp.md#g21-offline-e9r-outgoing-source-retirement).
+G22 closes integer volume arithmetic independently.
 
 P00 and T00 use their own whole-byte memories in the
 [pinned handlers](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L2106-L2161).
@@ -723,10 +729,11 @@ support alone does not close these domains:
   CI and Gregory's October 27, 2026 bounded musical-listening acceptance. Valid
   sources, including zero gain, join the single C-owned final mono/L/R authority
   at birth; sparse changed targets retain ordinary tick-length/quick 5 ms policies.
-  Generic non-XM/editor-preview ramps are unchanged. G21 offline retrigger-tail
-  reconstruction and the historical at-most-one-LSB PCM16 host/offline
-  musical-study residual remain open; that residual's cause is unproven and
-  distinct from #512's fixed strict Float32 test failure.
+  Generic non-XM/editor-preview ramps are unchanged. G21's bounded offline
+  E9/Rxy retirement is CLOSED through that existing native policy. The qualified
+  48 kHz VTX musical-study numerical difference has its separate bounded policy;
+  broader host/offline mode/rate qualification remains OPEN. This is distinct
+  from #512's fixed strict Float32 test failure.
   G04 closes bounded ECx retained-source/cursor and quick-output behavior. Existing
   cached defaults and shared final-L/R reset targets are established foundations.
 - **Panning:** exact header/8xx state, final stereo pan law (G40), semantic pan

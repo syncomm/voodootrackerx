@@ -100,7 +100,16 @@ bounded contracts; they do not establish full command or audible parity.
   real ED/E9/R generations share runtime/offline delivery. Both modes/rates,
   protected no-EEx controls, actual-host frames and optimized guardrails are
   qualified. Combined EEx+B/D/E6 traversal, including the pending-position skip,
-  remains OPEN under G38; existing G21 audio tails and #516 stay separate.
+  remains OPEN under G38; #516 remains a separate release blocker.
+- G21 offline E9/Rxy outgoing-source retirement is CLOSED for its bounded
+  post-merge delivery contract: runtime and offline share native 5 ms retirement
+  of the exact outgoing generation, including overlapping tails and source/window
+  checkpoints. Both modes/rates, actual CoreAudio comparisons and unchanged
+  no-E9/R controls qualify this closure. G20–G22 semantics remain CLOSED;
+  the qualified public Linear musical study at 48 kHz/VTX has a separate
+  BOUNDED-NUMERICAL-DIFFERENCE from runtime-slot Float32 summation order, accepting
+  at most one PCM16 LSB for that comparison only. Broader whole-runtime and
+  mode/rate qualification remains OPEN; no frame/state/Float32 tolerance is introduced.
 - First-Play performance stabilization covers history indexing, runtime queue
   reuse, compact cold-plan ordering/materialization, semantic row/control
   sharing, and the empty-cell construction fast path.

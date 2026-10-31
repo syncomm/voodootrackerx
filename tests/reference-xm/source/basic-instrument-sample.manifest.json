@@ -10393,7 +10393,7 @@
       "source_manifest": "source/basic-instrument-sample.manifest.json",
       "unsupported_semantics": [
         "The fully uninitialized volume mutation is classified C; initialized source-less state remains eligible.",
-        "Generic onset/ramp parity and the pre-existing 32-frame runtime/offline retirement seam remain separate."
+        "Broader FT2 mix/ramp parity remains outside this fixture's bounded G21 native 5 ms retirement coverage."
       ],
       "xm_output": "generated/rxy-counter-timing-carry.xm",
       "xm_sha256": "13a329ac2d3986911bffbe7e86cc292ed5d0ded8432fa537931105541c8430bb",

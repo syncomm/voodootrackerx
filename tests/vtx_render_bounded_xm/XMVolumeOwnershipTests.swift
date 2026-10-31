@@ -171,19 +171,19 @@ final class XMVolumeOwnershipTests: XCTestCase {
         XCTAssertEqual(bounded.diagnostics.eventMappings.last?.effectiveVolumeValue, 16)
         XCTAssertEqual(bounded.plan.pattern.events.last?.gain, 0.078125)
         // At 100 Hz / BPM 250 both intervals are one frame: each changed target
-        // renders its predecessor at k=0. R63's explicit cut omits the old source;
-        // the final ordinary note retains G03's one-frame old-side tail.
+        // renders its predecessor at k=0. R63 and the final ordinary note retain
+        // G03's one-frame old-side tail while the new onset contributes zero.
         let expectedRows: [[Float]] = [
             [0, 0.5, 0.5, 0.5], [0.5, 0.25, 0.25, 0.25],
             [0.25, 0.5, 0.5, 0.5], [0.5, 0.5, 0.46875, 0.4375],
             [0.40625, 0.453125, 0.453125, 0.453125], [0.453125, 0.40625, 0.40625, 0.40625],
             [0.40625, 0.40625, 0.375, 0.34375], [0.3125, 0.3125, 0.28125, 0.25],
-            [0.21875, 0.21875, 0, 0.125], [0.125, 0.0625, 0.0625, 0.0625],
+            [0.21875, 0.21875, 0.21875, 0.125], [0.125, 0.0625, 0.0625, 0.0625],
             [0.0625, 0.0625, 0.0546875, 0.046875], [0.0390625, 0.0390625, 0.0390625, 0.0390625],
             [0.0390625, 0.078125, 0.078125, 0.078125], [0.078125, 0.078125, 0.078125, 0.078125]
         ]
         XCTAssertEqual(bounded.block.interleavedPCM, expectedRows.flatMap { $0 })
-        XCTAssertEqual(hash, "3e6f09fc20c17e2fb9e2d6c8e755cae4cf92aba64498f1db40eb3dac38b2d924")
+        XCTAssertEqual(hash, "cae292526c76bf71ad6ad36ff4295c2fb1e026ca449a701a6a82e48eb8261f7a")
         XCTAssertEqual(bounded.block.frameCount, 56)
     }
 

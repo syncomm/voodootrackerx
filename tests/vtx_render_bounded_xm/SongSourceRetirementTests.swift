@@ -202,6 +202,107 @@ final class SongSourceRetirementTests: XCTestCase {
         XCTAssertEqual(mixer.rampDownCompletionCount, 1)
     }
 
+    func testE92HeldAndOrdinaryRowsKeepExactRetirementEndpointsAndCursor() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for delay in [0, 2] {
+            let input = retriggerSong(linear: linear, command: 14, parameter: 0x92, delay: delay)
+            let plan = PlaybackSongSyntheticAdapter.adapt(input, orderIndex: 0, sampleRate: rate)
+            let tick = Int(rate / 50), n = Int(rate * 0.005)
+            let frames = (stride(from: 2, to: 6 * (delay + 1), by: 2)).map { (6 + $0) * tick }
+            let request = PlaybackSongOfflineRenderRequest(song: input, config: .init(sampleRate: rate), rows: 4)
+            let renderer = R(preparedPlan: plan), full = renderer.render(request), session = renderer.prepare(request)
+            XCTAssertEqual(plan.diagnostics.retriggerEffects.first?.retriggerFrames, frames)
+            XCTAssertEqual(plan.pattern.events.count, frames.count + 1)
+            XCTAssertEqual(full.sameChannelVoiceLifetime.replacementEvents.map(\.replacementFrame), frames)
+            XCTAssertEqual(full.sameChannelVoiceLifetime.replacementEvents.map(\.completionFrame), frames.map { $0 + n })
+            #if DEBUG
+            var rendered = 0
+            for (old, frame) in frames.enumerated() {
+                _ = session.render(frames: frame - rendered)
+                let before = try XCTUnwrap(session.sourceVoiceForTesting(old))
+                XCTAssertTrue(before.active)
+                _ = session.render(frames: 1)
+                let started = try XCTUnwrap(session.sourceVoiceForTesting(old))
+                XCTAssertEqual(started.gainRamp?.songRetirement, true)
+                XCTAssertEqual(started.gainRamp?.positionFrame, 1)
+                XCTAssertEqual(started.gainRamp?.totalFrames, n)
+                XCTAssertEqual(started.sampleStep, before.sampleStep)
+                XCTAssertEqual(started.samplePosition, (before.samplePosition + before.sampleStep).truncatingRemainder(dividingBy: 4096), accuracy: 1e-8)
+                _ = session.render(frames: n - 1)
+                rendered = frame + n
+                XCTAssertFalse(try XCTUnwrap(session.sourceVoiceForTesting(old)).active)
+            }
+            #endif
+            try assertPaths(input, plan: plan, rate: rate, request: request)
+            var streamed: [Float] = []
+            let stream = renderer.renderStreaming(request, chunkFrameCount: 257) { _, _, block in streamed += block.interleavedPCM }
+            try stream.controlAdmission.requireSuccess()
+            assertSourcePCM(streamed, full.block.interleavedPCM)
+            streamed.removeAll(keepingCapacity: true)
+            let windows = renderer.renderWindowedStreaming(request, windowRows: 1) { _, _, _, block in streamed += block.interleavedPCM }
+            try windows.controlAdmission.requireSuccess()
+            assertSourcePCM(streamed, full.block.interleavedPCM)
+        } } }
+    }
+
+    func testRapidR00CarriesOverlappingOnsetsReleaseAndHeldPitchThroughCheckpoints() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for releasedHeld in [false, true] {
+            // Synthetic high-BPM scheduling overlaps genuine 5ms tails; no FT2 header-policy claim.
+            let input = retriggerSong(linear: linear, command: 27, parameter: 0, delay: 2,
+                bpm: 1000, releasedHeld: releasedHeld)
+            let plan = PlaybackSongSyntheticAdapter.adapt(input, orderIndex: 0, sampleRate: rate)
+            let request = PlaybackSongOfflineRenderRequest(song: input, config: .init(sampleRate: rate), rows: 5)
+            let renderer = R(preparedPlan: plan), full = renderer.render(request)
+            XCTAssertGreaterThan(full.sameChannelVoiceLifetime.maxVoicesPerSourceChannel[0] ?? 0, 2)
+            #if DEBUG
+            let cuts = try XCTUnwrap(plan.diagnostics.retriggerEffects.first?.retriggerFrames)
+            let session = renderer.prepare(request), n = Int(rate * 0.005)
+            _ = session.render(frames: cuts[1] + 1)
+            let oldest = try XCTUnwrap(session.sourceVoiceForTesting(0))
+            let previous = try XCTUnwrap(session.sourceVoiceForTesting(1))
+            XCTAssertTrue(oldest.active && previous.active)
+            XCTAssertEqual(oldest.gainRamp?.positionFrame, cuts[1] + 1 - cuts[0])
+            XCTAssertEqual(previous.gainRamp?.positionFrame, 1)
+            XCTAssertEqual(previous.sourceOnsetElapsedFrames, cuts[1] - cuts[0])
+            XCTAssertEqual(oldest.gainRamp?.songRetirement, true)
+            if releasedHeld {
+                XCTAssertFalse(oldest.keyOn)
+                XCTAssertLessThan(oldest.fadeoutValue, 1)
+                XCTAssertEqual(oldest.samplePosition, 0)
+                XCTAssertEqual(oldest.sampleStep, 0)
+            }
+            _ = session.render(frames: cuts[0] + n - cuts[1] - 1)
+            XCTAssertFalse(try XCTUnwrap(session.sourceVoiceForTesting(0)).active)
+            #endif
+            try assertPaths(input, plan: plan, rate: rate, request: request)
+        } } }
+        let cold = retriggerSong(linear: true, command: 27, parameter: 0, delay: 2, cold: true)
+        let result = R().render(.init(song: cold, config: .init(sampleRate: 48_000), rows: 4))
+        XCTAssertTrue(result.plan.pattern.events.isEmpty)
+        XCTAssertTrue(result.sameChannelVoiceLifetime.replacementEvents.isEmpty)
+        XCTAssertTrue(result.block.interleavedPCM.allSatisfy { $0 == 0 })
+    }
+
+    private func retriggerSong(linear: Bool, command: UInt8, parameter: UInt8, delay: Int,
+                               bpm: Int = 125, releasedHeld: Bool = false, cold: Bool = false) -> PlaybackSong {
+        let seed = song(linear: linear, cells: [])
+        var instruments = seed.instrumentsByIndex
+        if releasedHeld {
+            let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.5, count: 4096),
+                volume: 0.25, relativeNote: -49, finetune: 0, baseSampleRate: 8363,
+                loopStart: 0, loopLength: 4096, loopType: 1)
+            let envelope = PlaybackVolumeEnvelope(enabled: true, points: [.init(tick: 0, value: 64), .init(tick: 64, value: 32)],
+                sustainPointIndex: nil, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: 1, fadeout: 256)
+            instruments[1] = .init(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))
+        }
+        var rows = [[cold ? cell() : cell(49, 1), cell()]]
+        if releasedHeld { rows.append([cell(97), cell()]) }
+        rows += [[cell(0, 0, command, parameter), cell(0, 0, 14, UInt8(0xE0 + delay))], [cell(), cell()], [cell(97), cell()]]
+        return .init(title: "Original retrigger retirement parity", orders: seed.orders,
+            patternsByIndex: [0: .init(index: 0, rows: rows.enumerated().map { .init(index: $0.offset, cells: $0.element) })],
+            instrumentsByIndex: instruments, restartOrderIndex: 0, endBehavior: .stopAtEnd,
+            initialTiming: .init(speed: 6, bpm: bpm), usesLinearFrequencyTable: linear)
+    }
+
     private func assertPaths(_ input: PlaybackSong, plan: PlaybackSongSyntheticPlan, rate: Double,
                              request supplied: PlaybackSongOfflineRenderRequest? = nil) throws {
         let request = supplied ?? .init(song: input, config: .init(sampleRate: rate), rows: 8)

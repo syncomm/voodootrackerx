@@ -524,6 +524,18 @@ for that exact comparison. No Float32, frame or source-state tolerance follows.
 Broader whole-runtime and mode/rate qualification remains OPEN; do not apply this
 allowance to other modules, rates, profiles or mismatches.
 
+The two Fxx combined-evidence baselines also pin raw Float32 PCM separately for
+arm64 and generic x86_64. An isolated replay of native
+`vtx_c_mixer_output_value` multiply-add contraction reproduces all eight arm64 CI
+digests exactly; event payloads, source history, window state, physical hashes and
+non-retrigger evidence remain byte-exact. Only the final R93 tail differs:
+28 interleaved samples at 44.1 kHz (first frame 25642, maximum
+`7.450580596923828e-9`) and 18 at 48 kHz (first frame 27903, maximum
+`3.725290298461914e-9`), entirely inside the respective 220/240-frame retirements.
+Both complete renders quantize to identical PCM16. The architecture-specific
+hashes retain exact PCM coverage without adding a tolerance or changing DSP;
+this compiler-arithmetic witness is separate from the single-study policy above.
+
 Tested runtime CoreAudio captures have matched offline render behavior at the
 render-core/output-capture level. Treat a new mismatch as a diagnostic lead,
 not proof that playback semantics should change.

@@ -161,10 +161,20 @@ final class FxxTimingTests: XCTestCase {
         // G21 changes E9/R retirement PCM and window carry only; the historical physical
         // hashes still pin events, IDs, diagnostics and source ownership. Independently
         // retain every non-retrigger evidence byte from the pre-G21 baseline.
+        // Native output interpolation contracts multiply-add on arm64, unlike generic
+        // x86_64. An isolated native replay reproduces all eight CI digests; only the
+        // final R93 tail PCM differs. Pin raw bytes on both, retaining exact shared guards.
+        #if arch(arm64)
+        let expected = ["false-44100": "ddf27861d2e1dc04f3708eed4ba3ef2916e55bfa1d96c275d9c69a909cc3c9dd",
+            "false-48000": "74a0da790d49a5f6e8c845dcdc99b6ee1588343f874b2d0cc73cabbb01114938",
+            "true-44100": "409bb217405aa34ec9cb21facbca867e0ff1f267e444bbee8c0672f05d397cda",
+            "true-48000": "5f2592d2001e3f3bb54f5d49997771b4dca471a3168044476cdbd70f2f4fe455"]
+        #else
         let expected = ["false-44100": "4b8a9fc1e817d96f820b3b8a9b6ae1e99f81680817d5510e9e919ff48798ac7b",
             "false-48000": "6badba41a174226db62c58eb64726b4029b1561a1a39065ff3f5b6513f4cc846",
             "true-44100": "c48b821489fac3b828cad46c60403309259443aa4437cd042fc3bc788f02819f",
             "true-48000": "173c74b1f0ed8d39f0841d54bc272c738df2e969cf68c06a2010bd6dca239ada"]
+        #endif
         let expectedWithoutRetriggers = ["false-44100": "2cc55adc95a37363e8d276bac0e7b691bc934fa865bd5a0477980d73e31ba0c2",
             "false-48000": "8a47261c9f29b7963d53c4dfc4fbba28682d280d42c154fbee59925ba2f36b74",
             "true-44100": "1b5c0ed05dbe6ee6eb24e5512acbdb7398ad4dfb5269e8b43af30f28ae72dcb1",
@@ -259,10 +269,18 @@ final class FxxTimingTests: XCTestCase {
         // G21 changes E9/R retirement PCM and window carry only; the historical physical
         // hashes still pin events, IDs, diagnostics and source ownership. Independently
         // retain every non-retrigger evidence byte from the pre-G21 baseline.
+        // Same isolated output-interpolation rounding as the selection baseline above.
+        #if arch(arm64)
+        let expected = ["false44100": "363b1992de88fad559e660cc4d6f84a88ec4428ab90c880cd547e2972309a968",
+            "false48000": "0992275562d61d4e5c23cd983871aa52f98c70ce12f270adaaedcdfd45f3f18b",
+            "true44100": "5371699abbffa1dac115d02ac1bcbfe98535bcdff767a40685a0f0ca6e21015c",
+            "true48000": "58cdfc38d5aba80472ae2084bf363cac8224fe10b6c5491df877c722afa3871e"]
+        #else
         let expected = ["false44100": "f80ce53d35740a2ece49e8c2c23ca3648a43320a7037c07e4a71bc0078ed565c",
             "false48000": "281cd7d7c20acb3cbbd5f3de3ddb593bf7a5ff019e540bb4001490a0cd33a6ed",
             "true44100": "cac86d3d1a81e4de522297fdf3a7db4dac3049e13d783dffd82aa0edafe5d0d5",
             "true48000": "16670195286fb50020b1557785f43ff230d799e7bb5bcbddc9e8edca393ff49c"]
+        #endif
         let expectedWithoutRetriggers = ["false44100": "48088011616e77fb47cc1503debeeb934917686309041bafc8a79aa9f6a51c1c",
             "false48000": "bb20b87e9f52379cbd6f3ac76b336a81c9fbb2f319452b831b76e15ee46fcc99",
             "true44100": "007cd9702b4a6fe86d86be9af403cd4d4d3b574add9949746d4c504883bc700a",

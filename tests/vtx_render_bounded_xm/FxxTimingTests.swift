@@ -158,20 +158,35 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testNativeSelectionPhysicalBaseline() throws {
-        // G05 adds birth/changed final targets. Fresh merged-base component evidence
-        // pins existing events, IDs, diagnostics and source state independently. The
-        // output hash includes admitted transitions and Float32 onset association.
-        let expected = ["false-44100": "ea04fd839d1487a1b1fedc368ec60790efa93f33d75278201f912f87dcb2c06b",
-            "false-48000": "85d60db04aef232fc0aea474114ed76dc044074e07434d999be85436f2075a09",
-            "true-44100": "954a4f1bb62ee51c2a980b7bf41719b5ebe8aef89f15f0fe2de9f49cd166c7f7",
-            "true-48000": "66dae080f58060136c8d76e0f11aaeb3f203a16088470f338ac9350f0e1ca8ec"]
+        // G21 changes E9/R retirement PCM and window carry only; the historical physical
+        // hashes still pin events, IDs, diagnostics and source ownership. Independently
+        // retain every non-retrigger evidence byte from the pre-G21 baseline.
+        // Native output interpolation contracts multiply-add on arm64, unlike generic
+        // x86_64. An isolated native replay reproduces all eight CI digests; only the
+        // final R93 tail PCM differs. Pin raw bytes on both, retaining exact shared guards.
+        #if arch(arm64)
+        let expected = ["false-44100": "ddf27861d2e1dc04f3708eed4ba3ef2916e55bfa1d96c275d9c69a909cc3c9dd",
+            "false-48000": "74a0da790d49a5f6e8c845dcdc99b6ee1588343f874b2d0cc73cabbb01114938",
+            "true-44100": "409bb217405aa34ec9cb21facbca867e0ff1f267e444bbee8c0672f05d397cda",
+            "true-48000": "5f2592d2001e3f3bb54f5d49997771b4dca471a3168044476cdbd70f2f4fe455"]
+        #else
+        let expected = ["false-44100": "4b8a9fc1e817d96f820b3b8a9b6ae1e99f81680817d5510e9e919ff48798ac7b",
+            "false-48000": "6badba41a174226db62c58eb64726b4029b1561a1a39065ff3f5b6513f4cc846",
+            "true-44100": "c48b821489fac3b828cad46c60403309259443aa4437cd042fc3bc788f02819f",
+            "true-48000": "173c74b1f0ed8d39f0841d54bc272c738df2e969cf68c06a2010bd6dca239ada"]
+        #endif
+        let expectedWithoutRetriggers = ["false-44100": "2cc55adc95a37363e8d276bac0e7b691bc934fa865bd5a0477980d73e31ba0c2",
+            "false-48000": "8a47261c9f29b7963d53c4dfc4fbba28682d280d42c154fbee59925ba2f36b74",
+            "true-44100": "1b5c0ed05dbe6ee6eb24e5512acbdb7398ad4dfb5269e8b43af30f28ae72dcb1",
+            "true-48000": "bfed0722f8fceccb442db60386753ac1f725d45619513df7d7a197198443fdd0"]
         let expectedPhysical = ["false-44100": "b6ec4b72c0a4e4531472c59c1b51ca1fde4dab70db0f337a478891c49e6006d0",
             "false-48000": "dce7f668d8c717b21e03c87dc4c69a4b153710aa8e059e609d6ddfa4df019372",
             "true-44100": "34e17e1bc2c569f091a9f7a699fdbde6d21458cc6f4599d5f8531bc117d9fa91",
             "true-48000": "8f792ecb995f54937cb0d538c945304a638a69a1655f7751d562e9d75dd2e538"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
-            var evidence = Data(), physical = Data()
+            var evidence = Data(), physical = Data(), unchanged = SHA256()
             for cells in clockSentinels + selectionSentinels {
+                let evidenceStart = evidence.count
                 let song = selectionSong(cells, linear: linear)
                 let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
@@ -203,6 +218,9 @@ final class FxxTimingTests: XCTestCase {
                 XCTAssertEqual(renderer.renderWindowedUsingScanPerWindowSchedulingReference(request, windowRows: 1).block.interleavedPCM,
                     renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM)
                 #endif
+                if !plan.diagnostics.retriggerEffects.contains(where: { $0.applied && !$0.replacedEventIndices.isEmpty }) {
+                    unchanged.update(data: evidence.subdata(in: evidenceStart..<evidence.count))
+                }
             }
             let key = "\(linear)-\(Int(rate))"
             let digest = SHA256.hash(data: evidence).map { String(format: "%02x", $0) }.joined()
@@ -211,6 +229,8 @@ final class FxxTimingTests: XCTestCase {
                 try evidence.write(to: URL(fileURLWithPath: directory).appendingPathComponent("physical-\(key).bin"))
             }
             XCTAssertEqual(digest, expected[key])
+            XCTAssertEqual(unchanged.finalize().map { String(format: "%02x", $0) }.joined(),
+                expectedWithoutRetriggers[key])
             XCTAssertEqual(SHA256.hash(data: physical).map { String(format: "%02x", $0) }.joined(), expectedPhysical[key])
         } }
     }
@@ -246,20 +266,33 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testCanonicalClockPhysicalBaseline() throws {
-        // G05 adds birth/changed final targets. Fresh merged-base component evidence
-        // pins existing events, IDs, diagnostics and source state independently. The
-        // output hash includes admitted transitions and Float32 onset association.
-        let expected = ["false44100": "625a173a6778531c57264106ac29a61108d4656907a5f2bc518d132e59bdcbc9",
-            "false48000": "3e1a7b652d42b9088b25ef67d5915b0929c788caa3917ca3f702a827a1798daa",
-            "true44100": "e40519fe2d2220b2dbebaca778d65c73dc0283f895273d5f663073653f09482e",
-            "true48000": "2f3c8ea8d3db4aa4c21cdde641995e006820cc21233e7d9389fbae6b9ff7f7fc"]
+        // G21 changes E9/R retirement PCM and window carry only; the historical physical
+        // hashes still pin events, IDs, diagnostics and source ownership. Independently
+        // retain every non-retrigger evidence byte from the pre-G21 baseline.
+        // Same isolated output-interpolation rounding as the selection baseline above.
+        #if arch(arm64)
+        let expected = ["false44100": "363b1992de88fad559e660cc4d6f84a88ec4428ab90c880cd547e2972309a968",
+            "false48000": "0992275562d61d4e5c23cd983871aa52f98c70ce12f270adaaedcdfd45f3f18b",
+            "true44100": "5371699abbffa1dac115d02ac1bcbfe98535bcdff767a40685a0f0ca6e21015c",
+            "true48000": "58cdfc38d5aba80472ae2084bf363cac8224fe10b6c5491df877c722afa3871e"]
+        #else
+        let expected = ["false44100": "f80ce53d35740a2ece49e8c2c23ca3648a43320a7037c07e4a71bc0078ed565c",
+            "false48000": "281cd7d7c20acb3cbbd5f3de3ddb593bf7a5ff019e540bb4001490a0cd33a6ed",
+            "true44100": "cac86d3d1a81e4de522297fdf3a7db4dac3049e13d783dffd82aa0edafe5d0d5",
+            "true48000": "16670195286fb50020b1557785f43ff230d799e7bb5bcbddc9e8edca393ff49c"]
+        #endif
+        let expectedWithoutRetriggers = ["false44100": "48088011616e77fb47cc1503debeeb934917686309041bafc8a79aa9f6a51c1c",
+            "false48000": "bb20b87e9f52379cbd6f3ac76b336a81c9fbb2f319452b831b76e15ee46fcc99",
+            "true44100": "007cd9702b4a6fe86d86be9af403cd4d4d3b574add9949746d4c504883bc700a",
+            "true48000": "04451c9c8ce5f59e6f83b0c73366ae74121a4645f52bec4fefc473c85b19a9ef"]
         let expectedPhysical = ["false44100": "ba4ee982f64c18033eedbf4a196a9c61f1b6d443f3f542628920741ed47195cd",
             "false48000": "d3586f7d9d711591b5f51ccb1638a653528ee77b4738115a0ecab86d47b4ebda",
             "true44100": "0fd35f23c05281d3b1bac46befe3d83c7844c1a2b5ee6e729f80afb69c37e06f",
             "true48000": "299e61a521cf9a4635228c9e529924af9e30b2e09fe2470e3b33459c00a63573"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
-            var evidence = Data(), physical = Data()
+            var evidence = Data(), physical = Data(), unchanged = SHA256()
             for cells in clockSentinels {
+                let evidenceStart = evidence.count
                 let song = clockSong(cells, linear: linear)
                 let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: plan)
@@ -279,8 +312,13 @@ final class FxxTimingTests: XCTestCase {
                 let request = PlaybackSongOfflineRenderRequest(song: song, config: .init(sampleRate: rate), rows: cells.count)
                 let pcm = PlaybackSongOfflineRenderer(preparedPlan: plan).render(request).block.interleavedPCM
                 pcm.withUnsafeBytes { evidence.append(contentsOf: $0) }
+                if !plan.diagnostics.retriggerEffects.contains(where: { $0.applied && !$0.replacedEventIndices.isEmpty }) {
+                    unchanged.update(data: evidence.subdata(in: evidenceStart..<evidence.count))
+                }
             }
             XCTAssertEqual(SHA256.hash(data: evidence).map { String(format: "%02x", $0) }.joined(), expected["\(linear)\(Int(rate))"])
+            XCTAssertEqual(unchanged.finalize().map { String(format: "%02x", $0) }.joined(),
+                expectedWithoutRetriggers["\(linear)\(Int(rate))"])
             XCTAssertEqual(SHA256.hash(data: physical).map { String(format: "%02x", $0) }.joined(), expectedPhysical["\(linear)\(Int(rate))"])
         } }
     }

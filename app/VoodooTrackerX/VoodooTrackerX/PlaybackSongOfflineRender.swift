@@ -360,7 +360,7 @@ enum PlaybackSongWindowSchedulingUpdateKind: String, CaseIterable, Hashable {
     case vibratoStep
     case instrumentAutoPitchStep
     case noteCut
-    case retriggerCut
+    case retriggerRetirement
     case sameChannelReplacementRamp
 }
 
@@ -466,6 +466,7 @@ struct PlaybackSongSameChannelReplacementEvent: Equatable {
 
 struct PlaybackSongSameChannelVoiceLifetimeDiagnostics: Equatable {
     static let oldVoiceKeptReasonReplacementRamp = "replacement_ramp_overlap"
+    static let oldVoiceKeptReasonRetriggerRetirement = "retrigger_retirement_overlap"
 
     let replacementRampFrameCount: Int
     let activeVoicesBySourceChannel: [Int: Int]
@@ -1098,7 +1099,7 @@ final class PlaybackSongOfflineRenderSession {
         PlaybackSongOfflineRenderer.scheduleInstrumentAutoPitchUpdates(plan.instrumentAutovibratoRequests,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices), on: mixer,
             includedEventIndices: includedEventIndices, sameChannelLifetime: sameChannelVoiceLifetime, admission: controls)
-        PlaybackSongOfflineRenderer.scheduleRetriggerCuts(
+        PlaybackSongOfflineRenderer.scheduleRetriggerRetirements(
             plan.diagnostics.retriggerEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: mixer,
@@ -1148,7 +1149,7 @@ final class PlaybackSongOfflineRenderSession {
         case 9: return .step(d.arpeggioEffects[p].stepUpdates[c].playbackStepAfter)
         case 10: return .step(d.vibratoEffects[p].stepUpdates[c].playbackStepAfter)
         case 11: return .step(plan.instrumentAutovibratoRequests[p].playbackStep)
-        case 12: return .cut
+        case 12: return .retirement
         case 13: return .retirement
         case 14: return .semantic(plan.xmEnvelopeTimeline!.updates[p].state)
         case 15: return .audible(plan.xmAudibleTimeline!.updates[p])
@@ -1366,7 +1367,7 @@ final class PlaybackSongOfflineRenderSession {
                     accepted: { key, value in
                         if case let .state(.keyOff(decrement)) = value { sources.fadeoutRates[Int(key.source)] = decrement }
                         if (4...11).contains(key.family) { sources.pitchSources.insert(Int(key.source)) }
-                        if key.family == 12 || key.family == 16 { sources.cutFrames[Int(key.source)] = self.renderedFrameCount }
+                        if key.family == 16 { sources.cutFrames[Int(key.source)] = self.renderedFrameCount }
                     })
                 guard controls.snapshot.failure == nil else { break }
                 let birth = sources.nextBirth < sources.keys.count ? sources.keys[sources.nextBirth].frame : Int.max
@@ -2005,20 +2006,31 @@ final class PlaybackSongOfflineRenderer {
             }
             var continuationResults = [CSoftwareMixerScheduledVoiceResult]()
             continuationResults.reserveCapacity(continuations.count)
-            for continuation in continuations {
-                let result = Self.scheduleContinuation(continuation, on: mixer)
-                continuationResults.append(result)
-                attempts.append(PlaybackSongScheduledVoiceAttempt(
-                    eventIndex: continuation.eventIndex,
-                    voiceIndex: result.voiceIndex,
-                    rejectionReason: result.rejectionReason,
-                    windowIndex: spec.index
-                ))
+            var scheduledResults = [CSoftwareMixerScheduledVoiceResult]()
+            scheduledResults.reserveCapacity(eventPairs.count)
+            var nextContinuation = 0, nextEvent = 0
+            // Both inputs retain original event order. Preserve the eager and source-checkpoint
+            // admission order so overlapping generations keep identical Float sums.
+            while nextContinuation < continuations.count || nextEvent < eventPairs.count {
+                if nextContinuation < continuations.count &&
+                    (nextEvent == eventPairs.count || continuations[nextContinuation].eventIndex < eventPairs[nextEvent].offset) {
+                    let continuation = continuations[nextContinuation]
+                    let result = Self.scheduleContinuation(continuation, on: mixer)
+                    continuationResults.append(result)
+                    attempts.append(PlaybackSongScheduledVoiceAttempt(
+                        eventIndex: continuation.eventIndex,
+                        voiceIndex: result.voiceIndex,
+                        rejectionReason: result.rejectionReason,
+                        windowIndex: spec.index
+                    ))
+                    nextContinuation += 1
+                } else {
+                    let event = Self.localEvent(from: eventPairs[nextEvent].element,
+                        windowStartFrame: spec.startFrame, scheduler: scheduler)
+                    scheduledResults.append(scheduler.scheduleWithResult(event, on: mixer))
+                    nextEvent += 1
+                }
             }
-            let localEvents = eventPairs.map { _, event in
-                Self.localEvent(from: event, windowStartFrame: spec.startFrame, scheduler: scheduler)
-            }
-            let scheduledResults = scheduler.scheduleWithResults(localEvents, on: mixer)
             var voiceIndexByEventIndex = [Int: Int]()
             for (continuation, result) in zip(continuations, continuationResults) {
                 if let voiceIndex = result.voiceIndex {
@@ -2120,7 +2132,7 @@ final class PlaybackSongOfflineRenderer {
                 voiceIndexByEventIndex: voiceIndexByEventIndex, on: mixer,
                 windowStartFrame: spec.startFrame, windowEndFrame: spec.endFrame,
                 includedEventIndices: includedEventIndices, sameChannelLifetime: sameChannelLifetime, admission: admission)
-            Self.scheduleRetriggerCuts(
+            Self.scheduleRetriggerRetirements(
                 usesScanReference ? adaptedPlan.diagnostics.retriggerEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
@@ -2529,11 +2541,14 @@ final class PlaybackSongOfflineRenderer {
                 emit(11, .step(request.playbackStep))
             case .noteCut:
                 break // The audible timeline owns ECx; this index entry is diagnostic only.
-            case .retriggerCut:
-                emit(12, .cut)
+            case .retriggerRetirement:
+                emit(12, .retirement)
             case .sameChannelReplacementRamp:
                 let replacements = sameChannelLifetime.replacementEvents
                 precondition(replacements.indices.contains(candidate.sourceDiagnosticIndex))
+                // Explicit retriggers already retain one exact old-generation selector.
+                guard replacements[candidate.sourceDiagnosticIndex].oldVoiceKeptReason !=
+                    PlaybackSongSameChannelVoiceLifetimeDiagnostics.oldVoiceKeptReasonRetriggerRetirement else { continue }
                 emit(13, .retirement)
             }
         }
@@ -3009,7 +3024,8 @@ final class PlaybackSongOfflineRenderer {
         }
     }
 
-    fileprivate static func scheduleRetriggerCuts(
+    /// Retires the exact displaced generation through the existing C-owned song tail.
+    fileprivate static func scheduleRetriggerRetirements(
         _ retriggers: [PlaybackSongSyntheticRetriggerDiagnostic],
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
@@ -3032,7 +3048,7 @@ final class PlaybackSongOfflineRenderer {
                     continue
                 }
                 admission.submit(family: 12, parent: parent, child: child, source: eventIndex, voice: voiceIndex,
-                    frame: scheduledFrame - windowStartFrame, on: mixer, value: .cut)
+                    frame: scheduledFrame - windowStartFrame, on: mixer, value: .retirement)
             }
         }
     }
@@ -3047,6 +3063,8 @@ final class PlaybackSongOfflineRenderer {
         admission: OfflineControlAdmission = .init()
     ) {
         for (parent, replacement) in replacements.enumerated() {
+            // The explicit family-12 selector owns retrigger retirement; never enqueue it twice.
+            guard replacement.oldVoiceKeptReason != PlaybackSongSameChannelVoiceLifetimeDiagnostics.oldVoiceKeptReasonRetriggerRetirement else { continue }
             guard includesEvent(replacement.oldEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[replacement.oldEventIndex] else {
                 continue
@@ -3285,11 +3303,11 @@ final class PlaybackSongOfflineRenderer {
                 eventIndex: eventIndex,
                 before: windowStartFrame,
                 plan: plan
-            ) || hasAppliedRetriggerCut(
+            ) || (replacementRampEvent == nil && hasAppliedRetriggerCut(
                 eventIndex: eventIndex,
                 before: windowStartFrame,
                 plan: plan
-            ) {
+            )) {
                 return nil
             }
             let gainPanState = gainPanStateAtBoundary(
@@ -3609,6 +3627,14 @@ final class PlaybackSongOfflineRenderer {
             return lhs.eventIndex < rhs.eventIndex
         }
 
+        // Explicit retriggers keep their existing causal selector and ordering. The
+        // lifetime record supplies continuation only, not a second retirement command.
+        var retriggerFrameByOldEvent = [Int: Int]()
+        for retrigger in plan.diagnostics.retriggerEffects where retrigger.applied {
+            for (source, frame) in zip(retrigger.replacedEventIndices, retrigger.replacementFrames ?? retrigger.retriggerFrames) {
+                retriggerFrameByOldEvent[source] = min(retriggerFrameByOldEvent[source] ?? frame, frame)
+            }
+        }
         let rampFrames = CSoftwareMixer.songReplacementRampFrameCount(sampleRate: plan.timingConfig.sampleRate)
         let renderedFrameCount = max(0, renderedFrameCount)
         var activeByChannel = [Int: [SameChannelActiveVoice]]()
@@ -3624,7 +3650,8 @@ final class PlaybackSongOfflineRenderer {
                     voice,
                     at: info.frame,
                     plan: plan,
-                    scheduler: scheduler
+                    scheduler: scheduler,
+                    allowsRetriggerRetirement: true
                 )
             }
             for index in activeVoices.indices {
@@ -3638,7 +3665,9 @@ final class PlaybackSongOfflineRenderer {
                     newEventIndex: info.eventIndex,
                     replacementFrame: info.frame,
                     completionFrame: completionFrame,
-                    oldVoiceKeptReason: PlaybackSongSameChannelVoiceLifetimeDiagnostics.oldVoiceKeptReasonReplacementRamp,
+                    oldVoiceKeptReason: retriggerFrameByOldEvent[oldEventIndex] == info.frame
+                        ? PlaybackSongSameChannelVoiceLifetimeDiagnostics.oldVoiceKeptReasonRetriggerRetirement
+                        : PlaybackSongSameChannelVoiceLifetimeDiagnostics.oldVoiceKeptReasonReplacementRamp,
                     oldVoiceRampDurationFrames: rampFrames
                 ))
                 activeVoices[index].rampCompletionFrame = completionFrame
@@ -3661,7 +3690,8 @@ final class PlaybackSongOfflineRenderer {
                     voice,
                     at: renderedFrameCount,
                     plan: plan,
-                    scheduler: scheduler
+                    scheduler: scheduler,
+                    allowsRetriggerRetirement: true
                 )
             }.count
         }.filter { $0.value > 0 }
@@ -3825,7 +3855,8 @@ final class PlaybackSongOfflineRenderer {
         at frame: Int,
         plan: PlaybackSongSyntheticPlan,
         scheduler: SyntheticTrackerScheduler,
-        pitchHistory: PitchSourceHistory? = nil
+        pitchHistory: PitchSourceHistory? = nil,
+        allowsRetriggerRetirement: Bool = false
     ) -> Bool {
         if let rampCompletionFrame = voice.rampCompletionFrame,
            frame >= rampCompletionFrame {
@@ -3845,11 +3876,11 @@ final class PlaybackSongOfflineRenderer {
             eventIndex: voice.eventIndex,
             atOrBefore: frame,
             plan: plan
-        ) || hasAppliedRetriggerCut(
+        ) || (!allowsRetriggerRetirement && hasAppliedRetriggerCut(
             eventIndex: voice.eventIndex,
             atOrBefore: frame,
             plan: plan
-        ) {
+        )) {
             return false
         }
         guard sourcePositionState(
@@ -4545,10 +4576,11 @@ final class PlaybackSongOfflineRenderer {
         for (diagnosticIndex, diagnostic) in plan.diagnostics.retriggerEffects.enumerated() where diagnostic.applied {
             for (childIndex, pair) in zip(diagnostic.replacedEventIndices, diagnostic.replacementFrames ?? diagnostic.retriggerFrames).enumerated() {
                 let (activeEventIndex, scheduledFrame) = pair
-                append(.retriggerCut, diagnosticIndex: diagnosticIndex, childIndex: childIndex, eventIndex: activeEventIndex, frame: scheduledFrame)
+                append(.retriggerRetirement, diagnosticIndex: diagnosticIndex, childIndex: childIndex, eventIndex: activeEventIndex, frame: scheduledFrame)
             }
         }
         for (replacementIndex, replacement) in sameChannelLifetime.replacementEvents.enumerated() {
+            guard replacement.oldVoiceKeptReason != PlaybackSongSameChannelVoiceLifetimeDiagnostics.oldVoiceKeptReasonRetriggerRetirement else { continue }
             append(.sameChannelReplacementRamp, diagnosticIndex: replacementIndex, eventIndex: replacement.oldEventIndex, frame: replacement.replacementFrame)
         }
         return updates

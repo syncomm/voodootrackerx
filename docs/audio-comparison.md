@@ -509,6 +509,33 @@ If runtime/offline mismatch is suspected:
    `python3 -m tools.vtx_diag runtime_trace correlate-window` only if the WAV
    comparison shows a real mismatch after bounds and gain are checked.
 
+For G21 E9/Rxy retirement comparisons, use the exact same XM, start/bounds,
+sample rate, mix profile and declared gain/headroom in actual CoreAudio capture
+and offline rendering. Compare the original offline Float32 through the existing
+PCM16 projection against the captured PCM16, without fitted gain, offset or
+resampling; report extra callback frames separately. Whole and window renders
+must preserve the same native 5 ms outgoing-generation retirement. The
+[G21 contract](design/xm-reset-output-ramp.md#g21-offline-e9r-outgoing-source-retirement)
+closes these bounded controls in both modes/rates. The original public Linear
+musical study at 48 kHz/VTX profile and unity gain has a separate
+[bounded numerical policy](design/xm-reset-output-ramp.md#bounded-musical-study-numerical-difference):
+its proven Float32 summation-order difference permits at most one PCM16 LSB only
+for that exact comparison. No Float32, frame or source-state tolerance follows.
+Broader whole-runtime and mode/rate qualification remains OPEN; do not apply this
+allowance to other modules, rates, profiles or mismatches.
+
+The two Fxx combined-evidence baselines also pin raw Float32 PCM separately for
+arm64 and generic x86_64. An isolated replay of native
+`vtx_c_mixer_output_value` multiply-add contraction reproduces all eight arm64 CI
+digests exactly; event payloads, source history, window state, physical hashes and
+non-retrigger evidence remain byte-exact. Only the final R93 tail differs:
+28 interleaved samples at 44.1 kHz (first frame 25642, maximum
+`7.450580596923828e-9`) and 18 at 48 kHz (first frame 27903, maximum
+`3.725290298461914e-9`), entirely inside the respective 220/240-frame retirements.
+Both complete renders quantize to identical PCM16. The architecture-specific
+hashes retain exact PCM coverage without adding a tolerance or changing DSP;
+this compiler-arithmetic witness is separate from the single-study policy above.
+
 Tested runtime CoreAudio captures have matched offline render behavior at the
 render-core/output-capture level. Treat a new mismatch as a diagnostic lead,
 not proof that playback semantics should change.

@@ -99,6 +99,45 @@ final class OfflineSourceAdmissionTests: XCTestCase {
         }
     }
 
+    func testRetriggerTailsCountAs256LiveSourcesAndRefuseThe257thWithoutTruncation() throws {
+        for rate in [44_100.0, 48_000] { for extra in [false, true] {
+            let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.5, count: 256),
+                volume: 1 / 64, relativeNote: 0, finetune: 0, baseSampleRate: 8363,
+                loopStart: 0, loopLength: 256, loopType: 1)
+            // Compress time synthetically so 224 nonzero old tails coexist with 32 current sources.
+            let rows = (0..<(extra ? 9 : 8)).map { row in PlaybackRow(index: row, cells: (0..<32).map { channel in
+                PlaybackCell(note: row == 0 ? 49 : 0, instrument: row == 0 ? 1 : 0, volumeColumn: 0,
+                    effectType: row > 0 && (row < 8 || channel == 0) ? 27 : 0, effectParam: 0)
+            }) }
+            let song = PlaybackSong(title: "Original bounded live retrigger tails", orders: [.init(orderIndex: 0, patternIndex: 0)],
+                patternsByIndex: [0: .init(index: 0, rows: rows)], instrumentsByIndex: [1: .init(index: 1,
+                    samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], restartOrderIndex: 0,
+                endBehavior: .stopAtEnd, initialTiming: .init(speed: 1, bpm: 4000), usesLinearFrequencyTable: true)
+            let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: rate)
+            XCTAssertEqual(plan.pattern.events.count, extra ? 257 : 256)
+            let boundary = PlaybackSongFxxRowTiming.frame(rowStartExactFrame: 0, tick: extra ? 8 : 7, bpm: 4000, sampleRate: rate)
+            let request = PlaybackSongOfflineRenderRequest(song: song, config: .init(sampleRate: rate), frames: boundary + 1)
+            let renderer = R(preparedPlan: plan), result = renderer.render(request)
+            if extra {
+                XCTAssertEqual(result.controlAdmission.failure?.reason, .sourceVoiceCapacity)
+                XCTAssertEqual(result.controlAdmission.failure?.frameOrigin, boundary)
+                XCTAssertEqual(result.controlAdmission.sources?.rejected, 1)
+            } else {
+                try result.controlAdmission.requireSuccess()
+                XCTAssertEqual(result.scheduledVoiceIndices.compactMap { $0 }.count, 256)
+                XCTAssertEqual(result.sameChannelVoiceLifetime.maxVoicesPerSourceChannel[0], 8)
+                #if DEBUG
+                let session = renderer.prepare(request)
+                _ = session.render(frames: boundary + 1)
+                let voices = (0..<256).compactMap { session.sourceVoiceForTesting($0) }
+                XCTAssertEqual(voices.filter(\.active).count, 256)
+                XCTAssertEqual(voices.filter { $0.active && $0.gainRamp?.songRetirement == true }.count, 224)
+                #endif
+                assertSourcePCM(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, result.block.interleavedPCM)
+            }
+        } }
+    }
+
     private func rendererPCM(_ input: SourceAdmissionInput.Input) -> [Float] {
         R(preparedPlan: input.plan).render(input.request).block.interleavedPCM
     }

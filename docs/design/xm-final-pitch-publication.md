@@ -321,12 +321,12 @@ diagnostic children can require COW storage beside captured raw children.
 Profile fields expose request/bounds capacity growth, row workspace capacity and
 changed-array capacity proxies; these are not measured malloc counts.
 
-Actual E9/Rxy retriggers retain the G21 runtime old-voice tail versus immediate
-offline cut; G03 supplies the current 5 ms song-tail duration. Dedicated controls
-establish the same depth-off difference, strict PCM equality outside actual
-retirement windows and new-generation step/cursor delivery inside them. G32
-changes no tolerance or DSP policy; retirement is separately owned from
-instrument modulation and G32 closure.
+Earlier G32 controls observed the runtime E9/Rxy old-voice tail versus an immediate
+offline cut, with strict PCM equality outside the retirement windows and matching
+new-generation step/cursor delivery inside them. G21's separate bounded
+[offline retirement contract](xm-reset-output-ramp.md#g21-offline-e9r-outgoing-source-retirement)
+now preserves that native 5 ms tail in offline delivery. G32 changes no tolerance
+or DSP policy; retirement remains independently owned from instrument modulation.
 
 **C — intentionally omit:** redundant period-refresh flags and period writes to
 inactive mixer slots when state/output equality is preserved. No phantom source
@@ -372,9 +372,10 @@ Whole/window/indexed/scan, loop direction, zero hold/resume and completed-source
 controls originally retained the 32-frame policy. The bounded G03
 [song-retirement contract](xm-reset-output-ramp.md#g03-same-channel-outgoing-source-retirement)
 extends those same R02 proofs through the full 5 ms tail without reopening the
-old pitch stream. G21/Rxy offline retirement debt, G03 independent acceptance
-and broader epsilon-policy parity remain separate; G23 tolerance
-is unchanged. No generic parity exclusion or relaxed PCM gate is authorized.
+old pitch stream. G21 separately closes offline E9/Rxy retirement through that
+same native policy. G03/G21 acceptance and broader numerical qualification remain
+separate from G32; G23 tolerance is unchanged. No generic parity exclusion or
+relaxed PCM gate is authorized.
 Issue #488 remains OPEN for independent manager review. The depth-off A/C
 architecture is accepted; complete capture, neutrality and cost require their
 independent verification gates.

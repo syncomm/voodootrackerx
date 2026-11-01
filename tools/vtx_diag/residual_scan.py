@@ -646,6 +646,8 @@ def scan_extended_gap(module: ModuleData, cell: Cell, coordinate: Coordinate, gr
         if amount == 0:
             add_to_groups(groups, "e3x", module.label, coordinate, metric="disable_count")
         else:
+            add_to_groups(groups, "e3x", module.label, coordinate, metric="enable_count")
+            # Retain the existing report key; every nonzero nibble is an on alias.
             add_to_groups(groups, "e3x", module.label, coordinate, metric="enable_or_mode_count")
     elif subcommand == 0x07:
         add_to_groups(groups, "7xy", module.label, coordinate, metric="e7x_control_count", family=f"E7{amount:X}")
@@ -1104,7 +1106,7 @@ def status_note(key: str, counts: dict[str, Any]) -> str:
     if key == "pxy":
         return "Deferred by design during the backend freeze; promote only with concrete corpus/reference evidence."
     if key == "e3x":
-        return "Deferred by design; useful only with a future portamento parity target."
+        return "G36 closed, bounded: zero disables and every nonzero nibble enables Linear/Amiga tone-output quantization; stored occurrences are not applied-audio evidence."
     if key == "eex":
         return "Deferred by design traversal/timing hazard."
     if key == "txy":
@@ -1152,7 +1154,7 @@ TRIAGE_ROWS = [
     ("lxx", "Lxx set envelope position", ("Lxx",), "lxx", ("count",), ("Lxx set envelope position",), "no", "current C mixer adapter supports active mapped volume-envelope position", "yes", "yes", "none", "low", "implemented/parity-watch", "no", "all", True),
     ("eex", "EEx pattern delay", ("EEx",), "eex", ("detected_count",), ("EEx pattern delay",), "partial", "PlaybackEffectHandler decodes patternDelay; traversal adapter defers it", "yes", "no", "large", "high", "deferred by design unless freeze-exit evidence promotes it", "no", "all", False),
     ("txy", "Txy tremor", ("Txy",), "txy", ("detected_count",), ("Txy tremor",), "no", "no current Swift tremor continuous effect", "yes", "no", "medium", "medium", "deferred by design; not targeted for v1", "no", "all", False),
-    ("e3x", "E3x glissando control", ("E3x",), "e3x", ("detected_count",), ("E3x glissando control",), "no", "no current Swift glissando-control state in C mixer adapter", "yes", "no", "medium", "medium", "deferred by design with a future portamento parity target", "no", "all", False),
+    ("e3x", "E3x glissando control", ("E3x",), "e3x", ("detected_count",), ("E3x glissando control",), "no", "bounded G36 control and Linear/Amiga tone-output quantization in current C mixer adapter", "yes", "yes", "none", "medium", "G36 closed, bounded; source/audio application requires playback diagnostics", "no", "all", False),
     ("xxy", "X1x/X2x extra fine portamento residuals", ("X1x / X2x",), "xxy", ("count",), ("Xxy extra fine portamento",), "no", "current C mixer adapter owns X1x/X2x support", "yes", "yes", "none", "low", "covered", "no", "all", True),
     ("e0x", "E0x filter toggle", ("E0x",), "e0x", ("detected_count",), ("E0x filter toggle",), "no", "not implemented in current Swift adapter", "yes", "no", "medium", "low", "limited-usefulness deferred", "no", "all", True),
     ("amiga", "Amiga frequency-table parity-watch cases", ("Amiga frequency table",), "amiga", ("amiga_2xx_count", "amiga_3xx_count", "amiga_5xy_count", "amiga_xxy_count", "amiga_volume_column_fxx_count"), (), "partial", "narrow Amiga note, 2xx, and effect-column 3xx foundation is implemented; broader parity remains parked", "yes", "yes", "large", "high", "parity-watch unless freeze-exit evidence promotes it", "no", "amiga", False),

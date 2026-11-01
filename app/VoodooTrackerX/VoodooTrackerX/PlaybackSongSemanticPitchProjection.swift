@@ -20,7 +20,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
     }
     /// Packed references share existing producer storage, including original numeric children.
     struct Ref: Equatable {
-        enum Kind: UInt64 { case cold, missing, selection, writer, writerInput, fineUp, fineDown, extraFine, arpExit, vibratoExit, suppressedExit, toneHold, seed }
+        enum Kind: UInt64 { case cold, missing, selection, writer, writerInput, fineUp, fineDown, extraFine, arpExit, vibratoExit, suppressedExit, toneHold, seed, writerBase }
         let raw: UInt64
         init(_ kind: Kind, _ index: Int = 0, _ child: Int = 0) {
             precondition(index >= 0 && index < 1 << 28 && child >= 0 && child < 1 << 28)
@@ -34,7 +34,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
             case .cold, .seed: return .incoming
             case .missing: return .notCaptured
             case .selection: return .selection(index)
-            case .writer, .writerInput: return .nativeWriter(span: index, child: child)
+            case .writer, .writerInput, .writerBase: return .nativeWriter(span: index, child: child)
             case .fineUp: return .diagnosticScalar(family: .finePortamentoUp, index: index)
             case .fineDown: return .diagnosticScalar(family: .finePortamentoDown, index: index)
             case .extraFine: return .diagnosticScalar(family: .extraFinePortamento, index: index)
@@ -82,9 +82,10 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
             case .known(_, let value): return .known(value)
             case .unavailable: return .notEstablished
             }
-        case .writer, .writerInput:
+        case .writer, .writerInput, .writerBase:
             guard plan.nativePitchWriterSpans.spans.indices.contains(ref.index),
                   let child = plan.nativePitchWriterSpans.spans[ref.index].child(at: ref.child) else { return .notCaptured }
+            if ref.kind == .writer { return known(child.audibleNativePeriod(linear: linear)) }
             return known(ref.kind == .writerInput
                 ? (linear ? child.linearPeriodBefore : child.amigaPeriodBefore)
                 : (linear ? child.linearPeriodAfter : child.amigaPeriodAfter))
@@ -291,7 +292,13 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
                     if folded != nil { states[channel].incoming = ref.kind == .writer
                         ? Ref(.writerInput, ref.index, ref.child) : Ref(ref.kind, ref.index, 1) }
                     states[channel].output = ref
-                    if writesBase { states[channel].base = ref; baseValues[channel] = native }
+                    if writesBase {
+                        // A projected tone writer changes audible output without snapping its arithmetic base.
+                        let projected = ref.kind == .writer &&
+                            context.nativePitchWriterObserver.spans[ref.index].child(at: ref.child)?.glissandoFinetune != nil
+                        states[channel].base = projected ? Ref(.writerBase, ref.index, ref.child) : ref
+                        baseValues[channel] = native
+                    }
                     if let folded { folds[channel] = folded }
                 case .selection(let index):
                     let fact = context.selectionFacts[index]

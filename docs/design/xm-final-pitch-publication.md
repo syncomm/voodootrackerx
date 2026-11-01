@@ -400,3 +400,42 @@ failure rule. G31 numbers are historical, not reusable executables. Full Xcode,
 actual host, reference audio, Release benchmarks and listening are not established
 by the shadow tests. The external handoff report records executed
 checks. No private inventory, listening or corpus curation is needed here.
+
+## G36 E3x tone-output glissando
+
+Gregory accepted the qualified eight-WAV listening study. This bounded contract
+is CLOSED for the submitted post-merge state; publication requires green CI,
+maintainer review and Gregory's merge into main.
+
+The bounded contract uses the unchanged native observer at ft2-clone
+`87be42543dac82cf802b5bddad917bda62ace131`. E30 disables and every nonzero
+nibble enables one persistent channel control. Ordinary notes, instrument resets,
+release and source completion preserve it; a fresh playback state starts disabled.
+The control itself publishes no pitch. E30 therefore holds the last snapped output
+until the next actual tone invocation restores continuous movement.
+
+3xx, 300, 5xy and volume-column Fx retain their continuous period, exact latent
+target, direction and speed. After each actual movement/clamp, enabled output uses
+the existing bounded arpeggio inverse projection with offset zero and the current
+pitched channel's finetune. Relative note is already included in the period.
+Linear zero-finetune 4575 projects to 4544, while the tie at 4576 chooses 4608;
+Amiga native 1663 projects to 1616, while 1664 chooses 1712 (VTX units are x4).
+This is the established bounded grid, including its upper edge, rather than an
+unbounded nearest-note approximation. E5 can change current tuning without
+rewriting an old target: Linear target 3056 with new finetune -128 emits 3072.
+An equal target admitted with direction none remains inert; a historically
+latched direction continues projecting the reached target on actual invocations.
+
+Immutable pitch children retain raw arithmetic periods and compact optional
+finetune provenance. Semantic base references read those raw periods; output
+references and the existing G32 composer consume the projected native intent.
+Physical output uses the existing conversion and C step events, preserving source
+generation/cursor and the one final pitch authority. Channel state remains 1152
+bytes and pitch children 144 bytes; no C, callback or sample-metadata change is
+involved. [GlissandoTests](../../tests/vtx_render_bounded_xm/GlissandoTests.swift)
+pin numeric output, toggles, aliases, E5, Fxx, EEx, source lifetime and G32 delivery.
+Live qualification starts at order zero. Direct cold selected-range plans ignore
+unplayed earlier E31 controls; product cached live selected-order integration
+remains OPEN under [#516](https://github.com/syncomm/voodootrackerx/issues/516).
+G38 traversal conflicts, G39 broader modulation, G40/G41 and the later integrated
+planning/memory/UI/CI audit retain their separate ownership.

@@ -119,6 +119,22 @@ def synthetic_offline_diagnostics() -> dict[str, object]:
 
 
 class EffectCoverageMigrationTests(unittest.TestCase):
+    def test_glissando_current_recommendation_preserves_historical_recorded_outcomes(self):
+        occurrences = [effect_coverage.CoverageOccurrence(
+            command="E3x glissando control", command_source="effect_column", category="control",
+            status=status, reason=status, source=effect_coverage.SourceCoordinate(row=row),
+            effect_type=14, effect_param=parameter, input_name="public-control.json",
+        ) for row, (status, parameter) in enumerate([("deferred/unsupported", 0x31), ("applied", 0x30)])]
+        report = effect_coverage.summarize_occurrences(occurrences, ["public-control.json"])
+        row = report["effect_coverage"][0]
+        self.assertEqual(row["detected_count"], 2)
+        self.assertEqual(row["applied_count"], 1)
+        self.assertEqual(row["unsupported_count"], 1)
+        self.assertEqual(row["deferred_count"], 1)
+        self.assertEqual(row["recommended_implementation_priority"], effect_coverage.G36_CLOSED_PRIORITY)
+        self.assertEqual(report["effect_family_counts"][0]["family"], "portamento_up_down_tone")
+        self.assertEqual(row["status_counts"], {"applied": 1, "deferred/unsupported": 1})
+
     def run_command(
         self,
         arguments: list[str],

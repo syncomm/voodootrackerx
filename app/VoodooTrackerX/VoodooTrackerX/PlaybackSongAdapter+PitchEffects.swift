@@ -2856,6 +2856,13 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
+        let glissandoFinetune = channelState.glissandoEnabled
+            ? Int8(clamping: channelState.activeSampleFinetune ?? 0) : nil
+        func audiblePeriod(_ period: Double, linear: Bool) -> Double {
+            guard let glissandoFinetune else { return period }
+            return arpeggioPeriod(period, finetune: Int(glissandoFinetune), offset: 0, linear: linear)
+        }
+
         if activeUsesAmigaFrequencyTable {
             guard var currentAmigaPeriod = channelState.activeAmigaPeriod,
                   let targetAmigaPeriod else {
@@ -2900,6 +2907,18 @@ extension PlaybackSongSyntheticAdapter {
                 guard channelState.tonePortamentoDirection != .none else { break }
                 if abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001 {
                     channelState.tonePortamentoDirection = .towardHigherPeriod
+                    if glissandoFinetune != nil,
+                       let heldStep = finePitchStep(audiblePeriod(targetAmigaPeriod, linear: false), linear: false,
+                           baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate) {
+                        stepUpdates.append(.init(syntheticTick: tick,
+                            scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                            linearPeriodBefore: currentAmigaPeriod, linearPeriodAfter: targetAmigaPeriod,
+                            amigaPeriodBefore: currentAmigaPeriod, amigaPeriodAfter: targetAmigaPeriod,
+                            playbackStepBefore: currentPlaybackStep, playbackStepAfter: heldStep,
+                            reachedTarget: true, glissandoFinetune: glissandoFinetune))
+                        currentPlaybackStep = heldStep
+                        continue
+                    }
                     currentAmigaPeriod = targetAmigaPeriod
                     currentPlaybackStep = targetPlaybackStep
                     break
@@ -2909,7 +2928,7 @@ extension PlaybackSongSyntheticAdapter {
                 currentAmigaPeriod = amigaTonePeriod(currentAmigaPeriod, target: targetAmigaPeriod,
                     nativeSpeed: speed * 4, direction: channelState.tonePortamentoDirection)
                 guard let nextStep = playbackStep(
-                    amigaPeriod: currentAmigaPeriod,
+                    amigaPeriod: audiblePeriod(currentAmigaPeriod, linear: false),
                     baseSampleRate: baseSampleRate,
                     outputSampleRate: timingConfig.sampleRate
                 ) else {
@@ -2926,14 +2945,17 @@ extension PlaybackSongSyntheticAdapter {
                     amigaPeriodAfter: currentAmigaPeriod,
                     playbackStepBefore: beforeStep,
                     playbackStepAfter: currentPlaybackStep,
-                    reachedTarget: reachedTarget
+                    reachedTarget: reachedTarget,
+                    glissandoFinetune: glissandoFinetune
                 ))
                 if reachedTarget {
                     // FT2 leaves the higher-period direction latched after either clamp.
                     channelState.tonePortamentoDirection = .towardHigherPeriod
                     currentAmigaPeriod = targetAmigaPeriod
-                    currentPlaybackStep = targetPlaybackStep
-                    break
+                    if glissandoFinetune == nil {
+                        currentPlaybackStep = targetPlaybackStep
+                        break
+                    }
                 }
             }
             channelState.activeAmigaPeriod = currentAmigaPeriod
@@ -3039,6 +3061,17 @@ extension PlaybackSongSyntheticAdapter {
             guard channelState.tonePortamentoDirection != .none else { break }
             if abs(currentLinearPeriod - targetLinearPeriod) <= 0.000000001 {
                 channelState.tonePortamentoDirection = .towardHigherPeriod
+                if glissandoFinetune != nil,
+                   let heldStep = finePitchStep(audiblePeriod(targetLinearPeriod, linear: true), linear: true,
+                       baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate) {
+                    stepUpdates.append(.init(syntheticTick: tick,
+                        scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                        linearPeriodBefore: currentLinearPeriod, linearPeriodAfter: targetLinearPeriod,
+                        playbackStepBefore: currentPlaybackStep, playbackStepAfter: heldStep,
+                        reachedTarget: true, glissandoFinetune: glissandoFinetune))
+                    currentPlaybackStep = heldStep
+                    continue
+                }
                 currentLinearPeriod = targetLinearPeriod
                 currentPlaybackStep = targetPlaybackStep
                 break
@@ -3048,7 +3081,7 @@ extension PlaybackSongSyntheticAdapter {
             currentLinearPeriod = pitchTonePeriod(currentLinearPeriod, target: targetLinearPeriod,
                 nativeSpeed: speed * 4, direction: channelState.tonePortamentoDirection, linear: true)
             guard let nextStep = playbackStep(
-                linearPeriod: currentLinearPeriod,
+                linearPeriod: audiblePeriod(currentLinearPeriod, linear: true),
                 baseSampleRate: baseSampleRate,
                 outputSampleRate: timingConfig.sampleRate
             ) else {
@@ -3063,14 +3096,17 @@ extension PlaybackSongSyntheticAdapter {
                 linearPeriodAfter: currentLinearPeriod,
                 playbackStepBefore: beforeStep,
                 playbackStepAfter: currentPlaybackStep,
-                reachedTarget: reachedTarget
+                reachedTarget: reachedTarget,
+                glissandoFinetune: glissandoFinetune
             ))
             if reachedTarget {
                 // FT2 leaves the higher-period direction latched after either clamp.
                 channelState.tonePortamentoDirection = .towardHigherPeriod
                 currentLinearPeriod = targetLinearPeriod
-                currentPlaybackStep = targetPlaybackStep
-                break
+                if glissandoFinetune == nil {
+                    currentPlaybackStep = targetPlaybackStep
+                    break
+                }
             }
         }
         channelState.activeLinearPeriod = currentLinearPeriod

@@ -145,6 +145,7 @@ enum PlaybackSongSyntheticAdapter {
         var volumeValueZeroedByAxy = false
         var tremorMemory: UInt8 = 0
         var tremorPhase: Int8 = 0 // Signed calls remaining, including the last invocation; zero is ready.
+        var glissandoEnabled = false // Output projection only; survives source/instrument resets.
         var panningValue = 127.5
         var pan: Float = 0
         var activeEventIndex: Int?
@@ -1495,6 +1496,9 @@ enum PlaybackSongSyntheticAdapter {
                 globalVolumeValue: context.globalVolumeState.volumeValue
             ) {
                 context.voiceStateUpdates.append(update)
+            }
+            if extendedSubcommand == 0x03 {
+                channelState.glissandoEnabled = cell.effectParam & 0x0F != 0
             }
             if hasVibratoControlEffect {
                 let diagnostic = handleVibratoControl(

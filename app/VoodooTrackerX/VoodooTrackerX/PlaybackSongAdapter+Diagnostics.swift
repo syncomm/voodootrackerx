@@ -410,7 +410,7 @@ extension PlaybackSongSyntheticAdapter {
                 return .deferredUnsupported
             }
             return .applied
-        case 0x0E where cell.effectParam >> 4 == 0x07:
+        case 0x0E where cell.effectParam >> 4 == 0x03 || cell.effectParam >> 4 == 0x07:
             return .applied
         case 0x0E where isRetriggerEffect(cell):
             if cell.effectParam == 0x90 { return .applied }
@@ -590,7 +590,7 @@ extension PlaybackSongSyntheticAdapter {
         switch cell.effectType {
         case 0x07, 0x08, 0x0A, 0x0C, 0x19, 0x1D:
             return false
-        case 0x0E where cell.effectParam >> 4 == 0x07:
+        case 0x0E where cell.effectParam >> 4 == 0x03 || cell.effectParam >> 4 == 0x07:
             return false
         default:
             return true

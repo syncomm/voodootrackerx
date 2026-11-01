@@ -44,6 +44,7 @@ LIMITED_DEFERRED_PRIORITY = "deferred/limited-usefulness"
 CLASSIFICATION_ONLY_PRIORITY = "classification-only; no playback work inferred"
 NOT_TARGETED_FOR_V1_PRIORITY = "not targeted for v1"
 RXY_CLOSED_PRIORITY = "G20–G22 closed; Rxy memory, counter/timing and exact integer volume modes implemented"
+G36_CLOSED_PRIORITY = "G36 closed, bounded; E3x control and Linear/Amiga tone-output quantization implemented"
 # Compatibility names for callers importing the legacy wrapper; emitted text is current.
 R00_PARKED_PRIORITY = RXY_CLOSED_PRIORITY
 RXY_ZERO_INTERVAL_EXECUTION_PRIORITY = RXY_CLOSED_PRIORITY
@@ -67,7 +68,7 @@ COMMAND_RECOMMENDATION_STATUSES = {
     "E0x filter toggle": LIMITED_DEFERRED_PRIORITY,
     "E1x fine portamento up": IMPLEMENTED_PARITY_WATCH_PRIORITY,
     "E2x fine portamento down": IMPLEMENTED_PARITY_WATCH_PRIORITY,
-    "E3x glissando control": DEFERRED_BY_DESIGN_PRIORITY,
+    "E3x glissando control": G36_CLOSED_PRIORITY,
     "E4x vibrato control": IMPLEMENTED_PARITY_WATCH_PRIORITY,
     "E5x set finetune": IMPLEMENTED_PARITY_WATCH_PRIORITY,
     "E6x pattern loop": IMPLEMENTED_PARITY_WATCH_PRIORITY,
@@ -148,6 +149,7 @@ NON_IMPLEMENTATION_PRIORITIES = {
     CLASSIFICATION_ONLY_PRIORITY,
     NOT_TARGETED_FOR_V1_PRIORITY,
     RXY_CLOSED_PRIORITY,
+    G36_CLOSED_PRIORITY,
 }
 
 EFFECT_FAMILY_ORDER = (
@@ -876,7 +878,7 @@ def effect_family(command: str, command_source: str) -> str:
         return "volume_column_effects"
     if "arpeggio" in command:
         return "arpeggio"
-    if command.startswith(("1xx", "2xx", "3xx")) or "fine portamento" in command or "extra fine portamento" in command:
+    if command.startswith(("1xx", "2xx", "3xx", "E3x")) or "fine portamento" in command or "extra fine portamento" in command:
         return "portamento_up_down_tone"
     if command.startswith("5xy"):
         return "tone_portamento_volume_slide"
@@ -944,6 +946,8 @@ def priority_for_command(command: str, counters: Counter, reason_counts: Counter
     if command.startswith("Rxy"):
         # Old artifacts retain their recorded outcomes, not their obsolete work recommendation.
         return RXY_CLOSED_PRIORITY
+    if command == "E3x glissando control":
+        return G36_CLOSED_PRIORITY
     effect_memory_no_ops = sum(
         count for reason, count in dict(reason_counts or {}).items()
         if any(marker in str(reason).lower() for marker in EFFECT_MEMORY_STATUS_MARKERS)

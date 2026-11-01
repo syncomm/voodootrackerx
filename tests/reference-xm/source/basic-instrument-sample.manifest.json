@@ -15789,6 +15789,117 @@
       "xm_output": "generated/panning-slide-musical-study.xm",
       "xm_sha256": "1e9bf24f1353e21b68f41e53025fd861dec039429e543182851a2286ba60f87b",
       "xm_size_bytes": 4931
+    },
+    {
+      "id": "glissando-tone-output",
+      "intended_tests": [
+        "GlissandoTests"
+      ],
+      "module": {
+        "title": "Original G36 tones",
+        "tracker_name": "VTX Original G36",
+        "orders": [
+          0
+        ],
+        "restart_position": 0,
+        "channels": 2,
+        "flags": 1,
+        "speed": 6,
+        "bpm": 125,
+        "patterns": [
+          {
+            "rows": 9,
+            "events": [
+              {"row": 0, "channel": 0, "note": 49, "instrument": 1, "volume_column": 0, "effect_type": 14, "effect_parameter": 49},
+              {"row": 1, "channel": 0, "note": 61, "instrument": 0, "volume_column": 0, "effect_type": 3, "effect_parameter": 4},
+              {"row": 2, "channel": 0, "note": 0, "instrument": 0, "volume_column": 0, "effect_type": 5, "effect_parameter": 1},
+              {"row": 3, "channel": 0, "note": 0, "instrument": 0, "volume_column": 240, "effect_type": 0, "effect_parameter": 0},
+              {"row": 4, "channel": 0, "note": 0, "instrument": 0, "volume_column": 242, "effect_type": 0, "effect_parameter": 0},
+              {"row": 5, "channel": 0, "note": 0, "instrument": 0, "volume_column": 0, "effect_type": 5, "effect_parameter": 0},
+              {"row": 6, "channel": 0, "note": 0, "instrument": 0, "volume_column": 0, "effect_type": 3, "effect_parameter": 0},
+              {"row": 7, "channel": 0, "note": 97, "instrument": 0, "volume_column": 0, "effect_type": 0, "effect_parameter": 0}
+            ]
+          }
+        ],
+        "instruments": [
+          {
+            "name": "Original G36 sine",
+            "note_sample_map": [
+              {
+                "start_note": 1,
+                "end_note": 96,
+                "sample": 0
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "fadeout": 0,
+            "samples": [
+              {
+                "slot": 0,
+                "name": "Original sine",
+                "encoding": "signed_16_bit_delta_pcm",
+                "volume": 48,
+                "finetune": 0,
+                "panning": 128,
+                "relative_note": 0,
+                "loop": {
+                  "mode": "forward",
+                  "start_frame": 0,
+                  "length_frames": 256
+                },
+                "pcm_recipe": {
+                  "waveform": "sine",
+                  "amplitude": 8192,
+                  "frame_count": 256,
+                  "period_frames": 16
+                },
+                "pcm_sha256": "cae21393f8ec176e125faa194b4dd6ea44fbeb9de5cf0536e21cf8eb2913288d"
+              }
+            ],
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "autovibrato": {
+              "type": 0,
+              "sweep": 0,
+              "depth": 0,
+              "rate": 0
+            }
+          }
+        ]
+      },
+      "name": "glissando-tone-output.xm",
+      "purpose": "Original glissando control, shared 3/5/F movement and retained source.",
+      "significant_rows": [
+        {
+          "pattern": 0,
+          "row": 0,
+          "purpose": "Enable before tone movement"
+        },
+        {
+          "pattern": 0,
+          "row": 2,
+          "purpose": "Shared 5xy movement"
+        },
+        {
+          "pattern": 0,
+          "row": 3,
+          "purpose": "Shared Fx replay"
+        }
+      ],
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "unsupported_semantics": [
+        "G38 traversal conflicts; G39 full modulation ranges"
+      ],
+      "xm_output": "generated/glissando-tone-output.xm",
+      "xm_sha256": "c4a63ec6d9a5d60a700fc862a0e0a6646e0d3c52134b6ef10c4e7469d584ef0c",
+      "xm_size_bytes": 1192
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

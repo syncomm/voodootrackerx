@@ -39,6 +39,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/new-source-onset.xm | \
     tests/reference-xm/generated/panning-slide-semantics.xm | \
     tests/reference-xm/generated/panning-slide-musical-study.xm | \
+    tests/reference-xm/generated/glissando-tone-output.xm | \
     tests/reference-xm/generated/fxx-timing.xm | \
     tests/reference-xm/generated/portamento-scaling-linear.xm | \
     tests/reference-xm/generated/portamento-scaling-amiga.xm | \

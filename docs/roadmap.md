@@ -100,7 +100,7 @@ bounded contracts; they do not establish full command or audible parity.
   real ED/E9/R generations share runtime/offline delivery. Both modes/rates,
   protected no-EEx controls, actual-host frames and optimized guardrails are
   qualified. G38A implements bounded local combined pending-position precedence;
-  full G38 inheritance/restart policy and #516 remain separate open boundaries.
+  G38B closes bounded traversal policy; #516 remains a separate open boundary.
 - G36 E3x is CLOSED for its [bounded post-merge tone-output contract](design/xm-final-pitch-publication.md#g36-e3x-tone-output-glissando):
   Gregory accepted the eight-WAV listening study and merged
   [PR #521](https://github.com/syncomm/voodootrackerx/pull/521). Its
@@ -110,13 +110,17 @@ bounded contracts; they do not establish full command or audible parity.
   bounded parent for default-origin playback. Direct selected-range adapter and
   prepared-runtime plans start cold. Product live selected-order E3 inheritance
   through eager order-0 prewarm remains
-  OPEN under #516, alongside full G37 and G38/G39/G40/G41.
+  OPEN under #516, alongside full G37 and G39/G40/G41.
 - G38A local B/D/E6/EE pending-position precedence is CLOSED: ordered row
   writes, local channel counters, held skips and short-pattern valid D bounds
   have both-mode/rate reference, source/frame, actual-host, protected-byte and
-  paired Release qualification. Full G38/G37 remain PARTIAL for inherited
-  anchor/counter, stale next-entry and remaining bounds/restart policy decisions.
-  Live cold-start planning remains #516 after G41.
+  paired Release qualification.
+- G38B closes the bounded G38 composition/safety policy: pattern-local E60 or
+  implicit row 0, independent channel counters and natural row-0 entry replace
+  accidental FT2 inheritance. G38A precedence, long-pattern behavior and finite
+  guards remain; non-BCD/extended-break and one-pass restart scope is explicit in
+  [effect support](xm-effect-support.md#bounded-g38b-pattern-local-loop-and-traversal-policy).
+  Full G37 remains PARTIAL under #516, assigned after G41.
 - G21 offline E9/Rxy outgoing-source retirement is CLOSED for its bounded
   post-merge delivery contract: runtime and offline share native 5 ms retirement
   of the exact outgoing generation, including overlapping tails and source/window
@@ -140,9 +144,8 @@ bounded contracts; they do not establish full command or audible parity.
 
 - Close remaining evidence-backed FT2/XM commands and cross-cutting output,
   pitch, memory, envelope, trigger/retrigger/cut, and traversal obligations.
-  Known families include inherited-anchor/counter/next-pattern-entry and residual
-  bounds/restart policy under G38 (local combined B/D/E6/EE is implemented by G38A), relevant
-  E-commands, volume-column gaps, and remaining loaded-Amiga pitch coverage.
+  Known families include G39 modulation, G40 pan law, G41 sample boundaries,
+  relevant E-commands, volume-column gaps and remaining loaded-Amiga pitch coverage.
   Pan-envelope arithmetic/clock quirks, interactions beyond closed bounded
   G02/G03/G04/G05/G32/G33/G34/G35/G36,
   and remaining envelope/pitch arithmetic must be resolved or explicitly
@@ -163,9 +166,8 @@ bounded contracts; they do not establish full command or audible parity.
 - Rerun the final closure matrix and pass the composition, playback, listening,
   and performance release gate; then establish the effects/backend freeze.
 
-The bounded local B/D/E6/EE precedence slice is CLOSED under G38A. Full G38/G37
-remain PARTIAL pending inherited anchor/counter, next-pattern entry and residual
-bounds/restart decisions; then G39, G40 and G41. Cold live selected-order planning
+The bounded G38 traversal contract is CLOSED under G38A/G38B. Next are G39,
+G40 and G41; full G37 remains PARTIAL. Cold live selected-order planning
 [#516](https://github.com/syncomm/voodootrackerx/issues/516) stays assigned after G41.
 The integrated planning/memory/UI/CI and cross-family/release audit follows G41. These remaining contracts and the #516 release blocker stay OPEN.
 

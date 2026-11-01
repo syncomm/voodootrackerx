@@ -197,8 +197,9 @@ Focused whole/window/source-checkpoint controls and actual Release CoreAudio
 comparisons qualify both frequency modes and 44.1/48 kHz, including interval-zero
 R00 overlaps faster than the 5 ms tail. Matched profile, gain and unshifted PCM16
 comparisons agree exactly for the bounded primary controls. Existing no-E9/R
-controls remain unchanged. G35 ordinary EEx remains CLOSED; combined traversal
-G38, selected-order blocker #516 and post-G41 performance/CI audits remain OPEN.
+controls remain unchanged. G35 ordinary EEx remains CLOSED.
+G38A/G38B close bounded traversal policy; selected-order blocker #516 and
+post-G41 performance/CI audits remain OPEN.
 
 ### Bounded musical-study numerical difference
 

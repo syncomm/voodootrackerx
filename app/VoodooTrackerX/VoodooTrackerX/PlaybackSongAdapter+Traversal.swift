@@ -101,7 +101,6 @@ enum PlaybackSongTraversalPlanner {
         var diagnostics = [PlaybackSongSyntheticTraversalDiagnostic]()
         var loopStarts = [LoopKey: Int]()
         var loopRemaining = [LoopKey: Int]()
-        var explicitLoopStartChannels = Set<Int>()
         var visitedPositions = Set<TraversalPositionKey>()
         var currentOrderIndex = startOrderIndex
         var currentRowIndex = 0
@@ -203,7 +202,6 @@ enum PlaybackSongTraversalPlanner {
                     maxTraversalRows: maxTraversalRows,
                     loopStarts: &loopStarts,
                     loopRemaining: &loopRemaining,
-                    explicitLoopStartChannels: &explicitLoopStartChannels,
                     visitedPositions: visitedPositions,
                     diagnostics: &diagnostics
                 )
@@ -264,7 +262,6 @@ enum PlaybackSongTraversalPlanner {
         maxTraversalRows: Int,
         loopStarts: inout [LoopKey: Int],
         loopRemaining: inout [LoopKey: Int],
-        explicitLoopStartChannels: inout Set<Int>,
         visitedPositions: Set<TraversalPositionKey>,
         diagnostics: inout [PlaybackSongSyntheticTraversalDiagnostic]
     ) -> NextPositionDecision {
@@ -282,7 +279,6 @@ enum PlaybackSongTraversalPlanner {
             let loopKey = LoopKey(orderIndex: source.orderIndex, patternIndex: source.patternIndex, channelIndex: command.channelIndex)
             if value == 0 {
                 loopStarts[loopKey] = currentRowIndex
-                explicitLoopStartChannels.insert(command.channelIndex)
                 diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
                     kind: .e6xPatternLoop,
                     status: .loopStartMarked,
@@ -326,34 +322,9 @@ enum PlaybackSongTraversalPlanner {
                 continue
             }
             let loopKey = LoopKey(orderIndex: source.orderIndex, patternIndex: source.patternIndex, channelIndex: command.channelIndex)
-            var loopStart = loopStarts[loopKey]
-            // Only executed E60 commands create history. Inherited anchors remain
-            // unresolved under G38; a cold channel uses this pattern's first slot.
-            if loopStart == nil, !explicitLoopStartChannels.contains(command.channelIndex) {
-                loopStart = 0
-            }
-            guard let loopStart else {
-                diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
-                    kind: .e6xPatternLoop,
-                    status: .missingLoopStart,
-                    source: source,
-                    channelIndex: command.channelIndex,
-                    syntheticRow: syntheticRow,
-                    effectType: command.cell.effectType,
-                    effectParam: command.cell.effectParam,
-                    targetOrderIndex: source.orderIndex,
-                    targetPatternIndex: source.patternIndex,
-                    targetRowIndex: nil,
-                    nextOrderIndex: nil,
-                    loopStartRowIndex: nil,
-                    loopRemaining: nil,
-                    loopLimit: nil,
-                    combinedWithBxx: hasBxx,
-                    combinedWithDxx: hasDxx,
-                    policy: "missing_e60_loop_start_diagnosed_no_loop"
-                ))
-                continue
-            }
+            // Composable patterns own their anchors. Earlier patterns cannot
+            // suppress this pattern's implicit first-slot origin (G38B policy).
+            let loopStart = loopStarts[loopKey] ?? 0
             // One counter per channel within the existing local anchor scope.
             // A completed invocation rearms subsequent loop sites on that channel.
             let countKey = loopKey
@@ -646,8 +617,8 @@ enum PlaybackSongTraversalPlanner {
         let maxRow = max(0, (targetPattern?.rows.count ?? 1) - 1)
         return DxxTarget(
             decodedRow: decodedRow,
-            // G38A qualifies valid FT2 rows through 63. Longer-pattern and
-            // non-BCD policy remain held; preserve their existing safe behavior.
+            // FT2's qualified break domain ends at 63. Preserve VTX's existing
+            // extended long-pattern clamp and diagnosed invalid-BCD fallback.
             targetRow: decodedRow > maxRow ? (decodedRow <= 63 ? 0 : maxRow) : max(0, decodedRow),
             invalidBCD: invalidBCD,
             outOfRange: !invalidBCD && decodedRow > maxRow

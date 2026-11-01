@@ -3,6 +3,21 @@
 This log records intentional changes to VTX's supported persistence or module
 compatibility boundary. It is not a claim of arbitrary XM round-trip support.
 
+## XM pattern-local looping (G38B)
+
+The approved composition policy gives every pattern its own executed E60 anchor
+or implicit row 0 and independent per-channel repeat counters; natural pattern
+entry is row 0. This intentionally excludes FT2's numeric-anchor/counter leakage
+and stale next-entry row. G38A ordered B/D/E6/EE precedence remains unchanged.
+The earlier song-wide executed-E60 flag no longer suppresses another pattern's
+implicit loop. Existing safe break bounds, long-pattern targets, finite guards
+and bounded one-pass restart behavior retain their documented scope.
+
+[The bounded policy](xm-effect-support.md#bounded-g38b-pattern-local-loop-and-traversal-policy)
+and original synthetic Swift/runtime regressions define the compatibility
+boundary. MOD/XM bytes, parsing and editable persistence do not change; no stored
+format or document migration is required. Live start-aware planning stays #516.
+
 ## Disposable local corpus inventory v1
 
 `corpus_map enrich` introduces a separate generated JSON artifact with

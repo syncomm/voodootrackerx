@@ -2,6 +2,251 @@ import AppKit
 import AudioToolbox
 import CoreAudio
 import XCTest
+import Synchronization
+
+/// Genuine saturation controls keep all native slots live; no ended-source leak is involved.
+final class RuntimeMixerAdmissionFailureTests: XCTestCase {
+    private func core(_ rate: Double = 48_000) -> RuntimeCMixerRenderCore {
+        RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1), maximumRenderFrames: 1024,
+            outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+    }
+
+    private func fill(_ core: RuntimeCMixerRenderCore, count: Int = 256) {
+        let sample = makePlaybackSample(pcm: [0.0001, -0.0002, 0.0003, 0.0004],
+            baseSampleRate: core.config.sampleRate, loopStart: 0, loopLength: 4, loopType: 1)
+        for channel in 0..<count {
+            XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: channel)))
+        }
+        XCTAssertEqual(core.snapshot().loadedVoiceCount, count)
+        XCTAssertEqual(core.snapshot().activeVoiceCount, count)
+    }
+
+    private func birth(_ id: Int, frame: Int) -> RuntimeCMixerAdapterEvent {
+        let mapping = makeSyntheticEventMapping(channelIndex: id, eventIndex: id)
+        let event = SyntheticTrackerEvent(row: 0, scheduledStartFrame: frame,
+            sample: .init(monoPCM: [0.25, -0.25, 0.5, -0.5]), gain: 0.001,
+            loop: .init(mode: .forward, startFrame: 0, endFrame: 4))
+        return RuntimeCMixerAdapterEvent(id: id, source: mapping.source, channelIndex: id,
+            syntheticTick: 0, scheduledFrame: frame,
+            action: .noteTrigger(eventIndex: id, event: event, mapping: mapping), categories: ["note_trigger"])
+    }
+
+    func testExactPrefixAndFrozenFailureAcrossRatesAndCallbackPartitions() throws {
+        for rate in [44_100.0, 48_000] { for quantum in [511, 512, 513] {
+            for failureFrame in [0, quantum / 2, quantum - 1, quantum, quantum + 1] {
+                let candidate = core(rate), control = core(rate)
+                fill(candidate); fill(control)
+                candidate.configureAdapterEventScheduleForTesting([
+                    birth(256, frame: failureFrame), birth(257, frame: failureFrame),
+                    birth(258, frame: failureFrame + 1)], runtimeFrameOffset: 0)
+                var actual = [Float](), expected = [Float]()
+                for _ in 0..<3 {
+                    actual += renderCoreAudioRuntimePCM(candidate, frames: quantum)
+                    expected += renderCoreAudioRuntimePCM(control, frames: quantum)
+                }
+                XCTAssertEqual(Array(actual.prefix(failureFrame)), Array(expected.prefix(failureFrame)))
+                XCTAssertTrue(actual.dropFirst(failureFrame).allSatisfy { $0 == 0 })
+                XCTAssertEqual(candidate.snapshot().currentFrame, UInt64(failureFrame))
+                let fault = try XCTUnwrap(candidate.consumeAdmissionFault())
+                XCTAssertEqual(fault.reason, .voiceCapacity)
+                XCTAssertEqual(fault.plannedFrame, failureFrame)
+                XCTAssertEqual(fault.actualFrame, UInt64(failureFrame))
+                XCTAssertEqual(fault.eventID, 256)
+                XCTAssertEqual(fault.loaded, 256)
+                XCTAssertEqual(fault.active, 256)
+                XCTAssertNil(candidate.consumeAdmissionFault())
+                XCTAssertNil(candidate.adapterVoiceDiagnosticForTesting(eventIndex: 256))
+                XCTAssertTrue(candidate.drainAppliedAdapterEventDiagnostics().isEmpty)
+                XCTAssertEqual(candidate.snapshot().appliedPlannedEventCount, 0)
+                XCTAssertEqual(candidate.snapshot().eventQueueBacklogCount, 3)
+            }
+        } }
+    }
+
+    func testFirstMiddleLastRejectedBurstRetainsOnlyAcceptedPrefix() throws {
+        for precedingBirths in 0...2 {
+            let candidate = core()
+            fill(candidate, count: 256 - precedingBirths)
+            let events = (0..<3).map { birth(300 + $0, frame: 17) } + [birth(400, frame: 18)]
+            candidate.configureAdapterEventScheduleForTesting(events, runtimeFrameOffset: 0)
+            _ = renderCoreAudioRuntimePCM(candidate, frames: 32)
+            let fault = try XCTUnwrap(candidate.consumeAdmissionFault())
+            XCTAssertEqual(fault.eventID, 300 + precedingBirths)
+            XCTAssertEqual(candidate.drainAppliedAdapterEventDiagnostics().map { $0.event.id },
+                Array(300..<(300 + precedingBirths)))
+            XCTAssertEqual(candidate.snapshot().appliedPlannedEventCount, UInt64(precedingBirths))
+            XCTAssertEqual(candidate.snapshot().eventQueueBacklogCount, 4 - precedingBirths)
+            for index in precedingBirths..<3 {
+                XCTAssertNil(candidate.adapterVoiceDiagnosticForTesting(eventIndex: 300 + index))
+            }
+        }
+    }
+
+    func testStickyFaultSurvivesPlanReplacementConsumptionAndLockedCallbackUntilReset() throws {
+        let candidate = core()
+        fill(candidate)
+        let cached = renderCoreAudioRuntimePCM(candidate, frames: 32)
+        XCTAssertTrue(cached.contains { $0 != 0 })
+        candidate.configureAdapterEventScheduleForTesting([birth(256, frame: 48)], runtimeFrameOffset: 0)
+        let partial = renderCoreAudioRuntimePCM(candidate, frames: 32)
+        XCTAssertTrue(partial.prefix(16).contains { $0 != 0 })
+        XCTAssertTrue(partial.dropFirst(16).allSatisfy { $0 == 0 })
+        candidate.withRenderLockHeldForTesting {
+            XCTAssertEqual(renderCoreAudioRuntimePCM(candidate, frames: 32, initialValue: -1),
+                Array(repeating: 0, count: 32))
+        }
+        // Live loop/plan refresh must not erase the pending record or reopen rendering.
+        candidate.clearAdapterEventSchedule()
+        candidate.configureAdapterEventScheduleForTesting([birth(500, frame: 48)], runtimeFrameOffset: 0)
+        let fault = try XCTUnwrap(candidate.consumeAdmissionFault())
+        XCTAssertEqual(fault.eventID, 256)
+        XCTAssertEqual(renderCoreAudioRuntimePCM(candidate, frames: 32), Array(repeating: 0, count: 32))
+        XCTAssertEqual(candidate.snapshot().currentFrame, 48)
+        XCTAssertNil(candidate.consumeAdmissionFault())
+        XCTAssertNil(candidate.adapterVoiceDiagnosticForTesting(eventIndex: 500))
+        // Explicit stopped transport reset retires the sticky state and advances generation.
+        candidate.stopAll()
+        fill(candidate)
+        XCTAssertTrue(renderCoreAudioRuntimePCM(candidate, frames: 32).contains { $0 != 0 })
+        candidate.configureAdapterEventScheduleForTesting([birth(700, frame: 32)], runtimeFrameOffset: 0)
+        _ = renderCoreAudioRuntimePCM(candidate, frames: 32)
+        let next = try XCTUnwrap(candidate.consumeAdmissionFault())
+        XCTAssertNotEqual(next.generation, fault.generation)
+        XCTAssertEqual(next.eventID, 700)
+    }
+
+    @MainActor
+    func testActualCoreAudioCapacityFailurePreservesExactPrefixAndSilencesBothRates() async throws {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var device = AudioDeviceID(kAudioObjectUnknown), size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        XCTAssertEqual(AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device), noErr)
+        guard device != kAudioObjectUnknown else { throw XCTSkip("No CoreAudio default output device") }
+        let failureFrame = 1537, frames = 4096
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("mix-a2-host-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Preserve public generated WAV receipts outside Git for independent inspection.
+        print("MIX-A2 CoreAudio receipt directory: \(directory.path); fault bytes=\(MemoryLayout<RuntimeCMixerAdmissionFault>.size), optional stride=\(MemoryLayout<RuntimeCMixerAdmissionFault?>.stride)")
+        for rate in [44_100.0, 48_000] {
+            let events = (0..<256).map { birth($0, frame: $0 * 4) }
+            let timing = PlaybackSongSyntheticAdapter.adapt(makePlaybackSong(orderPatternIndices: [0],
+                patternRowCounts: [0: 1]), orderIndex: 0, sampleRate: rate)
+            let reference = CSoftwareMixer(config: .init(sampleRate: rate, channelCount: 1))
+            for index in 0..<256 {
+                XCTAssertNotNil(reference.addScheduledVoice(sample: .init(monoPCM: [0.25, -0.25, 0.5, -0.5]),
+                    scheduledStartFrame: index * 4, gain: 0.001,
+                    loop: .init(mode: .forward, startFrame: 0, endFrame: 4), sourceOnsetElapsedFrames: 0))
+            }
+            let expected = try parsePCM16WAV(MixerWAVExporter.pcm16WAVData(from: reference.render(frames: frames))).samples
+            var control = [Int16]()
+            for failing in [false, true] {
+                let url = directory.appendingPathComponent("\(Int(rate))-\(failing ? "failure" : "control").wav")
+                let trace = TestRuntimeCMixerTraceWriter()
+                let engine = RuntimeCMixerAudioEngine(sampleRate: rate, channelCount: 1,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]),
+                    captureConfiguration: .init(url: url, pathName: url.lastPathComponent, seconds: 0.2,
+                        secondsPolicy: "test_explicit", configurationWarning: nil),
+                    startsOutputHostOnDemand: true, traceWriter: trace)
+                defer { engine.reset() }
+                let scheduled = failing ? events + [birth(256, frame: failureFrame)] : events
+                engine.configureRuntimeAdapterEventPlan(.init(generated: true, sampleRate: rate,
+                    plannedSongEndFrame: nil, plannedEventCount: scheduled.count, events: scheduled,
+                    categories: ["note_trigger"], plan: timing), generationMS: nil, timingSession: nil)
+                engine.consumeRuntimeAdapterEvents(context: .init(orderIndex: 0, patternIndex: 0, rowIndex: 0, tickInRow: 0),
+                    patternLoopRange: nil, timingSession: nil)
+                XCTAssertEqual(try XCTUnwrap(trace.events.last { $0.runtimeAction == "backend_start" }).runtimeOutputHostStartStatus, 0)
+                let deadline = Date().addingTimeInterval(5)
+                while engine.snapshotForTesting().capture.capturedFrameCount < frames && Date() < deadline {
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+                let snapshot = engine.snapshotForTesting()
+                XCTAssertGreaterThanOrEqual(snapshot.capture.capturedFrameCount, frames)
+                XCTAssertGreaterThan(snapshot.renderCallbackCount, 0)
+                XCTAssertEqual(snapshot.loadedVoiceCount, 256)
+                XCTAssertEqual(snapshot.activeVoiceCount, 256)
+                XCTAssertEqual(snapshot.outputBufferCopyFailureCount, 0)
+                XCTAssertEqual(snapshot.callbackDiagnosticDropCount, 0)
+                let fault = engine.consumeRuntimeAdmissionFailure()
+                if failing {
+                    XCTAssertEqual(fault?.reason, .voiceCapacity)
+                    XCTAssertEqual(fault?.actualFrame, UInt64(failureFrame))
+                    XCTAssertEqual(fault?.eventID, 256)
+                    XCTAssertEqual(snapshot.currentFrame, UInt64(failureFrame))
+                    XCTAssertEqual(snapshot.appliedPlannedEventCount, 256)
+                    XCTAssertNil(engine.consumeRuntimeAdmissionFailure())
+                } else {
+                    XCTAssertNil(fault)
+                    XCTAssertGreaterThanOrEqual(snapshot.currentFrame, UInt64(frames))
+                }
+                engine.stopAll()
+                let captured = try parsePCM16WAV(Data(contentsOf: url))
+                XCTAssertEqual(captured.sampleRate, UInt32(rate))
+                XCTAssertEqual(captured.channelCount, 1)
+                if failing {
+                    XCTAssertEqual(Array(captured.samples.prefix(failureFrame)), Array(control.prefix(failureFrame)))
+                    XCTAssertEqual(Array(captured.samples.prefix(failureFrame)), Array(expected.prefix(failureFrame)))
+                    XCTAssertTrue(captured.samples.dropFirst(failureFrame).allSatisfy { $0 == 0 })
+                } else {
+                    control = captured.samples
+                    XCTAssertEqual(Array(control.prefix(frames)), expected)
+                    XCTAssertTrue(control.dropFirst(failureFrame).contains { $0 != 0 })
+                }
+                print("MIX-A2 CoreAudio rate=\(rate) failing=\(failing) captured=\(captured.samples.count) native=\(snapshot.currentFrame) maxMS=\(snapshot.callbackDurationMaxMS ?? -1) lockFailures=\(snapshot.callbackLockFailureCount) diagnosticDrops=\(snapshot.callbackDiagnosticDropCount)")
+            }
+        }
+    }
+
+    func testConcurrentCallbacksCannotReplayAfterFaultPublication() throws {
+        let candidate = core()
+        fill(candidate)
+        XCTAssertTrue(renderCoreAudioRuntimePCM(candidate, frames: 512).contains { $0 != 0 })
+        let published = Atomic(false)
+        let request = AudioVoiceRequest(sample: makePlaybackSample(), note: 49, channel: 999)
+        DispatchQueue.concurrentPerform(iterations: 8) { worker in
+            if worker == 0 {
+                XCTAssertFalse(candidate.trigger(request))
+                published.store(true, ordering: .releasing)
+            } else {
+                for _ in 0..<16 {
+                    let mustBeSilent = published.load(ordering: .acquiring)
+                    let output = renderCoreAudioRuntimePCM(candidate, frames: 512)
+                    if mustBeSilent { XCTAssertTrue(output.allSatisfy { $0 == 0 }) }
+                }
+            }
+        }
+        XCTAssertEqual(try XCTUnwrap(candidate.consumeAdmissionFault()).reason, .voiceCapacity)
+        XCTAssertNil(candidate.consumeAdmissionFault())
+        // All test callbacks have joined before the correctly ordered generation reset.
+        candidate.stopAll()
+        XCTAssertTrue(candidate.trigger(request))
+        XCTAssertTrue(renderCoreAudioRuntimePCM(candidate, frames: 512).contains { $0 != 0 })
+    }
+
+    func testDirectAdmissionFailureNeverTagsPublishesOrReopensOnPlanClear() throws {
+        let candidate = core()
+        fill(candidate)
+        let request = AudioVoiceRequest(sample: makePlaybackSample(), note: 49, channel: 999)
+        let source = PlaybackPosition(orderIndex: 2, patternIndex: 7, rowIndex: 31)
+        XCTAssertFalse(candidate.triggerWithDiagnostics(request, source: source).succeeded)
+        let fault = try XCTUnwrap(candidate.consumeAdmissionFault())
+        XCTAssertEqual([fault.order, fault.pattern, fault.row], [2, 7, 31])
+        XCTAssertEqual(fault.reason, .voiceCapacity)
+        XCTAssertEqual(fault.channel, 999)
+        XCTAssertEqual(fault.loaded, 256)
+        var undersized = [Float](repeating: 1, count: 1)
+        undersized.withUnsafeMutableBufferPointer {
+            XCTAssertFalse(candidate.render(into: $0, frameCount: 8))
+        }
+        candidate.clearAdapterEventSchedule()
+        XCTAssertFalse(candidate.triggerWithDiagnostics(request).succeeded)
+        XCTAssertNil(candidate.consumeAdmissionFault())
+        XCTAssertEqual(candidate.snapshot().loadedVoiceCount, 256)
+        XCTAssertEqual(renderCoreAudioRuntimePCM(candidate, frames: 8), Array(repeating: 0, count: 8))
+        candidate.stopAll()
+        XCTAssertTrue(candidate.trigger(request))
+        XCTAssertNil(candidate.consumeAdmissionFault())
+    }
+}
 
 /// Repeated finite PCM ends exercise persistent runtime slots rather than fresh offline windows.
 final class EndedSongRetirementRuntimeTests: XCTestCase {

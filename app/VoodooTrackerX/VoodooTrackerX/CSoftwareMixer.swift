@@ -46,6 +46,24 @@ enum CSoftwareMixerScheduledVoiceRejectionReason: String, Equatable {
     case invalidScheduledVoice = "invalid_scheduled_voice"
 }
 
+/// Native admission failures retain the C status values used by runtime diagnostics.
+enum CSoftwareMixerVoiceAdmissionFailure: UInt32, Equatable {
+    case invalidArgument = 1
+    case voiceCapacity = 2
+}
+
+/// A failed admission never publishes the native output-slot value.
+struct CSoftwareMixerVoiceAdmissionResult: Equatable {
+    let voiceIndex: Int?
+    let failure: CSoftwareMixerVoiceAdmissionFailure?
+
+    init(nativeStatus: VTXCMixerStatus, voiceIndex: UInt32) {
+        self.voiceIndex = nativeStatus == VTX_C_MIXER_STATUS_OK ? Int(voiceIndex) : nil
+        failure = nativeStatus == VTX_C_MIXER_STATUS_OK ? nil
+            : (nativeStatus == VTX_C_MIXER_STATUS_VOICE_CAPACITY_EXCEEDED ? .voiceCapacity : .invalidArgument)
+    }
+}
+
 /// Independent, explicitly present carried-state resets; no sample or volume ownership changes.
 struct MixerPlaybackReset: Equatable {
     var volumeEnvelope = false
@@ -184,7 +202,8 @@ final class CSoftwareMixerSharedSamplePayloadCache {
         }
     }
 
-    func acquirePayload(for sample: MixerSampleBuffer) -> (payload: OpaquePointer, wasCreated: Bool) {
+    /// Attempts an immutable payload copy; native failure never creates a cache entry.
+    func acquirePayload(for sample: MixerSampleBuffer) -> (payload: OpaquePointer, wasCreated: Bool)? {
         precondition(sample.frameCount > 0, "Shared C sample payloads must not be empty")
         let identity = sample.monoPCM.withUnsafeBufferPointer { buffer in
             CSoftwareMixerSamplePayloadIdentity(
@@ -203,9 +222,19 @@ final class CSoftwareMixerSharedSamplePayloadCache {
                 &payload
             )
         }
-        precondition(status == VTX_C_MIXER_STATUS_OK && payload != nil)
-        entries[identity] = (sample.monoPCM, payload!)
-        return (payload!, true)
+        guard status == VTX_C_MIXER_STATUS_OK, let payload else { return nil }
+        entries[identity] = (sample.monoPCM, payload)
+        return (payload, true)
+    }
+
+    /// Rolls back a new cache allocation when no voice acquired its ownership.
+    func discardUnreferencedPayload(for sample: MixerSampleBuffer) {
+        let identity = sample.monoPCM.withUnsafeBufferPointer { buffer in
+            CSoftwareMixerSamplePayloadIdentity(storageAddress: UInt(bitPattern: buffer.baseAddress), frameCount: buffer.count)
+        }
+        guard let entry = entries[identity] else { return }
+        precondition(vtx_c_mixer_shared_sample_payload_destroy(entry.payload, nil) == VTX_C_MIXER_STATUS_OK)
+        entries.removeValue(forKey: identity)
     }
 }
 
@@ -534,6 +563,31 @@ final class CSoftwareMixer {
         fadeoutFrameDecrement: Float = 0,
         sourceOnsetElapsedFrames: Int? = nil
     ) -> Int {
+        let result = addVoiceWithResult(
+            sample: sample, gain: gain, pan: pan, playbackStep: playbackStep, loop: loop,
+            initialSourceFrame: initialSourceFrame, volumeEnvelope: volumeEnvelope, panEnvelope: panEnvelope,
+            keyOffFrame: keyOffFrame, fadeoutFrameDecrement: fadeoutFrameDecrement,
+            sourceOnsetElapsedFrames: sourceOnsetElapsedFrames
+        )
+        precondition(result.failure == nil, "C mixer returned invalid argument")
+        return result.voiceIndex!
+    }
+
+    /// Attempts one immediate voice admission without trapping on native capacity or argument failure.
+    @discardableResult
+    func addVoiceWithResult(
+        sample: MixerSampleBuffer,
+        gain: Float = 1,
+        pan: Float = 0,
+        playbackStep: Double = 1,
+        loop: MixerSampleLoop = .none,
+        initialSourceFrame: Int = 0,
+        volumeEnvelope: MixerEnvelope? = nil,
+        panEnvelope: MixerEnvelope? = nil,
+        keyOffFrame: Int? = nil,
+        fadeoutFrameDecrement: Float = 0,
+        sourceOnsetElapsedFrames: Int? = nil
+    ) -> CSoftwareMixerVoiceAdmissionResult {
         precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
         let sanitizedInitialSourceFrame = Self.sanitizedInitialSourceFrame(initialSourceFrame)
@@ -557,7 +611,9 @@ final class CSoftwareMixer {
                 UInt32(sanitizedLoop.startFrame), UInt32(sanitizedLoop.endFrame), &voiceIndex
             )
         }
-        Self.requireOK(status)
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return CSoftwareMixerVoiceAdmissionResult(nativeStatus: status, voiceIndex: voiceIndex)
+        }
         if let age = sourceOnsetElapsedFrames { setSourceOnset(elapsedFrames: age, forVoiceAt: Int(voiceIndex)) }
         recordAcceptedVoiceAdd(
             frameCount: sample.frameCount,
@@ -574,7 +630,7 @@ final class CSoftwareMixer {
         if let keyOffFrame {
             setKeyOffFrame(keyOffFrame, fadeoutFrameDecrement: fadeoutFrameDecrement, forVoiceAt: Int(voiceIndex))
         }
-        return Int(voiceIndex)
+        return CSoftwareMixerVoiceAdmissionResult(nativeStatus: status, voiceIndex: voiceIndex)
     }
 
     /// Adds one synthetic sample voice scheduled at an absolute output frame in the C mixer timeline.
@@ -649,7 +705,9 @@ final class CSoftwareMixer {
         var effectiveUploadMode = samplePayloadUploadMode
         let status: VTXCMixerStatus
         if samplePayloadUploadMode == .sharedPreSanitizedCache, sample.frameCount > 0 {
-            let acquisition = sharedSamplePayloadCache!.acquirePayload(for: sample)
+            guard let acquisition = sharedSamplePayloadCache!.acquirePayload(for: sample) else {
+                return CSoftwareMixerScheduledVoiceResult(voiceIndex: nil, rejectionReason: .invalidScheduledVoice)
+            }
             sharedPayloadWasCreated = acquisition.wasCreated
             sampleIdentity = recordsSamplePayloadUploads ? Self.samplePayloadIdentity(for: sample) : nil
             status = vtx_c_mixer_add_scheduled_shared_sample_voice_with_step_at_source_frame(
@@ -680,6 +738,9 @@ final class CSoftwareMixer {
             }
         }
         guard status == VTX_C_MIXER_STATUS_OK else {
+            if sharedPayloadWasCreated {
+                sharedSamplePayloadCache!.discardUnreferencedPayload(for: sample)
+            }
             return CSoftwareMixerScheduledVoiceResult(
                 voiceIndex: nil,
                 rejectionReason: Self.rejectionReason(for: status)

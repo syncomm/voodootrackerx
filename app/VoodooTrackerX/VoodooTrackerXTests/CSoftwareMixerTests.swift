@@ -150,6 +150,97 @@ final class EndedSongRetirementTests: XCTestCase {
     }
 }
 
+final class MixerVoiceAdmissionTests: XCTestCase {
+    func testCapacityRejectionDoesNotPublishVoiceOrUploadAcrossCopyAndSharedModes() throws {
+        let sample = MixerSampleBuffer(monoPCM: [0.25, -0.125])
+        let rejectedSample = MixerSampleBuffer(monoPCM: [0.5, 0.125, -0.25])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: 2)
+        let modes: [CSoftwareMixerSamplePayloadUploadMode] = [
+            .defensiveSanitizingCopy, .preSanitizedBulkCopy, .sharedPreSanitizedCache,
+        ]
+        for mode in modes {
+            for scheduled in [false, true] {
+                let mixer = CSoftwareMixer(samplePayloadUploadMode: mode, recordsSamplePayloadUploads: true)
+                for index in 0..<256 {
+                    if scheduled {
+                        XCTAssertEqual(mixer.addScheduledVoiceWithResult(sample: sample, scheduledStartFrame: 0,
+                            loop: loop).voiceIndex, index)
+                    } else {
+                        let result = mixer.addVoiceWithResult(sample: sample, loop: loop)
+                        XCTAssertEqual(result.voiceIndex, index)
+                        XCTAssertNil(result.failure)
+                    }
+                }
+                let uploads = mixer.takeSamplePayloadUploadDiagnostics()
+                let usesSharedPayload = scheduled && mode == .sharedPreSanitizedCache
+                XCTAssertEqual(uploads.cMixerVoiceAddCount, 256)
+                XCTAssertEqual(uploads.uploadCount, usesSharedPayload ? 1 : 256)
+                XCTAssertEqual(uploads.approximateBytesCopied, (usesSharedPayload ? 1 : 256) * 8)
+                XCTAssertEqual(uploads.sharedPayloadBytesAllocated, usesSharedPayload ? 8 : 0)
+                XCTAssertEqual(uploads.sharedPayloadVoiceReferenceCount, usesSharedPayload ? 256 : 0)
+                mixer.setChannelTag(7, forVoiceAt: 0)
+                let before = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: 0))
+                if scheduled {
+                    let result = mixer.addScheduledVoiceWithResult(sample: rejectedSample, scheduledStartFrame: 0)
+                    XCTAssertNil(result.voiceIndex)
+                    XCTAssertEqual(result.rejectionReason, .scheduledVoiceCapacity)
+                } else {
+                    let result = mixer.addVoiceWithResult(sample: rejectedSample, keyOffFrame: 0,
+                        fadeoutFrameDecrement: 1, sourceOnsetElapsedFrames: 40)
+                    XCTAssertNil(result.voiceIndex)
+                    XCTAssertEqual(result.failure, .voiceCapacity)
+                }
+                XCTAssertEqual(mixer.loadedVoiceCount, 256)
+                XCTAssertEqual(mixer.activeVoiceCount, 256)
+                XCTAssertEqual(mixer.voiceDiagnostic(forVoiceAt: 0), before)
+                XCTAssertEqual(mixer.samplePayloadUploadDiagnostics, .zero)
+                mixer.clearVoices()
+                XCTAssertEqual(mixer.loadedVoiceCount, 0)
+                XCTAssertEqual(mixer.addScheduledVoiceWithResult(sample: rejectedSample, scheduledStartFrame: 0).voiceIndex, 0)
+                XCTAssertEqual(mixer.samplePayloadUploadDiagnostics.sharedPayloadCreateCount, mode == .sharedPreSanitizedCache ? 1 : 0)
+            }
+        }
+    }
+
+    func testNativeInvalidStatusHasDistinctFailureAndScheduledLabelsRemainStable() {
+        var unpublishedSlot: UInt32 = 123
+        let status = vtx_c_mixer_add_one_shot_sample(nil, nil, 1, 1, 0, &unpublishedSlot)
+        let result = CSoftwareMixerVoiceAdmissionResult(nativeStatus: status, voiceIndex: unpublishedSlot)
+        XCTAssertEqual(status, VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(unpublishedSlot, 123)
+        XCTAssertNil(result.voiceIndex)
+        XCTAssertEqual(result.failure, .invalidArgument)
+        XCTAssertEqual(result.failure?.rawValue, 1)
+        XCTAssertEqual(CSoftwareMixerVoiceAdmissionFailure.voiceCapacity.rawValue, 2)
+        let mixer = CSoftwareMixer(samplePayloadUploadMode: .sharedPreSanitizedCache, recordsSamplePayloadUploads: true)
+        let sample = MixerSampleBuffer(monoPCM: [0.25])
+        _ = mixer.render(frames: 1)
+        for start in [-1, 0] {
+            let rejected = mixer.addScheduledVoiceWithResult(sample: sample, scheduledStartFrame: start)
+            XCTAssertNil(rejected.voiceIndex)
+            XCTAssertEqual(rejected.rejectionReason?.rawValue, "invalid_scheduled_voice")
+        }
+        XCTAssertEqual(CSoftwareMixerScheduledVoiceRejectionReason.scheduledVoiceCapacity.rawValue, "scheduled_voice_capacity")
+        XCTAssertEqual(mixer.samplePayloadUploadDiagnostics, .zero)
+        XCTAssertEqual(mixer.loadedVoiceCount, 0)
+    }
+
+    func testRejectedNewSharedAcquisitionCanBeDiscardedAndRecreatedWithoutReferences() throws {
+        let cache = CSoftwareMixerSharedSamplePayloadCache()
+        let sample = MixerSampleBuffer(monoPCM: [0.25, -0.125])
+        for _ in 0..<2 {
+            let acquisition = try XCTUnwrap(cache.acquirePayload(for: sample))
+            XCTAssertTrue(acquisition.wasCreated)
+            var ownership = VTXCMixerSharedSamplePayloadDiagnostics()
+            XCTAssertEqual(vtx_c_mixer_shared_sample_payload_get_diagnostics(acquisition.payload, &ownership), VTX_C_MIXER_STATUS_OK)
+            XCTAssertEqual(ownership.active_voice_reference_count, 0)
+            XCTAssertEqual(ownership.voice_reference_count, 0)
+            XCTAssertEqual(ownership.payload_bytes_allocated, 8)
+            cache.discardUnreferencedPayload(for: sample)
+        }
+    }
+}
+
 final class CSoftwareMixerTests: XCTestCase {
     func testCMixerCoreReturnsPredictableInvalidArgumentStatus() {
         let config = vtx_c_mixer_default_config()

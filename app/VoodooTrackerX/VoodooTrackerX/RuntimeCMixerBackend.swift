@@ -21,6 +21,14 @@ protocol RuntimeAudioDiagnosticOutput: AnyObject {
 }
 
 @MainActor
+protocol RuntimeCMixerAdmissionFailureConsuming: AnyObject {
+    /// Takes the current generation's first admission failure once, without resuming audio.
+    func consumeRuntimeAdmissionFailure() -> RuntimeCMixerAdmissionFault?
+    /// Quiesces callback publication before the final automatic-stop fault handoff.
+    func quiesceOutputAndConsumeAdmissionFailure() -> RuntimeCMixerAdmissionFault?
+}
+
+@MainActor
 protocol RuntimeCMixerAdapterEventConsuming: AnyObject {
     var hasRuntimeAdapterEventPlan: Bool { get }
 
@@ -309,7 +317,7 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
 }
 
 @MainActor
-final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerAdapterEventConsuming {
+final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerAdapterEventConsuming, RuntimeCMixerAdmissionFailureConsuming {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Audio")
     private let backend: RuntimeAudioBackend
     private let format: AVAudioFormat
@@ -441,6 +449,17 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     var hasRuntimeAdapterEventPlan: Bool {
         adapterEventPlan.generated
+    }
+
+    /// Consumes only the notification; the render core remains silent until stopped and reset.
+    func consumeRuntimeAdmissionFailure() -> RuntimeCMixerAdmissionFault? {
+        renderCore.consumeAdmissionFault()
+    }
+
+    /// Closes the callback race before the existing transport reset can retire the generation.
+    func quiesceOutputAndConsumeAdmissionFailure() -> RuntimeCMixerAdmissionFault? {
+        coreAudioOutputHost.stop()
+        return renderCore.consumeAdmissionFault()
     }
 
     func playbackFollowPosition(timerPosition: PlaybackPosition, timerTickInRow: Int) -> PlaybackFollowPosition? {
@@ -1148,7 +1167,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                     reason: channelStop.reason
                 )
             }
-            eventCounters.cMixerAddVoiceCount &+= 1
+            if result.succeeded {
+                eventCounters.cMixerAddVoiceCount &+= 1
+            }
             recordRuntimeEvent(
                 action: "c_mixer_add_voice",
                 context: eventContext,
@@ -1282,7 +1303,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             prepareIfNeeded()
         }
         let fallbackReason = recordSimpleRuntimeFallbackIfNeeded()
-        let result = renderCore.triggerWithDiagnostics(request)
+        let source: PlaybackPosition? = context.flatMap {
+            guard let order = $0.orderIndex, let pattern = $0.patternIndex, let row = $0.rowIndex else { return nil }
+            return PlaybackPosition(orderIndex: order, patternIndex: pattern, rowIndex: row)
+        }
+        let result = renderCore.triggerWithDiagnostics(request, source: source)
         if let channelStop = result.channelStopBeforeAdd {
             eventCounters.replacementRampCount &+= 1
             recordRuntimeEvent(
@@ -1312,7 +1337,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 reason: channelStop.reason
             )
         }
-        eventCounters.cMixerAddVoiceCount &+= 1
+        if result.succeeded {
+            eventCounters.cMixerAddVoiceCount &+= 1
+        }
         recordRuntimeEvent(
             action: "c_mixer_add_voice",
             context: context,
@@ -1327,7 +1354,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             reason: result.reason
         )
         guard result.succeeded else {
-            logger.debug("CoreAudio C mixer runtime ignored an unplayable trigger")
+            logger.debug("CoreAudio C mixer runtime rejected a trigger reason=\(result.reason ?? "unknown", privacy: .public)")
             return
         }
         guard startsOutputHostOnDemand else {

@@ -381,6 +381,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             self?.applyStoppedPlaybackPosition(position)
         }
+        playbackEngine.playbackDidFail = { [weak self] fault in
+            self?.presentRuntimeMixerAdmissionFailure(fault)
+        }
         playbackEngine.runtimeAdapterPlanDidUpdate = { [weak self] in
             self?.syncControlPanelView()
         }
@@ -1230,6 +1233,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             },
             fallback: { completion(alert.runModal()) }
         )
+    }
+
+    private func presentRuntimeMixerAdmissionFailure(_ fault: RuntimeCMixerAdmissionFault) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Playback Stopped"
+        switch fault.reason {
+        case .voiceCapacity:
+            alert.informativeText = "The mixer reached its fixed 256-voice capacity. Restart playback to try again. If this repeats, report the module and playback position."
+        case .invalidArgument:
+            alert.informativeText = "The mixer rejected an invalid voice request. Restart playback to try again. If this repeats, report the module and playback position."
+        }
+        presentTopLevelDocumentAlert(alert)
     }
 
     private func presentTopLevelDocumentAlert(_ alert: NSAlert) {

@@ -346,6 +346,19 @@ host.
   under G38. G21 retirement and the qualified musical-study numerical difference
   have separate bounded contracts. Other baseline audio residuals remain OPEN;
   this does not claim universal FT2 PCM parity.
+- G36 E3x is CLOSED for the [bounded post-merge tone-output contract](design/xm-final-pitch-publication.md#g36-e3x-tone-output-glissando).
+  Gregory accepted the eight-WAV listening study. Publication requires green CI,
+  maintainer review and Gregory's merge into main.
+  E30 disables and every nonzero nibble enables a persistent per-channel control.
+  Actual 3xx/300, 5xy and volume Fx invocations project audible output onto the
+  established Linear/Amiga note/finetune grid after continuous movement/clamping.
+  Period, target, direction, speed and source generation/cursor remain unchanged;
+  E30 holds the last output until the next pitch writer. Semantic base and audible
+  output stay distinct through G32 composition. Both-rate reference and host/offline
+  qualification preserves no-E3x controls and existing native capacity. Direct
+  cold selected-range plans ignore earlier controls. Product live selected-order
+  starts can inherit eager order-0 E3 state; #516 owns that OPEN integration.
+  Full G37, G38/G39/G40/G41 and the post-G41 integrated audit remain OPEN.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

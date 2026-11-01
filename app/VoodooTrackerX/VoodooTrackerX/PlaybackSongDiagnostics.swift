@@ -1137,6 +1137,8 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
     let playbackStepAfter: Double
     let reachedTarget: Bool
     let clamped: Bool
+    // Small provenance uses existing alignment padding, keeping the 144-byte child stride.
+    let glissandoFinetune: Int8?
     let vibrato: PlaybackSongSyntheticVibratoTick?
 
     init(
@@ -1150,6 +1152,7 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
         playbackStepAfter: Double,
         reachedTarget: Bool,
         clamped: Bool = false,
+        glissandoFinetune: Int8? = nil,
         vibrato: PlaybackSongSyntheticVibratoTick? = nil
     ) {
         self.syntheticTick = syntheticTick
@@ -1162,7 +1165,16 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
         self.playbackStepAfter = playbackStepAfter
         self.reachedTarget = reachedTarget
         self.clamped = clamped
+        self.glissandoFinetune = glissandoFinetune
         self.vibrato = vibrato
+    }
+
+    /// Keeps continuous native arithmetic distinct from the ordinary audible writer.
+    func audibleNativePeriod(linear: Bool) -> Double? {
+        guard let native = linear ? linearPeriodAfter : amigaPeriodAfter else { return nil }
+        guard let glissandoFinetune else { return native }
+        return PlaybackSongSyntheticAdapter.arpeggioPeriod(native, finetune: Int(glissandoFinetune),
+            offset: 0, linear: linear)
     }
 }
 

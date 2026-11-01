@@ -147,7 +147,8 @@ extension PlaybackSongSyntheticPlan {
             if current.syntheticTick == child.syntheticTick && current.scheduledFrame == child.scheduledFrame &&
                 current.linearPeriodBefore == child.linearPeriodBefore && current.linearPeriodAfter == child.linearPeriodAfter &&
                 current.amigaPeriodBefore == child.amigaPeriodBefore && current.amigaPeriodAfter == child.amigaPeriodAfter &&
-                current.reachedTarget == child.reachedTarget && current.clamped == child.clamped && current.vibrato == child.vibrato {
+                current.reachedTarget == child.reachedTarget && current.clamped == child.clamped &&
+                current.glissandoFinetune == child.glissandoFinetune && current.vibrato == child.vibrato {
                 delivery = .retainedDiagnosticChild
             }
         }

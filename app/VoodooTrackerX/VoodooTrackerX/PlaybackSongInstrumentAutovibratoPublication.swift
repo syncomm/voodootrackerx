@@ -120,7 +120,7 @@ struct PlaybackSongInstrumentAutovibratoPublication {
                 let slot = channel * speed + tick
                 let current = tick >= 0 && channel < channelCount && slot >= 0 && slot < deltas.count
                 let delta = current ? deltas[slot] : (sources.indices.contains(channel) ? sources[channel].delta : 0)
-                let period = conversion.linear ? child.linearPeriodAfter : child.amigaPeriodAfter
+                let period = child.audibleNativePeriod(linear: conversion.linear)
                 guard let period, let step = conversion.step(period: period, delta: delta) else { continue }
                 if step != child.playbackStepAfter {
                     changed = true
@@ -128,7 +128,8 @@ struct PlaybackSongInstrumentAutovibratoPublication {
                         linearPeriodBefore: child.linearPeriodBefore, linearPeriodAfter: child.linearPeriodAfter,
                         amigaPeriodBefore: child.amigaPeriodBefore, amigaPeriodAfter: child.amigaPeriodAfter,
                         playbackStepBefore: child.playbackStepBefore, playbackStepAfter: step,
-                        reachedTarget: child.reachedTarget, clamped: child.clamped, vibrato: child.vibrato)
+                        reachedTarget: child.reachedTarget, clamped: child.clamped,
+                        glissandoFinetune: child.glissandoFinetune, vibrato: child.vibrato)
                 }
                 if current && generations[slot] == generation {
                     writers[slot] = generation; writerSteps[slot] = step; writerNatives[slot] = period

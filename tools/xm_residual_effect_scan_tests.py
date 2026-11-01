@@ -14,6 +14,34 @@ def load_module():
 
 
 class XMResidualEffectScanTests(unittest.TestCase):
+    def test_glissando_aliases_are_occurrences_without_inferred_audio_application(self):
+        scan = load_module()
+        for mode in ["linear", "amiga"]:
+            group = scan.ScanGroup(mode)
+            rows = [[cell(scan, effect_type=14, effect_param=0x30 | amount)] for amount in range(16)]
+            scan.scan_module(module_with_rows(scan, rows, mode), [group])
+            bucket = group.bucket("e3x")
+            self.assertEqual(bucket.count("detected_count"), 16)
+            self.assertEqual(bucket.count("disable_count"), 1)
+            self.assertEqual(bucket.count("enable_count"), 15)
+            self.assertEqual(bucket.count("enable_or_mode_count"), 15)
+            self.assertEqual(dict(bucket.family_counts), {f"E3{x:X}": 1 for x in range(16)})
+            self.assertNotIn("applied_count", bucket.counts)
+            self.assertIn("G36 closed, bounded", scan.status_note("e3x", dict(bucket.counts)))
+            self.assertIn("not applied-audio evidence", scan.status_note("e3x", dict(bucket.counts)))
+
+    def test_glissando_triage_reports_implemented_without_fabricating_coverage(self):
+        scan = load_module()
+        group = scan.ScanGroup("all")
+        scan.scan_module(module_with_rows(scan, [[cell(scan, effect_type=14, effect_param=0x31)]]), [group])
+        triage = scan.build_gap_triage({"groups": {"all": group.to_json()}}, REPO_ROOT / "docs/xm-effect-support.md")
+        target = next(row for row in triage["targets"] if row["key"] == "e3x")
+        self.assertEqual(target["c_mixer_adapter_implementation_exists"], "yes")
+        self.assertIn("G36 closed, bounded", target["recommended_priority"])
+        self.assertEqual(target["raw_corpus_count"], 1)
+        self.assertEqual(target["current_adapter_coverage"], {})
+        self.assertNotIn("applied_count", target["raw_counts"])
+
     def test_linear_scan_classifies_requested_focus_buckets(self):
         scan = load_module()
         module = scan.ModuleData(

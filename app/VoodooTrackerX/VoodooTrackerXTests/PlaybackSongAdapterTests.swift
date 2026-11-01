@@ -5801,7 +5801,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(single.diagnostics.retriggerEffects.first?.retriggerFrames, [3, 4, 5])
     }
 
-    func testPlaybackSongAdapterOtherExtendedECommandsRemainDeferredWithECxEDxSupport() throws {
+    func testPlaybackSongAdapterGlissandoControlIsSupportedWithoutFabricatingARoute() throws {
         let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -5822,8 +5822,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(result.block.interleavedPCM, [0, 0])
         XCTAssertEqual(effect.decodedLabel, "E3x glissando control")
-        XCTAssertEqual(effect.status, .deferredUnsupported)
-        XCTAssertEqual(result.diagnostics.deferredCellFields.map(\.field), [.effect])
+        XCTAssertEqual(effect.status, .applied)
+        XCTAssertEqual(result.diagnostics.deferredCellFields, [])
         XCTAssertEqual(result.diagnostics.noteCutEffects, [])
         XCTAssertEqual(result.diagnostics.noteDelayEffects, [])
         XCTAssertEqual(result.diagnostics.retriggerEffects, [])

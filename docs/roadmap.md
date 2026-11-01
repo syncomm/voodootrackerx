@@ -101,6 +101,16 @@ bounded contracts; they do not establish full command or audible parity.
   protected no-EEx controls, actual-host frames and optimized guardrails are
   qualified. Combined EEx+B/D/E6 traversal, including the pending-position skip,
   remains OPEN under G38; #516 remains a separate release blocker.
+- G36 E3x is CLOSED for its [bounded post-merge tone-output contract](design/xm-final-pitch-publication.md#g36-e3x-tone-output-glissando):
+  Gregory accepted the eight-WAV listening study; green CI, maintainer review
+  and Gregory's merge into main remain the publication gate. Its
+  persistent channel control projects 3xx/300, 5xy and volume Fx output while
+  preserving continuous tone state and source identity. Both-mode/rate reference,
+  actual-host/offline, protected-control and optimized guardrails qualify the
+  bounded parent for default-origin playback. Direct selected-range adapter and
+  prepared-runtime plans start cold. Product live selected-order E3 inheritance
+  through eager order-0 prewarm remains
+  OPEN under #516, alongside full G37 and G38/G39/G40/G41.
 - G21 offline E9/Rxy outgoing-source retirement is CLOSED for its bounded
   post-merge delivery contract: runtime and offline share native 5 ms retirement
   of the exact outgoing generation, including overlapping tails and source/window
@@ -127,7 +137,7 @@ bounded contracts; they do not establish full command or audible parity.
   Known families include combined EEx+B/D/E6 traversal under G38, relevant
   E-commands, volume-column gaps, and remaining loaded-Amiga pitch coverage.
   Pan-envelope arithmetic/clock quirks, interactions beyond closed bounded
-  G02/G03/G04/G05/G32/G33/G34,
+  G02/G03/G04/G05/G32/G33/G34/G35/G36,
   and remaining envelope/pitch arithmetic must be resolved or explicitly
   justified within that same compatibility target.
 - Reconcile absent-keymap implementation/compatibility with [accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
@@ -145,6 +155,11 @@ bounded contracts; they do not establish full command or audible parity.
   and the current host.
 - Rerun the final closure matrix and pass the composition, playback, listening,
   and performance release gate; then establish the effects/backend freeze.
+
+The next effect work is G38 timing/precedence, including G37 traversal and the
+#516 selected-order policy boundary where the evidence requires it; then G39,
+G40 and G41. The integrated planning/memory/UI/CI and cross-family/release audit
+follows G41. These remaining contracts and the #516 release blocker stay OPEN.
 
 ### Current target / exit gate
 

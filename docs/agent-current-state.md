@@ -341,14 +341,14 @@ host.
   ticks use nonzero dispatch, including wrapped local zero. Envelopes, release,
   G32 composition, T11 and pitch clocks continue; ED/E9/R create real cursor-zero
   generations at eligible dispatches. Both-mode/rate chronology, bounded delivery,
-  protected no-EEx identities and actual-host frames are qualified. Combined
-  EEx+B/D/E6 precedence, including E61+EE1's pending-position skip, stays OPEN
-  under G38. G21 retirement and the qualified musical-study numerical difference
+  protected no-EEx identities and actual-host frames are qualified. Bounded local
+  EEx+B/D/E6 pending-position precedence is implemented under G38A below;
+  full G38 inheritance/restart policy remains PARTIAL. G21 retirement and the qualified musical-study numerical difference
   have separate bounded contracts. Other baseline audio residuals remain OPEN;
   this does not claim universal FT2 PCM parity.
 - G36 E3x is CLOSED for the [bounded post-merge tone-output contract](design/xm-final-pitch-publication.md#g36-e3x-tone-output-glissando).
-  Gregory accepted the eight-WAV listening study. Publication requires green CI,
-  maintainer review and Gregory's merge into main.
+  Gregory accepted the eight-WAV listening study and merged
+  [PR #521](https://github.com/syncomm/voodootrackerx/pull/521).
   E30 disables and every nonzero nibble enables a persistent per-channel control.
   Actual 3xx/300, 5xy and volume Fx invocations project audible output onto the
   established Linear/Amiga note/finetune grid after continuous movement/clamping.
@@ -359,6 +359,15 @@ host.
   cold selected-range plans ignore earlier controls. Product live selected-order
   starts can inherit eager order-0 E3 state; #516 owns that OPEN integration.
   Full G37, G38/G39/G40/G41 and the post-G41 integrated audit remain OPEN.
+- G38A is CLOSED for bounded channel-ordered B/D/local-E6 pending-row writes,
+  per-channel local loop counters, short-pattern D00...D63 reset, and EE-held
+  pending-position skips without another timing/planning owner. Both-mode/rate
+  reference, source/frame, whole/window/stream and optimized actual-host checks
+  qualify the slice; protected JSON/PCM and paired Release guardrails pass.
+  Full G38/G37 remain PARTIAL: executed inherited anchors/counters, stale next-pattern
+  pending rows, non-BCD/above-63 breaks and restart policy require decisions.
+  Direct cold adapter starts remain separate from live start-aware planning,
+  owned by [#516](https://github.com/syncomm/voodootrackerx/issues/516) after G41.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

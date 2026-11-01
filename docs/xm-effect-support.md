@@ -52,7 +52,7 @@ Its exit criterion is:
 
 Remaining FT2/XM v1 targets include:
 
-- combined `EEx` with Bxx/Dxx/E6x traversal under G38;
+- inherited-anchor, next-pattern-entry and remaining bounds/restart policy under G38;
 - remaining relevant E-command gaps;
 - volume-column vibrato and effect-memory gaps; and
 - broader Amiga-table pitch parity where it remains in v1 scope.
@@ -106,17 +106,49 @@ policies; no-EEx JSON/WAV/event identities retain their existing bytes.
 EE0/cancelled rows retain historical diagnostic labels for receipt compatibility;
 those labels do not indicate missing ordinary timing.
 
-Combined EEx+Bxx/Dxx/E6x, E61+EE1 pending-position skip, inherited anchors and
-conflicting/nested traversal remain **OPEN G38**. #516 remains a separate release
-blocker. G21 offline E9/Rxy retirement has its separate bounded closure;
+G38A implements the bounded local B/D/E6 pending-position contract below.
+Inherited anchors and remaining traversal policy keep full G38 **PARTIAL**.
+#516 remains a separate release blocker. G21 offline E9/Rxy retirement has its separate bounded closure;
 interpolation/onset residuals and broader host/offline qualification remain
 separately owned. The qualified musical-study numerical difference has its own
 narrow policy. These contracts do not establish universal FT2 PCM parity.
 
+## Bounded G38A traversal precedence
+
+G38A is **CLOSED for bounded local precedence**. Channel-ordered Bxx/Dxx/E6x
+pending-row writes follow channel order: the last B selects the order and resets
+the row to zero, a later D supplies its row, and
+every taken local E6 writes its anchor in channel order. All E6 counters execute,
+including alongside an order jump; local counters belong to the channel rather
+than each endpoint and rearm after exhaustion. Valid D00...D63 destinations past
+a short pattern reset to zero. Existing finite traversal guards remain.
+
+With EE1/EE2 the transition commits during the held row. Cells still enter only
+once; nonzero dispatch continues through held zero. Before fresh cells resume,
+the pending position advances once, so E61+EE1 at row 2 with anchor 0 reads
+`0,1,2,1,2,3`. B/D destinations likewise resume at target+1, potentially skipping
+a last-row destination. EE0 cancels the hold. Effective same-row Fxx still owns
+every actual tick. [TraversalPrecedenceTests](../tests/vtx_render_bounded_xm/TraversalPrecedenceTests.swift)
+and app `TraversalPrecedenceRuntimeTests` pin both modes/rates and delivery.
+Pinned-reference chronology/source proofs, optimized actual-host frames/PCM,
+protected byte identities and paired Release performance/RSS checks qualify the slice.
+Traversal diagnostics record command requests and counter decisions; row mappings
+and row timing identify actual fresh visits after later writers and held transitions.
+
+Full G38/G37 remain PARTIAL. Executed cross-pattern E60/counter inheritance, FT2's stale
+pending-row next-pattern entry, non-BCD/above-63 break policy and restart behavior
+remain held for explicit product decisions. These are distinct: retaining a
+channel's numeric anchor could intentionally reuse its row offset in a later
+pattern, making that pattern's loop depend on prior executed patterns; retaining
+a stale pending row can silently skip the opening notes of a reused pattern. Neither is
+an approved VTX policy. Cold direct adapter starts ignore unplayed history;
+[#516](https://github.com/syncomm/voodootrackerx/issues/516) owns live start-aware
+planning after G41, before release/backend freeze.
+
 ## E3x glissando control
 
-Gregory accepted the qualified eight-WAV listening study. Publication requires
-green CI, maintainer review and Gregory's merge into main.
+G36 is accepted through merged [PR #521](https://github.com/syncomm/voodootrackerx/pull/521),
+including Gregory's qualified eight-WAV listening acceptance.
 
 G36 is **CLOSED, bounded tone-output quantization**, under the
 [tone-output contract](design/xm-final-pitch-publication.md#g36-e3x-tone-output-glissando). E30 disables and E31...E3F enable one
@@ -246,16 +278,16 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `8xx` | Set panning | Implemented | Known difference | None | Not applicable | Exact tick-zero panning state exists. Final stereo pan law differs (G40); this is separate from E8 and pan envelopes. |
 | `9xx` | Sample offset | Implemented | Partial | Own; `900` supported | Not applicable | Same-cell source offset/memory exists; end/loop/offset boundaries remain G41. Safely skipping an out-of-range offset does not prove FT2 parity. |
 | `Axy` | Volume slide | Implemented | Closed G14 cold restoration and seeded replay | Shared with `5xy`/`6xy`; cold `A00` executes implicit zero without seeding | Not applicable | Nonzero-tick slides and cold base-to-output restoration use causal local publication. Speed 1 is inert; tremolo/E7 state and real seeded provenance are preserved. Broader output interactions remain separate. |
-| `Bxx` | Position jump | Implemented | Needs characterization | None | Not applicable | Focused traversal exists; conflicting B/D/E6 precedence, restart and bounds remain G38. |
+| `Bxx` | Position jump | Implemented | Partial; local G38A closed | None | Not applicable | G38A implements last-channel order and ordered pending-row resets with local E6/EE; full G38 bounds/restart policy remains partial. |
 | `Cxx` | Set volume | Implemented | Closed | None | Not applicable | Bounded tick-zero channel-volume state/clamp is supported; audible header/gain/ramp obligations remain separate. |
-| `Dxx` | Pattern break | Implemented | Needs characterization | None | Not applicable | BCD target/traversal exists; broader B/D/E6 precedence remains G38. |
+| `Dxx` | Pattern break | Implemented | Partial; local G38A closed | None | Not applicable | G38A implements ordered pending-row writes and short-pattern D00...D63 reset; non-BCD/above-63 and restart policy remain held. |
 | `E0x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch. VTX's no-op needs no audible XM filter; MOD hardware-filter semantics are a separate target. |
 | `E1x` | Fine portamento up | Implemented | Closed G17 Linear / G29 in-range Amiga | Own per-channel up amount; seeded `E10` supported | Both | Tick-zero Linear `4 * x` / Amiga `16 * x`; same-cell folding and independent replay. Cold forms restore meaningful held pitch without provenance; ineligible publications are suppressed. G30B supplies native-word clamps below. |
 | `E2x` | Fine portamento down | Implemented | Closed G17 Linear / G29 in-range Amiga | Own per-channel down amount; seeded `E20` supported | Both | Same bounded timing/restoration as E1 with independent downward memory and positive deltas. Ordinary source changes preserve tone target/direction/speed. Combined G30 closes bounded native-word extremes below. |
 | `E3x` | Glissando control | Implemented | Closed, bounded G36 parent | Special; E30 off, E31...E3F on; persistent per-channel state | Both | Actual 3xx/300, 5xy and volume Fx output uses the bounded note/finetune grid after continuous movement and target clamp. Internal period, target, direction, speed and source cursor remain independent; the control alone publishes no pitch. G32 composes after projected output. Broader modulation remains G39. |
 | `E4x` | Vibrato control | Implemented | Closed | Special; persistent control for `4xy`/`6xy` | Not applicable | All 16 controls: sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 ignored. Bounded control contract only. |
 | `E5x` | Set finetune | Implemented | Partial; G29 in-range Amiga trigger closed | None; no-note form inert | Both | Ordinary exact mapped note trigger uses `16 * nibble - 128` instead of header finetune, preserving relative note, defaults/reset and latent tone target/direction/speed. No-note E5 does not retune current/later sources. Amiga reports inert; the Linear legacy no-note diagnostic is unchanged. G30B supplies ordinary admission below. |
-| `E6x` | Pattern loop | Implemented | Partial | Special; channel loop start/counter | Not applicable | G37A initial-state fallback is closed for default-start runtime and direct selected-range adapter/offline plans: use row-array index zero only before that channel's first executed E60 in the actual traversal. Existing local explicit anchors/counters remain unchanged. Cold nonzero-order runtime playback after eager order-0 prewarm remains OPEN under [release blocker #516](https://github.com/syncomm/voodootrackerx/issues/516). Inherited anchors and next-pattern entry remain OPEN for G38. |
+| `E6x` | Pattern loop | Implemented | Partial | Special; channel loop start/counter | Not applicable | G37A initial-state fallback is closed for default-start runtime and direct selected-range adapter/offline plans: use row-array index zero only before that channel's first executed E60 in the actual traversal. G38A uses local per-channel counters and ordered pending-row writes. Cold nonzero-order runtime playback after eager order-0 prewarm remains OPEN under [release blocker #516](https://github.com/syncomm/voodootrackerx/issues/516). Inherited anchors and next-pattern entry remain OPEN for G38. |
 | `E7x` | Tremolo control | Implemented | Closed | Special; persistent control independent of E4 | Not applicable | All nibble aliases and phase-reset suppression are supported; ramp retains FT2's vibrato-phase sign quirk. Full `7xy` audio remains G39. |
 | `E8x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; current no-op matches. OpenMPT's audible panning alias is outside FT2 v1; use supported `8xx`. |
 | `E9x` | Retrigger note | Implemented | Partial | Special; no ordinary interval replay | Not applicable | G19 `E90` row-entry routing/carry/reset is closed. E91...E9F retain existing nonzero-tick resets and offsets. Onset/ramp parity and `Rxy` are separate. |
@@ -263,7 +295,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `EBx` | Fine volume slide down | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-down amount | Not applicable | Tick-zero -x, clamped to 0; seeded EB0 replays down memory. Cold EB0 restores base to output and publishes against the held target without seeding memory. Independent of EA/A/5/6 and volume-column 8x/9x. |
 | `ECx` | Note cut | Implemented | Closed, bounded | None | Linear + Amiga | At actual tick x, zero base/output and publish a 5 ms final-output target without retiring the source, releasing its key or resetting its cursor/pitch. Later Cxx reveals progressed PCM. EC0/EC3, effective Fxx speeds, both rates, newborn/silent routes and runtime/offline/windows are covered by G04. Internal hard stop and G02/G03/G05 remain separate. |
 | `EDx` | Note delay | Implemented | Partial | None | Not applicable | Ordinary delayed notes remain supported. G23 retained-note instrument-only ED1...EDF dispatch is closed: row-entry owner, delayed exact route/default/reset and one cursor-zero generation per eligible dispatch. Instrument-only ED0 resets without restarting on fresh entry; G35 held local-zero dispatch restarts the retained note. Out-of-row retains owner only. G24 bounded release/default precedence is closed below. |
-| `EEx` | Pattern delay | Implemented | Closed, bounded G35 ordinary timing | None | Not applicable | Last-channel x holds (x+1)*S actual ticks at effective same-row Fxx speed/BPM; EE0 cancels an earlier delay. One fresh entry, then nonzero dispatch on every elapsed tick including wrapped zero. Combined EEx+B/D/E6 remains OPEN G38. |
+| `EEx` | Pattern delay | Implemented | Closed, bounded G35 ordinary timing | None | Not applicable | Last-channel x holds (x+1)*S actual ticks at effective same-row Fxx speed/BPM; EE0 cancels an earlier delay. One fresh entry, then nonzero dispatch on every elapsed tick including wrapped zero. Bounded local EEx+B/D/E6 precedence is implemented under G38A; inherited/restart policy remains OPEN. |
 | `EFx` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; no destructive MOD invert-loop/funk behavior. OpenMPT XM macro hacks are outside FT2 v1. |
 | `F01...F1F` / `F20...FFF` | Speed / BPM | Implemented | Closed | None | Not applicable | Nonzero command-row tick-zero timing is closed. `F20` is valid XM BPM 32. Last speed and last BPM each win in left-to-right channel order. |
 | `F00` | Zero speed boundary | Implemented | Known difference | None | Not applicable | VTX ignores it; pinned FT2 writes zero speed/tick state. Resulting traversal needs characterization and explicit closure rationale; nonzero Fxx stays closed. |
@@ -803,7 +835,7 @@ support alone does not close these domains:
   Prior-channel E60 without a local anchor retains the observable missing-start
   refusal; pinned FT2 inherited anchors and next-pattern entry remain OPEN for
   G38 product-policy/design work. G37 remains Partial. EEx timing stays G35;
-  Bxx/Dxx/E6x precedence stays G38; safe finite export
+  bounded local Bxx/Dxx/E6x/EE precedence is implemented under G38A; safe finite export
   guards do not establish reference in-song traversal parity.
 - **Pitch and mode:** Linear in-range arpeggio ordering is closed under G25;
   Amiga quantized arpeggio reuses it under G26; G27 upward slides and G28
@@ -828,8 +860,8 @@ or explicit accepted rationale; aggregate audio correlation is not closure.
 
 ## Pending FT2 targets and exclusions
 
-- G36 E3x is closed under its bounded tone-output contract; combined EEx traversal
-  remains OPEN G38.
+- G36 E3x is closed under its bounded tone-output contract; G38A implements
+  local combined EEx traversal while full G38 policy remains PARTIAL.
   Bounded G33 Pxy and G34 Txy are closed through accepted PRs #514/#515;
   G39/G40 and retained pan/cold boundaries remain open.
   G32 instrument autovibrato is closed under its bounded VTX policy above.

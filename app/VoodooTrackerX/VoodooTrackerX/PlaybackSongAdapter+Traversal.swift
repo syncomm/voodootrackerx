@@ -25,13 +25,6 @@ enum PlaybackSongTraversalPlanner {
         let channelIndex: Int
     }
 
-    private struct LoopCountKey: Hashable {
-        let orderIndex: Int
-        let patternIndex: Int
-        let rowIndex: Int
-        let channelIndex: Int
-    }
-
     private struct TraversalPositionKey: Hashable {
         let orderIndex: Int
         let patternIndex: Int
@@ -107,7 +100,7 @@ enum PlaybackSongTraversalPlanner {
         var adaptedOrders = [PlaybackSongSyntheticOrderDiagnostic]()
         var diagnostics = [PlaybackSongSyntheticTraversalDiagnostic]()
         var loopStarts = [LoopKey: Int]()
-        var loopRemaining = [LoopCountKey: Int]()
+        var loopRemaining = [LoopKey: Int]()
         var explicitLoopStartChannels = Set<Int>()
         var visitedPositions = Set<TraversalPositionKey>()
         var currentOrderIndex = startOrderIndex
@@ -270,13 +263,13 @@ enum PlaybackSongTraversalPlanner {
         syntheticRow: Int,
         maxTraversalRows: Int,
         loopStarts: inout [LoopKey: Int],
-        loopRemaining: inout [LoopCountKey: Int],
+        loopRemaining: inout [LoopKey: Int],
         explicitLoopStartChannels: inout Set<Int>,
         visitedPositions: Set<TraversalPositionKey>,
         diagnostics: inout [PlaybackSongSyntheticTraversalDiagnostic]
     ) -> NextPositionDecision {
-        let bxx = firstCommand(in: row, effectType: 0x0B)
-        let dxx = firstCommand(in: row, effectType: 0x0D)
+        let bxx = lastCommand(in: row, effectType: 0x0B)
+        let dxx = lastCommand(in: row, effectType: 0x0D)
         var e6xCommands = [TraversalCommand]()
         for (channelIndex, cell) in row.cells.enumerated() where isE6x(cell) {
             e6xCommands.append(TraversalCommand(channelIndex: channelIndex, cell: cell))
@@ -309,6 +302,111 @@ enum PlaybackSongTraversalPlanner {
                     combinedWithDxx: hasDxx,
                     policy: "e60_marks_per_channel_order_pattern_loop_start"
                 ))
+            }
+        }
+
+        // Tick-zero writers share a pending row, in channel order. B resets it,
+        // D replaces it, and every taken E6 writes it even alongside an order jump.
+        let positionOrder = bxx.map { Int($0.cell.effectParam) } ?? (source.orderIndex + 1)
+        let positionPattern = dxx == nil ? nil : patternForOrder(positionOrder, in: song)
+        var pendingRow = 0
+        var pendingRowChannel = bxx?.channelIndex ?? -1
+        if let dxx, dxx.channelIndex > pendingRowChannel {
+            pendingRow = resolvedDxxTarget(effectParam: dxx.cell.effectParam, targetPattern: positionPattern).targetRow
+            pendingRowChannel = dxx.channelIndex
+        }
+        var loopRequested = false
+        let heldTransition = (hasBxx || hasDxx || !e6xCommands.isEmpty) && (row.cells.last(where: {
+            $0.effectType == 0x0E && $0.effectParam >> 4 == 0x0E
+        })?.effectParam ?? 0) & 15 > 0
+
+        for command in e6xCommands {
+            let value = Int(command.cell.effectParam & 0x0F)
+            guard value > 0 else {
+                continue
+            }
+            let loopKey = LoopKey(orderIndex: source.orderIndex, patternIndex: source.patternIndex, channelIndex: command.channelIndex)
+            var loopStart = loopStarts[loopKey]
+            // Only executed E60 commands create history. Inherited anchors remain
+            // unresolved under G38; a cold channel uses this pattern's first slot.
+            if loopStart == nil, !explicitLoopStartChannels.contains(command.channelIndex) {
+                loopStart = 0
+            }
+            guard let loopStart else {
+                diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
+                    kind: .e6xPatternLoop,
+                    status: .missingLoopStart,
+                    source: source,
+                    channelIndex: command.channelIndex,
+                    syntheticRow: syntheticRow,
+                    effectType: command.cell.effectType,
+                    effectParam: command.cell.effectParam,
+                    targetOrderIndex: source.orderIndex,
+                    targetPatternIndex: source.patternIndex,
+                    targetRowIndex: nil,
+                    nextOrderIndex: nil,
+                    loopStartRowIndex: nil,
+                    loopRemaining: nil,
+                    loopLimit: nil,
+                    combinedWithBxx: hasBxx,
+                    combinedWithDxx: hasDxx,
+                    policy: "missing_e60_loop_start_diagnosed_no_loop"
+                ))
+                continue
+            }
+            // One counter per channel within the existing local anchor scope.
+            // A completed invocation rearms subsequent loop sites on that channel.
+            let countKey = loopKey
+            let remainingBefore = loopRemaining[countKey] ?? value
+            guard remainingBefore > 0 else {
+                loopRemaining.removeValue(forKey: countKey)
+                diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
+                    kind: .e6xPatternLoop,
+                    status: .applied,
+                    source: source,
+                    channelIndex: command.channelIndex,
+                    syntheticRow: syntheticRow,
+                    effectType: command.cell.effectType,
+                    effectParam: command.cell.effectParam,
+                    targetOrderIndex: source.orderIndex,
+                    targetPatternIndex: source.patternIndex,
+                    targetRowIndex: nil,
+                    nextOrderIndex: nil,
+                    loopStartRowIndex: pattern.rows[min(max(0, loopStart), pattern.rows.count - 1)].index,
+                    loopRemaining: 0,
+                    loopLimit: nil,
+                    combinedWithBxx: hasBxx,
+                    combinedWithDxx: hasDxx,
+                    policy: "e6x_loop_count_exhausted_continue"
+                ))
+                continue
+            }
+            let remainingAfter = remainingBefore - 1
+            loopRemaining[countKey] = remainingAfter
+            let targetRow = min(max(0, loopStart), pattern.rows.count - 1)
+            diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
+                kind: .e6xPatternLoop,
+                status: .loopTaken,
+                source: source,
+                channelIndex: command.channelIndex,
+                syntheticRow: syntheticRow,
+                effectType: command.cell.effectType,
+                effectParam: command.cell.effectParam,
+                targetOrderIndex: source.orderIndex,
+                targetPatternIndex: source.patternIndex,
+                targetRowIndex: pattern.rows[targetRow].index,
+                nextOrderIndex: nil,
+                loopStartRowIndex: pattern.rows[targetRow].index,
+                loopRemaining: remainingAfter,
+                loopLimit: nil,
+                combinedWithBxx: hasBxx,
+                combinedWithDxx: hasDxx,
+                policy: "e6x_per_channel_order_pattern_loop_count"
+            ))
+            loopRequested = true
+            if command.channelIndex > pendingRowChannel {
+                pendingRow = targetRow
+                pendingRowChannel = command.channelIndex
             }
         }
 
@@ -356,11 +454,14 @@ enum PlaybackSongTraversalPlanner {
                     loopLimit: nil,
                     combinedWithBxx: false,
                     combinedWithDxx: dxx != nil,
-                    policy: dxx == nil ? "bxx_jumps_to_order_row_zero" : "bxx_uses_dxx_row_target_when_same_row"
+                    policy: pendingRowChannel == bxx.channelIndex
+                        ? (dxx == nil ? "bxx_jumps_to_order_row_zero" : "bxx_resets_earlier_dxx_pending_row")
+                        : (pendingRowChannel == dxx?.channelIndex
+                            ? "bxx_uses_dxx_row_target_when_same_row" : "bxx_uses_later_e6x_pending_row")
                 ))
                 return NextPositionDecision(orderIndex: targetOrder, rowIndex: 0, stopReason: .outOfRange)
             }
-            let targetRow = min(max(0, target?.targetRow ?? 0), targetPattern.rows.count - 1)
+            let targetRow = pendingRow < targetPattern.rows.count ? max(0, pendingRow) : 0
             if visitedPositions.contains(TraversalPositionKey(
                 orderIndex: targetOrder,
                 patternIndex: targetPattern.index,
@@ -400,9 +501,13 @@ enum PlaybackSongTraversalPlanner {
                 loopLimit: nil,
                 combinedWithBxx: false,
                 combinedWithDxx: dxx != nil,
-                policy: dxx == nil ? "bxx_jumps_to_order_row_zero" : "bxx_uses_dxx_row_target_when_same_row"
+                policy: pendingRowChannel == bxx.channelIndex
+                        ? (dxx == nil ? "bxx_jumps_to_order_row_zero" : "bxx_resets_earlier_dxx_pending_row")
+                        : (pendingRowChannel == dxx?.channelIndex
+                            ? "bxx_uses_dxx_row_target_when_same_row" : "bxx_uses_later_e6x_pending_row")
             ))
-            return NextPositionDecision(orderIndex: targetOrder, rowIndex: targetRow, stopReason: nil)
+            return freshPosition(afterCommitTo: targetOrder, row: targetRow, pattern: targetPattern,
+                held: heldTransition)
         }
 
         if let dxx {
@@ -427,7 +532,7 @@ enum PlaybackSongTraversalPlanner {
                   !targetPattern.rows.isEmpty else {
                 return NextPositionDecision(orderIndex: targetOrder, rowIndex: target.targetRow, stopReason: .outOfRange)
             }
-            let targetRow = min(max(0, target.targetRow), targetPattern.rows.count - 1)
+            let targetRow = pendingRow < targetPattern.rows.count ? max(0, pendingRow) : 0
             if visitedPositions.contains(TraversalPositionKey(
                 orderIndex: targetOrder,
                 patternIndex: targetPattern.index,
@@ -448,95 +553,13 @@ enum PlaybackSongTraversalPlanner {
                 ))
                 return NextPositionDecision(orderIndex: targetOrder, rowIndex: targetRow, stopReason: .traversalGuardHit)
             }
-            return NextPositionDecision(orderIndex: targetOrder, rowIndex: targetRow, stopReason: nil)
+            return freshPosition(afterCommitTo: targetOrder, row: targetRow, pattern: targetPattern,
+                held: heldTransition)
         }
 
-        for command in e6xCommands {
-            let value = Int(command.cell.effectParam & 0x0F)
-            guard value > 0 else {
-                continue
-            }
-            let loopKey = LoopKey(orderIndex: source.orderIndex, patternIndex: source.patternIndex, channelIndex: command.channelIndex)
-            var loopStart = loopStarts[loopKey]
-            // Only executed E60 commands create history. Inherited anchors remain
-            // unresolved under G38; a cold channel uses this pattern's first slot.
-            if loopStart == nil, !explicitLoopStartChannels.contains(command.channelIndex) {
-                loopStart = 0
-            }
-            guard let loopStart else {
-                diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
-                    kind: .e6xPatternLoop,
-                    status: .missingLoopStart,
-                    source: source,
-                    channelIndex: command.channelIndex,
-                    syntheticRow: syntheticRow,
-                    effectType: command.cell.effectType,
-                    effectParam: command.cell.effectParam,
-                    targetOrderIndex: source.orderIndex,
-                    targetPatternIndex: source.patternIndex,
-                    targetRowIndex: nil,
-                    nextOrderIndex: nil,
-                    loopStartRowIndex: nil,
-                    loopRemaining: nil,
-                    loopLimit: nil,
-                    combinedWithBxx: false,
-                    combinedWithDxx: false,
-                    policy: "missing_e60_loop_start_diagnosed_no_loop"
-                ))
-                continue
-            }
-            let countKey = LoopCountKey(
-                orderIndex: source.orderIndex,
-                patternIndex: source.patternIndex,
-                rowIndex: row.index,
-                channelIndex: command.channelIndex
-            )
-            let remainingBefore = loopRemaining[countKey] ?? value
-            guard remainingBefore > 0 else {
-                diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
-                    kind: .e6xPatternLoop,
-                    status: .applied,
-                    source: source,
-                    channelIndex: command.channelIndex,
-                    syntheticRow: syntheticRow,
-                    effectType: command.cell.effectType,
-                    effectParam: command.cell.effectParam,
-                    targetOrderIndex: source.orderIndex,
-                    targetPatternIndex: source.patternIndex,
-                    targetRowIndex: nil,
-                    nextOrderIndex: nil,
-                    loopStartRowIndex: pattern.rows[min(max(0, loopStart), pattern.rows.count - 1)].index,
-                    loopRemaining: 0,
-                    loopLimit: nil,
-                    combinedWithBxx: false,
-                    combinedWithDxx: false,
-                    policy: "e6x_loop_count_exhausted_continue"
-                ))
-                continue
-            }
-            let remainingAfter = remainingBefore - 1
-            loopRemaining[countKey] = remainingAfter
-            let targetRow = min(max(0, loopStart), pattern.rows.count - 1)
-            diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
-                kind: .e6xPatternLoop,
-                status: .loopTaken,
-                source: source,
-                channelIndex: command.channelIndex,
-                syntheticRow: syntheticRow,
-                effectType: command.cell.effectType,
-                effectParam: command.cell.effectParam,
-                targetOrderIndex: source.orderIndex,
-                targetPatternIndex: source.patternIndex,
-                targetRowIndex: pattern.rows[targetRow].index,
-                nextOrderIndex: nil,
-                loopStartRowIndex: pattern.rows[targetRow].index,
-                loopRemaining: remainingAfter,
-                loopLimit: nil,
-                combinedWithBxx: false,
-                combinedWithDxx: false,
-                policy: "e6x_per_channel_order_pattern_loop_count"
-            ))
-            return NextPositionDecision(orderIndex: source.orderIndex, rowIndex: targetRow, stopReason: nil)
+        if loopRequested {
+            return freshPosition(afterCommitTo: source.orderIndex, row: pendingRow, pattern: pattern,
+                held: heldTransition)
         }
 
         let nextRow = currentRowIndex + 1
@@ -553,8 +576,19 @@ enum PlaybackSongTraversalPlanner {
         return NextPositionDecision(orderIndex: nextOrder, rowIndex: 0, stopReason: nil)
     }
 
-    private static func firstCommand(in row: PlaybackRow, effectType: UInt8) -> TraversalCommand? {
-        for (channelIndex, cell) in row.cells.enumerated() where cell.effectType == effectType {
+    private static func freshPosition(afterCommitTo order: Int, row: Int, pattern: PlaybackPattern,
+                                      held: Bool) -> NextPositionDecision {
+        // FT2 consumes the loop/jump flag at the first cycle boundary while EE
+        // suppresses cell reads. The final held cycle advances once before reading.
+        let freshRow = row + (held ? 1 : 0)
+        if freshRow >= pattern.rows.count {
+            return NextPositionDecision(orderIndex: order + 1, rowIndex: 0, stopReason: nil)
+        }
+        return NextPositionDecision(orderIndex: order, rowIndex: freshRow, stopReason: nil)
+    }
+
+    private static func lastCommand(in row: PlaybackRow, effectType: UInt8) -> TraversalCommand? {
+        for (channelIndex, cell) in row.cells.enumerated().reversed() where cell.effectType == effectType {
             return TraversalCommand(channelIndex: channelIndex, cell: cell)
         }
         return nil
@@ -612,7 +646,9 @@ enum PlaybackSongTraversalPlanner {
         let maxRow = max(0, (targetPattern?.rows.count ?? 1) - 1)
         return DxxTarget(
             decodedRow: decodedRow,
-            targetRow: min(max(0, decodedRow), maxRow),
+            // G38A qualifies valid FT2 rows through 63. Longer-pattern and
+            // non-BCD policy remain held; preserve their existing safe behavior.
+            targetRow: decodedRow > maxRow ? (decodedRow <= 63 ? 0 : maxRow) : max(0, decodedRow),
             invalidBCD: invalidBCD,
             outOfRange: !invalidBCD && decodedRow > maxRow
         )

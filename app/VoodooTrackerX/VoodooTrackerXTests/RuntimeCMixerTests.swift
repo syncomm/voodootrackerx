@@ -3,6 +3,64 @@ import AudioToolbox
 import CoreAudio
 import XCTest
 
+/// Repeated finite PCM ends exercise persistent runtime slots rather than fresh offline windows.
+final class EndedSongRetirementRuntimeTests: XCTestCase {
+    func test320FiniteNotesPreserveExactWindowedPCMAndGenerationDelivery() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+                pcm: (0..<1024).map { Float($0 % 17 - 8) / 32 }, volume: 1, panning: 128,
+                relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 0, loopType: 0)
+            let cell = PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+            let song = PlaybackSong(title: "Original finite song retirement control",
+                orders: (0..<5).map { .init(orderIndex: $0, patternIndex: 0) },
+                patternsByIndex: [0: .init(index: 0, rows: (0..<64).map { .init(index: $0, cells: [cell]) })],
+                instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+                restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan), end = Int(plan.diagnostics.rowTiming.last!.rowEndExactFrame)
+            let request = PlaybackSongOfflineRenderRequest(song: song, orderCount: 5,
+                config: .init(sampleRate: rate), frames: end, maximumFrameCount: end)
+            let expected = PlaybackSongOfflineRenderer(preparedPlan: plan).renderWindowed(request, windowRows: 64)
+            try expected.controlAdmission.requireSuccess()
+            let core = RuntimeCMixerRenderCore(config: request.config, maximumRenderFrames: 4096,
+                outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+            var pcm = [Float](), frame = 0
+            pcm.reserveCapacity(end * 2)
+            let births = runtime.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+            XCTAssertEqual(births.count, 320)
+            for birth in births {
+                while frame < birth.scheduledFrame {
+                    let count = min(4093, birth.scheduledFrame - frame)
+                    pcm.append(contentsOf: renderRuntimePCM(core, frames: count)); frame += count
+                }
+                pcm.append(contentsOf: renderRuntimePCM(core, frames: 1)); frame += 1
+                let index = try XCTUnwrap(birth.activeEventIndex)
+                let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: index))
+                XCTAssertTrue(voice.active)
+                XCTAssertEqual(voice.channelTag, 0)
+                XCTAssertEqual(voice.samplePosition, plan.pattern.events[index].playbackStep)
+                XCTAssertEqual(voice.sourceOnsetElapsedFrames, 1)
+                XCTAssertLessThanOrEqual(core.snapshot().loadedVoiceCount, 2)
+            }
+            while frame < end {
+                let count = min(4093, end - frame)
+                pcm.append(contentsOf: renderRuntimePCM(core, frames: count)); frame += count
+            }
+            XCTAssertEqual(pcm, expected.block.interleavedPCM)
+            var applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            while true {
+                let batch = core.drainAppliedAdapterEventDiagnostics()
+                if batch.isEmpty { break }
+                applied.append(contentsOf: batch)
+            }
+            let ordered = RuntimeCMixerAdapterEventStorage(events: runtime.events).ordering.map { runtime.events[$0.eventIndex] }
+            XCTAssertEqual(applied.map { $0.event.id }, ordered.filter { $0.scheduledFrame < end }.map(\.id))
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+        } }
+    }
+}
+
 /// Mixed pending traversal commands must reach the native core at the planned physical frame.
 final class TraversalPrecedenceRuntimeTests: XCTestCase {
     func testOrderedLoopDelayAndJumpDeliveryKeepExactPCMFramesAndGenerations() throws {

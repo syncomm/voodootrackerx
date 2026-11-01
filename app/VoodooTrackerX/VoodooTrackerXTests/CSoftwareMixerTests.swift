@@ -2,6 +2,154 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+/// Physical sample completion must not turn a song retirement into a permanent reservation.
+final class EndedSongRetirementTests: XCTestCase {
+    func testFiniteEndsReleaseCopiedAndSharedOwnershipAcross320Admissions() throws {
+        let pcm = (0..<1024).map { Float($0 % 17 - 8) / 32 }
+        for rate in [44_100.0, 48_000] { for shared in [false, true] {
+            var state = VTXCMixerState(), config = vtx_c_mixer_default_config()
+            config.sample_rate = rate; config.channel_count = 1
+            XCTAssertEqual(vtx_c_mixer_init(&state, config), VTX_C_MIXER_STATUS_OK)
+            var payload: OpaquePointer?
+            if shared {
+                XCTAssertEqual(pcm.withUnsafeBufferPointer {
+                    vtx_c_mixer_shared_sample_payload_create_pre_sanitized($0.baseAddress, UInt32($0.count), &payload)
+                }, VTX_C_MIXER_STATUS_OK)
+            }
+            defer {
+                _ = vtx_c_mixer_clear_voices(&state)
+                if let payload { _ = vtx_c_mixer_shared_sample_payload_destroy(payload, nil) }
+            }
+            var output = [Float](repeating: 0, count: 1000)
+            for admission in 0..<320 {
+                XCTAssertEqual(vtx_c_mixer_retire_song_voices_for_channel_tag(&state, 7, nil), VTX_C_MIXER_STATUS_OK)
+                XCTAssertEqual(vtx_c_mixer_loaded_voice_count(&state), 0, "admission \(admission), \(rate), shared=\(shared)")
+                if let payload {
+                    var ownership = VTXCMixerSharedSamplePayloadDiagnostics()
+                    XCTAssertEqual(vtx_c_mixer_shared_sample_payload_get_diagnostics(payload, &ownership), VTX_C_MIXER_STATUS_OK)
+                    XCTAssertEqual(ownership.active_voice_reference_count, 0)
+                }
+                var slot: UInt32 = .max
+                let status: VTXCMixerStatus
+                if let payload {
+                    let start = state.current_frame
+                    status = vtx_c_mixer_add_scheduled_shared_sample_voice_with_step_at_source_frame(
+                        &state, payload, 1, 0, 1, 0, VTX_C_MIXER_LOOP_NONE, 0, 0, start, &slot)
+                } else {
+                    status = pcm.withUnsafeBufferPointer {
+                        vtx_c_mixer_add_sample_voice_with_step(&state, $0.baseAddress, UInt32($0.count),
+                            1, 1, 0, VTX_C_MIXER_LOOP_NONE, 0, 0, &slot)
+                    }
+                }
+                XCTAssertEqual(status, VTX_C_MIXER_STATUS_OK)
+                guard status == VTX_C_MIXER_STATUS_OK else { return }
+                XCTAssertEqual(slot, 0)
+                XCTAssertEqual(vtx_c_mixer_set_voice_channel_tag(&state, slot, 7), VTX_C_MIXER_STATUS_OK)
+                XCTAssertEqual(output.withUnsafeMutableBufferPointer {
+                    vtx_c_mixer_render(&state, $0.baseAddress, 1000)
+                }, VTX_C_MIXER_STATUS_OK)
+                XCTAssertEqual(vtx_c_mixer_retire_song_voices_for_channel_tag(&state, 7, nil), VTX_C_MIXER_STATUS_OK)
+                XCTAssertEqual(output.withUnsafeMutableBufferPointer {
+                    vtx_c_mixer_render(&state, $0.baseAddress, 64)
+                }, VTX_C_MIXER_STATUS_OK)
+                var ended = VTXCMixerVoiceDiagnostic()
+                XCTAssertEqual(vtx_c_mixer_get_voice_diagnostic(&state, slot, &ended), VTX_C_MIXER_STATUS_OK)
+                XCTAssertEqual(ended.active, 0)
+                XCTAssertEqual(ended.deactivate_after_gain_ramp, VTX_C_MIXER_RETIRE_SONG)
+                XCTAssertLessThan(ended.gain_ramp_position_frame, ended.gain_ramp_total_frames)
+                XCTAssertEqual(vtx_c_mixer_loaded_voice_count(&state), 1)
+            }
+            XCTAssertEqual(vtx_c_mixer_retire_song_voices_for_channel_tag(&state, 7, nil), VTX_C_MIXER_STATUS_OK)
+            XCTAssertEqual(vtx_c_mixer_loaded_voice_count(&state), 0)
+            if let handle = payload {
+                var final = VTXCMixerSharedSamplePayloadDiagnostics()
+                XCTAssertEqual(vtx_c_mixer_shared_sample_payload_destroy(handle, &final), VTX_C_MIXER_STATUS_OK)
+                payload = nil
+                XCTAssertEqual(final.voice_reference_count, 320)
+                XCTAssertEqual(final.active_voice_reference_count, 0)
+                XCTAssertEqual(final.payload_bytes_freed, UInt64(1024 * MemoryLayout<Float>.size))
+                XCTAssertEqual(final.payload_bytes_allocated, final.payload_bytes_freed)
+            }
+        } }
+    }
+
+    func testFadeoutCompletionReleasesOnlyItsTagAndRemovesStaleWritesBeforeReuse() throws {
+        for rate in [44_100.0, 48_000] {
+            let mixer = CSoftwareMixer(config: .init(sampleRate: rate, channelCount: 1))
+            let sample = MixerSampleBuffer(monoPCM: [Float](repeating: 0.25, count: 1024))
+            let loop = MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: 1024)
+            let old = mixer.addVoice(sample: sample, loop: loop, keyOffFrame: 4, fadeoutFrameDecrement: 0.5)
+            mixer.setChannelTag(7, forVoiceAt: old)
+            let other = mixer.addVoice(sample: sample, loop: loop)
+            mixer.setChannelTag(8, forVoiceAt: other)
+            let future = try XCTUnwrap(mixer.addScheduledVoice(sample: sample, scheduledStartFrame: 1000, loop: loop))
+            mixer.setChannelTag(7, forVoiceAt: future)
+            _ = mixer.render(frames: 1)
+            XCTAssertEqual(mixer.retireSongVoices(channel: 7), 1)
+            _ = mixer.render(frames: 8)
+            let ended = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: old))
+            XCTAssertFalse(ended.active)
+            XCTAssertTrue(ended.deactivateAfterGainRamp)
+            XCTAssertNotNil(ended.gainRamp)
+            XCTAssertTrue(mixer.scheduleVoicePlaybackStepUpdate(voiceIndex: old, scheduledFrame: 40, playbackStep: 3).wasAccepted)
+            XCTAssertEqual(mixer.retireSongVoices(channel: 7), 0)
+            XCTAssertFalse(try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: old)).loaded)
+            let replacement = mixer.addVoice(sample: sample, loop: loop)
+            XCTAssertEqual(replacement, old)
+            mixer.setChannelTag(9, forVoiceAt: replacement)
+            _ = mixer.render(frames: 64)
+            let new = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: replacement))
+            XCTAssertEqual(new.sampleStep, 1)
+            XCTAssertEqual(new.samplePosition, 64)
+            XCTAssertEqual(new.channelTag, 9)
+            let reserved = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: future))
+            XCTAssertTrue(reserved.loaded && reserved.active)
+            XCTAssertEqual(reserved.samplePosition, 0)
+            XCTAssertNil(reserved.gainRamp)
+            let untouched = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: other))
+            XCTAssertTrue(untouched.active)
+            XCTAssertEqual(untouched.samplePosition, 73)
+            XCTAssertNil(untouched.gainRamp)
+            XCTAssertEqual(mixer.loadedVoiceCount, 3)
+        }
+    }
+
+    func testRepeatedRetirementKeepsLoopedTailDeadlineAndRealCapacityRejection() throws {
+        for rate in [44_100.0, 48_000] {
+            let mixer = CSoftwareMixer(config: .init(sampleRate: rate, channelCount: 1))
+            let sample = MixerSampleBuffer(monoPCM: [0.25, -0.125])
+            let loop = MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: 2)
+            let old = mixer.addVoice(sample: sample, loop: loop)
+            mixer.setChannelTag(0, forVoiceAt: old)
+            XCTAssertEqual(mixer.retireSongVoices(channel: 0), 1)
+            _ = mixer.render(frames: 11)
+            let before = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: old))
+            XCTAssertEqual(mixer.retireSongVoices(channel: 0), 0)
+            XCTAssertEqual(mixer.voiceDiagnostic(forVoiceAt: old), before)
+            let duration = CSoftwareMixer.songReplacementRampFrameCount(sampleRate: rate)
+            _ = mixer.render(frames: duration - 12)
+            XCTAssertTrue(try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: old)).active)
+            _ = mixer.render(frames: 1)
+            XCTAssertFalse(try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: old)).active)
+            XCTAssertEqual(mixer.rampDownCompletionCount, 1)
+            XCTAssertEqual(mixer.retireSongVoices(channel: 0), 0)
+            XCTAssertEqual(mixer.loadedVoiceCount, 0)
+            for index in 0..<256 {
+                let slot = try XCTUnwrap(mixer.addScheduledVoice(sample: sample,
+                    scheduledStartFrame: Int(mixer.currentFrame) + (index.isMultiple(of: 2) ? 0 : 1000), loop: loop))
+                mixer.setChannelTag(0, forVoiceAt: slot)
+            }
+            XCTAssertEqual(mixer.retireSongVoices(channel: 0), 128)
+            XCTAssertEqual(mixer.retireSongVoices(channel: 0), 0)
+            let rejected = mixer.addScheduledVoiceWithResult(sample: sample, scheduledStartFrame: Int(mixer.currentFrame))
+            XCTAssertNil(rejected.voiceIndex)
+            XCTAssertEqual(rejected.rejectionReason, .scheduledVoiceCapacity)
+            XCTAssertEqual(mixer.loadedVoiceCount, 256)
+            XCTAssertEqual(mixer.activeVoiceCount, 256)
+        }
+    }
+}
+
 final class CSoftwareMixerTests: XCTestCase {
     func testCMixerCoreReturnsPredictableInvalidArgumentStatus() {
         let config = vtx_c_mixer_default_config()

@@ -99,11 +99,11 @@ bounded contracts; they do not establish full command or audible parity.
   real held ticks, effective Fxx clocks, single fresh entry, ongoing effects and
   real ED/E9/R generations share runtime/offline delivery. Both modes/rates,
   protected no-EEx controls, actual-host frames and optimized guardrails are
-  qualified. Combined EEx+B/D/E6 traversal, including the pending-position skip,
-  remains OPEN under G38; #516 remains a separate release blocker.
+  qualified. G38A implements bounded local combined pending-position precedence;
+  full G38 inheritance/restart policy and #516 remain separate open boundaries.
 - G36 E3x is CLOSED for its [bounded post-merge tone-output contract](design/xm-final-pitch-publication.md#g36-e3x-tone-output-glissando):
-  Gregory accepted the eight-WAV listening study; green CI, maintainer review
-  and Gregory's merge into main remain the publication gate. Its
+  Gregory accepted the eight-WAV listening study and merged
+  [PR #521](https://github.com/syncomm/voodootrackerx/pull/521). Its
   persistent channel control projects 3xx/300, 5xy and volume Fx output while
   preserving continuous tone state and source identity. Both-mode/rate reference,
   actual-host/offline, protected-control and optimized guardrails qualify the
@@ -111,6 +111,12 @@ bounded contracts; they do not establish full command or audible parity.
   prepared-runtime plans start cold. Product live selected-order E3 inheritance
   through eager order-0 prewarm remains
   OPEN under #516, alongside full G37 and G38/G39/G40/G41.
+- G38A local B/D/E6/EE pending-position precedence is CLOSED: ordered row
+  writes, local channel counters, held skips and short-pattern valid D bounds
+  have both-mode/rate reference, source/frame, actual-host, protected-byte and
+  paired Release qualification. Full G38/G37 remain PARTIAL for inherited
+  anchor/counter, stale next-entry and remaining bounds/restart policy decisions.
+  Live cold-start planning remains #516 after G41.
 - G21 offline E9/Rxy outgoing-source retirement is CLOSED for its bounded
   post-merge delivery contract: runtime and offline share native 5 ms retirement
   of the exact outgoing generation, including overlapping tails and source/window
@@ -134,7 +140,8 @@ bounded contracts; they do not establish full command or audible parity.
 
 - Close remaining evidence-backed FT2/XM commands and cross-cutting output,
   pitch, memory, envelope, trigger/retrigger/cut, and traversal obligations.
-  Known families include combined EEx+B/D/E6 traversal under G38, relevant
+  Known families include inherited-anchor/counter/next-pattern-entry and residual
+  bounds/restart policy under G38 (local combined B/D/E6/EE is implemented by G38A), relevant
   E-commands, volume-column gaps, and remaining loaded-Amiga pitch coverage.
   Pan-envelope arithmetic/clock quirks, interactions beyond closed bounded
   G02/G03/G04/G05/G32/G33/G34/G35/G36,
@@ -156,10 +163,11 @@ bounded contracts; they do not establish full command or audible parity.
 - Rerun the final closure matrix and pass the composition, playback, listening,
   and performance release gate; then establish the effects/backend freeze.
 
-The next effect work is G38 timing/precedence, including G37 traversal and the
-#516 selected-order policy boundary where the evidence requires it; then G39,
-G40 and G41. The integrated planning/memory/UI/CI and cross-family/release audit
-follows G41. These remaining contracts and the #516 release blocker stay OPEN.
+The bounded local B/D/E6/EE precedence slice is CLOSED under G38A. Full G38/G37
+remain PARTIAL pending inherited anchor/counter, next-pattern entry and residual
+bounds/restart decisions; then G39, G40 and G41. Cold live selected-order planning
+[#516](https://github.com/syncomm/voodootrackerx/issues/516) stays assigned after G41.
+The integrated planning/memory/UI/CI and cross-family/release audit follows G41. These remaining contracts and the #516 release blocker stay OPEN.
 
 ### Current target / exit gate
 

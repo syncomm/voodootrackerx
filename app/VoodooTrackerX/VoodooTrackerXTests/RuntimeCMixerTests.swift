@@ -3,6 +3,73 @@ import AudioToolbox
 import CoreAudio
 import XCTest
 
+/// Mixed pending traversal commands must reach the native core at the planned physical frame.
+final class TraversalPrecedenceRuntimeTests: XCTestCase {
+    func testOrderedLoopDelayAndJumpDeliveryKeepExactPCMFramesAndGenerations() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let song = fixture(linear: linear)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let plan = try XCTUnwrap(runtime.plan)
+            XCTAssertEqual(plan.diagnostics.rowMappings.map(\.source.rowIndex), [0, 1, 2, 1, 2, 3, 1, 2, 3])
+            XCTAssertEqual(plan.diagnostics.rowMappings.map(\.source.orderIndex), [0, 0, 0, 0, 0, 0, 2, 2, 2])
+            let end = Int(plan.diagnostics.rowTiming.last!.rowEndExactFrame)
+            let config = MixerRenderConfig(sampleRate: rate)
+            let expected = PlaybackSongOfflineRenderer(preparedPlan: plan)
+                .render(.init(song: song, config: config, frames: end))
+            try expected.controlAdmission.requireSuccess()
+            for blockSize in [17, 4093] {
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 4096,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float](), frame = 0
+                let births = runtime.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+                XCTAssertEqual(births.map(\.scheduledFrame), plan.diagnostics.rowTiming.map(\.rowStartFrame))
+                for birth in births {
+                    while frame < birth.scheduledFrame {
+                        let count = min(blockSize, birth.scheduledFrame - frame)
+                        pcm += renderRuntimePCM(core, frames: count); frame += count
+                    }
+                    pcm += renderRuntimePCM(core, frames: 1); frame += 1
+                    let index = try XCTUnwrap(birth.activeEventIndex)
+                    let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: index))
+                    XCTAssertTrue(voice.active)
+                    XCTAssertEqual(voice.samplePosition, plan.pattern.events[index].playbackStep, accuracy: 1e-12)
+                }
+                while frame < end {
+                    let count = min(blockSize, end - frame)
+                    pcm += renderRuntimePCM(core, frames: count); frame += count
+                }
+                XCTAssertEqual(pcm, expected.block.interleavedPCM)
+                let delivered = core.drainAppliedAdapterEventDiagnostics()
+                XCTAssertTrue(delivered.allSatisfy { $0.eventFrameDelta == 0 })
+                let ordered = RuntimeCMixerAdapterEventStorage(events: runtime.events).ordering
+                    .map { runtime.events[$0.eventIndex] }.filter { $0.scheduledFrame < end }
+                XCTAssertEqual(delivered.map { $0.event.id }, ordered.map(\.id))
+                XCTAssertEqual(Set(runtime.events.map(\.id)).count, runtime.events.count)
+            }
+        } }
+    }
+
+    private func fixture(linear: Bool) -> PlaybackSong {
+        func c(_ effect: UInt8 = 0, _ parameter: UInt8 = 0, note: UInt8 = 0) -> PlaybackCell {
+            .init(note: note, instrument: note == 0 ? 0 : 1, volumeColumn: 0, effectType: effect, effectParam: parameter)
+        }
+        var first = (0..<4).map { [c(note: UInt8(49 + 2 * $0)), c(), c(), c()] }
+        first[2][1] = c(14, 0x61); first[2][2] = c(14, 0xE1)
+        first[3][1] = c(13, 2); first[3][2] = c(11, 2); first[3][3] = c(14, 0xE2)
+        let plain = (0..<4).map { [c(note: UInt8(49 + 2 * $0)), c(), c(), c()] }
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+            pcm: (0..<256).map { Float(($0 * 37 + 29) % 127 - 63) / 256 }, volume: 0.75,
+            panning: 128, relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 256, loopType: 1)
+        return PlaybackSong(title: "Original traversal runtime control",
+            orders: (0..<3).map { .init(orderIndex: $0, patternIndex: $0) },
+            patternsByIndex: Dictionary(uniqueKeysWithValues: [first, plain, plain].enumerated().map { index, cells in
+                (index, .init(index: index, rows: cells.enumerated().map { .init(index: $0.offset, cells: $0.element) }))
+            }), instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+    }
+}
+
 /// Ordinary held rows keep the native render core on the planner's actual tick clock.
 final class PatternDelayRuntimeTests: XCTestCase {
     func testDenseEEFControlsReachTheNativeRuntimeAtTheirExactFrames() throws {

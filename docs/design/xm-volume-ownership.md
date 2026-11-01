@@ -531,9 +531,13 @@ is the semantic reference.
 | `x & 4` | Suppress instrument-trigger phase reset |
 | `x & 8` | Ignored; `8...F` alias `0...7` |
 
-A narrow raw phase observer follows `4xy`/`6xy` for the ramp quirk without
-changing the existing pitch planner. Deferred volume-column vibrato remains
-deferred; the observer does not imply support for it. Ordinary explicit instrument triggers reset phase
+G39A consumes the canonical vibrato phase reached by Ax/Bx/4xy/6xy. For Bx
+alongside 7xy, it projects each invocation from the canonical row-end phase by
+removing only later Bx executions at the fixed shared speed. Actual elapsed EEx
+ticks participate; G10's two ordered pitch requests remain unchanged. Legacy
+observer fields retain frozen reset/diagnostic evidence with no audible authority.
+See [the bounded contract](../ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
+Ordinary explicit instrument triggers reset phase
 using the previous control before a same-cell `E7x` write. A note alone does
 not reset tremolo phase. Note-off and `K00` preserve phase; the existing
 volume-column tone-portamento priority still takes precedence over `K00`.

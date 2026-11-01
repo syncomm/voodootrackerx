@@ -312,6 +312,7 @@ extension PlaybackSongSyntheticAdapter {
         if state.vibratoControl?.retriggerSuppressed != true { state.vibratoPhase = 0 }
     }
 
+    /// Preserves frozen legacy diagnostics; audible tremolo reads canonical vibratoPhase.
     static func advanceTremoloVibratoObserver(cell: PlaybackCell, rowSpeed: Int, state: inout ChannelState) {
         guard rowSpeed > 1, cell.effectType == 0x04 || cell.effectType == 0x06 else { return }
         let speed = Int(cell.effectParam >> 4)
@@ -338,8 +339,14 @@ extension PlaybackSongSyntheticAdapter {
                 channelIndex: channelIndex, syntheticRow: syntheticRow, tick: tick, rowSpeed: timingConfig.speed,
                 timingPlan: timingPlan, state: &state, globalVolume: globalVolume))
             let before = state
+            // Pitch dispatch has reached row end. Alongside 7xy only Bx advances
+            // vibrato, at fixed shared speed; undo its later invocations to read
+            // this tick after Bx. NOTE_OFF retains the existing no-Bx dispatch.
+            let remainingBxTicks = cell.volumeColumn >> 4 == 0xB && cell.note != 97
+                ? timingConfig.actualTickCount - 1 - tick : 0
+            let vibratoPhase = (state.vibratoPhase - remainingBxTicks * state.vibratoSpeed * 4) & 255
             let delta = tremoloDelta(phase: state.tremolo.phase, depth: state.tremolo.depth,
-                                     control: state.tremolo.control, vibratoPhase: state.tremoloVibratoPhase)
+                                     control: state.tremolo.control, vibratoPhase: vibratoPhase)
             let unclamped = state.baseChannelVolume + delta
             state.outputChannelVolume = clampedVolumeValue(unclamped)
             state.tremolo.phase = (state.tremolo.phase + state.tremolo.speed * 4) & 255
@@ -347,7 +354,7 @@ extension PlaybackSongSyntheticAdapter {
                 baseVolume: state.baseChannelVolume, outputVolume: state.outputChannelVolume,
                 sampleVolume: state.activeSampleVolume, speed: state.tremolo.speed, depth: state.tremolo.depth,
                 control: state.tremolo.control, phaseBefore: before.tremolo.phase, phaseAfter: state.tremolo.phase,
-                vibratoPhase: state.tremoloVibratoPhase, delta: delta, clamped: unclamped != state.outputChannelVolume
+                vibratoPhase: vibratoPhase, delta: delta, clamped: unclamped != state.outputChannelVolume
             )
             updates.append(voiceStateUpdateDiagnostic(
                 source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, syntheticTick: tick,

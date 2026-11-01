@@ -166,8 +166,15 @@ bounded contracts; they do not establish full command or audible parity.
 - Rerun the final closure matrix and pass the composition, playback, listening,
   and performance release gate; then establish the effects/backend freeze.
 
-The bounded G38 traversal contract is CLOSED under G38A/G38B. Next are G39,
-G40 and G41; full G37 remains PARTIAL. Cold live selected-order planning
+The bounded G38 traversal contract is CLOSED under G38A/G38B. G39A is CLOSED
+for the qualified bounded post-merge phase-consumption contract. Gregory accepted
+all seven listening files; review, arm64 CI and merge remain required.
+G39 remains PARTIAL. Next is G39B's separately
+bounded Linear native-word output-range contract, then remaining integrated
+G39 output/lifecycle and qualification gates before G40 and G41. Full G37 remains
+PARTIAL. See the
+[G39 contracts and owners](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
+Cold live selected-order planning
 [#516](https://github.com/syncomm/voodootrackerx/issues/516) stays assigned after G41.
 The integrated planning/memory/UI/CI and cross-family/release audit follows G41. These remaining contracts and the #516 release blocker stay OPEN.
 

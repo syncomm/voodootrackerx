@@ -377,6 +377,15 @@ host.
   start-aware planning under [#516](https://github.com/syncomm/voodootrackerx/issues/516).
   G39, G40 and G41 precede #516 and the integrated planning/memory/performance,
   CI, offline/runtime-safety and cross-family release audits before backend freeze.
+- G39A is CLOSED for the qualified bounded post-merge ramp-tremolo phase
+  contract: every invocation consumes canonical vibrato phase, including Bx
+  history, ordered Bx/4xy/6xy and within-row Bx/7xy crossings through EEx.
+  Legacy diagnostic snapshots, pitch/source identity, G05/G21 output ownership
+  and the 96 G38B protected pairs remain exact. Gregory accepted all seven
+  listening files; review, arm64 CI and merge remain required.
+  [G39 remains PARTIAL](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range):
+  G39B owns the unchanged Linear output-range difference before G30 conversion;
+  remaining integrated interactions precede separately sequenced G40/G41/#516.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

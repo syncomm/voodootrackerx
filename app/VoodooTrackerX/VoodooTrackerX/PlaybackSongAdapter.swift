@@ -192,8 +192,8 @@ enum PlaybackSongSyntheticAdapter {
         var vibratoOutputLinearPeriod: Double?
         var vibratoOutputAmigaPeriod: Double?
         var tremolo = TremoloState()
-        // FT2's ramp tremolo reads the sign of the vibrato phase. This observer
-        // serves that quirk only; it does not change the existing pitch planner.
+        // Frozen legacy diagnostic projection, independent of audible output.
+        // Tremolo consumes the canonical vibratoPhase with an exact-tick projection.
         var tremoloVibratoPhase = 0
         var tremoloVibratoSpeed = 0
         var tremoloVibratoControl = 0

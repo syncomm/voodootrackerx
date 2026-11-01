@@ -44,6 +44,7 @@ An FT2-inert byte can be closed while an audible extension for that byte is NOT-
 
 | Bounded behavior | Class | Current evidence and boundary |
 | --- | --- | --- |
+| G39A Bx-fed ramp-tremolo phase consumption | CLOSED, bounded post-merge contract | [BxTremoloPhaseTests](../tests/vtx_render_bounded_xm/BxTremoloPhaseTests.swift) and pinned native invocation traces qualify canonical phase consumption after Ax/Bx/4xy/6xy, including both ordered G10 executions and same-row Bx/7xy crossings. Both modes/rates, resets/delay/silent routes, Fxx/EEx, cuts/retriggers, exact source/pitch chronology, whole/window/split/stream, actual CoreAudio PCM16 and unchanged Release ceilings pass. Legacy diagnostic snapshots and all 96 G38B WAV/complete-JSON pairs stay exact. Gregory accepted all seven listening files; review, arm64 CI and merge remain required. G39B and remaining G39 integration stay open. |
 | G01 sample-header/channel-volume ownership | CLOSED | [XMVolumeOwnershipTests](../tests/vtx_render_bounded_xm/XMVolumeOwnershipTests.swift), note-only and runtime cursor controls: header 0/16/64 initializes/restores defaults; song output consumes them once. Exact mapped zero-header PCM stays active while silent and later Cxx reveals its continuing cursor; empty/unrepresented routes stay source-less and preview policy is unchanged. Both-rate constant-source controls match settled FT2 levels within `6e-8`, with exact VTX runtime/whole/window agreement. |
 | G02 new-source onset | CLOSED, bounded 5 ms contract | [Onset contract](design/xm-reset-output-ramp.md#g02-new-source-onset), `NewSourceOnsetTests`, original `new-source-onset.xm` and accepted [PR #509](https://github.com/syncomm/voodootrackerx/pull/509): independent incoming `k/N` output preserves scheduled birth and continuous cursor, with zero first output, midpoint 0.5 and unity at age 240/220 at 48/44.1 kHz. Qualified tests/CI and Gregory's independent listening acceptance close this contract. G03 outgoing retirement and G21 offline E9/Rxy retirement have separate bounded closures; no universal FT2 PCM-equality claim. |
 | G03 displaced-song-source retirement | CLOSED, bounded 5 ms contract | [Retirement contract](design/xm-reset-output-ramp.md#g03-same-channel-outgoing-source-retirement), `SongSourceRetirementTests`, extended R02/runtime controls and accepted [PR #510](https://github.com/syncomm/voodootrackerx/pull/510): current-value `1-k/N` output has one immutable deadline per outgoing generation, preserving physical pitch/cursor and G02's independent incoming attack. Both rates/modes, distinct signed sources, rapid generations, exact continuation, bounded pooling and pinned first/interior/endpoint convention are covered. Green CI and Gregory's October 26, 2026 listening acceptance close this contract. G21 closes offline E9/Rxy retirement separately below. The qualified 48 kHz VTX musical-study numerical difference is classified separately below; broader host/offline qualification remains OPEN and #512's fixed strict Float32 failure stays distinct. G05 is closed separately; generic non-XM 32-frame ramps are unchanged. |
@@ -135,9 +136,39 @@ the audible-factor closure does not resolve or justify them.
 | Volume-Lxx loop/end positioning | KNOWN-REFERENCE-DIFFERENCE | Requested/next position can differ at or beyond loop end. | Independently authored loop control in [G31's retained boundaries](design/xm-reset-output-ramp.md#g31-bounded-volume-envelope-q8-arithmetic); arithmetic closure does not close positioning. | S; separate volume-Lxx contract before Phase 2 freeze |
 | Cold volume before a nonzero first point | KNOWN-REFERENCE-DIFFERENCE | VTX emits the first value while the pinned reference starts at zero. | Public numeric control starts at tick 3/value 48; ticks 0...2 remain VTX `48/64` versus reference zero. | S; separate initialization/admission question |
 | G37 E6x implicit initial loop start | PARTIAL; G37A INITIAL/DEFAULT-ORIGIN SLICE CLOSED | Initial/default-origin runtime and direct cold selected-range adapter/offline behavior are qualified; live cold selected-order/row planning remains OPEN. | [ImplicitPatternLoopTests](../tests/vtx_render_bounded_xm/ImplicitPatternLoopTests.swift) and runtime controls preserve G37A chronology/source/finite guards. G38B closes pattern-local anchor/counter and natural-entry policy above. Direct cold results do not qualify the eager live plan: [#516](https://github.com/syncomm/voodootrackerx/issues/516) owns start-aware planning after G41, before release/freeze. | T |
-| G39 full 4xy/6xy/7xy audible interactions and range boundaries | PARITY-WATCH | Supported integer modulation remains subject to output scaling/ramp and trigger/cut/edge behavior. | V/6/TR; no missing tremolo parent and no renewed 6xy timing gap. | S, O, F; G01–G05/G30 as applicable |
+| G39 full 4xy/6xy/7xy audible interactions and range boundaries | PARTIAL | Bounded G39A phase consumption is closed above. G39B owns the unchanged Linear native-word range difference; remaining G39 integration owns broader combined output coverage below. | V/6/TR; closed integer engines, G10 ordered executions and 6xy timing remain protected. | G39B Linear output range; then G39 integrated interaction qualification |
 | G40 static 8xx / header pan law | KNOWN-REFERENCE-DIFFERENCE | Noncenter stereo amplitudes differ under current profile laws; exact panning state is already supported. | 8/PA; retained profile-law boundary; compare endpoints/interior and PE factor together before closure. | O; none missing |
 | G41 9xx/900 and sample loop/end boundaries | PARITY-WATCH | Valid offsets, memory and loops are supported; boundary source retirement/interpolation can affect attacks and tails. | Z command occurrences; existing synthetic offset/loop tests. No fresh exhaustive FT2 boundary oracle. | S; N when replacement overlaps |
+
+### G39 phase consumption and remaining range
+
+G39A consumes canonical vibrato phase at each ramp-tremolo invocation. With
+speed 6/BPM 125, C-4/instrument 1 with column A8, then B8, E71 and 748 reaches
+row 3/tick 1 at frame 16758/18240 at 44.1/48 kHz: phase 160 gives output 63
+from base 32 in both FT2 and VTX. Mixed Bx+400/600 preserves both ordered
+executions and reaches phase 224; concurrent Bx+748 reads phase 128 at tick 4
+and outputs 51. The projection removes only later Bx invocations from the
+canonical row-end phase, using actual elapsed ticks through EEx. It leaves the
+pitch engine and its two ordered requests unchanged. Legacy observer fields
+remain frozen diagnostic evidence with no audible authority.
+
+Pinned native observations and original regressions qualify 904 tremolo
+invocations in 96 mode/rate controls. Source/pitch chronology, existing ordinary
+and quick output ramps, retained/retiring generations and complete protected
+JSON/PCM remain exact. Whole/window/split/stream, actual optimized CoreAudio,
+full suites and paired Release ceilings qualify this bounded phase contract.
+
+**G39B owns Linear vibrato output-range reconciliation.** Original reachable
+controls produce FT2 period 7863 versus VTX 7744, and native-word period 65485
+versus VTX 64.5. The difference is the existing vibrato-handler range guard,
+before unchanged G30 conversion, rather than G32 composition or G40 pan law.
+Changing this protected handler requires a separate bounded arithmetic contract;
+G39A leaves both witnesses and the complete pitch/conversion source files
+unchanged; no new range policy or numerical allowance is adopted.
+
+The G39 integration owner still owes combined envelope/global/G32/E3 output
+and lifecycle coverage beyond this phase-consumption slice, following G39B.
+Closed foundations above and G40/G41/#516 retain their existing boundaries.
 
 ### Decision inputs and current status
 

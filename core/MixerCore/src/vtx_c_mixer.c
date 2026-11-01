@@ -1468,8 +1468,9 @@ static VTXCMixerStatus vtx_c_mixer_ramp_down_voices_for_channel_tag_internal(
             voice->channel_tag != channel_tag) {
             continue;
         }
+        // A finite source can end before its retirement timer; inactive slots still need release.
         if (retirement_mode == VTX_C_MIXER_RETIRE_SONG &&
-            (voice->deactivate_after_gain_ramp || state->current_frame < voice->scheduled_start_frame)) {
+            ((voice->active && voice->deactivate_after_gain_ramp) || state->current_frame < voice->scheduled_start_frame)) {
             continue;
         }
         vtx_c_mixer_remove_voice_state_events_for_voice(state, voice_index);

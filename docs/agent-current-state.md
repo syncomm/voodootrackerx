@@ -343,7 +343,8 @@ host.
   generations at eligible dispatches. Both-mode/rate chronology, bounded delivery,
   protected no-EEx identities and actual-host frames are qualified. Bounded local
   EEx+B/D/E6 pending-position precedence is implemented under G38A below;
-  full G38 inheritance/restart policy remains PARTIAL. G21 retirement and the qualified musical-study numerical difference
+  G38B defines the bounded pattern-local and safe traversal policy. G21 retirement
+  and the qualified musical-study numerical difference
   have separate bounded contracts. Other baseline audio residuals remain OPEN;
   this does not claim universal FT2 PCM parity.
 - G36 E3x is CLOSED for the [bounded post-merge tone-output contract](design/xm-final-pitch-publication.md#g36-e3x-tone-output-glissando).
@@ -358,16 +359,24 @@ host.
   qualification preserves no-E3x controls and existing native capacity. Direct
   cold selected-range plans ignore earlier controls. Product live selected-order
   starts can inherit eager order-0 E3 state; #516 owns that OPEN integration.
-  Full G37, G38/G39/G40/G41 and the post-G41 integrated audit remain OPEN.
+  Full G37, G39/G40/G41 and the post-G41 integrated audit remain OPEN.
 - G38A is CLOSED for bounded channel-ordered B/D/local-E6 pending-row writes,
   per-channel local loop counters, short-pattern D00...D63 reset, and EE-held
   pending-position skips without another timing/planning owner. Both-mode/rate
   reference, source/frame, whole/window/stream and optimized actual-host checks
   qualify the slice; protected JSON/PCM and paired Release guardrails pass.
-  Full G38/G37 remain PARTIAL: executed inherited anchors/counters, stale next-pattern
-  pending rows, non-BCD/above-63 breaks and restart policy require decisions.
-  Direct cold adapter starts remain separate from live start-aware planning,
-  owned by [#516](https://github.com/syncomm/voodootrackerx/issues/516) after G41.
+- G38B closes the bounded G38 composition/traversal contract: each pattern uses
+  its own executed E60 anchor or implicit row 0 and independent channel counters;
+  natural advancement enters row 0. FT2's inherited numeric anchors/counters and
+  stale entry rows are intentional compatibility differences. G38A ordered
+  B/D/E6/EE precedence and finite guards remain qualified. Invalid B/BCD,
+  extended decimal D64...D99 and one-pass song-end behavior retain their safe
+  documented scope; long patterns remain supported. See
+  [the boundary policy](xm-effect-support.md#bounded-g38b-pattern-local-loop-and-traversal-policy).
+  Full G37 remains PARTIAL: direct cold adapter results do not close live
+  start-aware planning under [#516](https://github.com/syncomm/voodootrackerx/issues/516).
+  G39, G40 and G41 precede #516 and the integrated planning/memory/performance,
+  CI, offline/runtime-safety and cross-family release audits before backend freeze.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

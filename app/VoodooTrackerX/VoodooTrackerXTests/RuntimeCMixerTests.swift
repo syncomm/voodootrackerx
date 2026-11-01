@@ -267,27 +267,47 @@ final class PatternDelayRuntimeTests: XCTestCase {
     }
 }
 
-/// Repeated G37A visits enter the existing runtime schedule as distinct cursor-zero generations.
+/// G37A/G38B pattern-local visits enter the existing runtime schedule as distinct generations.
 final class ImplicitPatternLoopRuntimeTests: XCTestCase {
     func testImplicitLoopBirthFramesCursorAndPCMMatchWholeOffline() throws {
-        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for boundary in 0..<4 {
             let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
                 pcm: (0..<256).map { Float(($0 * 37 + 29) % 127 - 63) / 256 }, volume: 0.75,
                 panning: 128, relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 256, loopType: 1)
             let rows = (0..<4).map { row in PlaybackRow(index: row, cells: [PlaybackCell(
                 note: UInt8(49 + row * 2), instrument: 1, volumeColumn: 0,
-                effectType: row == 2 ? 14 : 0, effectParam: row == 2 ? 0x61 : 0)]) }
-            let song = PlaybackSong(title: "Original G37A runtime control", orders: [.init(orderIndex: 0, patternIndex: 0)],
-                patternsByIndex: [0: .init(index: 0, rows: rows)],
+                effectType: row == 2 ? 14 : 0, effectParam: row == 2 ? 0x61 : 0),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]) }
+            var first = rows
+            let plain = rows.map { PlaybackRow(index: $0.index, cells: $0.cells.map {
+                PlaybackCell(note: $0.note, instrument: $0.instrument, volumeColumn: 0, effectType: 0, effectParam: 0)
+            }) }
+            if boundary == 1 || boundary == 3 {
+                var anchor = first[1].cells
+                anchor[0] = PlaybackCell(note: 51, instrument: 1, volumeColumn: 0, effectType: 14, effectParam: 0x60)
+                first[1] = .init(index: 1, cells: anchor)
+                if boundary == 1 { first[2] = plain[2] }
+            } else if boundary == 2 {
+                first[1] = .init(index: 1, cells: [
+                    PlaybackCell(note: 51, instrument: 1, volumeColumn: 0, effectType: 14, effectParam: 0x61),
+                    PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 11, effectParam: 1)])
+            }
+            let patterns = boundary == 0 ? [rows] : [first, boundary == 3 ? plain : rows]
+            let expectedRows = boundary == 0 ? [0, 1, 2, 0, 1, 2, 3]
+                : boundary == 1 ? [0, 1, 2, 3, 0, 1, 2, 0, 1, 2, 3]
+                : boundary == 2 ? [0, 1, 0, 1, 2, 0, 1, 2, 3] : [0, 1, 2, 1, 2, 3, 0, 1, 2, 3]
+            let song = PlaybackSong(title: "Original G37A/G38B runtime control",
+                orders: patterns.indices.map { .init(orderIndex: $0, patternIndex: $0) },
+                patternsByIndex: Dictionary(uniqueKeysWithValues: patterns.enumerated().map { ($0.offset, .init(index: $0.offset, rows: $0.element)) }),
                 instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
                 restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
             let plan = try XCTUnwrap(runtime.plan), config = MixerRenderConfig(sampleRate: rate)
-            let frames = (0..<7).map { $0 * 6 * Int(rate / 50) }, end = 42 * Int(rate / 50)
+            let frames = expectedRows.indices.map { $0 * 6 * Int(rate / 50) }, end = expectedRows.count * 6 * Int(rate / 50)
             let births = runtime.events.filter { if case .noteTrigger = $0.action { return true }; return false }
             XCTAssertEqual(births.map(\.scheduledFrame), frames)
-            XCTAssertEqual(births.map(\.activeEventIndex), (0..<7).map(Optional.some))
-            XCTAssertEqual(births.map(\.source.rowIndex), [0, 1, 2, 0, 1, 2, 3])
+            XCTAssertEqual(births.map(\.activeEventIndex), expectedRows.indices.map(Optional.some))
+            XCTAssertEqual(births.map(\.source.rowIndex), expectedRows)
             let expected = PlaybackSongOfflineRenderer(preparedPlan: plan)
                 .render(.init(song: song, config: config, frames: end)).block.interleavedPCM
             for block in [17, 4093] {
@@ -316,9 +336,9 @@ final class ImplicitPatternLoopRuntimeTests: XCTestCase {
                 XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
                 let triggered = applied.filter { if case .noteTrigger = $0.event.action { return true }; return false }
                 XCTAssertEqual(triggered.map { $0.event.id }, births.map(\.id))
-                XCTAssertEqual(triggered.map { $0.event.activeEventIndex }, (0..<7).map(Optional.some))
+                XCTAssertEqual(triggered.map { $0.event.activeEventIndex }, expectedRows.indices.map(Optional.some))
             }
-        } }
+        } } }
     }
 }
 

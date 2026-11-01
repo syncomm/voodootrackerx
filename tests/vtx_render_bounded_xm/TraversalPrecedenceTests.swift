@@ -113,6 +113,26 @@ final class TraversalPrecedenceTests: XCTestCase {
         } }
     }
 
+    func testExtendedAndMalformedBreaksRetainTheirExistingSafePolicy() {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            for (parameter, length, destination): (UInt8, Int, Int) in [
+                (0x1A, 100, 0), (0xA1, 100, 0), (0xFF, 100, 0),
+                (0x64, 100, 64), (0x70, 100, 70), (0x99, 100, 99),
+                (0x64, 4, 3), (0x99, 4, 3), (0x63, 4, 0)
+            ] {
+                let target = Array(repeating: [c(note: 56)], count: length)
+                let input = song([rows(1, commands: [c(13, parameter)]), target], linear: linear)
+                let plan = adapt(input, rate)
+                XCTAssertEqual(plan.diagnostics.rowMappings[1].source.rowIndex, destination)
+                XCTAssertEqual(plan.diagnostics.rowMappings.count, 1 + length - destination)
+                XCTAssertFalse(plan.diagnostics.traversalGuardHit)
+                XCTAssertEqual(plan.diagnostics.traversalStopReason, .songEnd)
+                XCTAssertEqual(plan.diagnostics.traversalDiagnostics.first?.status,
+                    parameter == 0x1A || parameter >= 0xA0 ? .invalidTarget : (length == 4 ? .outOfRange : .applied))
+            }
+        } }
+    }
+
     func testHeldPatternEdgeAndLastEEZeroClearOnlyThePendingHold() throws {
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             for delay: UInt8 in [1, 2] {

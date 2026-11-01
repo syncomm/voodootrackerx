@@ -2,7 +2,7 @@ import Foundation
 @testable import VoodooTrackerXPlaybackSupport
 import XCTest
 
-/// Original cells/PCM pin G37A; inherited anchors deliberately retain unresolved G38 behavior.
+/// Original cells/PCM pin G37A initial state and G38B pattern-local composition.
 final class ImplicitPatternLoopTests: XCTestCase {
     func testInitialE61AndE62ExactVisitsTicksSourcesAndExhaustion() throws {
         for linear in [true, false] { for rate in [44_100.0, 48_000] { for count: UInt8 in [1, 2] {
@@ -46,29 +46,70 @@ final class ImplicitPatternLoopTests: XCTestCase {
         } }
     }
 
-    func testInheritedAnchorsStayHeldAndHistoryBelongsOnlyToItsExecutedChannel() throws {
+    func testEarlierPatternsCannotSuppressTheCurrentPatternsImplicitOrigin() throws {
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             for completedLoop in [false, true] {
                 let first = rows(completedLoop ? 1 : nil, anchor: 1)
                 let plan = adapt(song([first, rows()], linear: linear), rate)
                 let prefix = completedLoop ? [0, 1, 2, 1, 2, 3] : [0, 1, 2, 3]
-                // FT2 carries row 1, and after a completed loop can even enter the next order at 1.
-                // G37A preserves VTX's row-zero entry and missing-start refusal for both G38 witnesses.
-                try assertTimeline(plan, rows: prefix + [0, 1, 2, 3],
-                    orders: Array(repeating: 0, count: prefix.count) + [1, 1, 1, 1], rate: rate)
-                let held = try XCTUnwrap(plan.diagnostics.traversalDiagnostics.first(where: \.missingLoopStart))
-                XCTAssertEqual(held.source.orderIndex, 1)
-                XCTAssertNil(held.loopStartRowIndex)
-                XCTAssertEqual(held.policy, "missing_e60_loop_start_diagnosed_no_loop")
+                // FT2 inherits numeric row 1; VTX starts this reusable pattern at 0
+                // and gives its unanchored E61 an independent row-0 origin.
+                try assertTimeline(plan, rows: prefix + [0, 1, 2, 0, 1, 2, 3],
+                    orders: Array(repeating: 0, count: prefix.count) + Array(repeating: 1, count: 7), rate: rate)
+                XCTAssertFalse(plan.diagnostics.traversalDiagnostics.contains(where: \.missingLoopStart))
+                XCTAssertEqual(plan.diagnostics.traversalDiagnostics.last(where: \.loopTaken)?.loopStartRowIndex, 0)
             }
             let mixed = adapt(song([rows(nil, anchor: 1), rows(1, owner: 1), rows()], linear: linear), rate)
-            try assertTimeline(mixed, rows: [0, 1, 2, 3] + [0, 1, 2, 0, 1, 2, 3] + [0, 1, 2, 3],
-                orders: [0, 0, 0, 0] + Array(repeating: 1, count: 7) + [2, 2, 2, 2], rate: rate)
-            XCTAssertEqual(mixed.diagnostics.traversalDiagnostics.filter(\.loopTaken).map(\.channelIndex), [1])
-            XCTAssertEqual(mixed.diagnostics.traversalDiagnostics.filter(\.missingLoopStart).map(\.channelIndex), [0])
+            try assertTimeline(mixed, rows: [0, 1, 2, 3] + [0, 1, 2, 0, 1, 2, 3] + [0, 1, 2, 0, 1, 2, 3],
+                orders: [0, 0, 0, 0] + Array(repeating: 1, count: 7) + Array(repeating: 2, count: 7), rate: rate)
+            XCTAssertEqual(mixed.diagnostics.traversalDiagnostics.filter(\.loopTaken).map(\.channelIndex), [1, 0])
+            XCTAssertFalse(mixed.diagnostics.traversalDiagnostics.contains(where: \.missingLoopStart))
             let selected = PlaybackSongSyntheticAdapter.adapt(song([rows(nil, anchor: 1), rows()], linear: linear),
                 startOrderIndex: 1, orderCount: 1, sampleRate: rate)
             try assertTimeline(selected, rows: [0, 1, 2, 0, 1, 2, 3], orders: Array(repeating: 1, count: 7), rate: rate)
+        } }
+    }
+
+    func testRowOneE64EntryUsesImplicitZeroBeforeAnyLocalE60Executes() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            var bridge = rows(nil, anchor: 1), later = rows(nil)
+            bridge[0] = [cell(11, 1, note: 49), cell(13, 1)]
+            later[1][0] = cell(14, 0x64, note: 51)
+            let input = song([bridge, later], linear: linear)
+            // B01/D01 enters row 1 with cold loop state; the earlier E60 is unplayed.
+            // This is a traversal test, not a fix for live selected-row planning (#516).
+            let plan = adapt(input, rate)
+            try assertTimeline(plan, rows: [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 2, 3],
+                orders: [0] + Array(repeating: 1, count: 11), rate: rate)
+            XCTAssertEqual(plan.diagnostics.traversalDiagnostics.filter(\.loopTaken).map(\.loopRemaining), [3, 2, 1, 0])
+            let cold = PlaybackSongSyntheticAdapter.adapt(input, startOrderIndex: 1, orderCount: 1, sampleRate: rate)
+            try assertTimeline(cold, rows: [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 2, 3],
+                orders: Array(repeating: 1, count: 12), rate: rate)
+        } }
+    }
+
+    func testUnfinishedCounterCannotEscapeIntoAnotherPatternOrReusedOrder() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            var first = rows(nil)
+            first[1] = [cell(14, 0x61, note: 51), cell(11, 1)]
+            let plan = adapt(song([first, rows()], orders: [0, 1, 1], linear: linear), rate)
+            let repeated = [0, 1, 2, 0, 1, 2, 3]
+            try assertTimeline(plan, rows: [0, 1] + repeated + repeated,
+                orders: [0, 0] + Array(repeating: 1, count: 7) + Array(repeating: 2, count: 7), rate: rate,
+                patterns: [0, 0] + Array(repeating: 1, count: 14))
+            XCTAssertEqual(plan.diagnostics.traversalDiagnostics.filter(\.loopTaken).map(\.loopRemaining), [0, 0, 0])
+        } }
+    }
+
+    func testCompletedLoopKeepsNaturalAndExplicitNextPatternFirstNote() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            for transition: UInt8 in [0, 11, 13] {
+                var first = rows(1, anchor: 1)
+                first[3][1] = cell(transition, transition == 11 ? 1 : 0)
+                let plan = adapt(song([first, rows(nil)], linear: linear), rate)
+                try assertTimeline(plan, rows: [0, 1, 2, 1, 2, 3, 0, 1, 2, 3],
+                    orders: Array(repeating: 0, count: 6) + Array(repeating: 1, count: 4), rate: rate)
+            }
         } }
     }
 
@@ -101,9 +142,10 @@ final class ImplicitPatternLoopTests: XCTestCase {
     }
 
     func testWholeSplitWindowAndBothStreamingPathsKeepExactRepeatedPCM() throws {
-        for linear in [true, false] { for rate in [44_100.0, 48_000] {
-            let input = song([rows()], linear: linear), plan = adapt(input, rate)
-            let frames = 42 * Int(rate / 50)
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for earlierAnchor in [false, true] {
+            let input = song(earlierAnchor ? [rows(nil, anchor: 1), rows()] : [rows()], linear: linear)
+            let plan = adapt(input, rate)
+            let frames = Int(try XCTUnwrap(plan.diagnostics.rowTiming.last).rowEndExactFrame)
             let request = PlaybackSongOfflineRenderRequest(song: input, config: .init(sampleRate: rate), frames: frames)
             let renderer = PlaybackSongOfflineRenderer(preparedPlan: plan), full = renderer.render(request)
             XCTAssertEqual(full.block.frameCount, frames)
@@ -127,7 +169,7 @@ final class ImplicitPatternLoopTests: XCTestCase {
                 boundaries: [1, 18 * Int(rate / 50), 18 * Int(rate / 50) + 1, 36 * Int(rate / 50) + 17]).block.interleavedPCM,
                 full.block.interleavedPCM)
             #endif
-        } }
+        } } }
     }
 
     func testFiniteRepeatGrowthAndPathologicalTraversalKeepExistingCeiling() {

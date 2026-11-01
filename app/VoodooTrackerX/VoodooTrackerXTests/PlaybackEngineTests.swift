@@ -4,6 +4,120 @@ import XCTest
 
 final class PlaybackEngineTests: XCTestCase {
     @MainActor
+    func testAutomaticStopReportsFaultPublishedBetweenPollAndQuiescenceOnce() {
+        for path in 0..<3 {
+            let audio = QuiescingAdmissionFailureAudioOutput()
+            let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false)
+            engine.load(song: makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 1],
+                initialTiming: PlaybackTiming(speed: 1, bpm: 125)))
+            engine.play(from: nil)
+            audio.armed = true
+            var reports = 0
+            engine.playbackDidFail = { _ in
+                XCTAssertEqual(engine.state, .stopped)
+                XCTAssertEqual(audio.stopCount, 1)
+                reports += 1
+            }
+            if path == 0 { engine.advanceOneTick() }
+            if path == 1 { engine.finishRuntimeCMixerSongEndTailForTesting() }
+            if path == 2 { engine.stopFromDebugTimer() }
+            engine.advanceOneTick()
+            XCTAssertEqual(reports, 1)
+            engine.playbackDidFail = nil
+        }
+    }
+
+    @MainActor
+    func testRuntimeAdmissionFailureStopsOnceBeforeNotificationAndRecoversInBothTransportModes() {
+        for loopEnabled in [false, true] {
+            let (engine, audio, sample) = makeAdmissionFailurePlayback(loopEnabled: loopEnabled)
+            var failures = [RuntimeCMixerAdmissionFault]()
+            var stopCount = 0
+            engine.playbackDidStop = { stopCount += 1 }
+            engine.playbackDidFail = { fault in
+                XCTAssertTrue(Thread.isMainThread)
+                XCTAssertEqual(engine.state, .stopped)
+                XCTAssertEqual(audio.snapshotForTesting().loadedVoiceCount, 0)
+                XCTAssertEqual(stopCount, 1)
+                failures.append(fault)
+            }
+            exhaustRuntimeAdmissionCapacity(audio, sample: sample)
+            audio.configureRuntimeAdapterEventPlan(.make(song: makeRuntimeAdapterPlaybackSong(patternIndex: 0),
+                sampleRate: audio.audioBufferSampleRate), generationMS: nil, timingSession: nil)
+            audio.resetRuntimeAdapterEventConsumption()
+
+            engine.advanceOneTick()
+            engine.advanceOneTick()
+            engine.publishRuntimeCMixerHeldFollowPositionForTesting()
+
+            XCTAssertEqual(failures.count, 1)
+            XCTAssertEqual(failures.first?.reason, .voiceCapacity)
+            XCTAssertEqual(failures.first?.loaded, 256)
+            XCTAssertEqual(stopCount, 1)
+            engine.play(from: nil)
+            XCTAssertEqual(engine.state.mode, .playing)
+            XCTAssertTrue(audio.renderForTesting(frameCount: 16).contains { $0 != 0 })
+            XCTAssertNil(audio.consumeRuntimeAdmissionFailure())
+            engine.playbackDidFail = nil
+            engine.stop()
+        }
+    }
+
+    @MainActor
+    func testRuntimeAdmissionFailureSurvivesHeldTailAndNaturalStopWithFollowAndDiagnosticsDisabled() {
+        for naturalStop in [false, true] {
+            let (engine, audio, sample) = makeAdmissionFailurePlayback(
+                rowCount: 1,
+                environment: [RuntimeCMixerDiagnosticEnvironment.disableFollowPublicationEnvironmentKey: "1"]
+            )
+            var failures = [RuntimeCMixerAdmissionFault]()
+            engine.playbackDidFail = { failures.append($0) }
+            engine.advanceOneTick()
+            XCTAssertTrue(engine.isRuntimeCMixerSongEndStopPendingForTesting)
+            XCTAssertEqual(engine.state.mode, .playing)
+            exhaustRuntimeAdmissionCapacity(audio, sample: sample)
+
+            if naturalStop {
+                engine.finishRuntimeCMixerSongEndTailForTesting()
+            } else {
+                engine.publishRuntimeCMixerHeldFollowPositionForTesting()
+            }
+            engine.finishRuntimeCMixerSongEndTailForTesting()
+
+            XCTAssertEqual(engine.state, .stopped)
+            XCTAssertFalse(engine.isRuntimeCMixerSongEndStopPendingForTesting)
+            XCTAssertEqual(failures.count, 1)
+            XCTAssertEqual(failures.first?.reason, .voiceCapacity)
+        }
+    }
+
+    @MainActor
+    func testRuntimeAdmissionFailureExplicitStopAndDocumentReplacementRetireOldGeneration() {
+        for replaceDocument in [false, true] {
+            let (engine, audio, sample) = makeAdmissionFailurePlayback()
+            var failures = [RuntimeCMixerAdmissionFault]()
+            engine.playbackDidFail = { failures.append($0) }
+            exhaustRuntimeAdmissionCapacity(audio, sample: sample)
+            if replaceDocument {
+                engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 7))
+            } else {
+                engine.stop()
+            }
+            // Already queued timer work must not report an explicitly retired generation.
+            engine.advanceOneTick()
+            engine.publishRuntimeCMixerHeldFollowPositionForTesting()
+            engine.play(from: nil)
+            engine.advanceOneTick()
+
+            XCTAssertTrue(failures.isEmpty)
+            XCTAssertEqual(engine.state.mode, .playing)
+            XCTAssertTrue(audio.renderForTesting(frameCount: 16).contains { $0 != 0 })
+            XCTAssertNil(audio.consumeRuntimeAdmissionFailure())
+            engine.stop()
+        }
+    }
+
+    @MainActor
     func testPlaybackTimingTraceDisabledByDefaultEmitsNoLines() {
         let sink = TestPlaybackTimingTraceSink()
         let clock = TestPlaybackTimingTraceClock()
@@ -2306,6 +2420,56 @@ final class PlaybackEngineTests: XCTestCase {
             PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0),
             PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)
         ])
+    }
+}
+
+@MainActor
+private func makeAdmissionFailurePlayback(
+    rowCount: Int = 2,
+    loopEnabled: Bool = false,
+    environment: [String: String] = [:]
+) -> (PlaybackEngine, RuntimeCMixerAudioEngine, PlaybackSample) {
+    let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 4_096), baseSampleRate: 44_100)
+    let audio = RuntimeCMixerAudioEngine(
+        callbackDiagnostics: .init(minimalCallbackMode: true, outputBufferVerificationEnabled: false),
+        startsOutputHostOnDemand: false
+    )
+    let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+        runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler(), environment: environment)
+    engine.load(song: makePlaybackSong(
+        orderPatternIndices: [0], patternRowCounts: [0: rowCount],
+        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+        note: 49, instrument: 1, initialTiming: PlaybackTiming(speed: 1, bpm: 125)
+    ))
+    engine.play(from: nil, loopEnabled: loopEnabled, timingSession: nil)
+    _ = audio.renderForTesting(frameCount: 1)
+    return (engine, audio, sample)
+}
+
+@MainActor
+private func exhaustRuntimeAdmissionCapacity(_ audio: RuntimeCMixerAudioEngine, sample: PlaybackSample) {
+    for channel in 1...256 {
+        audio.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: channel))
+    }
+    XCTAssertEqual(audio.snapshotForTesting().loadedVoiceCount, 256)
+}
+
+@MainActor
+private final class QuiescingAdmissionFailureAudioOutput: PlaybackAudioOutput, RuntimeCMixerAdmissionFailureConsuming {
+    let audioBufferSampleRate = 44_100.0
+    var armed = false
+    var stopCount = 0
+    func trigger(_ request: AudioVoiceRequest) {}
+    func update(channel: Int, controls: AudioChannelControls) {}
+    func stop(channel: Int) {}
+    func stopAll() { stopCount += 1; armed = false }
+    func reset() { armed = false }
+    func consumeRuntimeAdmissionFailure() -> RuntimeCMixerAdmissionFault? { nil }
+    func quiesceOutputAndConsumeAdmissionFailure() -> RuntimeCMixerAdmissionFault? {
+        guard armed else { return nil }
+        armed = false
+        return RuntimeCMixerAdmissionFault(generation: 1, reason: .voiceCapacity, plannedFrame: 0, actualFrame: 0,
+            eventID: 256, eventIndex: 256, channel: 0, order: 0, pattern: 0, row: 0, loaded: 256, active: 256, ramping: 0)
     }
 }
 

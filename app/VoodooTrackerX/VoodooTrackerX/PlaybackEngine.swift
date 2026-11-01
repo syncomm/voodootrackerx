@@ -207,6 +207,7 @@ final class PlaybackEngine: PlaybackTransport {
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
+    var playbackDidFail: ((RuntimeCMixerAdmissionFault) -> Void)?
     var runtimeAdapterPlanDidUpdate: (() -> Void)?
 
     var runtimeAdapterPlanDurationSeconds: TimeInterval? {
@@ -528,6 +529,8 @@ final class PlaybackEngine: PlaybackTransport {
         apply(action: action, nextState: PlaybackState(mode: .playing, context: context))
         timingSession?.recordPhase("playback_engine_apply_transport_state", startedAt: transportStateStart)
 
+        guard !serviceRuntimeCMixerAdmissionFailure() else { return }
+
         let songEndStopStart = timingSession?.beginPhase()
         scheduleRuntimeCMixerSongEndStopIfNeeded()
         timingSession?.recordPhase("playback_engine_schedule_runtime_song_end_stop", startedAt: songEndStopStart)
@@ -582,6 +585,7 @@ final class PlaybackEngine: PlaybackTransport {
                 fields: [PlaybackTimingTraceField("starts_realtime_timer", startsRealtimeTimer)]
             )
             apply(action: .play, nextState: PlaybackState(mode: .playing, context: state.context))
+            guard !serviceRuntimeCMixerAdmissionFailure() else { return resolvedStart.position }
             scheduleRuntimeCMixerSongEndStopIfNeeded()
         } else {
             publishPlaybackFollowPosition(timerPosition: resolvedStart.position, tickInRow: 0, allowBackendOverride: false)
@@ -622,12 +626,15 @@ final class PlaybackEngine: PlaybackTransport {
         cancelRuntimeCMixerFollowTimer()
         cancelRuntimeCMixerSongEndStop()
         cancelEditablePatternLoopRefresh(reason: "transport_stop")
+        let automaticStop = reason == "planned_song_end" || reason == "runtime_song_end_tail" || reason == "debug_stop_after_seconds"
+        // A callback can fail after the service poll; quiesce before consuming and resetting.
+        let finalAdmissionFault = !resetAudio && automaticStop
+            ? (audioEngine as? RuntimeCMixerAdmissionFailureConsuming)?.quiesceOutputAndConsumeAdmissionFailure()
+            : nil
         if resetAudio {
             audioEngine.reset()
         } else {
-            let audioStopReason = reason == "planned_song_end" || reason == "runtime_song_end_tail" || reason == "debug_stop_after_seconds"
-                ? reason
-                : "transport_stop"
+            let audioStopReason = automaticStop || reason == "runtime_mixer_admission_failure" ? reason : "transport_stop"
             stopAllAudio(
                 context: runtimeTraceContext(at: positionBeforeStop, tickInRow: tickInRowBeforeStop, channelIndex: nil),
                 reason: audioStopReason
@@ -664,6 +671,7 @@ final class PlaybackEngine: PlaybackTransport {
         if notify, wasActive {
             playbackDidStop?()
         }
+        if let finalAdmissionFault { playbackDidFail?(finalAdmissionFault) }
     }
 
     func pause() {
@@ -1163,6 +1171,7 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func advanceOneTick() {
+        guard !serviceRuntimeCMixerAdmissionFailure() else { return }
         guard state.isPlaying,
               let song,
               let position = currentPosition else {
@@ -1224,16 +1233,31 @@ final class PlaybackEngine: PlaybackTransport {
             Self.runtimeCMixerSongEndTransportStopGraceSeconds
         runtimeCMixerSongEndStopPending = true
         guard stopSeconds > 0 else {
-            stop(action: .stop, reason: "runtime_song_end_tail")
+            finishRuntimeCMixerSongEndTail()
             return
         }
         runtimeCMixerSongEndStopTimer = Timer.scheduledTimer(withTimeInterval: stopSeconds, repeats: false) { [weak self] _ in
             Task { @MainActor in
-                self?.runtimeCMixerSongEndStopTimer = nil
-                self?.runtimeCMixerSongEndStopPending = false
-                self?.stop(action: .stop, reason: "runtime_song_end_tail")
+                self?.finishRuntimeCMixerSongEndTail()
             }
         }
+    }
+
+    private func finishRuntimeCMixerSongEndTail() {
+        guard !serviceRuntimeCMixerAdmissionFailure() else { return }
+        runtimeCMixerSongEndStopTimer = nil
+        runtimeCMixerSongEndStopPending = false
+        stop(action: .stop, reason: "runtime_song_end_tail")
+    }
+
+    /// Services faults on the existing main cadence, independently of tracing and follow publication.
+    private func serviceRuntimeCMixerAdmissionFailure() -> Bool {
+        guard let consumer = audioEngine as? RuntimeCMixerAdmissionFailureConsuming,
+              let fault = consumer.consumeRuntimeAdmissionFailure() else { return false }
+        // Stop the host and retire the failed generation before any alert can enter a modal run loop.
+        stop(action: .stop, reason: "runtime_mixer_admission_failure")
+        playbackDidFail?(fault)
+        return true
     }
 
     private func holdTransportForRuntimeCMixerSongEndTailIfNeeded() -> Bool {
@@ -1276,6 +1300,7 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     private func publishRuntimeCMixerHeldFollowPosition() {
+        guard !serviceRuntimeCMixerAdmissionFailure() else { return }
         guard runtimeCMixerSongEndStopPending,
               state.isPlaying,
               let position = currentPosition ?? currentPublishedFollowPosition?.position else {
@@ -1292,6 +1317,10 @@ final class PlaybackEngine: PlaybackTransport {
 #if DEBUG
     func publishRuntimeCMixerHeldFollowPositionForTesting() {
         publishRuntimeCMixerHeldFollowPosition()
+    }
+
+    func finishRuntimeCMixerSongEndTailForTesting() {
+        finishRuntimeCMixerSongEndTail()
     }
 #endif
 

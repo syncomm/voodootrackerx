@@ -4,6 +4,23 @@ import Darwin
 import Foundation
 import Synchronization
 
+/// First native admission failure, retained until the stopped transport resets its generation.
+struct RuntimeCMixerAdmissionFault: Equatable {
+    let generation: UInt64
+    let reason: CSoftwareMixerVoiceAdmissionFailure
+    let plannedFrame: Int
+    let actualFrame: UInt64
+    let eventID: Int
+    let eventIndex: Int
+    let channel: Int
+    let order: Int
+    let pattern: Int
+    let row: Int
+    let loaded: Int
+    let active: Int
+    let ramping: Int
+}
+
 struct RuntimeCMixerRenderSnapshot: Equatable {
     let sampleRate: Double
     let channelCount: Int
@@ -1041,6 +1058,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     static let callbackBurstScratchCapacity = 128
 
     private let lock = NSLock()
+    private let admissionSilenced = Atomic(false)
+    private var admissionGeneration: UInt64 = 1
+    private var admissionFault: RuntimeCMixerAdmissionFault?
+    private var admissionFaultConsumed = false
     private let callbackLockAttemptCounter = Atomic(UInt64(0))
     private let callbackLockFailureCounter = Atomic(UInt64(0))
     private let callbackActiveRenderDepth = Atomic(UInt64(0))
@@ -1447,13 +1468,40 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         captureBuffer?.reset()
     }
 
+    /// Main-side consumption is once per generation and never reopens callback audio.
+    func consumeAdmissionFault() -> RuntimeCMixerAdmissionFault? {
+        guard admissionSilenced.load(ordering: .acquiring) else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        guard let fault = admissionFault, fault.generation == admissionGeneration,
+              !admissionFaultConsumed else { return nil }
+        admissionFaultConsumed = true
+        return fault
+    }
+
+    private func latchAdmissionFailureLocked(
+        _ reason: CSoftwareMixerVoiceAdmissionFailure, channel: Int,
+        eventIndex: Int = -1, eventID: Int = -1, plannedFrame: Int? = nil,
+        source: PlaybackPosition? = nil
+    ) {
+        guard admissionFault == nil else { return }
+        admissionFault = RuntimeCMixerAdmissionFault(
+            generation: admissionGeneration, reason: reason,
+            plannedFrame: plannedFrame ?? Int(clamping: mixer.currentFrame), actualFrame: mixer.currentFrame,
+            eventID: eventID, eventIndex: eventIndex, channel: channel,
+            order: source?.orderIndex ?? -1, pattern: source?.patternIndex ?? -1, row: source?.rowIndex ?? -1,
+            loaded: mixer.loadedVoiceCount, active: mixer.activeVoiceCount, ramping: mixer.rampingOutVoiceCount)
+        // Publish after the complete scalar record. Lock-fallback readers need only this sticky gate.
+        admissionSilenced.store(true, ordering: .releasing)
+    }
+
     @discardableResult
     func trigger(_ request: AudioVoiceRequest) -> Bool {
         triggerWithDiagnostics(request).succeeded
     }
 
     @discardableResult
-    func triggerWithDiagnostics(_ request: AudioVoiceRequest) -> RuntimeCMixerTriggerResult {
+    func triggerWithDiagnostics(_ request: AudioVoiceRequest, source: PlaybackPosition? = nil) -> RuntimeCMixerTriggerResult {
         let invalidReason: String?
         guard request.sample.isPlayable,
               request.note > 0,
@@ -1487,6 +1535,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
 
         let snapshotBefore = snapshotLocked()
+        guard admissionFault == nil else {
+            return RuntimeCMixerTriggerResult(succeeded: false, reason: "mixer_admission_failed",
+                newVoiceIndex: nil, snapshotBefore: snapshotBefore, snapshotAfter: snapshotBefore,
+                channelStopBeforeAdd: nil)
+        }
         let replacementRampBeforeAdd = rampDownReplacementChannelLocked(
             request.channel,
             reason: "note_replacement_stop_channel"
@@ -1510,7 +1563,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             pitchOffsetSemitones: effectiveControlState.pitchOffsetSemitones
         ) ?? 1
 
-        let voiceIndex = mixer.addVoice(
+        let admission = mixer.addVoiceWithResult(
             sample: MixerSampleBuffer(monoPCM: request.sample.pcm),
             gain: initialGain,
             pan: initialPan,
@@ -1519,6 +1572,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             initialSourceFrame: request.sampleStartOffset,
             sourceOnsetElapsedFrames: 0
         )
+        guard let voiceIndex = admission.voiceIndex else {
+            latchAdmissionFailureLocked(admission.failure ?? .invalidArgument, channel: request.channel, source: source)
+            return RuntimeCMixerTriggerResult(succeeded: false, reason: "mixer_admission_failed",
+                newVoiceIndex: nil, snapshotBefore: snapshotBefore, snapshotAfter: snapshotBefore,
+                channelStopBeforeAdd: nil)
+        }
         mixer.setChannelTag(request.channel, forVoiceAt: voiceIndex)
         voiceStateByChannel[request.channel] = RuntimeCMixerChannelVoiceState(
             voiceIndex: voiceIndex,
@@ -1581,7 +1640,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private func triggerAdapterEventWithDiagnosticsLocked(
         _ event: SyntheticTrackerEvent,
         eventIndex: Int,
-        mapping: PlaybackSongSyntheticEventMapping
+        mapping: PlaybackSongSyntheticEventMapping,
+        eventID: Int = -1,
+        plannedFrame: Int? = nil
     ) -> RuntimeCMixerTriggerResult {
         let invalidReason: String?
         guard event.sample.frameCount > 0,
@@ -1623,6 +1684,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
 
         let snapshotBefore = snapshotLocked()
+        guard admissionFault == nil else {
+            return RuntimeCMixerTriggerResult(succeeded: false, reason: "mixer_admission_failed",
+                newVoiceIndex: nil, snapshotBefore: snapshotBefore, snapshotAfter: snapshotBefore,
+                channelStopBeforeAdd: nil)
+        }
         let replacementRampBeforeAdd = rampDownReplacementChannelLocked(
             mapping.channelIndex,
             reason: "note_replacement_stop_channel"
@@ -1632,7 +1698,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             plannedStartFrame: event.scheduledStartFrame ?? 0,
             runtimeStartFrame: Int(mixer.currentFrame)
         )
-        let voiceIndex = mixer.addVoice(
+        let admission = mixer.addVoiceWithResult(
             sample: event.sample,
             gain: event.gain,
             pan: event.pan,
@@ -1645,6 +1711,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             fadeoutFrameDecrement: event.fadeoutFrameDecrement,
             sourceOnsetElapsedFrames: 0
         )
+        guard let voiceIndex = admission.voiceIndex else {
+            latchAdmissionFailureLocked(admission.failure ?? .invalidArgument, channel: mapping.channelIndex,
+                eventIndex: eventIndex, eventID: eventID, plannedFrame: plannedFrame, source: mapping.source)
+            return RuntimeCMixerTriggerResult(succeeded: false, reason: "mixer_admission_failed",
+                newVoiceIndex: nil, snapshotBefore: snapshotBefore, snapshotAfter: snapshotBefore,
+                channelStopBeforeAdd: nil)
+        }
         mixer.setChannelTag(mapping.channelIndex, forVoiceAt: voiceIndex)
         adapterVoiceStateByEventIndex[eventIndex] = RuntimeCMixerAdapterVoiceState(
             voiceIndex: voiceIndex,
@@ -2864,6 +2937,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             )
             return false
         }
+        if admissionFault != nil {
+            clear(outputInterleavedPCM)
+            captureOutputLocked(outputInterleavedPCM, frameCount: safeFrameCount)
+            return true
+        }
         let callbackEndFrame = callbackStartFrame.addingReportingOverflow(UInt64(safeFrameCount)).overflow
             ? UInt64.max
             : callbackStartFrame + UInt64(safeFrameCount)
@@ -3046,15 +3124,17 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             if let callbackThread {
                 eventQueueConsumerThreadDiagnostics = callbackThread
             }
+            var completedEndIndex = burstStartIndex
             for eventIndex in burstStartIndex..<burstEndIndex {
-                let diagnostic = applyQueuedAdapterEventLocked(
+                guard let diagnostic = applyQueuedAdapterEventLocked(
                     adapterEventSchedule[eventIndex],
                     callbackIndex: callbackIndex,
                     callbackRequestedFrameCount: frameCount,
                     callbackStartFrame: callbackStartFrame,
                     callbackEndFrame: callbackEndFrame,
                     sameFrameBurstSize: sameFrameBurstSize
-                )
+                ) else { break }
+                completedEndIndex = eventIndex + 1
                 if burstDiagnosticCount < burstDiagnosticScratch.count {
                     burstDiagnosticScratch[burstDiagnosticCount] = diagnostic
                     burstDiagnosticCount += 1
@@ -3067,14 +3147,21 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 burstDiagnosticCount: burstDiagnosticCount,
                 burstID: burstFrame <= UInt64(Int.max) ? Int(burstFrame) : Int.max,
                 burstStartIndex: burstStartIndex,
-                burstEndIndex: burstEndIndex,
+                burstEndIndex: completedEndIndex,
                 stateBefore: burstStateBefore,
                 stateAfter: burstStateAfter
             )
             for index in 0..<burstDiagnosticCount {
                 burstDiagnosticScratch[index] = nil
             }
-            nextAdapterEventScheduleIndex = burstEndIndex
+            nextAdapterEventScheduleIndex = completedEndIndex
+            if admissionFault != nil {
+                // Frames before the failed birth are already valid; never render the failed frame.
+                let firstSilentSample = renderedFrames * mixer.config.channelCount
+                let endSample = frameCount * mixer.config.channelCount
+                for index in firstSilentSample..<endSample { outputInterleavedPCM[index] = 0 }
+                return
+            }
             if nextAdapterEventScheduleIndex >= adapterEventSchedule.count,
                adapterEventLoopRange != nil {
                 _ = appendNextAdapterEventLoopIterationLocked()
@@ -3427,7 +3514,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         callbackStartFrame: UInt64,
         callbackEndFrame: UInt64,
         sameFrameBurstSize: Int
-    ) -> RuntimeCMixerAppliedAdapterEventDiagnostic {
+    ) -> RuntimeCMixerAppliedAdapterEventDiagnostic? {
         // Both stores and their descriptors are replaced/cleared together under the render lock.
         // The callback performs one bounded value lookup, with no new allocation or sorting.
         let event = adapterEvent(for: queuedEvent)
@@ -3437,6 +3524,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let inCallbackOffset = appliedFrame >= callbackStartFrame
             ? Int(min(UInt64(Int.max), appliedFrame - callbackStartFrame))
             : 0
+        let countsBefore = (latePlannedEventCount, exactFrameAppliedEventCount,
+            callbackBoundaryAppliedEventCount, appliedPlannedEventCount, maxPlannedVsAppliedDelta)
         let timing: String
         if queuedEvent.runtimeFrame < callbackStartFrame {
             timing = "late"
@@ -3458,11 +3547,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let result: RuntimeCMixerAppliedAdapterEventResult
         switch event.action {
         case let .noteTrigger(eventIndex, syntheticEvent, mapping):
-            result = .noteTrigger(triggerAdapterEventWithDiagnosticsLocked(
-                syntheticEvent,
-                eventIndex: eventIndex,
-                mapping: mapping
-            ))
+            let trigger = triggerAdapterEventWithDiagnosticsLocked(
+                syntheticEvent, eventIndex: eventIndex, mapping: mapping,
+                eventID: event.id, plannedFrame: queuedEvent.plannedRuntimeFrame)
+            guard admissionFault == nil else {
+                (latePlannedEventCount, exactFrameAppliedEventCount, callbackBoundaryAppliedEventCount,
+                    appliedPlannedEventCount, maxPlannedVsAppliedDelta) = countsBefore
+                return nil
+            }
+            result = .noteTrigger(trigger)
         case let .gainPanUpdate(activeEventIndex, gain, pan):
             result = .gainPanUpdate(applyAdapterGainPanUpdateWithDiagnosticsLocked(
                 channel: event.channelIndex,
@@ -3610,8 +3703,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         guard lock.try() else {
             callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
             callbackSkippedDiagnosticsDueToLockCounter.wrappingAdd(1, ordering: .relaxed)
-            if copyLastCallbackOutputToAudioBuffers(ioData: ioData, frameCount: safeFrameCount) {
+            if !admissionSilenced.load(ordering: .acquiring),
+               copyLastCallbackOutputToAudioBuffers(ioData: ioData, frameCount: safeFrameCount) {
                 callbackRenderedFromStaleSnapshotCounter.wrappingAdd(1, ordering: .relaxed)
+            }
+            if admissionSilenced.load(ordering: .acquiring) {
+                clear(ioData: ioData, frameCount: safeFrameCount)
             }
             return noErr
         }
@@ -3681,6 +3778,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         callbackBoundaryAppliedEventCount = 0
         latePlannedEventCount = 0
         maxPlannedVsAppliedDelta = 0
+        admissionGeneration &+= 1
+        admissionFault = nil
+        admissionFaultConsumed = false
+        // Host is stopped and the cached callback was invalidated above before reopening audio.
+        admissionSilenced.store(false, ordering: .releasing)
     }
 
     private func recordRealtimeCallbackSample(_ realtimeSample: RuntimeCMixerCallbackCounters.Sample) {

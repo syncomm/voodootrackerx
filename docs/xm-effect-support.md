@@ -297,10 +297,10 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `1xx` | Portamento up | Implemented | Partial; G27 in-range Amiga contract closed | Own; `100` supported | Both | Linear `4 * xx`, Amiga `16 * xx` subtraction per nonzero tick through the shared native-word arithmetic and G30A conversion. Corrected generic memory admission requires an executed nonzero tick; speed 1 neither seeds nor replaces history. Combined G30 closes the native minimum 1 (Amiga VTX 4), including the owned cold-100 signed-negative clamp without memory provenance. |
 | `2xx` | Portamento down | Implemented | Partial | Own; `200` supported | Both | Linear `4 * xx`, Amiga `16 * xx` in VTX's 4x representation. Same memory admission rule as `1xx`; speed 1 neither seeds nor replaces it. G30B closes the distinct signed-threshold boundary below. |
 | `3xx` | Tone portamento | Implemented | Partial | Shared with volume-column `Fx`; `300` target/speed supported | Both | No retrigger, target-clamped nonzero ticks and Amiga quantized targets are established. Targets, speed and period direction are independent channel state. Explicit 3xx/5xy/Fx target admission latches direction; equality installs none. Ordinary source/pitch changes retain it; 300/500/F0 consumes it. An executed clamp leaves higher-period direction, including a crossed-target clamp at implicit zero speed without memory provenance. G30B closes bounded extremes below; G36 closes bounded glissando output separately. |
-| `4xy` | Vibrato | Implemented | Partial | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay, Amiga wrap/zero-step hold and G10 shared volume-column dispatch are closed. G39B owns the characterized Linear output-range guard difference; full audible interactions remain G39. |
+| `4xy` | Vibrato | Implemented | Partial | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay, Amiga wrap/zero-step hold and G10 shared volume-column dispatch are closed. Bounded G39B native-word Linear output is closed; full audible interactions remain G39. |
 | `5xy` | Tone portamento + volume slide | Implemented | Partial; G28 Amiga composition closed | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Both | Amiga reuses 3xx progression plus the existing shared volume writer, including independent cold 500 execution and whole-byte replay. Same-cell ownership selects retained/empty defaults or cold initialization before explicit writers. Fxx/speed-1, exact routes and source/cursor carry are pinned. Combined G30 closes bounded extremes below; broader parent limitations remain separate. |
 | `6xy` | Vibrato + volume slide | Implemented | Partial | Shared `4xy` vibrato and `Axy`/`5xy`/`6xy` slide byte; `600` supported | Both | Vibrato then slide on ticks `1..<speed`; no tick-zero/speed-1 slide. Unseeded `600` restores base to output with zero amount and publishes against the held source target even when local values are unchanged. Timing/memory/local publication are closed; G39 remains. |
-| `7xy` | Tremolo | Implemented | Partial; bounded G39A phase consumption closed | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. G39A consumes canonical vibrato phase per invocation, including Bx history and same-row crossings, without changing G10 pitch requests or output cadence. G39B and broader G39 integration remain open; G01 removes duplicate header scaling. |
+| `7xy` | Tremolo | Implemented | Partial; bounded G39A phase consumption closed | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. G39A consumes canonical vibrato phase per invocation, including Bx history and same-row crossings, without changing G10 pitch requests or output cadence. Broader G39 integration remains open; bounded G39B Linear output is closed separately and G01 removes duplicate header scaling. |
 | `8xx` | Set panning | Implemented | Known difference | None | Not applicable | Exact tick-zero panning state exists. Final stereo pan law differs (G40); this is separate from E8 and pan envelopes. |
 | `9xx` | Sample offset | Implemented | Partial | Own; `900` supported | Not applicable | Same-cell source offset/memory exists; end/loop/offset boundaries remain G41. Safely skipping an out-of-range offset does not prove FT2 parity. |
 | `Axy` | Volume slide | Implemented | Closed G14 cold restoration and seeded replay | Shared with `5xy`/`6xy`; cold `A00` executes implicit zero without seeding | Not applicable | Nonzero-tick slides and cold base-to-output restoration use causal local publication. Speed 1 is inert; tremolo/E7 state and real seeded provenance are preserved. Broader output interactions remain separate. |
@@ -713,17 +713,27 @@ unless the previously stored control suppresses it. Note-only continuation
 does not reset phase; a same-cell `E4x` write occurs after the trigger reset.
 
 FT2 and VTX Linear periods have the same coordinates: C-4 is 4608 and an
-octave is 768 units. Output period is base period plus signed delta, with
-the existing Linear range guard. G30A converts that output period through
-shared reference-compatible Q16 step calculation, described above. Modulation
-never changes the base. Consecutive `4xy`/`6xy` rows hold output through tick 0; leaving the
-family restores the base. The public `vibrato-semantics.xm` fixture and
+octave is 768 units. Bounded G39B projects only temporary vibrato output into
+the native UInt16 word: truncate base storage, add the signed integer delta,
+then wrap modulo 65536. Nonfinite input is rejected by the unchanged converter.
+G30A converts that output through its existing Q16 calculation, including zero
+step/cursor hold. Modulation never changes the canonical base or portamento state.
+Consecutive `4xy`/`6xy` rows hold output through tick 0; leaving the family restores
+the base. The public `vibrato-semantics.xm` fixture and
 `VibratoFoundationTests` pin this contract against the
 [pinned FT2 replayer](https://github.com/8bitbubsy/ft2-clone/blob/87be42543dac82cf802b5bddad917bda62ace131/src/ft2_replayer.c#L1836-L1866).
 
 Note-only triggers restore the mapped note's pitch at tick zero without
-resetting modulation phase. Linear range-edge behavior is a characterized G39B
-gap: the current vibrato output guard differs from native-word reference output.
+resetting modulation phase. G39B is CLOSED for bounded Linear output: base
+7744 + 119 emits 7863; base 68 - 119 emits native word 65485. The existing
+row-exit path restores the canonical base when the corrected output requires it.
+[LinearVibratoNativeWordTests](../tests/vtx_render_bounded_xm/LinearVibratoNativeWordTests.swift)
+and both-rate native/host proofs pin periods, Q16 steps, exact frames, source
+identity/cursor, memory and partitioned delivery. All 96 G38B and 504 other
+unaffected inherited pairs remain byte-exact. Only eight named Linear low/upper
+Float32/PCM16 target pairs have independently qualified historical-byte changes;
+no frozen snapshot, tolerance or broad exception changes. Generic pitch bounds,
+G30 conversion, G32 composition and Amiga vibrato remain unchanged.
 G39A closes ramp-tremolo consumption of Bx-driven canonical phase, including
 mixed ordered executions and per-tick projection through held rows. See
 [the bounded contract and remaining qualification](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).

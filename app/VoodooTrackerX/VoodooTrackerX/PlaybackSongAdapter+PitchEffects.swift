@@ -2168,7 +2168,7 @@ extension PlaybackSongSyntheticAdapter {
                 guard let basePeriod, let beforePeriod = currentPeriod, let beforeStep = currentStep else { continue }
                 // FT2 and VTX Linear periods have identical sign and units (C-4=4608).
                 let modulatedPeriod = linear
-                    ? clampedLinearPeriod(basePeriod + Double(modulation.signedReferenceDelta))
+                    ? vibratoLinearPeriod(basePeriod: basePeriod, signedReferenceDelta: modulation.signedReferenceDelta)
                     : vibratoAmigaPeriod(basePeriod: basePeriod, signedReferenceDelta: modulation.signedReferenceDelta)
                 guard let step = step(for: modulatedPeriod) else {
                     status = .outOfRange
@@ -2229,6 +2229,14 @@ extension PlaybackSongSyntheticAdapter {
             currentPlaybackStepBefore: stepBefore, currentPlaybackStepAfter: channelState.activePlaybackStep,
             stepUpdates: updates, policy: policy
         )
+    }
+
+    /// Projects temporary Linear vibrato output through native integer storage without changing its base.
+    /// Fractional bases truncate before modulation; nonfinite input is rejected by the existing converter.
+    static func vibratoLinearPeriod(basePeriod: Double, signedReferenceDelta: Int) -> Double {
+        guard basePeriod.isFinite else { return .nan }
+        let baseWord = UInt16(truncatingIfNeeded: Int(basePeriod.truncatingRemainder(dividingBy: 65_536)))
+        return Double(baseWord &+ UInt16(truncatingIfNeeded: signedReferenceDelta))
     }
 
     /// Wraps in FT2's unsigned 16-bit period domain before returning to VTX's 4x domain.

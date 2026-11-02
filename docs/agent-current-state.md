@@ -382,10 +382,20 @@ host.
   history, ordered Bx/4xy/6xy and within-row Bx/7xy crossings through EEx.
   Legacy diagnostic snapshots, pitch/source identity, G05/G21 output ownership
   and the 96 G38B protected pairs remain exact. Gregory accepted all seven
-  listening files; review, arm64 CI and merge remain required.
+  listening files.
+- G39B is CLOSED for bounded Linear 4xy/6xy/Bx native-word output. Only temporary
+  modulation output wraps; canonical base/portamento, shared phase/memory/order,
+  G30 conversion, G32 publication, Amiga and source ownership remain unchanged.
+  Both-rate native periods/steps/frames, source/cursor and actual optimized
+  CoreAudio qualify the slice. All 600 unaffected inherited WAV/full-JSON pairs
+  remain exact; eight named Linear range-target artifacts have reference-qualified
+  changes, with original snapshots preserved. Full suites and paired Release
+  guardrails pass. Gregory reports no obvious anomaly in the audible studies.
+  Low-note listening was non-discriminating; native period/step, waveform and
+  host proofs qualify those cases. Independent review and merge remain pending.
   [G39 remains PARTIAL](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range):
-  G39B owns the unchanged Linear output-range difference before G30 conversion;
-  remaining integrated interactions precede separately sequenced G40/G41/#516.
+  integrated envelope/global/G32/E3 output and lifecycle qualification precede
+  separately sequenced G40/G41/#516. No backend freeze is claimed.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

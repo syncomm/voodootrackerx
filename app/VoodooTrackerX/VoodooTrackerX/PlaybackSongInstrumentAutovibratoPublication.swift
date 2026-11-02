@@ -263,11 +263,22 @@ extension PlaybackSongSyntheticAdapter {
         guard context.semanticPitchBuilder.automatic.valid else { return }
         builder.prepare(context: context, channelCount: channelCount, speed: timingConfig.actualTickCount,
             rowStartFrame: timingPlan.frameFor(row: row, tick: 0))
-        // Existing family order is physical authority. Each native intermediate
-        // receives the same tick delta; the final semantic value never replaces it.
-        for index in builder.rowIndices(context.tonePortamentoEffects, row: row, \.syntheticRow) {
+        // Preserve family order except the identified Bx-before-tone pair. Each
+        // native request receives the same delta; semantic output never replaces it.
+        let toneIndices = builder.rowIndices(context.tonePortamentoEffects, row: row, \.syntheticRow)
+        let vibratoIndices = builder.rowIndices(context.vibratoEffects, row: row, \.syntheticRow)
+        let bxTonePairs = PlaybackSongBxTonePairs(tone: context.tonePortamentoEffects,
+            vibrato: context.vibratoEffects, toneIndices: toneIndices, vibratoIndices: vibratoIndices)
+        for index in toneIndices {
             let command = context.tonePortamentoEffects[index]
             guard command.applied else { continue }
+            if let index = bxTonePairs.byTone[index] {
+                let bx = context.vibratoEffects[index]
+                let children = builder.rewrite(bx.stepUpdates,
+                    commandRow: bx.syntheticRow, channel: bx.channelIndex, generation: bx.activeEventIndex,
+                    row: row, rowSpeed: bx.rowSpeed, context: context)
+                context.vibratoEffects[index].stepUpdates = children
+            }
             let children = builder.rewrite(command.stepUpdates, commandRow: command.syntheticRow,
                 channel: command.channelIndex, generation: command.activeEventIndex, row: row,
                 rowSpeed: command.rowSpeed, context: context)
@@ -313,9 +324,9 @@ extension PlaybackSongSyntheticAdapter {
                 rowSpeed: command.rowSpeed, context: context)
             context.arpeggioEffects[index].stepUpdates = children
         }
-        for index in builder.rowIndices(context.vibratoEffects, row: row, \.syntheticRow) {
+        for index in vibratoIndices {
             let command = context.vibratoEffects[index]
-            guard command.applied else { continue }
+            guard command.applied, !bxTonePairs.vibratoIndices.contains(index) else { continue }
             let children = builder.rewrite(command.stepUpdates, commandRow: command.syntheticRow,
                 channel: command.channelIndex, generation: command.activeEventIndex, row: row,
                 rowSpeed: command.rowSpeed, context: context)

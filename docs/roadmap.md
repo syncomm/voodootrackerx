@@ -168,8 +168,9 @@ bounded contracts; they do not establish full command or audible parity.
 
 The bounded G38 traversal contract is CLOSED under G38A/G38B. G39A phase
 consumption and G39B Linear native-word output are CLOSED for their qualified
-bounded contracts. G39 remains PARTIAL. Remaining integrated envelope/global/
-G32/E3 output, lifecycle and qualification gates precede G40 and G41; G39B
+bounded contracts. Bounded G39D Bx + tone dispatch/delivery and the G32 physical
+ordinary-intent latch are CLOSED; G39 remains PARTIAL. Remaining integrated
+envelope/global/G32/E3 output, lifecycle and qualification gates precede G40 and G41; G39B
 neither broadens their scope nor establishes backend freeze. Full G37 remains
 PARTIAL. See the
 [G39 contracts and owners](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).

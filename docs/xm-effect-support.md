@@ -759,6 +759,14 @@ pure Bx holds its output; the established restoration on leaving effect-column
 [VolumeColumnVibratoTests](../tests/vtx_render_bounded_xm/VolumeColumnVibratoTests.swift)
 pin both modes, rates, silent routes, reset policy and whole/window/runtime carry.
 
+Bounded G39D closes Bx combined with effect-column 3xx/300 and 5xy/500:
+Bx advances memory/phase before each actual tone invocation, including a
+note-bearing target row. Separate Bx then tone physical requests preserve E3
+output and the G32 ordinary-intent latch across runtime/offline continuations.
+No-target/direction-none Bx retains its own output; source-less routes create no
+voice. Other 5xy volume arithmetic, G32 semantic policy and G39A/B stay unchanged.
+Parent G39 remains PARTIAL for the interrupted integrated G39C qualification.
+
 Ordinary note-bearing EDx/Bx executes Bx on the incoming channel/source through
 the delay tick, then on the admitted source after the existing trigger reset
 (or prior E4 suppression). The trigger supersedes the raw birth-tick Bx write

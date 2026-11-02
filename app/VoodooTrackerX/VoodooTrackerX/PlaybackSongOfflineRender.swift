@@ -1041,6 +1041,7 @@ final class PlaybackSongOfflineRenderSession {
     private func emitControls() {
         guard let mixer else { return }
         let voiceIndices = scheduledVoiceIndices
+        let pitchPairs = PlaybackSongBxTonePairs(tone: plan.diagnostics.tonePortamentoEffects, vibrato: plan.diagnostics.vibratoEffects)
         PlaybackSongOfflineRenderer.schedulePlaybackStateEvents(
             plan, voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: mixer, includedEventIndices: includedEventIndices, admission: controls)
@@ -1056,6 +1057,7 @@ final class PlaybackSongOfflineRenderSession {
             includedEventIndices: includedEventIndices, admission: controls)
         PlaybackSongOfflineRenderer.scheduleTonePortamentoStepUpdates(
             plan.diagnostics.tonePortamentoEffects,
+            pairedVibrato: plan.diagnostics.vibratoEffects, pairs: pitchPairs,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: mixer,
             includedEventIndices: includedEventIndices,
@@ -1091,7 +1093,7 @@ final class PlaybackSongOfflineRenderSession {
             includedEventIndices: includedEventIndices,
             sameChannelLifetime: sameChannelVoiceLifetime, admission: controls)
         PlaybackSongOfflineRenderer.scheduleVibratoStepUpdates(
-            plan.diagnostics.vibratoEffects,
+            plan.diagnostics.vibratoEffects, excluding: pitchPairs.vibratoIndices,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: mixer,
             includedEventIndices: includedEventIndices,
@@ -2056,6 +2058,9 @@ final class PlaybackSongOfflineRenderer {
                     windowStartFrame: spec.startFrame, admission: admission)
             }
             let usesScanReference = indexedBucket == nil
+            let pitchPairs = PlaybackSongBxTonePairs(
+                tone: usesScanReference ? adaptedPlan.diagnostics.tonePortamentoEffects : [],
+                vibrato: usesScanReference ? adaptedPlan.diagnostics.vibratoEffects : [])
             // The legacy calls remain a parity-test reference; production passes empty inputs after
             // consuming the ordered pre-indexed candidates above.
             Self.scheduleEnvelopePositionUpdates(
@@ -2074,6 +2079,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices, admission: admission)
             Self.scheduleTonePortamentoStepUpdates(
                 usesScanReference ? adaptedPlan.diagnostics.tonePortamentoEffects : [],
+                pairedVibrato: adaptedPlan.diagnostics.vibratoEffects, pairs: pitchPairs,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -2121,7 +2127,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices,
                 sameChannelLifetime: sameChannelLifetime, admission: admission)
             Self.scheduleVibratoStepUpdates(
-                usesScanReference ? adaptedPlan.diagnostics.vibratoEffects : [],
+                usesScanReference ? adaptedPlan.diagnostics.vibratoEffects : [], excluding: pitchPairs.vibratoIndices,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -2790,6 +2796,7 @@ final class PlaybackSongOfflineRenderer {
 
     fileprivate static func scheduleTonePortamentoStepUpdates(
         _ diagnostics: [PlaybackSongSyntheticTonePortamentoDiagnostic],
+        pairedVibrato: [PlaybackSongSyntheticVibratoDiagnostic], pairs: PlaybackSongBxTonePairs,
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
@@ -2803,6 +2810,13 @@ final class PlaybackSongOfflineRenderer {
                   includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
                 continue
+            }
+            if let index = pairs.byTone[parent] {
+                // Submit the original Bx selector first; C/staging still order by its real frame.
+                scheduleVibratoStepUpdates(pairedVibrato, only: index,
+                    voiceIndexByEventIndex: voiceIndexByEventIndex, on: mixer,
+                    windowStartFrame: windowStartFrame, windowEndFrame: windowEndFrame,
+                    includedEventIndices: includedEventIndices, sameChannelLifetime: sameChannelLifetime, admission: admission)
             }
             for (child, update) in diagnostic.stepUpdates.enumerated() {
                 guard update.scheduledFrame >= windowStartFrame,
@@ -2975,7 +2989,7 @@ final class PlaybackSongOfflineRenderer {
     }
 
     fileprivate static func scheduleVibratoStepUpdates(
-        _ diagnostics: [PlaybackSongSyntheticVibratoDiagnostic],
+        _ diagnostics: [PlaybackSongSyntheticVibratoDiagnostic], only: Int? = nil, excluding: Set<Int> = [],
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
@@ -2984,7 +2998,9 @@ final class PlaybackSongOfflineRenderer {
         sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil,
         admission: OfflineControlAdmission = .init()
     ) {
-        for (parent, diagnostic) in diagnostics.enumerated() where diagnostic.applied {
+        for parent in only.map({ $0..<($0 + 1) }) ?? diagnostics.indices {
+            let diagnostic = diagnostics[parent]
+            guard diagnostic.applied, !excluding.contains(parent) else { continue }
             guard let activeEventIndex = diagnostic.activeEventIndex,
                   includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
@@ -3480,9 +3496,13 @@ final class PlaybackSongOfflineRenderer {
         for eventIndex: Int,
         plan: PlaybackSongSyntheticPlan
     ) -> [PlaybackSongSyntheticTonePortamentoStepUpdate] {
-        let toneUpdates = plan.diagnostics.tonePortamentoEffects
-            .filter { $0.applied && $0.activeEventIndex == eventIndex }
-            .flatMap(\.stepUpdates)
+        let d = plan.diagnostics
+        let pairs = PlaybackSongBxTonePairs(tone: d.tonePortamentoEffects, vibrato: d.vibratoEffects)
+        var toneUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
+        for (index, tone) in d.tonePortamentoEffects.enumerated() where tone.applied && tone.activeEventIndex == eventIndex {
+            if let bx = pairs.byTone[index] { toneUpdates += d.vibratoEffects[bx].stepUpdates }
+            toneUpdates += tone.stepUpdates
+        }
         let slideUpdates = plan.diagnostics.portamentoSlideEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
@@ -3498,9 +3518,9 @@ final class PlaybackSongOfflineRenderer {
         let arpeggioUpdates = plan.diagnostics.arpeggioEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
-        let vibratoUpdates = plan.diagnostics.vibratoEffects
-            .filter { $0.applied && $0.activeEventIndex == eventIndex }
-            .flatMap(\.stepUpdates)
+        let vibratoUpdates = d.vibratoEffects.enumerated()
+            .filter { !pairs.vibratoIndices.contains($0.offset) && $0.element.applied && $0.element.activeEventIndex == eventIndex }
+            .flatMap { $0.element.stepUpdates }
         let automaticUpdates = plan.instrumentAutovibratoRequests.filter { $0.activeEventIndex == eventIndex }.map(\.stepUpdate)
         return (toneUpdates + slideUpdates + finePortamentoUpUpdates + finePortamentoDownUpdates + extraFinePortamentoUpdates + arpeggioUpdates + vibratoUpdates + automaticUpdates)
             .sorted { lhs, rhs in
@@ -3775,13 +3795,22 @@ final class PlaybackSongOfflineRenderer {
             }
             // Match the scan's family order; the stable sort keeps equal-frame/tick writers exact.
             let d = plan.diagnostics
-            for x in d.tonePortamentoEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            let pairs = PlaybackSongBxTonePairs(tone: d.tonePortamentoEffects, vibrato: d.vibratoEffects)
+            for (index, x) in d.tonePortamentoEffects.enumerated() {
+                if let bx = pairs.byTone[index] {
+                    let v = d.vibratoEffects[bx]
+                    append(v.stepUpdates, source: v.activeEventIndex, applied: v.applied)
+                }
+                append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied)
+            }
             for x in d.portamentoSlideEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
             for x in d.finePortamentoUpEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
             for x in d.finePortamentoDownEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
             for x in d.extraFinePortamentoEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
             for x in d.arpeggioEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
-            for x in d.vibratoEffects { append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied) }
+            for (index, x) in d.vibratoEffects.enumerated() where !pairs.vibratoIndices.contains(index) {
+                append(x.stepUpdates, source: x.activeEventIndex, applied: x.applied)
+            }
             for request in plan.instrumentAutovibratoRequests {
                 guard bySource.indices.contains(request.activeEventIndex) else { continue }
                 bySource[request.activeEventIndex].append(.init(frame: request.scheduledFrame,
@@ -4491,6 +4520,7 @@ final class PlaybackSongOfflineRenderer {
         windowEndFrame: Int? = nil
     ) -> [PlaybackSongWindowSchedulingUpdateCandidate] {
         var updates = [PlaybackSongWindowSchedulingUpdateCandidate]()
+        let pairs = PlaybackSongBxTonePairs(tone: plan.diagnostics.tonePortamentoEffects, vibrato: plan.diagnostics.vibratoEffects)
         func append(
             _ kind: PlaybackSongWindowSchedulingUpdateKind,
             diagnosticIndex: Int,
@@ -4523,8 +4553,15 @@ final class PlaybackSongOfflineRenderer {
             stepUpdates: (Diagnostic) -> [PlaybackSongSyntheticTonePortamentoStepUpdate]
         ) {
             for (diagnosticIndex, diagnostic) in diagnostics.enumerated() where isApplied(diagnostic) {
+                if kind == .vibratoStep && pairs.vibratoIndices.contains(diagnosticIndex) { continue }
                 guard let activeEventIndex = eventIndex(diagnostic) else {
                     continue
+                }
+                if kind == .tonePortamentoStep, let bx = pairs.byTone[diagnosticIndex] {
+                    for (child, update) in plan.diagnostics.vibratoEffects[bx].stepUpdates.enumerated() {
+                        append(.vibratoStep, diagnosticIndex: bx, childIndex: child,
+                            eventIndex: activeEventIndex, frame: update.scheduledFrame)
+                    }
                 }
                 for (childIndex, update) in stepUpdates(diagnostic).enumerated() {
                     append(

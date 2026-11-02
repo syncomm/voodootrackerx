@@ -1195,6 +1195,35 @@ enum PlaybackSongSyntheticTonePortamentoDirection: String, Equatable {
     }
 }
 
+/// Relates only represented Bx + effect-column tone invocations; children keep their causal indices.
+struct PlaybackSongBxTonePairs {
+    private struct Key: Hashable { let row: Int, channel: Int, generation: Int }
+    var byTone = [Int: Int]()
+    var vibratoIndices = Set<Int>()
+
+    init(tone: [PlaybackSongSyntheticTonePortamentoDiagnostic], vibrato: [PlaybackSongSyntheticVibratoDiagnostic],
+         toneIndices: Range<Int>? = nil, vibratoIndices: Range<Int>? = nil) {
+        var candidates = [Key: Int]()
+        for index in vibratoIndices ?? vibrato.indices {
+            let command = vibrato[index]
+            guard command.applied, command.effectType == 3 || command.effectType == 5,
+                  let generation = command.activeEventIndex else { continue }
+            candidates[Key(row: command.syntheticRow, channel: command.channelIndex, generation: generation)] = index
+        }
+        guard !candidates.isEmpty else { return }
+        for index in toneIndices ?? tone.indices {
+            let command = tone[index]
+            guard command.applied, command.commandSource == .effectColumn,
+                  command.effectType == 3 || command.effectType == 5,
+                  let generation = command.activeEventIndex,
+                  let paired = candidates[Key(row: command.syntheticRow, channel: command.channelIndex, generation: generation)],
+                  vibrato[paired].source == command.source else { continue }
+            byTone[index] = paired
+            self.vibratoIndices.insert(paired)
+        }
+    }
+}
+
 struct PlaybackSongSyntheticTonePortamentoDiagnostic: Equatable {
     enum Status: Equatable {
         case applied

@@ -392,10 +392,16 @@ host.
   changes, with original snapshots preserved. Full suites and paired Release
   guardrails pass. Gregory reports no obvious anomaly in the audible studies.
   Low-note listening was non-discriminating; native period/step, waveform and
-  host proofs qualify those cases. Independent review and merge remain pending.
+  host proofs qualify those cases.
   [G39 remains PARTIAL](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range):
   integrated envelope/global/G32/E3 output and lifecycle qualification precede
   separately sequenced G40/G41/#516. No backend freeze is claimed.
+- G39D closes bounded Bx + 3xx/5xy dispatch and ordered physical delivery.
+  Bx runs before tone on each real nonzero tick; final tone output owns the G32
+  physical ordinary-intent latch on later automatic-only ticks. Both causal
+  requests, semantic publication, source/cursor and unrelated ordering remain
+  independent. Both-mode/rate native/host/partition and protected-output gates
+  qualify the slice; parent G39 remains PARTIAL pending integrated G39C work.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

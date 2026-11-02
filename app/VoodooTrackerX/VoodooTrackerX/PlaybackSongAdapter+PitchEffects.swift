@@ -2092,7 +2092,8 @@ extension PlaybackSongSyntheticAdapter {
         restoreAtRowEnd: Bool = false,
         channelState: inout ChannelState,
         executionTicks: Range<Int>? = nil,
-        executeSemanticPitch: Bool = false
+        executeSemanticPitch: Bool = false,
+        precedingInvocations: PlaybackSongSyntheticVibratoDiagnostic? = nil
     ) -> PlaybackSongSyntheticVibratoDiagnostic {
         let combined = isVibratoVolumeSlideEffect(cell)
         let effectVibrato = isVibratoEffect(cell) || combined
@@ -2115,7 +2116,7 @@ extension PlaybackSongSyntheticAdapter {
         let outputPeriodBefore = (linear ? channelState.vibratoOutputLinearPeriod : channelState.vibratoOutputAmigaPeriod) ?? basePeriod
         let stepBefore = channelState.activePlaybackStep
         let semanticPitch = executeSemanticPitch && basePeriod != nil && stepBefore != nil && channelState.activeSampleBaseSampleRate != nil
-        var updates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
+        var updates = precedingInvocations?.stepUpdates ?? []
         var status: PlaybackSongSyntheticVibratoDiagnostic.Status = .applied
         var policy = combined ? "6xy_ft2_vibrato_plus_tick_volume_slide" : "ft2_integer_vibrato_linear_period"
         if !linear && !combined { policy = "ft2_integer_vibrato_wrapped_amiga_period" }
@@ -2223,10 +2224,10 @@ extension PlaybackSongSyntheticAdapter {
             speedMemorySource: speedMemorySource, depthMemorySource: depthMemorySource,
             memoryUnavailableReason: nil,
             volumeSlide: combined ? resolved6xyVolumeSlide(from: cell, rowSpeed: timingConfig.speed, channelState: channelState) : nil,
-            phaseBefore: Double(phaseBefore), phaseAfter: Double(channelState.vibratoPhase),
-            currentLinearPeriodBefore: linear ? outputPeriodBefore : nil,
+            phaseBefore: precedingInvocations?.phaseBefore ?? Double(phaseBefore), phaseAfter: Double(channelState.vibratoPhase),
+            currentLinearPeriodBefore: precedingInvocations?.currentLinearPeriodBefore ?? (linear ? outputPeriodBefore : nil),
             currentLinearPeriodAfter: linear ? (channelState.vibratoOutputLinearPeriod ?? basePeriod) : nil,
-            currentPlaybackStepBefore: stepBefore, currentPlaybackStepAfter: channelState.activePlaybackStep,
+            currentPlaybackStepBefore: precedingInvocations?.currentPlaybackStepBefore ?? stepBefore, currentPlaybackStepAfter: channelState.activePlaybackStep,
             stepUpdates: updates, policy: policy
         )
     }
@@ -2438,7 +2439,8 @@ extension PlaybackSongSyntheticAdapter {
         sampleSelectedAfter: Int? = nil,
         targetPitchSample: PlaybackSample? = nil,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil,
-        executionTicks: Range<Int>? = nil
+        executionTicks: Range<Int>? = nil,
+        beforeTick: ((Int, inout ChannelState) -> Void)? = nil
     ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
         let volumeColumnTonePortamentoAmount: Int?
         if case let .tonePortamento(amount) = volumeColumn?.command {
@@ -2781,7 +2783,7 @@ extension PlaybackSongSyntheticAdapter {
                 pitchTonePeriod(current, target: target, nativeSpeed: 0,
                     direction: channelState.tonePortamentoDirection, linear: !activeUsesAmigaFrequencyTable) == target
         } } ?? false
-        guard speed > 0 || speed == 0 && zeroSpeedClamp else {
+        guard speed > 0 || speed == 0 && zeroSpeedClamp || beforeTick != nil else {
             return tonePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -2912,10 +2914,19 @@ extension PlaybackSongSyntheticAdapter {
             directionAtExecution = channelState.tonePortamentoDirection
             for tick in executionTicks ?? ((timingConfig.patternDelayCycles > 0 && cell.effectType == 14 && cell.effectParam == 0xD0)
                 ? (1..<timingConfig.speed) : timingConfig.nonzeroDispatchTicks) {
-                guard channelState.tonePortamentoDirection != .none else { break }
+                if let beforeTick {
+                    channelState.activeAmigaPeriod = currentAmigaPeriod
+                    channelState.activePlaybackStep = currentPlaybackStep
+                    beforeTick(tick, &channelState)
+                    currentPlaybackStep = channelState.activePlaybackStep ?? currentPlaybackStep
+                }
+                guard channelState.tonePortamentoDirection != .none else {
+                    if beforeTick != nil { continue }
+                    break
+                }
                 if abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001 {
                     channelState.tonePortamentoDirection = .towardHigherPeriod
-                    if glissandoFinetune != nil,
+                    if glissandoFinetune != nil || beforeTick != nil,
                        let heldStep = finePitchStep(audiblePeriod(targetAmigaPeriod, linear: false), linear: false,
                            baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate) {
                         stepUpdates.append(.init(syntheticTick: tick,
@@ -2925,6 +2936,7 @@ extension PlaybackSongSyntheticAdapter {
                             playbackStepBefore: currentPlaybackStep, playbackStepAfter: heldStep,
                             reachedTarget: true, glissandoFinetune: glissandoFinetune))
                         currentPlaybackStep = heldStep
+                        if beforeTick != nil { channelState.vibratoOutputAmigaPeriod = audiblePeriod(targetAmigaPeriod, linear: false) }
                         continue
                     }
                     currentAmigaPeriod = targetAmigaPeriod
@@ -2943,6 +2955,7 @@ extension PlaybackSongSyntheticAdapter {
                     break
                 }
                 currentPlaybackStep = nextStep
+                if beforeTick != nil { channelState.vibratoOutputAmigaPeriod = audiblePeriod(currentAmigaPeriod, linear: false) }
                 let reachedTarget = abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001
                 stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
                     syntheticTick: tick,
@@ -2960,7 +2973,7 @@ extension PlaybackSongSyntheticAdapter {
                     // FT2 leaves the higher-period direction latched after either clamp.
                     channelState.tonePortamentoDirection = .towardHigherPeriod
                     currentAmigaPeriod = targetAmigaPeriod
-                    if glissandoFinetune == nil {
+                    if glissandoFinetune == nil && beforeTick == nil {
                         currentPlaybackStep = targetPlaybackStep
                         break
                     }
@@ -3066,10 +3079,19 @@ extension PlaybackSongSyntheticAdapter {
         directionAtExecution = channelState.tonePortamentoDirection
         for tick in executionTicks ?? ((timingConfig.patternDelayCycles > 0 && cell.effectType == 14 && cell.effectParam == 0xD0)
                 ? (1..<timingConfig.speed) : timingConfig.nonzeroDispatchTicks) {
-            guard channelState.tonePortamentoDirection != .none else { break }
+            if let beforeTick {
+                channelState.activeLinearPeriod = currentLinearPeriod
+                channelState.activePlaybackStep = currentPlaybackStep
+                beforeTick(tick, &channelState)
+                currentPlaybackStep = channelState.activePlaybackStep ?? currentPlaybackStep
+            }
+            guard channelState.tonePortamentoDirection != .none else {
+                if beforeTick != nil { continue }
+                break
+            }
             if abs(currentLinearPeriod - targetLinearPeriod) <= 0.000000001 {
                 channelState.tonePortamentoDirection = .towardHigherPeriod
-                if glissandoFinetune != nil,
+                if glissandoFinetune != nil || beforeTick != nil,
                    let heldStep = finePitchStep(audiblePeriod(targetLinearPeriod, linear: true), linear: true,
                        baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate) {
                     stepUpdates.append(.init(syntheticTick: tick,
@@ -3078,6 +3100,7 @@ extension PlaybackSongSyntheticAdapter {
                         playbackStepBefore: currentPlaybackStep, playbackStepAfter: heldStep,
                         reachedTarget: true, glissandoFinetune: glissandoFinetune))
                     currentPlaybackStep = heldStep
+                    if beforeTick != nil { channelState.vibratoOutputLinearPeriod = audiblePeriod(targetLinearPeriod, linear: true) }
                     continue
                 }
                 currentLinearPeriod = targetLinearPeriod
@@ -3096,6 +3119,7 @@ extension PlaybackSongSyntheticAdapter {
                 break
             }
             currentPlaybackStep = nextStep
+            if beforeTick != nil { channelState.vibratoOutputLinearPeriod = audiblePeriod(currentLinearPeriod, linear: true) }
             let reachedTarget = abs(currentLinearPeriod - targetLinearPeriod) <= 0.000000001
             stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
                 syntheticTick: tick,
@@ -3111,7 +3135,7 @@ extension PlaybackSongSyntheticAdapter {
                 // FT2 leaves the higher-period direction latched after either clamp.
                 channelState.tonePortamentoDirection = .towardHigherPeriod
                 currentLinearPeriod = targetLinearPeriod
-                if glissandoFinetune == nil {
+                if glissandoFinetune == nil && beforeTick == nil {
                     currentPlaybackStep = targetPlaybackStep
                     break
                 }

@@ -183,8 +183,20 @@ callback partition proofs, full suites, sanitizers and paired Release ceilings
 qualify the bounded contract. Matched reference audio retains separately measured
 interpolation arithmetic residuals; no universal PCM parity is claimed.
 
+**G39D is CLOSED for bounded Bx + effect-column 3xx/5xy dispatch and delivery.**
+Each real nonzero tick executes Bx against the continuous pre-tone base before
+movement/E3 projection. Both causal requests survive through runtime, scan,
+indexed/staged, window and continuation consumers. G32's physical ordinary-intent
+latch retains the last actual tone output for later automatic-only ticks; its
+semantic publisher, oscillator/composition policy and unrelated ordering remain
+unchanged. [BxToneOrderTests](../tests/vtx_render_bounded_xm/BxToneOrderTests.swift)
+and both-rate/mode native, optimized actual-host and partition controls qualify
+phase/memory, source/cursor, exact steps, output and carry. All 608 inherited
+WAV/full-JSON pairs reproduce accepted post-G39B bytes, preserving original P2
+history. Parent G39 remains PARTIAL pending the interrupted integrated G39C gate.
+
 The G39 integration owner still owes combined envelope/global/G32/E3 output
-and lifecycle coverage beyond these two bounded slices.
+and lifecycle coverage beyond the qualified bounded slices.
 Closed foundations above and G40/G41/#516 retain their existing boundaries.
 
 ### Decision inputs and current status

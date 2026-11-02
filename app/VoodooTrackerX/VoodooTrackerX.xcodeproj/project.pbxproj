@@ -130,6 +130,7 @@
 		D32C2B000000000000000005 /* InstrumentAutovibratoClockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C2B000000000000000004 /* InstrumentAutovibratoClockTests.swift */; };
 		D32C3B000000000000000005 /* InstrumentAutovibratoCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C3B000000000000000004 /* InstrumentAutovibratoCompositionTests.swift */; };
 		D32C3C000000000000000005 /* InstrumentAutovibratoPublicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C3C000000000000000004 /* InstrumentAutovibratoPublicationTests.swift */; };
+		D39D02000000000000000002 /* BxToneOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39D02000000000000000001 /* BxToneOrderTests.swift */; };
 		T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000008 /* RuntimeCMixerTests.swift */; };
 		T00000000000000000000109 /* TrackerViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000009 /* TrackerViewportTests.swift */; };
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
@@ -276,6 +277,7 @@
 		D32C2B000000000000000004 /* InstrumentAutovibratoClockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = InstrumentAutovibratoClockTests.swift; path = ../../../tests/vtx_render_bounded_xm/InstrumentAutovibratoClockTests.swift; sourceTree = "<group>"; };
 		D32C3B000000000000000004 /* InstrumentAutovibratoCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = InstrumentAutovibratoCompositionTests.swift; path = ../../../tests/vtx_render_bounded_xm/InstrumentAutovibratoCompositionTests.swift; sourceTree = "<group>"; };
 		D32C3C000000000000000004 /* InstrumentAutovibratoPublicationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = InstrumentAutovibratoPublicationTests.swift; path = ../../../tests/vtx_render_bounded_xm/InstrumentAutovibratoPublicationTests.swift; sourceTree = "<group>"; };
+		D39D02000000000000000001 /* BxToneOrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BxToneOrderTests.swift; path = ../../../tests/vtx_render_bounded_xm/BxToneOrderTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000008 /* RuntimeCMixerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000009 /* TrackerViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerViewportTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
@@ -474,6 +476,7 @@
 				D32C2B000000000000000004 /* InstrumentAutovibratoClockTests.swift */,
 				D32C3B000000000000000004 /* InstrumentAutovibratoCompositionTests.swift */,
 				D32C3C000000000000000004 /* InstrumentAutovibratoPublicationTests.swift */,
+				D39D02000000000000000001 /* BxToneOrderTests.swift */,
 				T00000000000000000000008 /* RuntimeCMixerTests.swift */,
 				T00000000000000000000009 /* TrackerViewportTests.swift */,
 				A00000000000000000000022 /* VoodooTrackerXTests.swift */,
@@ -802,6 +805,7 @@
 				D32C2B000000000000000005 /* InstrumentAutovibratoClockTests.swift in Sources */,
 				D32C3B000000000000000005 /* InstrumentAutovibratoCompositionTests.swift in Sources */,
 				D32C3C000000000000000005 /* InstrumentAutovibratoPublicationTests.swift in Sources */,
+				D39D02000000000000000002 /* BxToneOrderTests.swift in Sources */,
 				T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */,
 				T00000000000000000000109 /* TrackerViewportTests.swift in Sources */,
 				A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */,

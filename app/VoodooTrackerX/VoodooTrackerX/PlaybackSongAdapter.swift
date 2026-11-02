@@ -1635,7 +1635,8 @@ enum PlaybackSongSyntheticAdapter {
                 appendFinePitch(diagnostic, to: &context)
                 context.channelStates[channelIndex] = channelState
             }
-            if hasVibrato || hasVibratoVolumeSlide, !(1...96).contains(cell.note), cell.note != 97 {
+            let pairedBxTone = hasTonePortamento && (0xB0...0xBF).contains(cell.volumeColumn)
+            if hasVibrato || hasVibratoVolumeSlide, !pairedBxTone, !(1...96).contains(cell.note), cell.note != 97 {
                 let diagnostic = handleVibrato(
                     from: cell,
                     source: source,
@@ -1651,6 +1652,15 @@ enum PlaybackSongSyntheticAdapter {
             }
             if handlesTonePortamento, cell.note != 97, !delaysInstrumentVolumeState {
                 if toneInstrumentResetApplied { tonePortamentoInstrumentStateAfter = channelState }
+                var bx: PlaybackSongSyntheticVibratoDiagnostic?
+                // Target preparation stays once per row. Bx observes each continuous
+                // pre-tone base and retains its own causal children before the tone writer.
+                let beforeToneTick: ((Int, inout ChannelState) -> Void)? = pairedBxTone ? { tick, state in
+                    bx = handleVibrato(from: cell, source: source, channelIndex: channelIndex,
+                        syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
+                        channelState: &state, executionTicks: tick..<(tick + 1), executeSemanticPitch: true,
+                        precedingInvocations: bx)
+                } : nil
                 let diagnostic = handleTonePortamento(
                     from: cell,
                     source: source,
@@ -1667,8 +1677,23 @@ enum PlaybackSongSyntheticAdapter {
                     sampleSelectedAfter: tonePortamentoInstrumentStateAfter?.activeSampleIndex,
                     targetPitchSample: toneInstrumentResetApplied && channelState.activeEventIndex != nil ? toneTargetSelection?.sample : nil,
                     volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil,
-                    executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil
+                    executionTicks: isRxyMultiRetriggerEffect(cell) ? 1..<1 : nil,
+                    beforeTick: beforeToneTick
                 )
+                if pairedBxTone {
+                    if bx == nil {
+                        bx = handleVibrato(from: cell, source: source, channelIndex: channelIndex,
+                            syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
+                            channelState: &channelState, executeSemanticPitch: true)
+                    }
+                    if var invocation = bx {
+                        if invocation.activeEventIndex == nil {
+                            invocation.inactiveSourceStepUpdates = invocation.stepUpdates
+                            invocation.stepUpdates = []
+                        }
+                        appendPitchWriter(invocation, to: &context)
+                    }
+                }
                 appendPitchWriter(diagnostic, to: &context, invocationTick: isRxyMultiRetriggerEffect(cell) ? nil : 1)
                 if let noteDelay {
                     context.noteDelayEffects.append(noteDelay)

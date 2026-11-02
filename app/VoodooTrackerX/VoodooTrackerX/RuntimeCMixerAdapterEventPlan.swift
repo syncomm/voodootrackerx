@@ -743,7 +743,44 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             nextID += 1
         }
 
-        for diagnostic in adaptedPlan.diagnostics.tonePortamentoEffects where diagnostic.applied {
+        let bxTonePairs = PlaybackSongBxTonePairs(tone: adaptedPlan.diagnostics.tonePortamentoEffects,
+            vibrato: adaptedPlan.diagnostics.vibratoEffects)
+        func appendVibrato(_ diagnostic: PlaybackSongSyntheticVibratoDiagnostic) {
+            guard let activeEventIndex = diagnostic.activeEventIndex else { return }
+            for update in diagnostic.stepUpdates {
+                var categories = ["step_update", "vibrato_update"]
+                if diagnostic.effectMemoryReused {
+                    categories.append("effect_memory_reused")
+                    if diagnostic.effectType == 0x04 {
+                        categories.append("4xy_vibrato_memory_applied")
+                    }
+                    if diagnostic.effectType == 0x06 {
+                        categories.append("6xy_vibrato_memory_applied")
+                    }
+                }
+                if diagnostic.effectType == 0x06 {
+                    categories.append("vibrato_volume_slide_6xy")
+                }
+                events.append(RuntimeCMixerAdapterEvent(
+                    id: nextID,
+                    source: diagnostic.source,
+                    channelIndex: diagnostic.channelIndex,
+                    syntheticTick: update.syntheticTick,
+                    scheduledFrame: update.scheduledFrame,
+                    action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
+                    categories: categories,
+                    effectType: diagnostic.effectType,
+                    effectParam: diagnostic.effectParam
+                ))
+                nextID += 1
+            }
+        }
+
+        for (index, diagnostic) in adaptedPlan.diagnostics.tonePortamentoEffects.enumerated() where diagnostic.applied {
+            // Construction IDs encode only this pair's Bx-before-tone tie order.
+            if let vibrato = bxTonePairs.byTone[index] {
+                appendVibrato(adaptedPlan.diagnostics.vibratoEffects[vibrato])
+            }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -905,37 +942,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             }
         }
 
-        for diagnostic in adaptedPlan.diagnostics.vibratoEffects where diagnostic.applied {
-            guard let activeEventIndex = diagnostic.activeEventIndex else {
-                continue
-            }
-            for update in diagnostic.stepUpdates {
-                var categories = ["step_update", "vibrato_update"]
-                if diagnostic.effectMemoryReused {
-                    categories.append("effect_memory_reused")
-                    if diagnostic.effectType == 0x04 {
-                        categories.append("4xy_vibrato_memory_applied")
-                    }
-                    if diagnostic.effectType == 0x06 {
-                        categories.append("6xy_vibrato_memory_applied")
-                    }
-                }
-                if diagnostic.effectType == 0x06 {
-                    categories.append("vibrato_volume_slide_6xy")
-                }
-                events.append(RuntimeCMixerAdapterEvent(
-                    id: nextID,
-                    source: diagnostic.source,
-                    channelIndex: diagnostic.channelIndex,
-                    syntheticTick: update.syntheticTick,
-                    scheduledFrame: update.scheduledFrame,
-                    action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
-                    categories: categories,
-                    effectType: diagnostic.effectType,
-                    effectParam: diagnostic.effectParam
-                ))
-                nextID += 1
-            }
+        for (index, diagnostic) in adaptedPlan.diagnostics.vibratoEffects.enumerated()
+            where diagnostic.applied && !bxTonePairs.vibratoIndices.contains(index) {
+            appendVibrato(diagnostic)
         }
 
         for diagnostic in adaptedPlan.diagnostics.envelopePositionEffects where diagnostic.applied {

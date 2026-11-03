@@ -90,7 +90,7 @@ bounded contracts; they do not establish full command or audible parity.
 - Bounded G33 Pxy and G34 Txy contracts are CLOSED through accepted
   [PR #514](https://github.com/syncomm/voodootrackerx/pull/514) and
   [PR #515](https://github.com/syncomm/voodootrackerx/pull/515).
-  G39/G40 interactions and retained pan/cold boundaries remain open.
+  G40 interactions and retained pan/cold boundaries remain open.
 - Bounded offline source admission is CLOSED: one mixer admits sequential
   generations through ordered checkpoints, including same-frame physical-stop
   capacity recovery. Q2 does not qualify general memory optimization or backend
@@ -110,7 +110,7 @@ bounded contracts; they do not establish full command or audible parity.
   bounded parent for default-origin playback. Direct selected-range adapter and
   prepared-runtime plans start cold. Product live selected-order E3 inheritance
   through eager order-0 prewarm remains
-  OPEN under #516, alongside full G37 and G39/G40/G41.
+  OPEN under #516, alongside full G37 and G40/G41.
 - G38A local B/D/E6/EE pending-position precedence is CLOSED: ordered row
   writes, local channel counters, held skips and short-pattern valid D bounds
   have both-mode/rate reference, source/frame, actual-host, protected-byte and
@@ -144,7 +144,7 @@ bounded contracts; they do not establish full command or audible parity.
 
 - Close remaining evidence-backed FT2/XM commands and cross-cutting output,
   pitch, memory, envelope, trigger/retrigger/cut, and traversal obligations.
-  Known families include G39 modulation, G40 pan law, G41 sample boundaries,
+  Known families include G40 pan law, G41 sample boundaries,
   relevant E-commands, volume-column gaps and remaining loaded-Amiga pitch coverage.
   Pan-envelope arithmetic/clock quirks, interactions beyond closed bounded
   G02/G03/G04/G05/G32/G33/G34/G35/G36,
@@ -166,22 +166,21 @@ bounded contracts; they do not establish full command or audible parity.
 - Rerun the final closure matrix and pass the composition, playback, listening,
   and performance release gate; then establish the effects/backend freeze.
 
-The bounded G38 traversal contract is CLOSED under G38A/G38B. G39A phase
-consumption and G39B Linear native-word output are CLOSED for their qualified
-bounded contracts. Bounded G39D Bx + tone dispatch/delivery and the G32 physical
-ordinary-intent latch are CLOSED. G39C's isolated event-assembly lifetime boundary
-removes the registered Debug prewarm stack crash while preserving worker policy
-and effect semantics. Bounded local integrated controls, strict real Debug host
-checks and 608 accepted protected output pairs are qualified. G39 remains PARTIAL
-pending native arm64 CI, Gregory's review and merged-source integrated acceptance;
-G40/G41 characterization has not begun. No backend freeze is claimed. Full G37 remains
-PARTIAL. See the
-[G39 contracts and owners](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
-Cold live selected-order planning
-[#516](https://github.com/syncomm/voodootrackerx/issues/516) stays assigned after G41.
-The integrated planning/memory/UI/CI and cross-family/release audit follows G41.
-Post-song host/offline tail parity has its separate pre-freeze decision owner.
-These remaining contracts and the #516 release blocker stay OPEN.
+The bounded G38 traversal and G39 in-song 4xy/6xy/7xy/Bx interaction contracts
+are CLOSED. G39's six-family merged-source acceptance preserves G39A/B/D/E/F,
+G32 composition and the event-assembly stack boundary; canonical Debug host
+controls, native arm64 CI, all 608 accepted protected pairs and original matched
+performance gates pass. See the
+[G39 acceptance ledger and exclusions](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
+No backend freeze is claimed; full G37 remains PARTIAL.
+
+Next characterization is **G40 static pan law → G41 9xx/900 offsets, source ends
+and loop boundaries**; neither has begun. Cold live selected-order/row planning
+and full G37 integration under [#516](https://github.com/syncomm/voodootrackerx/issues/516)
+follow G41. The planning/performance/memory/CI and cross-family pre-freeze audits,
+callback real-time safety, separate post-song host/offline tail decision,
+Speed/BPM/labels UI work and final release gates retain their owners and
+sequence. All remain OPEN.
 
 ### Current target / exit gate
 
@@ -219,8 +218,9 @@ inherited by the current G39C producer: matched planning / First Play / heavy
 planning p50 values 969.629 / 970.875 / 2126.769 ms pass the original
 972 / 1000 / 2333-ms gates. The planning margin is only 2.371 ms; retained
 above-limit individual samples and broader planning debt remain explicit in the
-closure matrix. G39 stays PARTIAL through native arm64 CI, Gregory review and
-merged-source integrated acceptance. Global gates and overhaul sequencing are unchanged.
+closure matrix. Bounded G39 in-song acceptance is CLOSED; this does not close
+planning debt or the separate tail decision. Global gates and overhaul sequencing
+are unchanged.
 
 The post-G41 manager efficiency audit also owns CI duration: the maintainer
 reported roughly 15+ minutes for PR #518's macOS `basic-checks` run #1065.

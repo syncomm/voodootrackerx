@@ -104,8 +104,8 @@ host.
   retained/released sources and both-rate delivery are pinned. Paired Release
   planning/cache checks and startup attribution pass; the overall product
   ≤1 s startup target remains outstanding. `000` remains inert. G30B closes bounded
-  extreme projection; broader modulation interactions remain G39, without
-  a universal Amiga pitch-parity claim.
+  extreme projection; bounded modulation interactions are closed under G39,
+  without a universal Amiga pitch-parity claim.
 - G30B ordinary mapped-note admission uses UInt8 note-plus-relative arithmetic:
   1...119 starts PCM with lookup pitch, 0 starts PCM retaining current/base pitch,
   and 120...255 refuses source replacement. Exact raw-note routing precedes pitch
@@ -326,7 +326,7 @@ host.
   [PR #515](https://github.com/syncomm/voodootrackerx/pull/515): independent
   nonzero-tick memory/counter state alternates held output through the existing
   quick final mono/L/R target while preserving base volume and source cursor.
-  Broader host/offline qualification, G39/G40 and planning/RSS debt remain open.
+  Broader host/offline qualification, G40 and planning/RSS debt remain open.
 - Bounded offline source admission is CLOSED: capacity-selected frame
   checkpoints reuse one native mixer and preserve source-array order, complete
   continuations and logical generation ownership. Same-frame physical stops
@@ -359,7 +359,7 @@ host.
   qualification preserves no-E3x controls and existing native capacity. Direct
   cold selected-range plans ignore earlier controls. Product live selected-order
   starts can inherit eager order-0 E3 state; #516 owns that OPEN integration.
-  Full G37, G39/G40/G41 and the post-G41 integrated audit remain OPEN.
+  Full G37, G40/G41 and the post-G41 integrated audit remain OPEN.
 - G38A is CLOSED for bounded channel-ordered B/D/local-E6 pending-row writes,
   per-channel local loop counters, short-pattern D00...D63 reset, and EE-held
   pending-position skips without another timing/planning owner. Both-mode/rate
@@ -375,7 +375,7 @@ host.
   [the boundary policy](xm-effect-support.md#bounded-g38b-pattern-local-loop-and-traversal-policy).
   Full G37 remains PARTIAL: direct cold adapter results do not close live
   start-aware planning under [#516](https://github.com/syncomm/voodootrackerx/issues/516).
-  G39, G40 and G41 precede #516 and the integrated planning/memory/performance,
+  G40 and G41 precede #516 and the integrated planning/memory/performance,
   CI, offline/runtime-safety and cross-family release audits before backend freeze.
 - G39A is CLOSED for the qualified bounded post-merge ramp-tremolo phase
   contract: every invocation consumes canonical vibrato phase, including Bx
@@ -393,17 +393,16 @@ host.
   guardrails pass. Gregory reports no obvious anomaly in the audible studies.
   Low-note listening was non-discriminating; native period/step, waveform and
   host proofs qualify those cases.
-  [G39 remains PARTIAL](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range):
-  bounded local integrated evidence is accounted for; native arm64 CI,
-  Gregory's review and merged-source integrated acceptance precede G40/G41/#516.
+  [Bounded G39 in-song interactions are CLOSED](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range):
+  merged-source six-family acceptance and native arm64 CI qualify the contract.
+  G40/G41 and #516 retain their separate sequence.
   No backend freeze is claimed.
 - G39D closes bounded Bx + 3xx/5xy dispatch and ordered physical delivery.
   Bx runs before tone on each real nonzero tick; final tone output owns the G32
   physical ordinary-intent latch on later automatic-only ticks. Both causal
   requests, semantic publication, source/cursor and unrelated ordering remain
   independent. Both-mode/rate native/host/partition and protected-output gates
-  qualify the slice; parent G39 remains PARTIAL pending the integrated acceptance
-  gates below.
+  qualify the slice and the bounded parent G39 in-song contract.
 - Merged bounded G39E Bx + nonzero E9 preserves source-stable
   raw birth supersession and newborn pitch ownership with frozen diagnostics.
   Its [historical planning exception](ft2-xm-closure-matrix.md#g39e-bxe9-and-scoped-planning-exception)
@@ -417,8 +416,9 @@ host.
   pass. Matched planning / First Play / heavy planning p50 values are
   969.629 / 970.875 / 2126.769 ms, within unchanged 972 / 1000 / 2333-ms gates.
   The planning margin is 2.371 ms and high-tail samples remain; no guaranteed
-  sub-second operation is claimed. G39 stays PARTIAL pending native arm64 CI,
-  Gregory's review and merged-source integrated acceptance. Post-song host/offline
+  sub-second operation is claimed. The bounded G39 in-song contract is CLOSED
+  after merged-source acceptance and successful native arm64 CI, including the
+  actual canonical Debug prewarm regression. Post-song host/offline
   tail parity and live nonzero-order cold start under #516 remain separately OPEN;
   G40/G41 characterization has not begun.
 - Editor audition uses the existing persistent preview stream, isolated from

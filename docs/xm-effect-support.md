@@ -191,7 +191,7 @@ eager order-0 prewarm; that integration remains OPEN under #516.
 [GlissandoTests](../tests/vtx_render_bounded_xm/GlissandoTests.swift), the original
 public fixture and matched reference/actual-host controls pin both rates,
 source lifetime, toggles, grid ties, E5, Fxx/EEx and G32 composition. The bounded
-parent closure leaves G37/#516, G39 broader modulation, G40/G41
+parent closure leaves G37/#516, G40/G41
 and the post-G41 planning/memory/UI/CI and cross-family audit OPEN.
 
 ## Instrument-only cells
@@ -297,10 +297,10 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `1xx` | Portamento up | Implemented | Partial; G27 in-range Amiga contract closed | Own; `100` supported | Both | Linear `4 * xx`, Amiga `16 * xx` subtraction per nonzero tick through the shared native-word arithmetic and G30A conversion. Corrected generic memory admission requires an executed nonzero tick; speed 1 neither seeds nor replaces history. Combined G30 closes the native minimum 1 (Amiga VTX 4), including the owned cold-100 signed-negative clamp without memory provenance. |
 | `2xx` | Portamento down | Implemented | Partial | Own; `200` supported | Both | Linear `4 * xx`, Amiga `16 * xx` in VTX's 4x representation. Same memory admission rule as `1xx`; speed 1 neither seeds nor replaces it. G30B closes the distinct signed-threshold boundary below. |
 | `3xx` | Tone portamento | Implemented | Partial | Shared with volume-column `Fx`; `300` target/speed supported | Both | No retrigger, target-clamped nonzero ticks and Amiga quantized targets are established. Targets, speed and period direction are independent channel state. Explicit 3xx/5xy/Fx target admission latches direction; equality installs none. Ordinary source/pitch changes retain it; 300/500/F0 consumes it. An executed clamp leaves higher-period direction, including a crossed-target clamp at implicit zero speed without memory provenance. G30B closes bounded extremes below; G36 closes bounded glissando output separately. |
-| `4xy` | Vibrato | Implemented | Partial | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay, Amiga wrap/zero-step hold and G10 shared volume-column dispatch are closed. Bounded G39B native-word Linear output is closed; full audible interactions remain G39. |
+| `4xy` | Vibrato | Implemented | Closed, bounded G39 in-song | Shared with `6xy` and volume-column vibrato; independent speed/depth nibbles | Both | Integer modulation, initially-zero memory, `400`/zero-nibble replay, Amiga wrap/zero-step hold and G10 shared volume-column dispatch are closed. Bounded G39B native-word Linear output and the six-family G39 in-song interactions are closed; reference and full-tail exclusions remain explicit. |
 | `5xy` | Tone portamento + volume slide | Implemented | Partial; G28 Amiga composition closed | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Both | Amiga reuses 3xx progression plus the existing shared volume writer, including independent cold 500 execution and whole-byte replay. Same-cell ownership selects retained/empty defaults or cold initialization before explicit writers. Fxx/speed-1, exact routes and source/cursor carry are pinned. Combined G30 closes bounded extremes below; broader parent limitations remain separate. |
-| `6xy` | Vibrato + volume slide | Implemented | Partial | Shared `4xy` vibrato and `Axy`/`5xy`/`6xy` slide byte; `600` supported | Both | Vibrato then slide on ticks `1..<speed`; no tick-zero/speed-1 slide. Unseeded `600` restores base to output with zero amount and publishes against the held source target even when local values are unchanged. Timing/memory/local publication are closed; G39 remains. |
-| `7xy` | Tremolo | Implemented | Partial; bounded G39A phase consumption closed | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. G39A consumes canonical vibrato phase per invocation, including Bx history and same-row crossings, without changing G10 pitch requests or output cadence. Broader G39 integration remains open; bounded G39B Linear output is closed separately and G01 removes duplicate header scaling. |
+| `6xy` | Vibrato + volume slide | Implemented | Closed, bounded G39 in-song | Shared `4xy` vibrato and `Axy`/`5xy`/`6xy` slide byte; `600` supported | Both | Vibrato then slide on ticks `1..<speed`; no tick-zero/speed-1 slide. Unseeded `600` restores base to output with zero amount and publishes against the held source target even when local values are unchanged. Timing/memory/local publication and bounded G39 in-song composition are closed. |
+| `7xy` | Tremolo | Implemented | Closed, bounded G39 in-song | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. G39A consumes canonical vibrato phase per invocation, including Bx history and same-row crossings, without changing G10 pitch requests or output cadence. Bounded G39 integration and G39B Linear output are closed and G01 removes duplicate header scaling. |
 | `8xx` | Set panning | Implemented | Known difference | None | Not applicable | Exact tick-zero panning state exists. Final stereo pan law differs (G40); this is separate from E8 and pan envelopes. |
 | `9xx` | Sample offset | Implemented | Partial | Own; `900` supported | Not applicable | Same-cell source offset/memory exists; end/loop/offset boundaries remain G41. Safely skipping an out-of-range offset does not prove FT2 parity. |
 | `Axy` | Volume slide | Implemented | Closed G14 cold restoration and seeded replay | Shared with `5xy`/`6xy`; cold `A00` executes implicit zero without seeding | Not applicable | Nonzero-tick slides and cold base-to-output restoration use causal local publication. Speed 1 is inert; tremolo/E7 state and real seeded provenance are preserved. Broader output interactions remain separate. |
@@ -310,11 +310,11 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `E0x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch. VTX's no-op needs no audible XM filter; MOD hardware-filter semantics are a separate target. |
 | `E1x` | Fine portamento up | Implemented | Closed G17 Linear / G29 in-range Amiga | Own per-channel up amount; seeded `E10` supported | Both | Tick-zero Linear `4 * x` / Amiga `16 * x`; same-cell folding and independent replay. Cold forms restore meaningful held pitch without provenance; ineligible publications are suppressed. G30B supplies native-word clamps below. |
 | `E2x` | Fine portamento down | Implemented | Closed G17 Linear / G29 in-range Amiga | Own per-channel down amount; seeded `E20` supported | Both | Same bounded timing/restoration as E1 with independent downward memory and positive deltas. Ordinary source changes preserve tone target/direction/speed. Combined G30 closes bounded native-word extremes below. |
-| `E3x` | Glissando control | Implemented | Closed, bounded G36 parent | Special; E30 off, E31...E3F on; persistent per-channel state | Both | Actual 3xx/300, 5xy and volume Fx output uses the bounded note/finetune grid after continuous movement and target clamp. Internal period, target, direction, speed and source cursor remain independent; the control alone publishes no pitch. G32 composes after projected output. Broader modulation remains G39. |
+| `E3x` | Glissando control | Implemented | Closed, bounded G36 parent | Special; E30 off, E31...E3F on; persistent per-channel state | Both | Actual 3xx/300, 5xy and volume Fx output uses the bounded note/finetune grid after continuous movement and target clamp. Internal period, target, direction, speed and source cursor remain independent; the control alone publishes no pitch. G32 composes after projected output. Bounded in-song modulation is closed under G39. |
 | `E4x` | Vibrato control | Implemented | Closed | Special; persistent control for `4xy`/`6xy` | Not applicable | All 16 controls: sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 ignored. Bounded control contract only. |
 | `E5x` | Set finetune | Implemented | Partial; G29 in-range Amiga trigger closed | None; no-note form inert | Both | Ordinary exact mapped note trigger uses `16 * nibble - 128` instead of header finetune, preserving relative note, defaults/reset and latent tone target/direction/speed. No-note E5 does not retune current/later sources. Amiga reports inert; the Linear legacy no-note diagnostic is unchanged. G30B supplies ordinary admission below. |
 | `E6x` | Pattern loop | Implemented | Partial; bounded G38 closed | Special; pattern-local channel anchor/counter | Not applicable | G37A initial-state and G38A ordered pending-row foundations remain closed. G38B uses this pattern's executed E60 or implicit row 0, independent counters and natural row-0 entry, intentionally excluding FT2 leakage. Full live cold-start integration remains [#516](https://github.com/syncomm/voodootrackerx/issues/516), after G41. |
-| `E7x` | Tremolo control | Implemented | Closed | Special; persistent control independent of E4 | Not applicable | All nibble aliases and phase-reset suppression are supported; ramp retains FT2's vibrato-phase sign quirk. Full `7xy` audio remains G39. |
+| `E7x` | Tremolo control | Implemented | Closed | Special; persistent control independent of E4 | Not applicable | All nibble aliases and phase-reset suppression are supported; ramp retains FT2's vibrato-phase sign quirk. Bounded `7xy` in-song audio is closed under G39. |
 | `E8x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Dummy dispatch; current no-op matches. OpenMPT's audible panning alias is outside FT2 v1; use supported `8xx`. |
 | `E9x` | Retrigger note | Implemented | Partial | Special; no ordinary interval replay | Not applicable | G19 `E90` row-entry routing/carry/reset is closed. E91...E9F retain existing nonzero-tick resets and offsets. Onset/ramp parity and `Rxy` are separate. |
 | `EAx` | Fine volume slide up | Implemented | Closed G16 directional replay and cold publication | Own per-channel fine-up amount | Not applicable | Tick-zero +x, clamped to 64; seeded EA0 replays up memory. Cold EA0 restores base to output and publishes against the held target without seeding memory. Independent of EB/A/5/6 and volume-column 8x/9x. |
@@ -331,7 +331,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Existing volume positioning is preserved. Bounded G07 pan positioning is closed under the sounding instrument's raw volume-sustain flag, including disabled volume envelopes and silent-channel clocks. Volume loop/end positioning, cold before-first initialization, pan arithmetic/sustain and G40 remain open; bounded volume Q8 follows G31. |
 | `Pxy` | Panning slide | Implemented | Closed, bounded G33 contract | Own whole byte; admitted only on executed nonzero ticks | Not applicable | G33: high nibble selects rightward movement, otherwise low nibble selects leftward; clamp stored pan to 0...255. P00 replays the channel byte; speed 1 neither seeds nor replaces it. Column slides precede P, then the existing G06/G07 projection and single final-output authority consume the result. Pan-only commands retain held scalar gain. Accepted [PR #514](https://github.com/syncomm/voodootrackerx/pull/514) closes the bounded contract. Cold initialization, G40 and pan-clock quirks remain separate. See [the bounded contract](design/xm-volume-ownership.md#g33-effect-column-panning-slide). |
 | `Rxy` | Multi retrigger | Implemented | Closed G20 memory / G21 counter and carry / G22 integer volume modes | Independent zero-initialized interval/mode bytes and persistent counter | Not applicable | Memory resolves before invocation gating. Eligible ticks increment the counter; reaching the interval resets it and restarts the exact retained route at cursor zero, carrying semantic state. Interval zero executes every eligible tick. Volume modes use exact pinned FT2 integer arithmetic over 0...64. Only fully uninitialized volume bookkeeping is excluded as C; G21 offline outgoing-source retirement closes separately through the existing native policy. |
-| `Txy` | Tremor | Implemented | Closed, bounded G34 contract | Own whole byte; admitted only on executed nonzero ticks | Not applicable | G34: T00 replays the byte; signed x+1/y+1 intervals advance after tick zero and hold across blank/no-T rows. Column 6x/7x precedes T; base volume, trigger/reset domains and exact source identity remain independent. Changed output uses the G05 quick 5 ms final target alone. Linear/Amiga and both-rate controls cover writer/envelope interactions and bounded offline admission. Accepted [PR #515](https://github.com/syncomm/voodootrackerx/pull/515) closes the bounded G34 contract; broader host/offline qualification, G39/G40 and planning/RSS debt remain open. |
+| `Txy` | Tremor | Implemented | Closed, bounded G34 contract | Own whole byte; admitted only on executed nonzero ticks | Not applicable | G34: T00 replays the byte; signed x+1/y+1 intervals advance after tick zero and hold across blank/no-T rows. Column 6x/7x precedes T; base volume, trigger/reset domains and exact source identity remain independent. Changed output uses the G05 quick 5 ms final target alone. Linear/Amiga and both-rate controls cover writer/envelope interactions and bounded offline admission. Accepted [PR #515](https://github.com/syncomm/voodootrackerx/pull/515) closes the bounded G34 contract; broader host/offline qualification, G40 and planning/RSS debt remain open. |
 | `X1x` / `X2x` | Extra fine portamento | Implemented | Closed G18 Linear / G29 in-range Amiga | Own independent per-channel up/down amount/origin | Both | Tick-zero Linear `x` / Amiga `4 * x`; seeded X10/X20 replay their direction independently of E1/E2. Cold restoration, deduplication and source eligibility are preserved. Fine:extra-fine granularity is 4:1; combined G30 closes bounded native-word extremes below. |
 | `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug commands | Extension | Outside v1 | Not applicable | Not applicable | No runtime/offline support. Extension/hack families require a separately accepted compatibility target. |
 | `Vxx`, `Wxx` | High-byte diagnostic unknowns | Classification-only | Outside v1 | None in pinned FT2 | Not applicable | Unused/dummy in pinned FT2 dispatch. Diagnostic occurrence does not establish an FT2 effect or identify an extension. |
@@ -617,7 +617,7 @@ G30 is closed for:
 
 Combined verification covers both rates, whole/window/runtime-core/canonical-host
 delivery, matched reference audio and paired Release guardrails. Remaining
-G37/#516, G39/G40/G41 and callback real-time safety stay open;
+G37/#516, G40/G41 and callback real-time safety stay open;
 G32/G33/G34/G36 are closed under their separate bounded contracts.
 
 ### Retained-source arpeggio row handoff
@@ -647,8 +647,9 @@ collapse and rate-zero-square detuning. Metadata bytes remain unchanged.
 and runtime controls verify focused both-mode/rate behavior. G32 is **CLOSED,
 bounded VTX composition policy** after maintainer acceptance and merged
 [PR #507](https://github.com/syncomm/voodootrackerx/pull/507); issue #488 is closed.
-The approved reference differences, G39 interactions and eventual backend freeze
-remain separate boundaries.
+Bounded G39 interactions are closed under the
+[six-family acceptance ledger](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
+Approved reference differences and eventual backend freeze remain separate boundaries.
 
 ## Shared Volume-Slide Memory Contract
 
@@ -736,7 +737,7 @@ no frozen snapshot, tolerance or broad exception changes. Generic pitch bounds,
 G30 conversion, G32 composition and Amiga vibrato remain unchanged.
 G39A closes ramp-tremolo consumption of Bx-driven canonical phase, including
 mixed ordered executions and per-tick projection through held rows. See
-[the bounded contract and remaining qualification](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
+[the bounded G39 acceptance ledger](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
 The closed integer waveform, G10 dispatch and 6xy timing contracts remain protected.
 
 Exact empty/unavailable sample routes still dispatch `4xy`/`400` and the
@@ -765,8 +766,8 @@ note-bearing target row. Separate Bx then tone physical requests preserve E3
 output and the G32 ordinary-intent latch across runtime/offline continuations.
 No-target/direction-none Bx retains its own output; source-less routes create no
 voice. Other 5xy volume arithmetic, G32 semantic policy and G39A/B stay unchanged.
-Parent G39 remains PARTIAL pending native arm64 CI, Gregory's review and
-merged-source integrated acceptance of the bounded local evidence.
+The bounded parent G39 in-song interaction contract is CLOSED under merged-source
+six-family acceptance; the causal and physical publication policies are preserved.
 
 Merged bounded G39E Bx + nonzero E9 retains its ordering: Bx precedes
 each actual retrigger/reset, and subsequent children follow the new generation.
@@ -780,13 +781,14 @@ Merged G39F preserves release-row Bx and per-tick ramp-tremolo projection.
 G39C separates event assembly from adaptation, removing the registered Bx+303
 and held-traversal Debug prewarm stack-guard failure without changing worker
 stack policy, effect output or delivery order. Measured x86_64 Debug headroom
-and strict real host controls qualify that boundary; native arm64 CI remains
-required. The 608 accepted protected output pairs stay exact and the original
+and strict real host controls qualify that boundary; native arm64 CI also passes
+the actual canonical Debug prewarm regression. The 608 accepted protected output
+pairs stay exact and the original
 planning / First Play / heavy p50 gates pass with a thin planning margin and
 retained high-tail samples. See the [G39C stack contract](ft2-xm-closure-matrix.md#g39c-debug-prewarm-stack-lifetime).
-G39 remains PARTIAL through Gregory's review and merged-source integrated
-acceptance. Post-song host/offline tail parity, #516 live nonzero-order cold
-start and planning/real-time audits stay OPEN; G40/G41 characterization has not begun.
+The bounded G39 in-song acceptance ledger is CLOSED. Post-song host/offline tail
+parity, #516 live nonzero-order cold start and planning/real-time audits stay OPEN;
+G40/G41 characterization has not begun.
 
 Ordinary note-bearing EDx/Bx executes Bx on the incoming channel/source through
 the delay tick, then on the admitted source after the existing trigger reset
@@ -810,8 +812,9 @@ wrap, including 118 - 119 = 65535 and 65417 + 119 = 0.
 `amiga-vibrato.xm`, `AmigaVibratoTests`, and `RuntimeCMixerTests` pin periods,
 memory/controls, zero hold/resume, and exact runtime/offline event frames.
 G30B separately closes ordinary lookup and supported slide/tone extremes;
-G30A owns fixed-point step conversion. Neither policy replaces vibrato wrap or
-closes broader G39 interactions; the shared slide schedule is specified above.
+G30A owns fixed-point step conversion. Neither policy replaces vibrato wrap.
+Bounded G39 in-song interactions are closed under the acceptance ledger;
+the shared slide schedule is specified above.
 
 ## Portamento Units
 
@@ -914,8 +917,9 @@ support alone does not close these domains:
   E1/E2/X1/X2 and same-cell E5 through existing memory/trigger authorities;
   G30B closes bounded range/state behavior; G30A conversion is closed above.
   Supported Amiga vibrato's unsigned wrap/zero hold remains a separate policy.
-  Combined bounded G30 verification is closed. Full 4xy/6xy/7xy audible
-  interactions remain G39 without reopening their closed integer engines or 6xy timing.
+  Combined bounded G30 verification and the six-family G39 in-song
+  4xy/6xy/7xy/Bx interactions are closed. Their integer engines and 6xy timing
+  retain their qualified contracts; full-tail and reference exclusions remain.
 - **Sources and loops:** 9xx/900 offset/end/loop boundaries and ping-pong
   turnaround precision remain under G41 where unclosed. Sample/instrument
   changes must preserve exact routing, defaults, silent clocks and note-only
@@ -934,7 +938,7 @@ or explicit accepted rationale; aggregate audio correlation is not closure.
 - G36 E3x is closed under its bounded tone-output contract; G38A/G38B close
   bounded local combined EEx traversal and pattern-local/safe traversal policy.
   Bounded G33 Pxy and G34 Txy are closed through accepted PRs #514/#515;
-  G39/G40 and retained pan/cold boundaries remain open.
+  G40 and retained pan/cold boundaries remain open.
   G32 instrument autovibrato is closed under its bounded VTX policy above.
   Fine-slide zero memory and missing Amiga paths remain in v1 scope.
 - E0x/E8x/EFx are FT2-inert. Adding an audible filter, E8 panning alias, MOD

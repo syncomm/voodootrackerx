@@ -33,7 +33,7 @@ struct PlaybackSongSelectionDispatchFacts: Equatable {
     }
     let coverage: Coverage
     let facts: [Fact]
-    // Excludes seven-family outputs, tone targets, E9 clones, release/cut facts and final pitch.
+    // Excludes seven-family outputs, tone targets, unpaired E9 clones, release/cut facts and final pitch.
     static let notAdapterProduced = Self(coverage: .notAdapterProduced, facts: [])
 }
 
@@ -1239,10 +1239,16 @@ enum PlaybackSongSyntheticAdapter {
             var instrumentOnlyReset: MixerPlaybackStateChange?
             var delayedRetainedRowEntry: ChannelState? = defersOrdinaryTriggerState || ordinaryDelayedBx ? channelState : nil
             var ordinaryBxDiagnosticIndex: Int?
+            let pairedBxE9 = cell.volumeColumn >> 4 == 0xB && isE9xRetriggerEffect(cell) &&
+                timingConfig.nonzeroDispatchTicks.contains { e9Dispatches(cell, tick: $0, timing: timingConfig) }
             if cell.instrument > 0, song.instrumentsByIndex[Int(cell.instrument)] != nil {
                 delayedRetainedRowEntry?.carriedInstrumentIndex = Int(cell.instrument)
             }
             defer {
+                if pairedBxE9 {
+                    appendBxE9(cell: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                        timingConfig: timingConfig, timingPlan: timingPlan, state: &channelState, context: &context)
+                }
                 if ordinaryDelayedBx, extendedEffectTick(cell) + 1 < timingConfig.speed {
                     appendOrdinaryDelayedVibrato(cell: cell, source: source, channelIndex: channelIndex,
                         syntheticRow: syntheticRow, ticks: (extendedEffectTick(cell) + 1)..<timingConfig.speed,
@@ -1294,7 +1300,7 @@ enum PlaybackSongSyntheticAdapter {
                     requestedTick: 0, rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm,
                     originalFrame: scheduledStartFrame, delayedFrame: scheduledStartFrame, eventIndex: nil))
             }
-            let hasRetriggerEffect = isE9xRetriggerEffect(cell) && !isE90
+            let hasRetriggerEffect = isE9xRetriggerEffect(cell) && !isE90 && !pairedBxE9
             let hasSetFinetuneEffect = extendedSubcommand == 0x05
             let hasFinePortamentoUpEffect = extendedSubcommand == 0x01
             let hasFinePortamentoDownEffect = extendedSubcommand == 0x02
@@ -1303,7 +1309,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasArpeggio = isArpeggioEffect(cell)
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
             let hasTonePortamento = isTonePortamentoEffect(cell)
-            let hasVibrato = isVibratoEffect(cell) || ((0xB0...0xBF).contains(cell.volumeColumn) && !isRxyMultiRetriggerEffect(cell))
+            let hasVibrato = !pairedBxE9 && (isVibratoEffect(cell) || ((0xB0...0xBF).contains(cell.volumeColumn) && !isRxyMultiRetriggerEffect(cell)))
             let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
             let hasKxxKeyOff = isKxxKeyOffEffect(cell)
             let hasLxxSetEnvelopePosition = isLxxSetEnvelopePositionEffect(cell)
@@ -1774,6 +1780,7 @@ enum PlaybackSongSyntheticAdapter {
                 continue
             }
             guard (1...96).contains(cell.note) else {
+                if pairedBxE9 { continue }
                 if let noteDelay {
                     context.noteDelayEffects.append(noteDelay)
                 }
@@ -2141,7 +2148,7 @@ enum PlaybackSongSyntheticAdapter {
                     // E9x repeats the selected empty route at the existing tick cadence.
                     // Its instrument reset belongs to the channel, with no source event.
                     let repeatInterval = retriggerIntervalNibble(from: cell)
-                    if extendedSubcommand == 9, repeatInterval > 0, repeatInterval < timingConfig.speed || timingConfig.patternDelayCycles > 0 {
+                    if !pairedBxE9, extendedSubcommand == 9, repeatInterval > 0, repeatInterval < timingConfig.speed || timingConfig.patternDelayCycles > 0 {
                         resetTremoloTriggerPhases(state: &channelState)
                         for tick in timingConfig.nonzeroDispatchTicks where timingConfig.localEffectPhase(for: tick) % repeatInterval == 0 {
                             context.semanticPitchBuilder.add(tick: tick, channel: channelIndex, action: .automaticReset(.retrigger))

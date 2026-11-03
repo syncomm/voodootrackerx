@@ -402,6 +402,12 @@ host.
   requests, semantic publication, source/cursor and unrelated ordering remain
   independent. Both-mode/rate native/host/partition and protected-output gates
   qualify the slice; parent G39 remains PARTIAL pending integrated G39C work.
+- Bounded G39E Bx + nonzero E9 is READY FOR LISTENING / review. Source-stable
+  raw birth supersession and newborn pitch ownership preserve frozen diagnostics.
+  Its [accepted planning exception](ft2-xm-closure-matrix.md#g39e-bxe9-and-scoped-planning-exception)
+  is specific to the frozen repair; the original 972-ms FAIL and one-second tail
+  overruns remain explicit. Gregory's listening/independent acceptance is pending;
+  G39 stays PARTIAL and G39C awaits G39E acceptance and merge.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

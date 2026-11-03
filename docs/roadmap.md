@@ -206,6 +206,13 @@ process RSS, including the Q2 copied-payload pressure measurements. Measured
 reusable VM pages do not resolve this residual; the cold selected-order blocker
 remains open independently of bounded offline source admission.
 
+Gregory owns the bounded [G39E planning exception](ft2-xm-closure-matrix.md#g39e-bxe9-and-scoped-planning-exception)
+as accepted performance debt pending the dedicated planning/performance overhaul.
+It applies only to the frozen repair and expires at that overhaul or an earlier
+producer change requiring requalification. G39E is READY FOR LISTENING / review;
+G39 remains PARTIAL and G39C pending acceptance/merge. Global gates and the
+existing overhaul sequence remain unchanged.
+
 The post-G41 manager efficiency audit also owns CI duration: the maintainer
 reported roughly 15+ minutes for PR #518's macOS `basic-checks` run #1065.
 Measure per-step wall time, redundant SwiftPM/Xcode tests, build-cache options,

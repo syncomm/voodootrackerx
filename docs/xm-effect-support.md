@@ -767,6 +767,15 @@ No-target/direction-none Bx retains its own output; source-less routes create no
 voice. Other 5xy volume arithmetic, G32 semantic policy and G39A/B stay unchanged.
 Parent G39 remains PARTIAL for the interrupted integrated G39C qualification.
 
+Bounded G39E Bx + nonzero E9 is READY FOR LISTENING / review: Bx precedes
+each actual retrigger/reset, and subsequent children follow the new generation.
+Native spans preserve the raw superseded birth child and its E9 cause without
+physical delivery or a changed frozen diagnostic shape. E90, no-dispatch rows,
+held output volume, memory, E4 suppression and G32 retain their contracts.
+The [G39E-only planning exception](ft2-xm-closure-matrix.md#g39e-bxe9-and-scoped-planning-exception)
+retains the failed original gate and tail evidence. G39 stays PARTIAL; integrated
+G39C awaits Gregory's acceptance and G39E merge.
+
 Ordinary note-bearing EDx/Bx executes Bx on the incoming channel/source through
 the delay tick, then on the admitted source after the existing trigger reset
 (or prior E4 suppression). The trigger supersedes the raw birth-tick Bx write

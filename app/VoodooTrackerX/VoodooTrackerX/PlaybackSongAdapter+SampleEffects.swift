@@ -599,6 +599,83 @@ extension PlaybackSongSyntheticAdapter {
         context.channelStates[channelIndex] = state
     }
 
+    /// The existing E9 invocation predicate, shared by ordinary and paired dispatch.
+    static func e9Dispatches(_ cell: PlaybackCell, tick: Int, timing: SyntheticTrackerTimingConfig) -> Bool {
+        let interval = retriggerIntervalNibble(from: cell)
+        return interval > 0 && timing.localEffectPhase(for: tick) % interval == 0
+    }
+
+    /// Interleave Bx and real E9 resets, keeping each diagnostic bound to one generation.
+    static func appendBxE9(cell: PlaybackCell, source: PlaybackPosition, channelIndex: Int,
+        syntheticRow: Int, timingConfig: SyntheticTrackerTimingConfig, timingPlan: PlaybackSongFxxTimingPlan,
+        state: inout ChannelState, context: inout AdapterRowContext) {
+        var pending: PlaybackSongSyntheticVibratoDiagnostic?
+        var aggregate: PlaybackSongSyntheticRetriggerDiagnostic?
+        func flush(superseded: Bool) {
+            guard var diagnostic = pending else { return }
+            if diagnostic.activeEventIndex == nil {
+                diagnostic.inactiveSourceStepUpdates = diagnostic.stepUpdates
+                diagnostic.stepUpdates = []
+            }
+            let index = context.vibratoEffects.count
+            appendPitchWriter(diagnostic, to: &context, supersededRetriggerBirth: superseded)
+            if superseded {
+                if !diagnostic.stepUpdates.isEmpty { context.vibratoEffects[index].stepUpdates.removeLast() }
+            }
+            pending = nil
+        }
+        for tick in timingConfig.nonzeroDispatchTicks {
+            pending = handleVibrato(from: cell, source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
+                channelState: &state, executionTicks: tick..<(tick + 1), executeSemanticPitch: true,
+                precedingInvocations: pending)
+            guard e9Dispatches(cell, tick: tick, timing: timingConfig) else { continue }
+            flush(superseded: true)
+            _ = handleRetrigger(from: cell, source: source, channelIndex: channelIndex,
+                syntheticRow: syntheticRow, volumeColumn: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
+                timingConfig: timingConfig, timingPlan: timingPlan, globalVolumeState: context.globalVolumeState,
+                channelState: &state, events: &context.events, eventMappings: &context.eventMappings,
+                retriggerEffects: &context.retriggerEffects, eventCoverage: &context.eventCoverage,
+                executionTicks: tick..<(tick + 1))
+            let dispatch = context.retriggerEffects.removeLast()
+            if var previous = aggregate {
+                previous.retriggerTicks += dispatch.retriggerTicks
+                previous.retriggerFrames += dispatch.retriggerFrames
+                previous.retriggerEventIndices += dispatch.retriggerEventIndices
+                previous.replacedEventIndices += dispatch.replacedEventIndices
+                previous.volumeValuesBefore += dispatch.volumeValuesBefore
+                previous.volumeValuesAfter += dispatch.volumeValuesAfter
+                previous.retriggerGains += dispatch.retriggerGains
+                aggregate = previous
+            } else { aggregate = dispatch }
+            // E9 preserves channel/out volume. ED's cached-default restore is not this reset.
+            if let event = dispatch.retriggerEventIndices.last {
+                let mapping = context.eventMappings[event]
+                state.activeLinearPeriod = mapping.linearPeriod
+                state.activeAmigaPeriod = mapping.amigaPeriod
+                state.activePlaybackStep = context.events[event].playbackStep
+            } else {
+                resetTremoloTriggerPhases(state: &state)
+                context.semanticPitchBuilder.add(tick: tick, channel: channelIndex, action: .automaticReset(.retrigger))
+                if (1...96).contains(state.carriedNote), let instrument = state.semanticInstrumentIndex {
+                    context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
+                        scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                        instrumentIndex: instrument, sampleIndex: state.semanticSampleIndex,
+                        stoppedEventIndex: nil, tick: tick))
+                }
+            }
+            state.vibratoOutputLinearPeriod = nil
+            state.vibratoOutputAmigaPeriod = nil
+            if (1...96).contains(state.carriedNote), state.semanticInstrumentIndex != nil {
+                captureSelection(source: source, row: syntheticRow, tick: tick, channel: channelIndex,
+                    frame: timingPlan.frameFor(row: syntheticRow, tick: tick), role: .retainedNoteRestart,
+                    linear: state.activeUsesLinearFrequencyTable ?? true, state: state, context: &context)
+            }
+        }
+        flush(superseded: false)
+        if let aggregate { context.retriggerEffects.append(aggregate) }
+    }
+
     @discardableResult
     static func handleRetrigger(
         from cell: PlaybackCell,
@@ -613,7 +690,8 @@ extension PlaybackSongSyntheticAdapter {
         events: inout [SyntheticTrackerEvent],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
-        eventCoverage: inout EventCoverageBuilder
+        eventCoverage: inout EventCoverageBuilder,
+        executionTicks: Range<Int>? = nil
     ) -> PlaybackSongSyntheticRetriggerDiagnostic? {
         guard isE9xRetriggerEffect(cell) else {
             return nil
@@ -727,7 +805,7 @@ extension PlaybackSongSyntheticAdapter {
         var retriggerGains = [Float]()
         var previousEventIndex = activeEventIndex
 
-        for tick in timingConfig.nonzeroDispatchTicks where timingConfig.localEffectPhase(for: tick) % interval == 0 {
+        for tick in executionTicks ?? timingConfig.nonzeroDispatchTicks where e9Dispatches(cell, tick: tick, timing: timingConfig) {
             let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
             let volumeBefore = retriggerState.baseChannelVolume
             let gain = songGain(

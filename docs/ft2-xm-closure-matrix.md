@@ -195,6 +195,47 @@ phase/memory, source/cursor, exact steps, output and carry. All 608 inherited
 WAV/full-JSON pairs reproduce accepted post-G39B bytes, preserving original P2
 history. Parent G39 remains PARTIAL pending the interrupted integrated G39C gate.
 
+#### G39E: Bx/E9 and scoped planning exception
+
+**G39E is READY FOR LISTENING / review.** Bx executes before each actual
+nonzero-E9 reset; later children follow the newborn generation. Immutable native
+writer spans retain the superseded raw birth child and its distinct E9 cause,
+while physical C delivery suppresses that child. Frozen vibrato diagnostic bytes,
+held output volume, E4 suppression, memory variants, G32 ownership and 5-ms
+retirement retain their qualified contracts.
+[BxE9OrderTests](../tests/vtx_render_bounded_xm/BxE9OrderTests.swift) and the
+qualified native, protected-output, delivery, host and full-suite evidence cover
+this bounded repair. Gregory's listening and independent acceptance remain pending;
+parent G39 stays PARTIAL and G39C awaits G39E acceptance and merge.
+
+The accepted performance exception is **planning p50 ≤1,000 ms for this G39E
+repair only**, identified by the six-file implementation patch SHA-256
+`bd278af0c3f6fa91102186c5d767af11ad18694402abed732ca439cf1a446106`.
+The original **972-ms planning-p50 gate remains FAIL**: historical repair
+979.4455 ms (+7.4455 ms) and fresh matched repair 983.004 ms (+11.004 ms).
+
+| Measure (ms) | Historical base / repair | Fresh matched base / repair |
+|---|---|---|
+| Planning p50 | 953.2995 / 979.4455 | 980.720 / 983.004 |
+| Planning p90 | 972.353 / 989.415 | 1023.339 / 1013.756 |
+| First Play p50 | 952.842 / 978.517 | 979.395 / 982.984 |
+| Heavy planning p50 | 2136.256 / 2135.6095 | 2169.832 / 2160.308 |
+
+First Play p50 ≤1,000 ms and heavy planning p50 ≤2,333 ms are unchanged and pass.
+Some actual runs exceed one second: matched repair planning max 1031.491 ms,
+4/16 planning runs above 1000 ms, and first-Play p90 1014.255 ms. p90 is
+descriptive; this exception grants no universal sub-second playback guarantee.
+Historical paired mean +16.1775 ms (95% interval +1.0333 to +30.9589) and matched
+paired mean −1.9302 ms (−18.6544 to +12.8818) remain distinct from the matched
+difference of p50 +2.284 ms. A stable repair penalty is not reproduced; equivalence
+is unproven, the fresh base itself exceeds 972 ms, and environmental uncertainty
+remains. This is accepted performance debt, not a code-level performance fix.
+
+Gregory owns the debt pending the dedicated planning/performance overhaul. The
+exception expires at that overhaul or an earlier change to this planning producer
+requiring requalification, whichever occurs first. Other patches do not inherit
+it; global performance gates and the existing overhaul sequence remain unchanged.
+
 The G39 integration owner still owes combined envelope/global/G32/E3 output
 and lifecycle coverage beyond the qualified bounded slices.
 Closed foundations above and G40/G41/#516 retain their existing boundaries.

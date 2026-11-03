@@ -27,9 +27,11 @@ extension PlaybackSongSyntheticAdapter {
         context.portamentoSlideEffects.append(command)
     }
 
-    static func appendPitchWriter(_ command: PlaybackSongSyntheticVibratoDiagnostic, to context: inout AdapterRowContext) {
+    static func appendPitchWriter(_ command: PlaybackSongSyntheticVibratoDiagnostic, to context: inout AdapterRowContext,
+        supersededRetriggerBirth: Bool = false) {
         let spanIndex = context.nativePitchWriterObserver.record(family: .vibrato, diagnosticIndex: context.vibratoEffects.count,
-            rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates)
+            rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed, children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates,
+            supersededRetriggerBirth: supersededRetriggerBirth)
         context.semanticPitchBuilder.writer(span: spanIndex, family: .vibrato, index: context.vibratoEffects.count,
             channel: command.channelIndex, rowSpeed: context.currentRowActualTickCount ?? command.rowSpeed,
             children: command.stepUpdates.isEmpty ? command.inactiveSourceStepUpdates : command.stepUpdates, generation: command.activeEventIndex)

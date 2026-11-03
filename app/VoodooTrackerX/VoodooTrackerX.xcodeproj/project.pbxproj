@@ -132,6 +132,7 @@
 		D32C3C000000000000000005 /* InstrumentAutovibratoPublicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32C3C000000000000000004 /* InstrumentAutovibratoPublicationTests.swift */; };
 		D39D02000000000000000002 /* BxToneOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39D02000000000000000001 /* BxToneOrderTests.swift */; };
 		D39E01000000000000000002 /* BxE9OrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39E01000000000000000001 /* BxE9OrderTests.swift */; };
+		D39F01000000000000000002 /* KeyOffVibratoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39F01000000000000000001 /* KeyOffVibratoTests.swift */; };
 		T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000008 /* RuntimeCMixerTests.swift */; };
 		T00000000000000000000109 /* TrackerViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000009 /* TrackerViewportTests.swift */; };
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
@@ -280,6 +281,7 @@
 		D32C3C000000000000000004 /* InstrumentAutovibratoPublicationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = InstrumentAutovibratoPublicationTests.swift; path = ../../../tests/vtx_render_bounded_xm/InstrumentAutovibratoPublicationTests.swift; sourceTree = "<group>"; };
 		D39D02000000000000000001 /* BxToneOrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BxToneOrderTests.swift; path = ../../../tests/vtx_render_bounded_xm/BxToneOrderTests.swift; sourceTree = "<group>"; };
 		D39E01000000000000000001 /* BxE9OrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BxE9OrderTests.swift; path = ../../../tests/vtx_render_bounded_xm/BxE9OrderTests.swift; sourceTree = "<group>"; };
+		D39F01000000000000000001 /* KeyOffVibratoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KeyOffVibratoTests.swift; path = ../../../tests/vtx_render_bounded_xm/KeyOffVibratoTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000008 /* RuntimeCMixerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000009 /* TrackerViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerViewportTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
@@ -480,6 +482,7 @@
 				D32C3C000000000000000004 /* InstrumentAutovibratoPublicationTests.swift */,
 				D39D02000000000000000001 /* BxToneOrderTests.swift */,
 				D39E01000000000000000001 /* BxE9OrderTests.swift */,
+				D39F01000000000000000001 /* KeyOffVibratoTests.swift */,
 				T00000000000000000000008 /* RuntimeCMixerTests.swift */,
 				T00000000000000000000009 /* TrackerViewportTests.swift */,
 				A00000000000000000000022 /* VoodooTrackerXTests.swift */,
@@ -810,6 +813,7 @@
 				D32C3C000000000000000005 /* InstrumentAutovibratoPublicationTests.swift in Sources */,
 				D39D02000000000000000002 /* BxToneOrderTests.swift in Sources */,
 				D39E01000000000000000002 /* BxE9OrderTests.swift in Sources */,
+				D39F01000000000000000002 /* KeyOffVibratoTests.swift in Sources */,
 				T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */,
 				T00000000000000000000109 /* TrackerViewportTests.swift in Sources */,
 				A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */,

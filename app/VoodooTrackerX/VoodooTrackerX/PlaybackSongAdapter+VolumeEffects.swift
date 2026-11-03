@@ -341,8 +341,8 @@ extension PlaybackSongSyntheticAdapter {
             let before = state
             // Pitch dispatch has reached row end. Alongside 7xy only Bx advances
             // vibrato, at fixed shared speed; undo its later invocations to read
-            // this tick after Bx. NOTE_OFF retains the existing no-Bx dispatch.
-            let remainingBxTicks = cell.volumeColumn >> 4 == 0xB && cell.note != 97
+            // this tick after Bx. Release rows execute that same Bx tick sequence.
+            let remainingBxTicks = cell.volumeColumn >> 4 == 0xB
                 ? timingConfig.actualTickCount - 1 - tick : 0
             let vibratoPhase = (state.vibratoPhase - remainingBxTicks * state.vibratoSpeed * 4) & 255
             let delta = tremoloDelta(phase: state.tremolo.phase, depth: state.tremolo.depth,

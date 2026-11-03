@@ -2084,6 +2084,7 @@ extension PlaybackSongSyntheticAdapter {
         context.vibratoEffects[index].supersededDelayedBirth = context.vibratoEffects[index].stepUpdates.removeLast()
     }
 
+    /// The release-row admission executes Bx alone while preserving the original cell's provenance.
     static func handleVibrato(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -2095,17 +2096,18 @@ extension PlaybackSongSyntheticAdapter {
         channelState: inout ChannelState,
         executionTicks: Range<Int>? = nil,
         executeSemanticPitch: Bool = false,
-        precedingInvocations: PlaybackSongSyntheticVibratoDiagnostic? = nil
+        precedingInvocations: PlaybackSongSyntheticVibratoDiagnostic? = nil,
+        volumeColumnOnly: Bool = false
     ) -> PlaybackSongSyntheticVibratoDiagnostic {
-        let combined = isVibratoVolumeSlideEffect(cell)
-        let effectVibrato = isVibratoEffect(cell) || combined
+        let combined = !volumeColumnOnly && isVibratoVolumeSlideEffect(cell)
+        let effectVibrato = !volumeColumnOnly && (isVibratoEffect(cell) || combined)
         let columnVibrato = (0xB0...0xBF).contains(cell.volumeColumn)
         let columnDepth = Int(cell.volumeColumn & 15)
         // Leaving Bx alone holds output; only the existing effect-column family restores it.
         let restoreAtRowEnd = restoreAtRowEnd && effectVibrato
         let targetSource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
-        let writesSpeed = isVibratoEffect(cell) && cell.effectParam >> 4 > 0 && timingConfig.actualTickCount > 1
-        let writesDepth = isVibratoEffect(cell) && cell.effectParam & 15 > 0 && timingConfig.actualTickCount > 1
+        let writesSpeed = !volumeColumnOnly && isVibratoEffect(cell) && cell.effectParam >> 4 > 0 && timingConfig.actualTickCount > 1
+        let writesDepth = !volumeColumnOnly && isVibratoEffect(cell) && cell.effectParam & 15 > 0 && timingConfig.actualTickCount > 1
         let columnWritesDepth = columnVibrato && columnDepth > 0 && timingConfig.actualTickCount > 1
         let speedMemorySource = writesSpeed ? nil : channelState.vibratoSpeedMemorySource
         let depthMemorySource = writesDepth || columnWritesDepth ? nil : channelState.vibratoDepthMemorySource

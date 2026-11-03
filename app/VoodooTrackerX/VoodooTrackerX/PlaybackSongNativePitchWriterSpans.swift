@@ -15,6 +15,8 @@ struct PlaybackSongNativePitchWriterSpans: Equatable {
         // Only the bounded prefix is observed; a retained trailing row exit is excluded.
         let originalChildren: [PlaybackSongSyntheticTonePortamentoStepUpdate]
         let family: Family
+        /// A real E9 dispatch supersedes this span's trailing raw child before mixing.
+        let supersededRetriggerBirth: Bool
 
         func child(at index: Int) -> PlaybackSongSyntheticTonePortamentoStepUpdate? {
             guard index >= 0, index < capturedChildCount else { return nil }
@@ -22,7 +24,7 @@ struct PlaybackSongNativePitchWriterSpans: Equatable {
         }
     }
     enum Delivery: Equatable {
-        case unknownDelivery, retainedDiagnosticChild, suppressedNoActiveSource, supersededDelayedBirth
+        case unknownDelivery, retainedDiagnosticChild, suppressedNoActiveSource, supersededDelayedBirth, supersededRetriggerBirth
     }
     /// A calculated native value. No delivery case asserts mixer acceptance or winning output.
     struct Observation: Equatable {
@@ -57,12 +59,12 @@ struct PlaybackSongNativePitchWriterSpans: Equatable {
 
         @discardableResult
         mutating func record(family: Family, diagnosticIndex: Int, rowSpeed: Int,
-            children: [PlaybackSongSyntheticTonePortamentoStepUpdate]) -> Int? {
+            children: [PlaybackSongSyntheticTonePortamentoStepUpdate], supersededRetriggerBirth: Bool = false) -> Int? {
             let count = children.count - (children.last?.syntheticTick == rowSpeed ? 1 : 0)
             guard count > 0 else { return nil }
             let capacity = spans.capacity
             spans.append(.init(diagnosticIndex: diagnosticIndex, capturedChildCount: count,
-                originalChildren: children, family: family))
+                originalChildren: children, family: family, supersededRetriggerBirth: supersededRetriggerBirth))
             if spans.capacity != capacity { storageGrowthCount += 1 }
             capturedChildCount += count
             referencedChildCount += children.count
@@ -137,6 +139,9 @@ extension PlaybackSongSyntheticPlan {
             if command.inactiveSourceStepUpdates.contains(child) { delivery = .suppressedNoActiveSource }
             if childIndex == span.capturedChildCount - 1, command.supersededDelayedBirth == child {
                 delivery = .supersededDelayedBirth
+            }
+            if childIndex == span.capturedChildCount - 1, span.supersededRetriggerBirth {
+                delivery = .supersededRetriggerBirth
             }
         }
         // Matching the same immutable ordinal proves diagnostic retention only. After

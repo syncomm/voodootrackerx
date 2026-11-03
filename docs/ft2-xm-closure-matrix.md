@@ -137,7 +137,7 @@ the audible-factor closure does not resolve or justify them.
 | Volume-Lxx loop/end positioning | KNOWN-REFERENCE-DIFFERENCE | Requested/next position can differ at or beyond loop end. | Independently authored loop control in [G31's retained boundaries](design/xm-reset-output-ramp.md#g31-bounded-volume-envelope-q8-arithmetic); arithmetic closure does not close positioning. | S; separate volume-Lxx contract before Phase 2 freeze |
 | Cold volume before a nonzero first point | KNOWN-REFERENCE-DIFFERENCE | VTX emits the first value while the pinned reference starts at zero. | Public numeric control starts at tick 3/value 48; ticks 0...2 remain VTX `48/64` versus reference zero. | S; separate initialization/admission question |
 | G37 E6x implicit initial loop start | PARTIAL; G37A INITIAL/DEFAULT-ORIGIN SLICE CLOSED | Initial/default-origin runtime and direct cold selected-range adapter/offline behavior are qualified; live cold selected-order/row planning remains OPEN. | [ImplicitPatternLoopTests](../tests/vtx_render_bounded_xm/ImplicitPatternLoopTests.swift) and runtime controls preserve G37A chronology/source/finite guards. G38B closes pattern-local anchor/counter and natural-entry policy above. Direct cold results do not qualify the eager live plan: [#516](https://github.com/syncomm/voodootrackerx/issues/516) owns start-aware planning after G41, before release/freeze. | T |
-| G39 full 4xy/6xy/7xy audible interactions and range boundaries | PARTIAL | Bounded G39A phase consumption and G39B Linear native-word output are closed above; remaining G39 integration owns broader combined output coverage below. | V/6/TR; closed integer engines, G10 ordered executions and 6xy timing remain protected. | G39 integrated interaction qualification |
+| G39 full 4xy/6xy/7xy audible interactions and range boundaries | PARTIAL | Bounded musical controls and local integrated evidence are accounted for; G39C removes the registered Debug prewarm stack failure without changing effect semantics. | V/6/TR; closed integer engines, G10 ordered executions and 6xy timing remain protected. | Native arm64 CI, Gregory review and merged-source integrated acceptance; separate tail parity OPEN |
 | G40 static 8xx / header pan law | KNOWN-REFERENCE-DIFFERENCE | Noncenter stereo amplitudes differ under current profile laws; exact panning state is already supported. | 8/PA; retained profile-law boundary; compare endpoints/interior and PE factor together before closure. | O; none missing |
 | G41 9xx/900 and sample loop/end boundaries | PARITY-WATCH | Valid offsets, memory and loops are supported; boundary source retirement/interpolation can affect attacks and tails. | Z command occurrences; existing synthetic offset/loop tests. No fresh exhaustive FT2 boundary oracle. | S; N when replacement overlaps |
 
@@ -193,11 +193,11 @@ unchanged. [BxToneOrderTests](../tests/vtx_render_bounded_xm/BxToneOrderTests.sw
 and both-rate/mode native, optimized actual-host and partition controls qualify
 phase/memory, source/cursor, exact steps, output and carry. All 608 inherited
 WAV/full-JSON pairs reproduce accepted post-G39B bytes, preserving original P2
-history. Parent G39 remains PARTIAL pending the interrupted integrated G39C gate.
+history. Parent G39 remains PARTIAL pending the integrated acceptance gates below.
 
 #### G39E: Bx/E9 and scoped planning exception
 
-**G39E is READY FOR LISTENING / review.** Bx executes before each actual
+**Merged G39E preserves bounded Bx/E9 ordering.** Bx executes before each actual
 nonzero-E9 reset; later children follow the newborn generation. Immutable native
 writer spans retain the superseded raw birth child and its distinct E9 cause,
 while physical C delivery suppresses that child. Frozen vibrato diagnostic bytes,
@@ -205,8 +205,9 @@ held output volume, E4 suppression, memory variants, G32 ownership and 5-ms
 retirement retain their qualified contracts.
 [BxE9OrderTests](../tests/vtx_render_bounded_xm/BxE9OrderTests.swift) and the
 qualified native, protected-output, delivery, host and full-suite evidence cover
-this bounded repair. Gregory's listening and independent acceptance remain pending;
-parent G39 stays PARTIAL and G39C awaits G39E acceptance and merge.
+this bounded repair. Merged G39F preserves Bx on audible released sources and
+per-tick ramp-tremolo projection. Parent G39 stays PARTIAL pending native arm64
+CI, Gregory's review and merged-source integrated acceptance.
 
 The accepted performance exception is **planning p50 ≤1,000 ms for this G39E
 repair only**, identified by the six-file implementation patch SHA-256
@@ -236,9 +237,31 @@ exception expires at that overhaul or an earlier change to this planning produce
 requiring requalification, whichever occurs first. Other patches do not inherit
 it; global performance gates and the existing overhaul sequence remain unchanged.
 
-The G39 integration owner still owes combined envelope/global/G32/E3 output
-and lifecycle coverage beyond the qualified bounded slices.
-Closed foundations above and G40/G41/#516 retain their existing boundaries.
+#### G39C: Debug prewarm stack lifetime
+
+Event assembly starts only after adaptation returns, removing the registered
+Bx+303 and held-traversal Debug prewarm stack-guard crash. The worker stack policy,
+event materialization and pitch/effect semantics are unchanged. Measured x86_64
+Debug vibrato-entry headroom rises from 9,032 to 133,752 bytes; this sampled
+boundary is not universal or native arm64 proof. Real canonical Debug host
+controls pass and all 608 protected WAV/full-JSON pairs reproduce their accepted
+contents, retaining the 600 unaffected / eight historically qualified split.
+
+Matched ordinary Release p50 gates pass: planning 969.629 ms <=972,
+First Play 970.875 ms <=1000 and heavy planning 2126.769 ms <=2333.
+The planning margin is 2.371 ms. One sentinel planning/First Play run exceeds
+1000 ms (maxima 1054.931 / 1053.630 ms); one heavy run reaches 2371.324 ms.
+These are bounded median gates, not tail guarantees or proof of zero attributable
+cost. No G39E exception is inherited; its historical failed gate remains above.
+
+All six preregistered bounded integrated families have local evidence accounted
+for. G39 remains PARTIAL until native arm64 CI, Gregory's review and
+merged-source integrated acceptance. The runtime/offline pre-freeze tail owner
+retains the separate post-song discrepancy (first frame 11528 after song end
+11520, 9512 samples, maximum 289 PCM16 LSB), plus other release-row tails;
+no full host/offline parity or waiver is claimed. G40/G41 characterization has
+not begun; #516 live nonzero-order cold start and the planning/real-time audits
+remain separately OPEN. Closed musical foundations retain their boundaries.
 
 ### Decision inputs and current status
 

@@ -387,6 +387,20 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             sampleRate: sampleRate,
             profileSession: profileSession
         )
+        return assemble(song: song, adaptedPlan: adaptedPlan, sampleRate: sampleRate,
+            profileSession: profileSession, makeStart: makeStart)
+    }
+
+    // Event materialization has a large Debug stack frame. Enter it only after
+    // adaptation returns, keeping it out of nested Bx/tone pitch execution.
+    @inline(never)
+    private static func assemble(
+        song: PlaybackSong,
+        adaptedPlan: PlaybackSongSyntheticPlan,
+        sampleRate: Double,
+        profileSession: AdapterPlanProfileSession?,
+        makeStart: UInt64?
+    ) -> RuntimeCMixerAdapterEventPlan {
         let diagnosticIndexingStart = profileSession?.beginPhase()
         let scheduler = SyntheticTrackerScheduler(config: adaptedPlan.timingConfig)
         let eventMappingsByIndex = Dictionary(

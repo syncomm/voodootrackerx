@@ -394,20 +394,33 @@ host.
   Low-note listening was non-discriminating; native period/step, waveform and
   host proofs qualify those cases.
   [G39 remains PARTIAL](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range):
-  integrated envelope/global/G32/E3 output and lifecycle qualification precede
-  separately sequenced G40/G41/#516. No backend freeze is claimed.
+  bounded local integrated evidence is accounted for; native arm64 CI,
+  Gregory's review and merged-source integrated acceptance precede G40/G41/#516.
+  No backend freeze is claimed.
 - G39D closes bounded Bx + 3xx/5xy dispatch and ordered physical delivery.
   Bx runs before tone on each real nonzero tick; final tone output owns the G32
   physical ordinary-intent latch on later automatic-only ticks. Both causal
   requests, semantic publication, source/cursor and unrelated ordering remain
   independent. Both-mode/rate native/host/partition and protected-output gates
-  qualify the slice; parent G39 remains PARTIAL pending integrated G39C work.
-- Bounded G39E Bx + nonzero E9 is READY FOR LISTENING / review. Source-stable
-  raw birth supersession and newborn pitch ownership preserve frozen diagnostics.
-  Its [accepted planning exception](ft2-xm-closure-matrix.md#g39e-bxe9-and-scoped-planning-exception)
-  is specific to the frozen repair; the original 972-ms FAIL and one-second tail
-  overruns remain explicit. Gregory's listening/independent acceptance is pending;
-  G39 stays PARTIAL and G39C awaits G39E acceptance and merge.
+  qualify the slice; parent G39 remains PARTIAL pending the integrated acceptance
+  gates below.
+- Merged bounded G39E Bx + nonzero E9 preserves source-stable
+  raw birth supersession and newborn pitch ownership with frozen diagnostics.
+  Its [historical planning exception](ft2-xm-closure-matrix.md#g39e-bxe9-and-scoped-planning-exception)
+  remains specific to that frozen repair. Merged G39F preserves Bx on audible
+  released sources and per-tick ramp-tremolo projection.
+- G39C isolates event assembly after adaptation, removing the registered
+  Bx+303 and held-traversal Debug prewarm stack-guard crash without changing
+  the worker stack policy or effect semantics. Measured x86_64 Debug vibrato-entry
+  headroom rises from 9,032 to 133,752 bytes; this is not native arm64 proof.
+  Real canonical Debug host controls and all 608 accepted WAV/full-JSON targets
+  pass. Matched planning / First Play / heavy planning p50 values are
+  969.629 / 970.875 / 2126.769 ms, within unchanged 972 / 1000 / 2333-ms gates.
+  The planning margin is 2.371 ms and high-tail samples remain; no guaranteed
+  sub-second operation is claimed. G39 stays PARTIAL pending native arm64 CI,
+  Gregory's review and merged-source integrated acceptance. Post-song host/offline
+  tail parity and live nonzero-order cold start under #516 remain separately OPEN;
+  G40/G41 characterization has not begun.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

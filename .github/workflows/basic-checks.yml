@@ -24,7 +24,7 @@ jobs:
           -scheme VoodooTrackerX
           -configuration Debug
           -destination 'platform=macOS'
-          -derivedDataPath .derivedData
+          -derivedDataPath build
           CODE_SIGNING_ALLOWED=NO
           build
       - name: Run unit tests
@@ -34,13 +34,13 @@ jobs:
           -scheme VoodooTrackerX
           -configuration Debug
           -destination 'platform=macOS'
-          -derivedDataPath .derivedData
+          -derivedDataPath build
           CODE_SIGNING_ALLOWED=NO
           test
       - name: Report unit test failures
         if: failure()
         run: |
-          for vtx_test_result in .derivedData/Logs/Test/*.xcresult; do
+          for vtx_test_result in build/Logs/Test/*.xcresult; do
             if [ -d "$vtx_test_result" ]; then
               xcrun xcresulttool get test-results summary --path "$vtx_test_result"
             fi

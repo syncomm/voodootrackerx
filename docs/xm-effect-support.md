@@ -765,16 +765,28 @@ note-bearing target row. Separate Bx then tone physical requests preserve E3
 output and the G32 ordinary-intent latch across runtime/offline continuations.
 No-target/direction-none Bx retains its own output; source-less routes create no
 voice. Other 5xy volume arithmetic, G32 semantic policy and G39A/B stay unchanged.
-Parent G39 remains PARTIAL for the interrupted integrated G39C qualification.
+Parent G39 remains PARTIAL pending native arm64 CI, Gregory's review and
+merged-source integrated acceptance of the bounded local evidence.
 
-Bounded G39E Bx + nonzero E9 is READY FOR LISTENING / review: Bx precedes
+Merged bounded G39E Bx + nonzero E9 retains its ordering: Bx precedes
 each actual retrigger/reset, and subsequent children follow the new generation.
 Native spans preserve the raw superseded birth child and its E9 cause without
 physical delivery or a changed frozen diagnostic shape. E90, no-dispatch rows,
 held output volume, memory, E4 suppression and G32 retain their contracts.
 The [G39E-only planning exception](ft2-xm-closure-matrix.md#g39e-bxe9-and-scoped-planning-exception)
-retains the failed original gate and tail evidence. G39 stays PARTIAL; integrated
-G39C awaits Gregory's acceptance and G39E merge.
+retains the failed original gate and tail evidence; it is not inherited by G39C.
+Merged G39F preserves release-row Bx and per-tick ramp-tremolo projection.
+
+G39C separates event assembly from adaptation, removing the registered Bx+303
+and held-traversal Debug prewarm stack-guard failure without changing worker
+stack policy, effect output or delivery order. Measured x86_64 Debug headroom
+and strict real host controls qualify that boundary; native arm64 CI remains
+required. The 608 accepted protected output pairs stay exact and the original
+planning / First Play / heavy p50 gates pass with a thin planning margin and
+retained high-tail samples. See the [G39C stack contract](ft2-xm-closure-matrix.md#g39c-debug-prewarm-stack-lifetime).
+G39 remains PARTIAL through Gregory's review and merged-source integrated
+acceptance. Post-song host/offline tail parity, #516 live nonzero-order cold
+start and planning/real-time audits stay OPEN; G40/G41 characterization has not begun.
 
 Ordinary note-bearing EDx/Bx executes Bx on the incoming channel/source through
 the delay tick, then on the admitted source after the existing trigger reset

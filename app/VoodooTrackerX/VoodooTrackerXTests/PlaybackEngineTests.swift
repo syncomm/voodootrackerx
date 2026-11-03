@@ -3,6 +3,68 @@ import AudioToolbox
 import XCTest
 
 final class PlaybackEngineTests: XCTestCase {
+    func testCanonicalDebugPrewarmHandlesBxBeforeToneOnItsDispatchWorker() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let executable = root.appendingPathComponent(
+            "build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX")
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+            return XCTFail("Build the canonical Debug app before running its prewarm regression")
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vtx-prewarm-stack-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var succeeded = false
+        defer { if succeeded { try? FileManager.default.removeItem(at: directory) } }
+        let cases: [(Bool, Int, Bool, Bool)] = [
+            (true, 44_100, true, true), (true, 48_000, true, true),
+            (false, 44_100, true, true), (false, 48_000, true, true),
+            (true, 48_000, false, true), (true, 48_000, true, false),
+            (true, 48_000, false, false)
+        ]
+        for (index, item) in cases.enumerated() {
+            let (linear, rate, bx, tone) = item
+            let fixture = directory.appendingPathComponent("case-\(index).xm")
+            try prewarmStackXM(linear: linear, bx: bx, tone: tone).write(to: fixture)
+            let log = directory.appendingPathComponent("case-\(index).log")
+            _ = FileManager.default.createFile(atPath: log.path, contents: nil)
+            let sink = try FileHandle(forWritingTo: log)
+            defer { try? sink.close() }
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["-ApplePersistenceIgnoreState", "YES"]
+            var environment = ProcessInfo.processInfo.environment.filter {
+                !$0.key.hasPrefix("VTX_") && !$0.key.hasPrefix("XCTest") &&
+                    !$0.key.hasPrefix("XCInject") && $0.key != "DYLD_INSERT_LIBRARIES"
+            }
+            environment["LLVM_PROFILE_FILE"] = directory.appendingPathComponent("case-\(index)-%p.profraw").path
+            environment["VTX_OPEN_PATH"] = fixture.path
+            environment["VTX_AUDIO_BACKEND"] = "c_mixer"
+            environment["VTX_C_MIXER_RUNTIME_SAMPLE_RATE"] = String(rate)
+            environment["VTX_PLAYBACK_TIMING_TRACE"] = "1"
+            environment["VTX_DEBUG_AUTOPLAY"] = "0"
+            process.environment = environment
+            process.standardOutput = sink
+            process.standardError = sink
+            try process.run()
+            defer { if process.isRunning { process.terminate(); process.waitUntilExit() } }
+            let deadline = ProcessInfo.processInfo.systemUptime + 20
+            var installed = false
+            while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline {
+                let text = String(decoding: try Data(contentsOf: log), as: UTF8.self)
+                installed = text.contains("phase=runtime_adapter_event_plan_prewarm_configure") &&
+                    text.contains("lifecycle=prewarm") && text.contains("prewarm_outcome=installed")
+                if installed { break }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            guard installed && process.isRunning else {
+                XCTFail("Canonical Debug prewarm failed: linear=\(linear) rate=\(rate) bx=\(bx) tone=\(tone); evidence: \(directory.path)")
+                return
+            }
+        }
+        succeeded = true
+    }
+
     @MainActor
     func testAutomaticStopReportsFaultPublishedBetweenPollAndQuiescenceOnce() {
         for path in 0..<3 {
@@ -2558,6 +2620,35 @@ private func advanceRows(_ rowCount: Int, engine: PlaybackEngine, timing: Playba
     for _ in 0..<(max(0, rowCount) * timing.ticksPerRow) {
         engine.advanceOneTick()
     }
+}
+
+/// Public two-row XM: C-4/I01/A4, then E-4/B8/303; all modulation metadata is neutral.
+private func prewarmStackXM(linear: Bool, bx: Bool, tone: Bool) -> Data {
+    // Fixed XM 1.04 headers keep the exact 96-entry sample-0 map and silent second channel.
+    var bytes = [UInt8](repeating: 0, count: 1_180)
+    func put(_ value: UInt32, at offset: Int, width: Int = 2) {
+        for index in 0..<width { bytes[offset + index] = UInt8(truncatingIfNeeded: value >> (index * 8)) }
+    }
+    bytes.replaceSubrange(0..<17, with: "Extended Module: ".utf8)
+    bytes.replaceSubrange(17..<37, with: "Prewarm stack test  ".utf8)
+    bytes[37] = 0x1A
+    bytes.replaceSubrange(38..<58, with: "VTX public synthetic".utf8)
+    put(0x0104, at: 58); put(276, at: 60, width: 4)
+    put(1, at: 64); put(2, at: 68); put(1, at: 70); put(1, at: 72)
+    put(linear ? 1 : 0, at: 74); put(6, at: 76); put(125, at: 78)
+    put(9, at: 336, width: 4); put(2, at: 341); put(20, at: 343)
+    bytes.replaceSubrange(345..<350, with: [49, 1, 0xA4, 0, 0])
+    bytes.replaceSubrange(355..<360, with: [53, 0, bx ? 0xB8 : 0, tone ? 3 : 0, tone ? 3 : 0])
+    put(263, at: 365, width: 4); put(1, at: 392); put(40, at: 394, width: 4)
+    put(512, at: 628, width: 4); put(512, at: 636, width: 4)
+    bytes[640] = 32; bytes[642] = 0x11; bytes[643] = 128
+    var previous = 0
+    for frame in 0..<256 {
+        let value = Int((8_192 * sin(2 * Double.pi * Double(frame) / 16)).rounded())
+        put(UInt32(UInt16(truncatingIfNeeded: value - previous)), at: 668 + frame * 2)
+        previous = value
+    }
+    return Data(bytes)
 }
 
 private func makeRuntimeAdapterPlaybackSong(patternIndex: Int) -> PlaybackSong {

@@ -169,14 +169,19 @@ bounded contracts; they do not establish full command or audible parity.
 The bounded G38 traversal contract is CLOSED under G38A/G38B. G39A phase
 consumption and G39B Linear native-word output are CLOSED for their qualified
 bounded contracts. Bounded G39D Bx + tone dispatch/delivery and the G32 physical
-ordinary-intent latch are CLOSED; G39 remains PARTIAL. Remaining integrated
-envelope/global/G32/E3 output, lifecycle and qualification gates precede G40 and G41; G39B
-neither broadens their scope nor establishes backend freeze. Full G37 remains
+ordinary-intent latch are CLOSED. G39C's isolated event-assembly lifetime boundary
+removes the registered Debug prewarm stack crash while preserving worker policy
+and effect semantics. Bounded local integrated controls, strict real Debug host
+checks and 608 accepted protected output pairs are qualified. G39 remains PARTIAL
+pending native arm64 CI, Gregory's review and merged-source integrated acceptance;
+G40/G41 characterization has not begun. No backend freeze is claimed. Full G37 remains
 PARTIAL. See the
 [G39 contracts and owners](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
 Cold live selected-order planning
 [#516](https://github.com/syncomm/voodootrackerx/issues/516) stays assigned after G41.
-The integrated planning/memory/UI/CI and cross-family/release audit follows G41. These remaining contracts and the #516 release blocker stay OPEN.
+The integrated planning/memory/UI/CI and cross-family/release audit follows G41.
+Post-song host/offline tail parity has its separate pre-freeze decision owner.
+These remaining contracts and the #516 release blocker stay OPEN.
 
 ### Current target / exit gate
 
@@ -209,9 +214,13 @@ remains open independently of bounded offline source admission.
 Gregory owns the bounded [G39E planning exception](ft2-xm-closure-matrix.md#g39e-bxe9-and-scoped-planning-exception)
 as accepted performance debt pending the dedicated planning/performance overhaul.
 It applies only to the frozen repair and expires at that overhaul or an earlier
-producer change requiring requalification. G39E is READY FOR LISTENING / review;
-G39 remains PARTIAL and G39C pending acceptance/merge. Global gates and the
-existing overhaul sequence remain unchanged.
+producer change requiring requalification. That historical exception is not
+inherited by the current G39C producer: matched planning / First Play / heavy
+planning p50 values 969.629 / 970.875 / 2126.769 ms pass the original
+972 / 1000 / 2333-ms gates. The planning margin is only 2.371 ms; retained
+above-limit individual samples and broader planning debt remain explicit in the
+closure matrix. G39 stays PARTIAL through native arm64 CI, Gregory review and
+merged-source integrated acceptance. Global gates and overhaul sequencing are unchanged.
 
 The post-G41 manager efficiency audit also owns CI duration: the maintainer
 reported roughly 15+ minutes for PR #518's macOS `basic-checks` run #1065.

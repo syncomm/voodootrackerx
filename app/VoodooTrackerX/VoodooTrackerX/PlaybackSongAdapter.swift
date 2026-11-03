@@ -1642,6 +1642,16 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = channelState
             }
             let pairedBxTone = hasTonePortamento && (0xB0...0xBF).contains(cell.volumeColumn)
+            if cell.note == 97, (0xB0...0xBF).contains(cell.volumeColumn),
+               !pairedBxE9, !isRxyMultiRetriggerEffect(cell) {
+                // Key-off releases the retained source; Bx still executes on real
+                // nonzero ticks. Keep the effect-column release guards independent.
+                let diagnostic = handleVibrato(from: cell, source: source, channelIndex: channelIndex,
+                    syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan,
+                    channelState: &channelState, volumeColumnOnly: true)
+                appendPitchWriter(diagnostic, to: &context)
+                context.channelStates[channelIndex] = channelState
+            }
             if hasVibrato || hasVibratoVolumeSlide, !pairedBxTone, !(1...96).contains(cell.note), cell.note != 97 {
                 let diagnostic = handleVibrato(
                     from: cell,

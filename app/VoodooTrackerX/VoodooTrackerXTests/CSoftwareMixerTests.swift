@@ -1848,7 +1848,7 @@ final class CSoftwareMixerTests: XCTestCase {
     }
 
     func testMixerMixProfileExpectedValuesDocumentReferencePolicy() {
-        let centerPan = Float(sqrt(0.5))
+        let centerPan: Float = 46341.0 / 65536
 
         XCTAssertEqual(MixerMixProfile.vtx.panLaw, .linear)
         XCTAssertEqual(MixerMixProfile.vtx.outputScale, 1)
@@ -1858,7 +1858,7 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(MixerMixProfile.ft2.panLaw, .ft2EqualPower)
         XCTAssertEqual(MixerMixProfile.ft2.outputScale, 0.3125)
         XCTAssertEqual(MixerMixProfile.ft2.centerPanContribution, centerPan, accuracy: 0.000_001)
-        XCTAssertEqual(MixerMixProfile.ft2.centeredOutputContribution, 0.220_970_87, accuracy: 0.000_001)
+        XCTAssertEqual(MixerMixProfile.ft2.centeredOutputContribution, 0.220_971_11, accuracy: 0.000_001)
         XCTAssertEqual(
             MixerMixProfile.ft2.outputScale,
             (MixerMixProfile.ft2ReferenceAmplification * MixerMixProfile.ft2ReferenceMasterVolume) /
@@ -1867,7 +1867,7 @@ final class CSoftwareMixerTests: XCTestCase {
     }
 
     func testCSoftwareMixerPanGainHelpersExposeCurrentAndFT2Policies() {
-        let centerPan = Float(sqrt(0.5))
+        let centerPan: Float = 46341.0 / 65536
 
         XCTAssertEqual(vtx_c_mixer_pan_left_gain(VTX_C_MIXER_PAN_LAW_LINEAR, 0), 1)
         XCTAssertEqual(vtx_c_mixer_pan_right_gain(VTX_C_MIXER_PAN_LAW_LINEAR, 0), 1)
@@ -1880,8 +1880,8 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(vtx_c_mixer_pan_right_gain(VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER, 0), centerPan, accuracy: 0.000_001)
         XCTAssertEqual(vtx_c_mixer_pan_left_gain(VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER, -1), 1)
         XCTAssertEqual(vtx_c_mixer_pan_right_gain(VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER, -1), 0)
-        XCTAssertEqual(vtx_c_mixer_pan_left_gain(VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER, 1), 0)
-        XCTAssertEqual(vtx_c_mixer_pan_right_gain(VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER, 1), 1)
+        XCTAssertEqual(vtx_c_mixer_pan_left_gain(VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER, 1), 0.0625)
+        XCTAssertEqual(vtx_c_mixer_pan_right_gain(VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER, 1), 65408.0 / 65536)
     }
 
     func testCSoftwareMixerDefaultMixProfileKeepsLinearPanAndUnityOutputScale() {
@@ -1898,7 +1898,7 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(hardRight.interleavedPCM, [0, 1])
     }
 
-    func testCSoftwareMixerFT2MixProfileAppliesOutputScaleOnlyAtPanExtremes() {
+    func testCSoftwareMixerFT2MixProfileScalesItsByteEndpoints() {
         let sample = MixerSampleBuffer(monoPCM: [1])
         let config = MixerRenderConfig(sampleRate: 1_000, channelCount: 2, mixProfile: .ft2)
 
@@ -1908,7 +1908,7 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(hardLeft.config.mixProfile, .ft2)
         XCTAssertEqual(hardLeft.config.outputScale, 0.3125)
         XCTAssertEqual(hardLeft.interleavedPCM, [0.3125, 0])
-        XCTAssertEqual(hardRight.interleavedPCM, [0, 0.3125])
+        XCTAssertEqual(hardRight.interleavedPCM, [0.01953125, 0.3118896484375])
     }
 
     func testCSoftwareMixerFT2MixProfileCombinesCenterPanContributionAndOutputScale() {
@@ -1919,7 +1919,7 @@ final class CSoftwareMixerTests: XCTestCase {
         let expected = MixerMixProfile.ft2.centeredOutputContribution
 
         XCTAssertFloatArrayEqual(block.interleavedPCM, [expected, expected])
-        XCTAssertEqual(expected, 0.220_970_87, accuracy: 0.000_001)
+        XCTAssertEqual(expected, 0.220_971_11, accuracy: 0.000_001)
     }
 
     func testCSoftwareMixerFT2MixProfileFloat32ExportPreservesProfileValues() throws {

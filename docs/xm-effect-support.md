@@ -301,7 +301,7 @@ notes and matrix IDs, including the cross-cutting obligations below.
 | `5xy` | Tone portamento + volume slide | Implemented | Partial; G28 Amiga composition closed | Shared `3xx` target/speed and `Axy`/`5xy`/`6xy` slide byte | Both | Amiga reuses 3xx progression plus the existing shared volume writer, including independent cold 500 execution and whole-byte replay. Same-cell ownership selects retained/empty defaults or cold initialization before explicit writers. Fxx/speed-1, exact routes and source/cursor carry are pinned. Combined G30 closes bounded extremes below; broader parent limitations remain separate. |
 | `6xy` | Vibrato + volume slide | Implemented | Closed, bounded G39 in-song | Shared `4xy` vibrato and `Axy`/`5xy`/`6xy` slide byte; `600` supported | Both | Vibrato then slide on ticks `1..<speed`; no tick-zero/speed-1 slide. Unseeded `600` restores base to output with zero amount and publishes against the held source target even when local values are unchanged. Timing/memory/local publication and bounded G39 in-song composition are closed. |
 | `7xy` | Tremolo | Implemented | Closed, bounded G39 in-song | Own; independent initially-zero speed/depth nibbles | Not applicable | `700`, `70y`, `7x0`, integer nonzero-tick output modulation and empty-row phase/output carry are closed. G39A consumes canonical vibrato phase per invocation, including Bx history and same-row crossings, without changing G10 pitch requests or output cadence. Bounded G39 integration and G39B Linear output are closed and G01 removes duplicate header scaling. |
-| `8xx` | Set panning | Implemented | Known difference | None | Not applicable | Exact tick-zero panning state exists. Final stereo pan law differs (G40); this is separate from E8 and pan envelopes. |
+| `8xx` | Set panning | Implemented | Bounded G40 qualified for review | None | Not applicable | Exact tick-zero byte/precedence is preserved. Opt-in FT2 uses byte-indexed Q16 square-root coefficients at unchanged scale 0.3125; VTX linear/unity defaults remain intentional. [G40 qualification](ft2-xm-closure-matrix.md#g40-bounded-opt-in-ft2-static-pan-law) retains G06/G07 and tail exclusions; Gregory owns acceptance. |
 | `9xx` | Sample offset | Implemented | Partial | Own; `900` supported | Not applicable | Same-cell source offset/memory exists; end/loop/offset boundaries remain G41. Safely skipping an out-of-range offset does not prove FT2 parity. |
 | `Axy` | Volume slide | Implemented | Closed G14 cold restoration and seeded replay | Shared with `5xy`/`6xy`; cold `A00` executes implicit zero without seeding | Not applicable | Nonzero-tick slides and cold base-to-output restoration use causal local publication. Speed 1 is inert; tremolo/E7 state and real seeded provenance are preserved. Broader output interactions remain separate. |
 | `Bxx` | Position jump | Implemented | Closed, bounded G38 | None | Not applicable | G38A ordered pending-row writes/EE holds; G38B preserves visible out-of-range and finite cycle stops. Indefinite replay and clone security fixes are not parity claims. |
@@ -788,7 +788,8 @@ planning / First Play / heavy p50 gates pass with a thin planning margin and
 retained high-tail samples. See the [G39C stack contract](ft2-xm-closure-matrix.md#g39c-debug-prewarm-stack-lifetime).
 The bounded G39 in-song acceptance ledger is CLOSED. Post-song host/offline tail
 parity, #516 live nonzero-order cold start and planning/real-time audits stay OPEN;
-G40/G41 characterization has not begun.
+G40's bounded opt-in static-law implementation is qualified for Gregory review;
+G41 characterization follows acceptance and has not begun.
 
 Ordinary note-bearing EDx/Bx executes Bx on the incoming channel/source through
 the delay tick, then on the admitted source after the existing trigger reset
@@ -864,9 +865,15 @@ support alone does not close these domains:
   from #512's fixed strict Float32 test failure.
   G04 closes bounded ECx retained-source/cursor and quick-output behavior. Existing
   cached defaults and shared final-L/R reset targets are established foundations.
-- **Panning:** exact header/8xx state, final stereo pan law (G40), semantic pan
-  clocks, audible pan-envelope factor (G06), and Lxx pan positioning (G07) are
-  distinct. G06 now composes the carried pan value into the existing final-L/R
+- **Panning:** exact header/8xx state, the bounded opt-in FT2 static law (G40),
+  semantic pan clocks, audible pan-envelope factor (G06), and Lxx positioning (G07)
+  are distinct. G40 is qualified for Gregory review with all-byte native Q16
+  coefficients, the accepted 360 exact VTX / 248 accounted FT2 partition and
+  unchanged VTX runtime/audition/export defaults. The supported full Debug Xcode
+  and Debug/Release SwiftPM suites, optimized app build and original paired
+  performance gates pass. Ordinary Release Xcode fault-injection testing remains
+  independent future infrastructure debt, not a failed G40 audio gate.
+  G06 now composes the carried pan value into the existing final-L/R
   target, preserving neutral/static baselines and silent routes. Existing
   fractional/point-64 arithmetic and pan-sustain release differences remain open.
   Lxx now positions the existing pan clock under the sounding instrument's raw

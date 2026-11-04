@@ -174,13 +174,23 @@ performance gates pass. See the
 [G39 acceptance ledger and exclusions](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
 No backend freeze is claimed; full G37 remains PARTIAL.
 
-Next characterization is **G40 static pan law → G41 9xx/900 offsets, source ends
-and loop boundaries**; neither has begun. Cold live selected-order/row planning
+The bounded opt-in FT2 static pan law (G40) is **qualified for Gregory review**,
+with the VTX linear/unity product policy unchanged. The
+[qualification](ft2-xm-closure-matrix.md#g40-bounded-opt-in-ft2-static-pan-law)
+retains exact byte routing, the native Q16 law, 360 exact VTX pairs and 248
+accounted FT2 changes, and the original paired performance ceilings. Gregory owns final acceptance
+and PR submission. Then characterize **G41 9xx/900 offsets, source ends and loop
+boundaries** separately; G41 has not begun. Cold live selected-order/row planning
 and full G37 integration under [#516](https://github.com/syncomm/voodootrackerx/issues/516)
 follow G41. The planning/performance/memory/CI and cross-family pre-freeze audits,
 callback real-time safety, separate post-song host/offline tail decision,
 Speed/BPM/labels UI work and final release gates retain their owners and
 sequence. All remain OPEN.
+
+Ordinary optimized Xcode Release test-bundle instrumentation remains a separate
+future build/test policy question: current fault-injection coverage intentionally
+runs in Debug, alongside a genuine optimized Release app build and full SwiftPM
+Debug/Release suites. This is not a performance exception or G40 audio waiver.
 
 ### Current target / exit gate
 

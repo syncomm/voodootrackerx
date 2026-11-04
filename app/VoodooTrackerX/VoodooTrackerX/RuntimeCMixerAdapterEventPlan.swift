@@ -15,7 +15,7 @@ enum RuntimeCMixerAdapterEventAction: Equatable {
     case playbackStateChange(activeEventIndex: Int, change: MixerPlaybackStateChange)
     case envelopeSemanticUpdate(activeEventIndex: Int, state: MixerEnvelopeSemanticState)
     case channelSemanticUpdate(PlaybackXMChannelUpdate)
-    case sourceStop(activeEventIndex: Int)
+    case sourceStop(activeEventIndex: Int, retireSong: Bool = false)
     case audibleTargetUpdate(PlaybackXMAudibleUpdate)
     // Compatibility observation: ECx's audibleTargetUpdate owns the volume transition.
     case noteCut(activeEventIndex: Int?)
@@ -73,7 +73,7 @@ struct RuntimeCMixerAdapterEvent: Equatable {
             return activeEventIndex
         case let .noteCut(activeEventIndex):
             return activeEventIndex
-        case let .sourceStop(activeEventIndex):
+        case let .sourceStop(activeEventIndex, _):
             return activeEventIndex
         case let .channelSemanticUpdate(update):
             return update.sourceEventIndex
@@ -1041,7 +1041,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         for route in adaptedPlan.xmEmptyRoutes {
             guard let old = route.stoppedEventIndex else { continue }
             events.append(.init(id: events.count, source: route.source, channelIndex: route.channelIndex,
-                syntheticTick: route.tick, scheduledFrame: route.scheduledFrame, action: .sourceStop(activeEventIndex: old),
+                syntheticTick: route.tick, scheduledFrame: route.scheduledFrame,
+                action: .sourceStop(activeEventIndex: old, retireSong: route.retiresSource),
                 categories: emptyRouteStopCategories))
         }
         let channelSemanticCategories = ["xm_channel_semantic_tick"]

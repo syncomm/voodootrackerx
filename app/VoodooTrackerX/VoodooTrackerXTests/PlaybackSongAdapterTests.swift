@@ -2455,7 +2455,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.2575, 0.259, 0.2605])
     }
 
-    func testPlaybackSongAdapterSampleOffset9xxWorksWithForwardLoopOffsets() throws {
+    func testPlaybackSongAdapterSampleOffset9xxAdmitsValidForwardOffsetsAndRefusesBeyondLoopEnd() throws {
         let offsetBeforeLoop = makeRampPlaybackSample(frameCount: 260, loopStart: 258, loopLength: 2, loopType: 1)
         let offsetInsideLoop = makeRampPlaybackSample(frameCount: 260, loopStart: 256, loopLength: 3, loopType: 1)
         let offsetBeyondLoop = makeRampPlaybackSample(frameCount: 300, loopStart: 1, loopLength: 2, loopType: 1)
@@ -2497,8 +2497,10 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(before.diagnostics.eventMappings.first).loopMode, .forward)
         XCTAssertPCMEqual(inside.block.interleavedPCM, [0, 0.257, 0.258, 0.256, 0.257])
         XCTAssertEqual(try XCTUnwrap(inside.diagnostics.eventMappings.first).loopMode, .forward)
-        XCTAssertPCMEqual(beyond.block.interleavedPCM, [0, 0.001, 0.002, 0.001])
-        XCTAssertEqual(try XCTUnwrap(beyond.diagnostics.eventMappings.first).loopMode, .forward)
+        // Pinned FT2 G41A: offset >= loop end refuses PCM even below physical length.
+        XCTAssertPCMEqual(beyond.block.interleavedPCM, [0, 0, 0, 0])
+        XCTAssertTrue(beyond.diagnostics.eventMappings.isEmpty)
+        XCTAssertEqual(beyond.diagnostics.sampleOffsetEffects.first?.status, .outOfRangeSkipped)
     }
 
     func testPlaybackSongAdapterSampleOffset9xxWorksWithPingPongLoopOffset() throws {

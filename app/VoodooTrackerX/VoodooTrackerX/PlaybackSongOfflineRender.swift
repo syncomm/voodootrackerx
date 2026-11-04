@@ -439,7 +439,7 @@ struct PlaybackSongWindowedRenderIndex: Equatable {
 struct PlaybackSongSameChannelReplacementEvent: Equatable {
     let sourceChannelIndex: Int
     let oldEventIndex: Int
-    let newEventIndex: Int
+    let newEventIndex: Int?
     let replacementFrame: Int
     let completionFrame: Int
     let oldVoiceKeptReason: String
@@ -2719,7 +2719,7 @@ final class PlaybackSongOfflineRenderer {
                 frame: frame - windowStartFrame, on: mixer, value: .step(0))
         }
         mixer.setSourceStopSchedule(plan.xmEmptyRoutes.enumerated().compactMap { parent, route in
-            guard route.scheduledFrame >= windowStartFrame, route.scheduledFrame < windowEndFrame,
+            guard !route.retiresSource, route.scheduledFrame >= windowStartFrame, route.scheduledFrame < windowEndFrame,
                   let event = route.stoppedEventIndex, includesEvent(event, includedEventIndices: includedEventIndices),
                   let voice = voiceIndexByEventIndex[event] else { return nil }
             if admission.capturesSourceSchedules {
@@ -3318,7 +3318,8 @@ final class PlaybackSongOfflineRenderer {
             if hasAppliedSourceStop(
                 eventIndex: eventIndex,
                 before: windowStartFrame,
-                plan: plan
+                plan: plan,
+                includingRetirements: replacementRampEvent == nil
             ) || (replacementRampEvent == nil && hasAppliedRetriggerCut(
                 eventIndex: eventIndex,
                 before: windowStartFrame,
@@ -3548,17 +3549,23 @@ final class PlaybackSongOfflineRenderer {
     private static func hasAppliedSourceStop(
         eventIndex: Int,
         before boundaryFrame: Int,
-        plan: PlaybackSongSyntheticPlan
+        plan: PlaybackSongSyntheticPlan,
+        includingRetirements: Bool = true
     ) -> Bool {
-        plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == eventIndex && $0.scheduledFrame < boundaryFrame }
+        plan.xmEmptyRoutes.contains {
+            (includingRetirements || !$0.retiresSource) && $0.stoppedEventIndex == eventIndex && $0.scheduledFrame < boundaryFrame
+        }
     }
 
     private static func hasAppliedSourceStop(
         eventIndex: Int,
         atOrBefore boundaryFrame: Int,
-        plan: PlaybackSongSyntheticPlan
+        plan: PlaybackSongSyntheticPlan,
+        includingRetirements: Bool = true
     ) -> Bool {
-        plan.xmEmptyRoutes.contains { $0.stoppedEventIndex == eventIndex && $0.scheduledFrame <= boundaryFrame }
+        plan.xmEmptyRoutes.contains {
+            (includingRetirements || !$0.retiresSource) && $0.stoppedEventIndex == eventIndex && $0.scheduledFrame <= boundaryFrame
+        }
     }
 
     private static func hasAppliedRetriggerCut(
@@ -3623,20 +3630,18 @@ final class PlaybackSongOfflineRenderer {
         windowBoundaryPruneCount: Int = 0
     ) -> PlaybackSongSameChannelVoiceLifetimeDiagnostics {
         struct EventInfo {
-            let eventIndex: Int
-            let event: SyntheticTrackerEvent
+            let eventIndex: Int?
             let channelIndex: Int
             let frame: Int
         }
         let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
         let mappingsByEventIndex = Dictionary(uniqueKeysWithValues: plan.diagnostics.eventMappings.map { ($0.eventIndex, $0) })
-        let eventInfos = plan.pattern.events.enumerated().compactMap { eventIndex, event -> EventInfo? in
+        var eventInfos = plan.pattern.events.enumerated().compactMap { eventIndex, event -> EventInfo? in
             guard let mapping = mappingsByEventIndex[eventIndex] else {
                 return nil
             }
             return EventInfo(
                 eventIndex: eventIndex,
-                event: event,
                 channelIndex: mapping.channelIndex,
                 frame: scheduler.frame(for: event)
             )
@@ -3644,7 +3649,15 @@ final class PlaybackSongOfflineRenderer {
             if lhs.frame != rhs.frame {
                 return lhs.frame < rhs.frame
             }
-            return lhs.eventIndex < rhs.eventIndex
+            return (lhs.eventIndex ?? -1) < (rhs.eventIndex ?? -1)
+        }
+        // Refused offsets share the existing retirement/continuation authority,
+        // with an honest absent destination instead of a fabricated playable birth.
+        if plan.xmEmptyRoutes.contains(where: \.retiresSource) {
+            eventInfos += plan.xmEmptyRoutes.filter(\.retiresSource).map {
+                EventInfo(eventIndex: nil, channelIndex: $0.channelIndex, frame: $0.scheduledFrame)
+            }
+            eventInfos.sort { $0.frame == $1.frame ? ($0.eventIndex ?? -1) < ($1.eventIndex ?? -1) : $0.frame < $1.frame }
         }
 
         // Explicit retriggers keep their existing causal selector and ordering. The
@@ -3663,7 +3676,7 @@ final class PlaybackSongOfflineRenderer {
         var replacementEvents = [PlaybackSongSameChannelReplacementEvent]()
 
         for info in eventInfos {
-            loadedByChannel[info.channelIndex, default: 0] += 1
+            if info.eventIndex != nil { loadedByChannel[info.channelIndex, default: 0] += 1 }
             var activeVoices = activeByChannel[info.channelIndex] ?? []
             activeVoices = activeVoices.filter { voice in
                 sameChannelVoiceIsActive(
@@ -3696,7 +3709,9 @@ final class PlaybackSongOfflineRenderer {
                     activeVoices[index].pitchUpdateEndFrame = info.frame
                 }
             }
-            activeVoices.append(SameChannelActiveVoice(eventIndex: info.eventIndex, rampCompletionFrame: nil))
+            if let index = info.eventIndex {
+                activeVoices.append(SameChannelActiveVoice(eventIndex: index, rampCompletionFrame: nil))
+            }
             activeByChannel[info.channelIndex] = activeVoices
             maxVoicesByChannel[info.channelIndex] = max(
                 maxVoicesByChannel[info.channelIndex] ?? 0,
@@ -3904,7 +3919,8 @@ final class PlaybackSongOfflineRenderer {
         } else if hasAppliedSourceStop(
             eventIndex: voice.eventIndex,
             atOrBefore: frame,
-            plan: plan
+            plan: plan,
+            includingRetirements: !allowsRetriggerRetirement
         ) || (!allowsRetriggerRetirement && hasAppliedRetriggerCut(
             eventIndex: voice.eventIndex,
             atOrBefore: frame,

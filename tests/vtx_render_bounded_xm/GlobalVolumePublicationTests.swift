@@ -172,7 +172,7 @@ final class GlobalVolumePublicationTests: XCTestCase {
             let event = runtime.events[entry.eventIndex]
             switch event.action {
             case let .noteTrigger(index, _, _): active[event.channelIndex] = index
-            case let .sourceStop(index): if active[event.channelIndex] == index { active[event.channelIndex] = nil }
+            case let .sourceStop(index, _): if active[event.channelIndex] == index { active[event.channelIndex] = nil }
             case let .gainPanUpdate(index, _, _):
                 XCTAssertEqual(active[event.channelIndex], index, "Publication must follow birth and precede retirement", file: file, line: line)
             default: break

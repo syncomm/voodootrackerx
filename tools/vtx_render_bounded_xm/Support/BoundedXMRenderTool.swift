@@ -2496,7 +2496,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         [
             "source_channel_index": event.sourceChannelIndex,
             "old_event_index": event.oldEventIndex,
-            "new_event_index": event.newEventIndex,
+            "new_event_index": event.newEventIndex as Any? ?? NSNull(),
             "replacement_frame": event.replacementFrame,
             "completion_frame": event.completionFrame,
             "old_voice_kept_reason": event.oldVoiceKeptReason,

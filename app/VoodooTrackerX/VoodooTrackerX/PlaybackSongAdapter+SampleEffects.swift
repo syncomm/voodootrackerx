@@ -379,6 +379,10 @@ extension PlaybackSongSyntheticAdapter {
         selection: SampleSelection, song: PlaybackSong,
         timingConfig: SyntheticTrackerTimingConfig, state: inout ChannelState,
         context: inout AdapterRowContext) -> PlaybackStepMapping {
+        if cell.effectType == 9 {
+            context.sampleOffsetEffects.append(sampleOffsetDiagnostic(from: cell, source: source,
+                channelIndex: channelIndex, syntheticRow: syntheticRow, selectedSampleLength: 0, channelState: &state))
+        }
         context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
             scheduledFrame: frame, instrumentIndex: Int(cell.instrument), sampleIndex: header.sampleIndex,
             stoppedEventIndex: state.activeEventIndex, tick: tick))

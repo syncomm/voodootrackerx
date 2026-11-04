@@ -1,8 +1,110 @@
 import Foundation
+import CryptoKit
 @testable import VoodooTrackerXPlaybackSupport
 import XCTest
 
 final class XMPanningEnvelopeTests: XCTestCase {
+    func testFT2AllBytesMatchNativeQ16DigestAcrossHeaderEffectAndColumnRoutes() throws {
+        var measured = Data()
+        for byte in 0...255 {
+            let expected = [nativeQ16Gain(256 - byte), nativeQ16Gain(byte)]
+            let header = PlaybackSamplePanningPolicy.plannedPan(byte)
+            let effect = PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: byte)
+            for pan in [header, effect] {
+                let actual = [MixerPanLaw.ft2EqualPower.leftGain(for: pan),
+                    MixerPanLaw.ft2EqualPower.rightGain(for: pan)]
+                XCTAssertEqual(actual, expected, "byte=\(byte) pan=\(pan)")
+                XCTAssertEqual(MixerPanLaw.linear.leftGain(for: pan), 1 - max(pan, 0))
+                XCTAssertEqual(MixerPanLaw.linear.rightGain(for: pan), 1 + min(pan, 0))
+            }
+            for gain in [MixerPanLaw.ft2EqualPower.leftGain(for: header),
+                         MixerPanLaw.ft2EqualPower.rightGain(for: header)] {
+                var word = UInt32(gain * 65_536).littleEndian
+                withUnsafeBytes(of: &word) { measured.append(contentsOf: $0) }
+            }
+            if byte > 0 {
+                XCTAssertEqual(expected[1], MixerPanLaw.ft2EqualPower.leftGain(
+                    for: PlaybackSamplePanningPolicy.plannedPan(256 - byte)))
+            }
+        }
+        // Unchanged native extraction, pinned ft2-clone 87be425; UInt32LE L,R for bytes 0...255.
+        XCTAssertEqual(SHA256.hash(data: measured).map { String(format: "%02x", $0) }.joined(),
+            "350aa9724b32ab0a3a48071414775821c92f6a3155dbe83c1ed385f416144b50")
+        for nibble in 0...15 {
+            let column = PlaybackSongVolumeColumnDecoder.decode(UInt8(0xC0 + nibble))
+            XCTAssertEqual(column.appliedPanningValue, 16 * nibble)
+            let pan = try XCTUnwrap(column.appliedPan)
+            XCTAssertEqual(MixerPanLaw.ft2EqualPower.leftGain(for: pan), nativeQ16Gain(256 - 16 * nibble))
+            XCTAssertEqual(MixerPanLaw.ft2EqualPower.rightGain(for: pan), nativeQ16Gain(16 * nibble))
+        }
+        XCTAssertEqual(MixerPanLaw.ft2EqualPower.leftGain(for: 1), 0.0625)
+        XCTAssertEqual(MixerPanLaw.ft2EqualPower.rightGain(for: 1), 0.998046875)
+        XCTAssertEqual(MixerMixProfile.ft2.outputScale, 0.3125)
+        XCTAssertEqual(MixerRenderConfig().mixProfile, .vtx)
+    }
+
+    func testFT2BoundedEnvelopeTargetsAndPanOnlySourceIsolationInBothModesAndRates() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let tick = Int(rate / 50), row = 6 * tick
+            let commands = [1: cell(effect: 8, param: 192)]
+            for value in [32, 48] {
+                let module = song(envelope([(0, value), (100, value)]), header: 64,
+                    commands: commands, linear: linear)
+                let config = MixerRenderConfig(sampleRate: rate, mixProfile: .ft2)
+                let request = PlaybackSongOfflineRenderRequest(song: module, config: config, rows: 8)
+                let renderer = PlaybackSongOfflineRenderer(), full = renderer.render(request)
+                let product = renderer.render(.init(song: module, config: .init(sampleRate: rate), rows: 8))
+                XCTAssertEqual(full.plan, product.plan) // Profiles change coefficients only.
+                XCTAssertEqual(full.plan.pattern.events.count, 1)
+                XCTAssertEqual(full.plan.xmChannelRows.map { $0.controls.panningValue }, [64,192,192,192,192,192,192,192])
+                XCTAssertEqual(full.block.interleavedPCM,
+                    renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM)
+                let targets = try XCTUnwrap(full.plan.xmAudibleTimeline?.updates)
+                for (frame, byte) in [(0, value == 32 ? 64 : 96), (row, value == 32 ? 192 : 224)] {
+                    let target = try XCTUnwrap(targets.first { $0.scheduledFrame == frame })
+                    XCTAssertEqual(target.amplitude, 1)
+                    let settled = frame + tick + 1
+                    XCTAssertEqual(full.block.interleavedPCM[settled * 2], 0.25 * nativeQ16Gain(256 - byte) * 0.3125)
+                    XCTAssertEqual(full.block.interleavedPCM[settled * 2 + 1], 0.25 * nativeQ16Gain(byte) * 0.3125)
+                    let oldLeft: Float = target.pan <= 0 ? 1 : 1 - target.pan
+                    let oldRight: Float = target.pan >= 0 ? 1 : 1 + target.pan
+                    XCTAssertEqual(product.block.interleavedPCM[settled * 2], 0.25 * oldLeft)
+                    XCTAssertEqual(product.block.interleavedPCM[settled * 2 + 1], 0.25 * oldRight)
+                }
+                if value == 32 {
+                    let plain = renderer.render(.init(song: song(header: 64, commands: commands, linear: linear),
+                        config: config, rows: 8))
+                    XCTAssertEqual(full.block.interleavedPCM, plain.block.interleavedPCM)
+                }
+                let mixer = CSoftwareMixer(config: config)
+                let voices = SyntheticPatternScheduler(config: full.plan.timingConfig).schedule(full.plan.pattern, on: mixer)
+                let voice = try XCTUnwrap(voices[0])
+                PlaybackSongOfflineRenderer.schedulePlaybackStateEvents(full.plan,
+                    voiceIndexByEventIndex: [0: voice], on: mixer)
+                _ = mixer.render(frames: row)
+                let before = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: voice))
+                let change = try XCTUnwrap(targets.first { $0.scheduledFrame == row })
+                XCTAssertTrue(mixer.publishAudibleOutput(change, forVoiceAt: voice))
+                let after = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: voice))
+                XCTAssertEqual(before.samplePosition, after.samplePosition)
+                XCTAssertEqual(before.sampleStep, after.sampleStep)
+                XCTAssertEqual(before.channelTag, after.channelTag)
+                XCTAssertEqual(before.gain, after.gain)
+                XCTAssertEqual(before.envelopeSemanticState, after.envelopeSemanticState)
+                XCTAssertEqual(before.fadeoutValue, after.fadeoutValue)
+                XCTAssertTrue(after.loaded && after.active)
+                _ = mixer.render(frames: 2 * tick + 1)
+                let advanced = try XCTUnwrap(mixer.voiceDiagnostic(forVoiceAt: voice))
+                XCTAssertEqual(advanced.samplePosition,
+                    (before.samplePosition + Double(2 * tick + 1) * before.sampleStep).truncatingRemainder(dividingBy: 256))
+            }
+        } }
+    }
+
+    private func nativeQ16Gain(_ index: Int) -> Float {
+        Float((sqrt(Double(index) / 256) * 65_536).rounded()) / 65_536
+    }
+
     func testNeutralAndDisabledEnvelopePreserveStaticAudioAndFinalTargets() throws {
         for rate in [44_100.0, 48_000] {
             for header: UInt8 in [0, 64, 128, 224, 255] {
@@ -339,7 +441,7 @@ final class XMPanningEnvelopeTests: XCTestCase {
 
     private func song(_ pan: PlaybackPanningEnvelope = .disabled, header: UInt8 = 128, commands: [Int: PlaybackCell] = [:],
                       volumeEnvelope: Bool = true, volumeSustain: Bool = false, empty: Bool = false, oneShot: Bool = false,
-                      volumeFlags: UInt8? = nil, volumePoints: [(Int, Int)] = [(0, 64), (100, 64)], secondVolumeFlags: UInt8? = nil) -> PlaybackSong {
+                      volumeFlags: UInt8? = nil, volumePoints: [(Int, Int)] = [(0, 64), (100, 64)], secondVolumeFlags: UInt8? = nil, linear: Bool = true) -> PlaybackSong {
         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.25, count: 256),
             volume: 1, panning: header, relativeNote: 0, finetune: 0, baseSampleRate: 8_363,
             loopStart: 0, loopLength: oneShot ? 0 : 256, loopType: oneShot ? 0 : 1)
@@ -361,7 +463,7 @@ final class XMPanningEnvelopeTests: XCTestCase {
             patternsByIndex: [0: .init(index: 0, rows: (0..<8).map { row in
                 .init(index: row, cells: [commands[row] ?? (row == 0 ? cell(note: 49, instrument: 1) : cell())])
             })], instrumentsByIndex: instruments,
-            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: true,
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear,
             xmSampleSlotProvenanceByInstrument: empty ? [1: [.init(sampleIndex: 1, decodedPayloadLength: 0,
                 isCanonicalEmptySlotHeader: true, volume: 0, panning: 0, finetune: 0, relativeNote: 0)]] : [:])
     }

@@ -1,6 +1,9 @@
 // Swift reference/spec mixer types. Audible runtime playback currently uses the
 // CoreAudio-hosted C mixer path bridged through CSoftwareMixer.
 import Foundation
+#if canImport(MixerCore)
+import MixerCore
+#endif
 
 enum MixerPanLaw: String, Equatable {
     case linear
@@ -12,14 +15,7 @@ enum MixerPanLaw: String, Equatable {
         case .linear:
             return sanitizedPan <= 0 ? 1 : 1 - sanitizedPan
         case .ft2EqualPower:
-            if sanitizedPan <= -1 {
-                return 1
-            }
-            if sanitizedPan >= 1 {
-                return 0
-            }
-            let position = (Double(sanitizedPan) + 1.0) * 0.5
-            return Float(cos(position * Double.pi / 2.0))
+            return vtx_c_mixer_pan_left_gain(VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER, sanitizedPan)
         }
     }
 
@@ -29,14 +25,7 @@ enum MixerPanLaw: String, Equatable {
         case .linear:
             return sanitizedPan >= 0 ? 1 : 1 + sanitizedPan
         case .ft2EqualPower:
-            if sanitizedPan <= -1 {
-                return 0
-            }
-            if sanitizedPan >= 1 {
-                return 1
-            }
-            let position = (Double(sanitizedPan) + 1.0) * 0.5
-            return Float(sin(position * Double.pi / 2.0))
+            return vtx_c_mixer_pan_right_gain(VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER, sanitizedPan)
         }
     }
 

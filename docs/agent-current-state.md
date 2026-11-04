@@ -188,7 +188,8 @@ host.
   and final-L/R targets; Cx mapping, Pxy and static pan law remain separate.
 - Volume-column `Cx` sets stored pan to `16 * nibble` at tick zero: C8 is 128
   and CF is 240. Header/Cx/8xx precedence, G09 and G06/G07 remain intact;
-  header/8xx conversion, preview and final stereo pan law (G40) are unchanged.
+  header/8xx conversion and preview are unchanged. Qualified G40 corrects only
+  the opt-in FT2 coefficient law.
 - XM envelope/release targets and integer fadeout consume that same tick plan
   in runtime and offline rendering. One C final-L/R state interpolates ordinary
   targets over the current tick and carries in-flight window progress.
@@ -420,7 +421,21 @@ host.
   after merged-source acceptance and successful native arm64 CI, including the
   actual canonical Debug prewarm regression. Post-song host/offline
   tail parity and live nonzero-order cold start under #516 remain separately OPEN;
-  G40/G41 characterization has not begun.
+  G41 characterization follows the pending G40 review.
+- G40's bounded opt-in FT2 static pan law is qualified for Gregory review;
+  acceptance and PR submission remain Gregory's. FT2 final evaluation recovers all 256
+  header/8xx bytes and the 16 Cx positions for the C-owned immutable Q16 table,
+  including byte 255's nonzero left coefficient. FT2 scale remains 0.3125;
+  VTX linear/unity runtime, preview and WAV/M4A defaults are unchanged.
+  The protected partition is 360 exact VTX WAV/full-JSON pairs plus 248
+  explicitly accounted FT2 coefficient/audio-diagnostic changes, with semantic
+  fields and original expectations preserved. Full Xcode Debug, SwiftPM
+  Debug/Release, optimized app build and original paired median gates pass.
+  See the [bounded qualification](ft2-xm-closure-matrix.md#g40-bounded-opt-in-ft2-static-pan-law).
+  G06/G07 fractional/Q8/point-64/sustain/release differences and post-song host
+  tails remain open. Ordinary Xcode Release tests need a future independent
+  optimized-test-instrumentation policy; the supported fault-injection suite
+  runs in Debug, without exposing those hooks in the Release product.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

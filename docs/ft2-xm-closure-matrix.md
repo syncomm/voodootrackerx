@@ -138,8 +138,45 @@ the audible-factor closure does not resolve or justify them.
 | Cold volume before a nonzero first point | KNOWN-REFERENCE-DIFFERENCE | VTX emits the first value while the pinned reference starts at zero. | Public numeric control starts at tick 3/value 48; ticks 0...2 remain VTX `48/64` versus reference zero. | S; separate initialization/admission question |
 | G37 E6x implicit initial loop start | PARTIAL; G37A INITIAL/DEFAULT-ORIGIN SLICE CLOSED | Initial/default-origin runtime and direct cold selected-range adapter/offline behavior are qualified; live cold selected-order/row planning remains OPEN. | [ImplicitPatternLoopTests](../tests/vtx_render_bounded_xm/ImplicitPatternLoopTests.swift) and runtime controls preserve G37A chronology/source/finite guards. G38B closes pattern-local anchor/counter and natural-entry policy above. Direct cold results do not qualify the eager live plan: [#516](https://github.com/syncomm/voodootrackerx/issues/516) owns start-aware planning after G41, before release/freeze. | T |
 | G39 bounded in-song 4xy/6xy/7xy/Bx interactions | CLOSED, bounded integrated contract | The six-family ledger below binds semantic/native/source/delivery assertions to accepted merged bytes, actual canonical Debug smoke, native arm64 CI and protected outputs. | V/6/TR; integer engines, G10 ordering, G32 policy and original performance gates remain protected. | Separate tail parity, G40/G41, #516 and pre-freeze audits remain OPEN |
-| G40 static 8xx / header pan law | KNOWN-REFERENCE-DIFFERENCE | Noncenter stereo amplitudes differ under current profile laws; exact panning state is already supported. | 8/PA; retained profile-law boundary; compare endpoints/interior and PE factor together before closure. | O; none missing |
+| G40 static 8xx / header pan law | QUALIFIED FOR GREGORY REVIEW, bounded opt-in FT2 contract | FT2 coefficients use the native byte-indexed Q16 square-root law; VTX linear/unity sound remains intentional. | [Qualified scope and gates](#g40-bounded-opt-in-ft2-static-pan-law); 360 exact VTX pairs and 248 accounted FT2 changes. Acceptance/PR ownership remains Gregory's. | O; G06/G07 arithmetic/clock exclusions and host tails remain separate |
 | G41 9xx/900 and sample loop/end boundaries | PARITY-WATCH | Valid offsets, memory and loops are supported; boundary source retirement/interpolation can affect attacks and tails. | Z command occurrences; existing synthetic offset/loop tests. No fresh exhaustive FT2 boundary oracle. | S; N when replacement overlaps |
+
+### G40 bounded opt-in FT2 static pan law
+
+Implementation is **qualified for Gregory review**, not final closure. The
+independently derived native contract is `T(i) = round(65536 * sqrt(i / 256)) / 65536`,
+`L = T(256 - b)`, `R = T(b)`. A C-owned immutable table evaluates final byte
+indices without callback allocation or table initialization. Existing stored pan,
+header/effect conversion, writer precedence and G06/G07 clocks are unchanged;
+nearest-byte addressing is confined to the FT2 coefficient evaluator.
+All 256 header/8xx bytes, 16 Cx positions, center ties and byte 255 are exact.
+The UInt32LE L/R Q16 digest is
+`350aa9724b32ab0a3a48071414775821c92f6a3155dbe83c1ed385f416144b50`,
+measured independently from pinned ft2-clone `87be42543dac82cf802b5bddad917bda62ace131`.
+Byte 255 retains left `0.0625`, right `0.998046875`. FT2 scale stays `0.3125`;
+product VTX retains its linear law, unity scale, preview and WAV/M4A defaults.
+
+Full Xcode Debug (1,770), SwiftPM Debug (883) and optimized SwiftPM Release (869)
+suites pass with zero failures/skips; ordinary optimized Release app compilation
+and matched 40-process original 972/1,000/2,333-ms median gates pass. Paired
+planning deltas show no measured increase. These remain bounded median gates,
+not tail guarantees. DEBUG-only lock/callback injection executes unchanged;
+ordinary Xcode Release tests are not applicable to that current harness and
+remain a separate future optimized-test-instrumentation policy question.
+No production hook, scheme, CI or Release DEBUG-flag change is included.
+
+The accepted protected gate is **360/360 exact VTX WAV/full-JSON pairs plus
+248/248 accounted FT2 audio/center-coefficient diagnostic changes**, with every
+other serialized semantic field exact and frozen expected files untouched.
+Four legacy G34 synthetic controls retain limited inherited generator provenance;
+no unavailable original-generator proof is claimed. Both Linear/Amiga modes at
+44.1/48 kHz, whole/window PCM, source/cursor invariants, focused C ASan and four
+canonical Debug CoreAudio in-song PCM16 captures qualify the bounded contract.
+The native reference is numerical extraction, not universal FT2 GUI waveform
+parity or musician listening. Neutral G06 and the characterized final bytes 96
+and 224 are covered; fractional/Q8/point-64/sustain/release debts, broader envelope
+parity and post-song host/offline tails remain OPEN. G41, #516, callback real-time
+safety and backend/release audits retain their separate sequence.
 
 ### G39 phase consumption and remaining range
 
@@ -294,9 +331,10 @@ above. The runtime/offline pre-freeze tail owner
 retains the separate post-song discrepancy (first frame 11528 after song end
 11520, 9512 samples, maximum 289 PCM16 LSB), plus other release-row tails;
 this is distinct from the separately accepted one-LSB sum-order residual.
-No full-tail parity or waiver is claimed. G40/G41 characterization has
-not begun; #516 live nonzero-order cold start and the planning/real-time audits
-remain separately OPEN. Closed musical foundations retain their boundaries.
+No full-tail parity or waiver is claimed. G40's bounded implementation is
+qualified for Gregory review; G41 has not begun. #516 live nonzero-order cold
+start and the planning/real-time audits remain separately OPEN. Closed musical
+foundations retain their boundaries.
 
 ### Decision inputs and current status
 
@@ -337,7 +375,7 @@ Temporary controls are evidence, not newly committed regression tests.
 | G37 | G37A initial/default-start and direct cold adapter behavior remain qualified; G38B supplies the bounded local pattern policy. | Full live selected-order/row planning remains OPEN under [#516](https://github.com/syncomm/voodootrackerx/issues/516). | No broader prewarming repair is claimed; post-G41 owner and release blocker remain. |
 | G38 | CLOSED, bounded G38A/G38B contract through the existing traversal owner. | Ordered B/D/E6/EE plus pattern-local anchors/counters, row-0 natural entry and documented safe input/restart scope. Both-mode/rate source/frame/delivery controls distinguish intentional FT2 differences. | Existing long-pattern behavior, finite/capacity guards and host/callback authority remain; no legacy profile or new planner. |
 | G39 | CLOSED for the six-family bounded in-song interaction contract above. | Merged-byte identity, concrete semantic/native/delivery assertions, actual Debug hosts, native arm64 CI and protected outputs qualify the contract. | Separate tail parity, G40/G41, #516 and later planning/RT/release audits remain OPEN. |
-| G40 | Existing O pan conversion; isolate amplitude law from exact stored pan. | Bounded retained law; endpoint/interior stereo targets and P factor. | Medium: profiles and preview/export pan consumers. |
+| G40 | Qualified for Gregory review; FT2-only coefficient evaluation at existing O boundary. | Exact native Q16 bytes, characterized G06 controls, source/cursor and protected 360/248 partition. | VTX defaults and callback/state ownership unchanged; acceptance and broader pan-envelope exclusions remain separate. |
 | G41 | Existing offsets/loops; characterize endpoints before changes. | Bounded; 8/16-bit offsets, 900 memory, end/loop edges, interpolation and tails. | Medium: source cursor/retirement and parser compatibility boundary. |
 
 ## Dependency graph and transition boundaries

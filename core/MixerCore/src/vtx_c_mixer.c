@@ -1050,18 +1050,55 @@ VTXCMixerConfig vtx_c_mixer_default_config(void) {
     return config;
 }
 
+// Independently derived from round(sqrt(i * 2^24)); immutable Q16 coefficients.
+// Both established XM pan conversions round back to the same byte here. Byte 255
+// retains T(1) on the left: it is not the conceptual table endpoint 256.
+static const uint32_t vtx_c_mixer_ft2_pan_q16[257] = {
+    0u, 4096u, 5793u, 7094u, 8192u, 9159u, 10033u, 10837u,
+    11585u, 12288u, 12953u, 13585u, 14189u, 14768u, 15326u, 15864u,
+    16384u, 16888u, 17378u, 17854u, 18318u, 18770u, 19212u, 19644u,
+    20066u, 20480u, 20886u, 21283u, 21674u, 22058u, 22435u, 22806u,
+    23170u, 23530u, 23884u, 24232u, 24576u, 24915u, 25249u, 25580u,
+    25905u, 26227u, 26545u, 26859u, 27170u, 27477u, 27780u, 28081u,
+    28378u, 28672u, 28963u, 29251u, 29537u, 29819u, 30099u, 30377u,
+    30652u, 30924u, 31194u, 31462u, 31727u, 31991u, 32252u, 32511u,
+    32768u, 33023u, 33276u, 33527u, 33776u, 34024u, 34270u, 34514u,
+    34756u, 34996u, 35235u, 35472u, 35708u, 35942u, 36175u, 36406u,
+    36636u, 36864u, 37091u, 37316u, 37540u, 37763u, 37985u, 38205u,
+    38424u, 38642u, 38858u, 39073u, 39287u, 39500u, 39712u, 39923u,
+    40132u, 40341u, 40548u, 40755u, 40960u, 41164u, 41368u, 41570u,
+    41771u, 41972u, 42171u, 42369u, 42567u, 42763u, 42959u, 43154u,
+    43348u, 43541u, 43733u, 43925u, 44115u, 44305u, 44494u, 44682u,
+    44869u, 45056u, 45242u, 45427u, 45611u, 45795u, 45977u, 46160u,
+    46341u, 46522u, 46702u, 46881u, 47059u, 47237u, 47415u, 47591u,
+    47767u, 47942u, 48117u, 48291u, 48465u, 48637u, 48809u, 48981u,
+    49152u, 49322u, 49492u, 49661u, 49830u, 49998u, 50166u, 50332u,
+    50499u, 50665u, 50830u, 50995u, 51159u, 51323u, 51486u, 51649u,
+    51811u, 51972u, 52134u, 52294u, 52454u, 52614u, 52773u, 52932u,
+    53090u, 53248u, 53405u, 53562u, 53719u, 53874u, 54030u, 54185u,
+    54340u, 54494u, 54647u, 54801u, 54954u, 55106u, 55258u, 55410u,
+    55561u, 55712u, 55862u, 56012u, 56162u, 56311u, 56459u, 56608u,
+    56756u, 56903u, 57051u, 57198u, 57344u, 57490u, 57636u, 57781u,
+    57926u, 58071u, 58215u, 58359u, 58503u, 58646u, 58789u, 58931u,
+    59073u, 59215u, 59357u, 59498u, 59639u, 59779u, 59919u, 60059u,
+    60199u, 60338u, 60477u, 60615u, 60753u, 60891u, 61029u, 61166u,
+    61303u, 61440u, 61576u, 61712u, 61848u, 61984u, 62119u, 62254u,
+    62388u, 62523u, 62657u, 62790u, 62924u, 63057u, 63190u, 63323u,
+    63455u, 63587u, 63719u, 63850u, 63982u, 64113u, 64243u, 64374u,
+    64504u, 64634u, 64763u, 64893u, 65022u, 65151u, 65279u, 65408u,
+    65536u,
+};
+
+// Nearest-byte addressing is confined to FT2 coefficients; canonical pan and
+// envelope values remain untouched. The exact center tie selects byte 128.
+static uint32_t vtx_c_mixer_ft2_pan_index(float sanitized_pan) {
+    return (uint32_t)floorf((sanitized_pan + 1.0f) * 127.5f + 0.5f);
+}
+
 float vtx_c_mixer_pan_left_gain(VTXCMixerPanLaw pan_law, float pan) {
     const float sanitized_pan = vtx_c_mixer_sanitized_pan(pan);
     if (vtx_c_mixer_sanitized_pan_law(pan_law) == VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER) {
-        const double half_pi = 1.57079632679489661923;
-        const double position = ((double)sanitized_pan + 1.0) * 0.5;
-        if (sanitized_pan <= -1.0f) {
-            return 1.0f;
-        }
-        if (sanitized_pan >= 1.0f) {
-            return 0.0f;
-        }
-        return (float)cos(position * half_pi);
+        return (float)vtx_c_mixer_ft2_pan_q16[256u - vtx_c_mixer_ft2_pan_index(sanitized_pan)] / 65536.0f;
     }
     return sanitized_pan <= 0.0f ? 1.0f : 1.0f - sanitized_pan;
 }
@@ -1069,15 +1106,7 @@ float vtx_c_mixer_pan_left_gain(VTXCMixerPanLaw pan_law, float pan) {
 float vtx_c_mixer_pan_right_gain(VTXCMixerPanLaw pan_law, float pan) {
     const float sanitized_pan = vtx_c_mixer_sanitized_pan(pan);
     if (vtx_c_mixer_sanitized_pan_law(pan_law) == VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER) {
-        const double half_pi = 1.57079632679489661923;
-        const double position = ((double)sanitized_pan + 1.0) * 0.5;
-        if (sanitized_pan <= -1.0f) {
-            return 0.0f;
-        }
-        if (sanitized_pan >= 1.0f) {
-            return 1.0f;
-        }
-        return (float)sin(position * half_pi);
+        return (float)vtx_c_mixer_ft2_pan_q16[vtx_c_mixer_ft2_pan_index(sanitized_pan)] / 65536.0f;
     }
     return sanitized_pan >= 0.0f ? 1.0f : 1.0f + sanitized_pan;
 }

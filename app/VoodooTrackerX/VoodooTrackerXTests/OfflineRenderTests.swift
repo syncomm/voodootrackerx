@@ -828,7 +828,8 @@ final class OfflineRenderTests: XCTestCase {
 
         let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
 
-        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 2, 3, 2, 1, 2])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 2, 3, 3, 3, 2])
+        XCTAssertEqual(result.block.interleavedPCM, PlaybackSongOfflineRenderer().render(request).block.interleavedPCM)
         XCTAssertEqual(result.windowedRenderSummary?.totalCarriedVoices, 6)
     }
 
@@ -1139,7 +1140,7 @@ final class OfflineRenderTests: XCTestCase {
 
         XCTAssertEqual(forward.block.interleavedPCM, [0, 1, 2, 1, 2, 1])
         XCTAssertEqual(try XCTUnwrap(forward.diagnostics.eventMappings.first).loopMode, .forward)
-        XCTAssertEqual(pingPong.block.interleavedPCM, [0, 1, 2, 3, 2, 1, 2])
+        XCTAssertEqual(pingPong.block.interleavedPCM, [0, 1, 2, 3, 3, 3, 2])
         XCTAssertEqual(try XCTUnwrap(pingPong.diagnostics.eventMappings.first).loopMode, .pingPong)
     }
 

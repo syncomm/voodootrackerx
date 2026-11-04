@@ -262,6 +262,17 @@ typedef struct {
     VTXCMixerVoiceStateEvent voice_state_events[VTX_C_MIXER_MAX_VOICE_STATE_EVENTS];
 } VTXCMixerState;
 
+/// Advances a physical ping-pong coordinate by a finite nonnegative distance.
+/// Turning coordinates are [loop_start, loop_end], period 2*(end-start); reads
+/// at/above end-1 hold the last sample. Forward pre-loop motion is preserved.
+/// Zero distance holds a valid state. Invalid bounds/inputs leave outputs alone.
+/// This scalar projection allocates nothing and shares the runtime cursor law
+/// with offline continuation. A turning coordinate is not a new-source offset.
+VTXCMixerStatus vtx_c_mixer_project_ping_pong_cursor(
+    double position, int direction, double distance,
+    uint32_t loop_start, uint32_t loop_end,
+    double *out_position, int *out_direction);
+
 /// Returns the truncated 5 ms new-source duration in output frames.
 uint32_t vtx_c_mixer_source_onset_frame_count(double sample_rate);
 /// Returns the song-specific 5 ms retirement duration, independent of generic gain/pan ramps.

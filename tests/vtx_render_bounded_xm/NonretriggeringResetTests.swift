@@ -33,7 +33,9 @@ final class NonretriggeringResetTests: XCTestCase {
             XCTAssertEqual(after.active, 1)
             XCTAssertEqual(probe.state.voice_count, 1)
             if mask & 1 != 0 {
-                XCTAssertEqual(pcm, [Float(before.sample_position / 8) * 0.25 * fade])
+                // Cursor phase continues through the upper turn while the last sample is held.
+                let readPosition = min(before.sample_position, Double(before.loop_end_frame - 1))
+                XCTAssertEqual(pcm, [Float(readPosition / 8) * 0.25 * fade])
             }
         }
     }

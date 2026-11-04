@@ -1,6 +1,9 @@
 import Dispatch
 import Darwin
 import Foundation
+#if canImport(MixerCore)
+import MixerCore
+#endif
 
 enum VTXPerformanceClock {
     static func now() -> UInt64 {
@@ -4124,6 +4127,13 @@ final class PlaybackSongOfflineRenderer {
         on mixer: CSoftwareMixer
     ) -> CSoftwareMixerScheduledVoiceResult {
         let event = continuation.event
+        let loop = event.loop.sanitized(sampleFrameCount: event.sample.frameCount)
+        // An existing ping-pong voice can turn at the exclusive end, including
+        // the physical PCM end. Seed from represented PCM, then restore that
+        // exact phase below; new-source admission remains unchanged.
+        let initialSourceFrame = loop.mode == .pingPong &&
+            continuation.runtimeState.samplePosition == Double(loop.endFrame)
+            ? loop.endFrame - 1 : Int(continuation.runtimeState.samplePosition.rounded(.down))
         let result = mixer.addScheduledVoiceWithResult(
             sample: event.sample,
             scheduledStartFrame: 0,
@@ -4131,7 +4141,7 @@ final class PlaybackSongOfflineRenderer {
             pan: event.pan,
             playbackStep: continuation.playbackStep == 0 ? event.playbackStep : continuation.playbackStep,
             loop: event.loop,
-            initialSourceFrame: Int(continuation.runtimeState.samplePosition.rounded(.down)),
+            initialSourceFrame: initialSourceFrame,
             volumeEnvelope: event.volumeEnvelope,
             panEnvelope: event.panEnvelope,
             keyOffFrame: continuation.keyOffFrame,
@@ -4229,30 +4239,13 @@ final class PlaybackSongOfflineRenderer {
         advancedPosition: Double,
         loop: MixerSampleLoop
     ) -> SourcePositionState? {
-        let firstLoopFrame = Double(loop.startFrame)
-        let lastLoopFrame = Double(loop.endFrame - 1)
-        let span = lastLoopFrame - firstLoopFrame
-        guard span > 0 else {
-            return nil
-        }
-        if advancedPosition <= lastLoopFrame {
-            return SourcePositionState(samplePosition: advancedPosition, pingPongDirection: 1)
-        }
-        let period = span * 2.0
-        guard period > 0 else {
-            return nil
-        }
-        let overshoot = (advancedPosition - lastLoopFrame).truncatingRemainder(dividingBy: period)
-        if overshoot == 0 {
-            return SourcePositionState(samplePosition: lastLoopFrame, pingPongDirection: 1)
-        }
-        if overshoot <= span {
-            return SourcePositionState(samplePosition: lastLoopFrame - overshoot, pingPongDirection: -1)
-        }
-        return SourcePositionState(
-            samplePosition: firstLoopFrame + (overshoot - span),
-            pingPongDirection: 1
-        )
+        var position = 0.0
+        var direction: Int32 = 1
+        // The existing pitch-history integral includes the real source offset and
+        // every executed step segment. C folds that unfolded distance once.
+        guard vtx_c_mixer_project_ping_pong_cursor(0, 1, advancedPosition,
+            UInt32(loop.startFrame), UInt32(loop.endFrame), &position, &direction) == VTX_C_MIXER_STATUS_OK else { return nil }
+        return SourcePositionState(samplePosition: position, pingPongDirection: Int(direction))
     }
 
     private static func keyedFrameCount(

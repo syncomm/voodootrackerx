@@ -200,9 +200,6 @@ struct MixerSampleLoop: Equatable {
               endFrame > startFrame else {
             return .none
         }
-        if mode == .pingPong && lengthFrames < 2 {
-            return .none
-        }
         return self
     }
 }

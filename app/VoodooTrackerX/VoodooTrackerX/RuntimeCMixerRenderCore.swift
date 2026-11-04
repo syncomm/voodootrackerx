@@ -3601,12 +3601,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 channelSemanticGenerationFrame[update.channelIndex] = selectionFrame
             }
             result = .playbackStateChange(targetVoiceIndex: nil, accepted: accepted)
-        case let .sourceStop(activeEventIndex):
+        case let .sourceStop(activeEventIndex, retireSong):
             let channel = event.channelIndex
             if adapterEventIndexByChannel[channel] == activeEventIndex,
                let voice = adapterVoiceStateByEventIndex[activeEventIndex], voice.channel == channel,
                mixer.voiceDiagnostic(forVoiceAt: voice.voiceIndex)?.channelTag == channel {
-                let accepted = mixer.stopVoice(at: voice.voiceIndex)
+                let accepted = retireSong ? mixer.retireSongVoices(channel: channel) > 0 : mixer.stopVoice(at: voice.voiceIndex)
                 adapterVoiceStateByEventIndex.removeValue(forKey: activeEventIndex)
                 adapterEventIndexByChannel.removeValue(forKey: channel)
                 result = .playbackStateChange(targetVoiceIndex: voice.voiceIndex, accepted: accepted)

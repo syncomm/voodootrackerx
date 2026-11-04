@@ -1390,6 +1390,11 @@ enum PlaybackSongSyntheticAdapter {
                     if let header = song.xmSampleSlotProvenanceByInstrument[routedInstrumentIndex]?.first(where: {
                         $0.sampleIndex == slot && $0.declaredPayloadLength == 0 && $0.decodedPayloadLength == 0
                     }) {
+                        if cell.effectType == 9 {
+                            context.sampleOffsetEffects.append(sampleOffsetDiagnostic(from: cell, source: source,
+                                channelIndex: channelIndex, syntheticRow: syntheticRow, selectedSampleLength: 0,
+                                channelState: &channelState))
+                        }
                         selectedEmptyPitch = selectEmptyHeader(header, cell: cell, instrumentIndex: routedInstrumentIndex,
                             initializesDefaults: false, song: song, timingConfig: timingConfig, state: &channelState)
                         captureSelection(source: source, row: syntheticRow, tick: 0, channel: channelIndex,
@@ -2352,12 +2357,23 @@ enum PlaybackSongSyntheticAdapter {
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
                 selectedSampleLength: sampleLength,
+                admissionEndFrame: !handlesTonePortamento && sample.loopRegion.isEnabled ? sample.loopRegion.endFrame : nil,
                 channelState: &channelState
             )
             if sampleOffset.detected {
                 context.sampleOffsetEffects.append(sampleOffset)
             }
             if sampleOffset.skipped {
+                // The note attempt consumes memory and displaces its old generation,
+                // even when the mapped destination cannot admit the requested cursor.
+                if !handlesTonePortamento {
+                    context.xmEmptyRoutes.append(.init(source: source, channelIndex: channelIndex,
+                        scheduledFrame: scheduledStartFrame, instrumentIndex: instrumentIndex, sampleIndex: sample.sampleIndex,
+                        stoppedEventIndex: channelState.activeEventIndex, preservesChannelState: isNoteOnly, retiresSource: true))
+                    clearSourceAssociation(&channelState)
+                    channelState.semanticInstrumentIndex = instrumentIndex
+                    channelState.semanticSampleIndex = sample.sampleIndex
+                }
                 if hasNoteCutEffect {
                     handleNoteCut(
                         from: cell,

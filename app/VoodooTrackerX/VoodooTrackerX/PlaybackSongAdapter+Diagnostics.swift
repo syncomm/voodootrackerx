@@ -198,6 +198,7 @@ extension PlaybackSongSyntheticAdapter {
         channelIndex: Int,
         syntheticRow: Int,
         selectedSampleLength: Int?,
+        admissionEndFrame: Int? = nil,
         channelState: inout ChannelState
     ) -> PlaybackSongSyntheticSampleOffsetDiagnostic {
         let sampleLength = selectedSampleLength.map { max(0, $0) }
@@ -271,7 +272,7 @@ extension PlaybackSongSyntheticAdapter {
             effectMemoryReused = false
         }
 
-        if let sampleLength, computedOffsetFrames >= sampleLength {
+        if let end = admissionEndFrame ?? sampleLength, computedOffsetFrames >= end {
             return PlaybackSongSyntheticSampleOffsetDiagnostic(
                 source: source,
                 channelIndex: channelIndex,

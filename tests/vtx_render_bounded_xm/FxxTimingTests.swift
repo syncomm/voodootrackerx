@@ -427,6 +427,11 @@ final class FxxTimingTests: XCTestCase {
     }
 
     private func clockSnapshot(_ value: Any) -> String {
+        if let action = value as? RuntimeCMixerAdapterEventAction,
+           case let .sourceStop(index, retireSong) = action {
+            XCTAssertFalse(retireSong) // These historical sentinels contain no 9xx attempt.
+            return "sourceStop:activeEventIndex:\(clockSnapshot(index))"
+        }
         let mirror = Mirror(reflecting: value)
         if mirror.children.isEmpty { return String(describing: value) }
         // Keep the historical field stream/hashes exact; pin added neutral effect state separately.
@@ -442,10 +447,12 @@ final class FxxTimingTests: XCTestCase {
         if let timing = value as? PlaybackSongSyntheticRowTimingDiagnostic {
             XCTAssertEqual(timing.patternDelayCycles, 0)
         }
+        if let route = value as? PlaybackXMEmptyRoute { XCTAssertFalse(route.retiresSource) }
         let fields = mirror.children.filter { !(value is PlaybackSongSyntheticAdapter.ChannelState &&
             ($0.label == "panningSlideMemory" || $0.label == "tremorMemory" || $0.label == "tremorPhase" || $0.label == "glissandoEnabled")) &&
             !(value is PlaybackSongSyntheticTonePortamentoStepUpdate && $0.label == "glissandoFinetune") &&
-            !(value is PlaybackSongSyntheticRowTimingDiagnostic && $0.label == "patternDelayCycles") }
+            !(value is PlaybackSongSyntheticRowTimingDiagnostic && $0.label == "patternDelayCycles") &&
+            !(value is PlaybackXMEmptyRoute && $0.label == "retiresSource") }
             .map { "\($0.label ?? "_"):\(clockSnapshot($0.value))" }
         // Coverage diagnostics contain dictionaries; iteration order is deliberately not evidence.
         return (mirror.displayStyle == .dictionary || mirror.displayStyle == .set ? fields.sorted() : fields).joined(separator: "|")

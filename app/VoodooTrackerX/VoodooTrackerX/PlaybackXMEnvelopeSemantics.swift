@@ -137,6 +137,8 @@ struct PlaybackXMEmptyRoute: Equatable {
     let stoppedEventIndex: Int?
     var preservesChannelState = false
     var tick = 0
+    // A refused offset replaces the main source without admitting new PCM.
+    var retiresSource = false
 }
 
 /// Channel control ownership can change while its sounding PCM generation is retained.

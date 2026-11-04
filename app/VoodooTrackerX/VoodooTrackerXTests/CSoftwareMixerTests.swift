@@ -765,7 +765,7 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(mixer.render(frames: 3).interleavedPCM, [12.5, 17.5, 12.5])
     }
 
-    func testCSoftwareMixerPingPongEndpointInterpolationReflectsAtTurnaround() {
+    func testCSoftwareMixerPingPongEndpointInterpolationHoldsTheLastValidSample() {
         let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
         let voiceIndex = mixer.addVoice(
             sample: MixerSampleBuffer(monoPCM: [0, 10, 20, 30, 40]),
@@ -776,7 +776,7 @@ final class CSoftwareMixerTests: XCTestCase {
             forVoiceAt: voiceIndex
         )
 
-        XCTAssertEqual(mixer.render(frames: 1).interleavedPCM, [27.5])
+        XCTAssertEqual(mixer.render(frames: 1).interleavedPCM, [30])
     }
 
     func testCSoftwareMixerInitialSourceFrameStartsAtRequestedSampleFrame() {
@@ -1352,26 +1352,22 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(splitRender, singleRender.interleavedPCM)
     }
 
-    func testCSoftwareMixerPingPongLoopReversesDirectionAndMatchesSwiftReference() {
+    func testCSoftwareMixerPingPongLoopRepeatsUpperEndpointBeforeReversing() {
         let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
         let loop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
 
         let cBlock = cOneShotBlock(sample: sample, frames: 9, loop: loop)
-        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 9, loop: loop)
-
-        XCTAssertEqual(cBlock, swiftBlock)
-        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 2, 1, 2, 3, 2]))
+        // Native period 2L repeats the capped upper endpoint; Swift reference stays historical.
+        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 3, 3, 2, 1, 2]))
     }
 
-    func testCSoftwareMixerPingPongLoopCrossesBoundaryInFirstRenderAndMatchesSwiftReference() {
+    func testCSoftwareMixerPingPongLoopCrossesItsExclusiveTurningCoordinate() {
         let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
         let loop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
 
         let cBlock = cOneShotBlock(sample: sample, frames: 5, loop: loop)
-        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 5, loop: loop)
-
-        XCTAssertEqual(cBlock, swiftBlock)
-        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 2]))
+        // Native period 2L repeats the capped upper endpoint; Swift reference stays historical.
+        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 3]))
     }
 
     func testCSoftwareMixerPingPongLoopWorksAcrossSmallRenderCalls() {
@@ -1384,7 +1380,7 @@ final class CSoftwareMixerTests: XCTestCase {
             mixer.render(frames: 3).interleavedPCM +
             mixer.render(frames: 4).interleavedPCM
 
-        XCTAssertEqual(splitPCM, stereoPCM(from: [0, 1, 2, 3, 2, 1, 2, 3, 2]))
+        XCTAssertEqual(splitPCM, stereoPCM(from: [0, 1, 2, 3, 3, 3, 2, 1, 2]))
     }
 
     func testCSoftwareMixerPingPongLoopWorksWithFractionalPlaybackStep() {
@@ -1399,7 +1395,7 @@ final class CSoftwareMixerTests: XCTestCase {
             loop: loop
         )
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0.5, 1, 1.5, 2, 2.5, 3, 2.5, 2, 1.5, 1, 1.5])
+        XCTAssertEqual(block.interleavedPCM, [0, 0.5, 1, 1.5, 2, 2.5, 3, 3, 3, 3, 3, 2.5])
     }
 
     func testCSoftwareMixerLoopSplitRendersMatchOneLargerRender() {
@@ -1474,7 +1470,7 @@ final class CSoftwareMixerTests: XCTestCase {
         let second = mixer.render(frames: 9)
 
         XCTAssertEqual(first, second)
-        XCTAssertEqual(first, swiftOneShotBlock(sample: sample, frames: 9, loop: loop))
+        XCTAssertEqual(first.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 3, 3, 2, 1, 2]))
     }
 
     func testCSoftwareMixerClearVoicesReturnsLoopedMixerToSilence() {
@@ -1513,13 +1509,21 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(cBlock.interleavedPCM, [1, 0, 0.5, 0, 0.25, 0, 0.5, 0])
     }
 
+    func testCSoftwareMixerLengthOnePingPongRepeatsItsRepresentedSample() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 10, 20])
+        let loop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 2)
+        let actual = cOneShotBlock(sample: sample, frames: 7, loop: loop)
+        XCTAssertEqual(actual.interleavedPCM, stereoPCM(from: [0, 10, 10, 10, 10, 10, 10]))
+        XCTAssertEqual(actual, swiftOneShotBlock(sample: sample, frames: 7, loop: loop))
+    }
+
     func testCSoftwareMixerInvalidLoopDefinitionsFallBackToOneShotPlaybackLikeSwiftReference() {
         let sample = MixerSampleBuffer(monoPCM: [0, 1, 2])
         let invalidLoops = [
             MixerSampleLoop(mode: .forward, startFrame: -1, endFrame: 2),
             MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4),
             MixerSampleLoop(mode: .forward, startFrame: 2, endFrame: 2),
-            MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 2)
+            MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 1)
         ]
 
         for loop in invalidLoops {
@@ -1988,7 +1992,7 @@ final class CSoftwareMixerTests: XCTestCase {
 
         let block = cScheduledBlock(sample: sample, scheduledStartFrame: 2, frames: 8, config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1), loop: loop)
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 1, 2, 1, 2, 1])
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 1, 2, 2, 2, 1])
     }
 
     func testCSoftwareMixerInvalidScheduledStartIsRejectedSafely() {
@@ -2879,7 +2883,7 @@ final class CSoftwareMixerTests: XCTestCase {
             MixerSampleLoop(mode: .forward, startFrame: -1, endFrame: 2),
             MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4),
             MixerSampleLoop(mode: .forward, startFrame: 2, endFrame: 2),
-            MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 2)
+            MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 1)
         ]
 
         for loop in invalidLoops {

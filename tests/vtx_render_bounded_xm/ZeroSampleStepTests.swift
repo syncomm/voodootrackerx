@@ -10,8 +10,11 @@ final class ZeroSampleStepTests: XCTestCase {
             let before = probe.voice
             XCTAssertNotEqual(before.sample_position.rounded(.down), before.sample_position)
             if mode == VTX_C_MIXER_LOOP_PING_PONG { XCTAssertEqual(before.ping_pong_direction, -1) }
+            // The upper turning phase may exceed the last represented sample; reads cap there.
+            let readPosition = mode == VTX_C_MIXER_LOOP_PING_PONG
+                ? min(before.sample_position, Double(before.loop_end_frame - 1)) : before.sample_position
             XCTAssertEqual(probe.update(0), VTX_C_MIXER_STATUS_OK)
-            XCTAssertEqual(probe.render(17), Array(repeating: Float(before.sample_position / 8), count: 17))
+            XCTAssertEqual(probe.render(17), Array(repeating: Float(readPosition / 8), count: 17))
             XCTAssertEqual(probe.voice.sample_step, 0)
             XCTAssertEqual(probe.voice.sample_position, before.sample_position)
             XCTAssertEqual(probe.voice.ping_pong_direction, before.ping_pong_direction)
@@ -19,7 +22,7 @@ final class ZeroSampleStepTests: XCTestCase {
             XCTAssertEqual(probe.voice.loop_start_frame, before.loop_start_frame)
             XCTAssertEqual(probe.voice.loop_end_frame, before.loop_end_frame)
             XCTAssertEqual(probe.update(0.25), VTX_C_MIXER_STATUS_OK)
-            XCTAssertEqual(probe.render(1), [Float(before.sample_position / 8)])
+            XCTAssertEqual(probe.render(1), [Float(readPosition / 8)])
             XCTAssertEqual(probe.voice.sample_position, before.sample_position + 0.25 * Double(before.ping_pong_direction))
             XCTAssertEqual(probe.state.voice_count, 1)
         }

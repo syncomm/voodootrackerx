@@ -2521,7 +2521,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertEqual(mapping.loopMode, .pingPong)
         XCTAssertEqual(mapping.sampleOffset.status, .applied)
-        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.257, 0.258, 0.257, 0.256, 0.257])
+        // The exclusive upper turning coordinate repeats the last valid sample.
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0, 0.257, 0.258, 0.258, 0.258, 0.257])
     }
 
     func testPlaybackSongAdapterSampleOffset9xxBeyondSampleLengthSkipsVoiceSafely() throws {
@@ -6505,7 +6506,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(forward.diagnostics.eventMappings.first).loopMode, .forward)
         XCTAssertEqual(try XCTUnwrap(pingPong.diagnostics.eventMappings.first).loopMode, .pingPong)
         XCTAssertEqual(forward.block.interleavedPCM, [0, 0.5, 0.125, 0.5, 0.25])
-        XCTAssertEqual(pingPong.block.interleavedPCM, [0, 0.5, 0.125, 0.25, 0.5])
+        XCTAssertEqual(pingPong.block.interleavedPCM, [0, 0.5, 0.125, 0.125, 0.125])
     }
 
     func testPlaybackSongAdapterNoVolumeColumnLoadsSampleDefault() {

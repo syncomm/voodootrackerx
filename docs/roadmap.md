@@ -174,13 +174,20 @@ performance gates pass. See the
 [G39 acceptance ledger and exclusions](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
 No backend freeze is claimed; full G37 remains PARTIAL.
 
-The bounded opt-in FT2 static pan law (G40) is **qualified for Gregory review**,
+The bounded opt-in FT2 static pan law (G40) is **CLOSED** through merged
+[PR #533](https://github.com/syncomm/voodootrackerx/pull/533),
 with the VTX linear/unity product policy unchanged. The
 [qualification](ft2-xm-closure-matrix.md#g40-bounded-opt-in-ft2-static-pan-law)
 retains exact byte routing, the native Q16 law, 360 exact VTX pairs and 248
-accounted FT2 changes, and the original paired performance ceilings. Gregory owns final acceptance
-and PR submission. Then characterize **G41 9xx/900 offsets, source ends and loop
-boundaries** separately; G41 has not begun. Cold live selected-order/row planning
+accounted FT2 changes, and the original paired performance ceilings.
+G41B admission/memory/retirement is merged in [PR #534](https://github.com/syncomm/voodootrackerx/pull/534).
+G41C's bounded shared cursor/continuation and valid one-frame loop contract is
+**CLOSED** with original performance gates; its [evidence and limitations](ft2-xm-closure-matrix.md#g41-bounded-offset-admission-and-shared-ping-pong-geometry)
+retain 56 historical-only controls. After submission, native arm64 CI and Gregory's
+merge, run a separate maintainer-local BIG real-corpus discovery audit, then bounded
+issue repairs and adversarial integrated release acceptance. G41 integration stays
+PARTIAL; Gregory owns residual discovery, integration and release acceptance.
+Cold live selected-order/row planning
 and full G37 integration under [#516](https://github.com/syncomm/voodootrackerx/issues/516)
 follow G41. The planning/performance/memory/CI and cross-family pre-freeze audits,
 callback real-time safety, separate post-song host/offline tail decision,

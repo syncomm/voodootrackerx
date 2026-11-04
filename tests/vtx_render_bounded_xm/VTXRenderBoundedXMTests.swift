@@ -4488,7 +4488,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(split, single)
     }
 
-    func testCSoftwareMixerPingPongFixtureInterpolatesReflectedTurnaroundPosition() {
+    func testCSoftwareMixerPingPongFixtureHoldsItsUpperEndpointThroughTurnaround() {
         let output = cMixerMonoOutput(
             sample: [0, 10, 20, 30, 40],
             frames: 12,
@@ -4496,7 +4496,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             loop: MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
         )
 
-        XCTAssertEqual(output, [0, 5, 10, 15, 20, 25, 30, 25, 20, 15, 10, 15])
+        XCTAssertEqual(output, [0, 5, 10, 15, 20, 25, 30, 30, 30, 30, 30, 25])
     }
 
     private func repoRoot() -> URL {

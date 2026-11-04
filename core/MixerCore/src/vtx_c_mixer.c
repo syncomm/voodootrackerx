@@ -318,9 +318,6 @@ static int vtx_c_mixer_loop_is_valid(
         loop_end_frame <= loop_start_frame) {
         return 0;
     }
-    if (loop_mode == VTX_C_MIXER_LOOP_PING_PONG && loop_end_frame - loop_start_frame < 2u) {
-        return 0;
-    }
     return 1;
 }
 
@@ -650,9 +647,7 @@ static uint32_t vtx_c_mixer_ping_pong_loop_next_source_index(
 ) {
     if (vtx_c_mixer_source_index_is_inside_loop(voice, source_index) &&
         source_index + 1u >= voice->loop_end_frame) {
-        return voice->loop_end_frame >= 2u
-            ? voice->loop_end_frame - 2u
-            : source_index;
+        return source_index;
     }
     return vtx_c_mixer_clamped_next_source_index(voice, source_index);
 }
@@ -741,40 +736,48 @@ static double vtx_c_mixer_normalized_forward_loop_runtime_position(
     return (double)voice->loop_start_frame + fmod(overflow, loop_length);
 }
 
+VTXCMixerStatus vtx_c_mixer_project_ping_pong_cursor(
+    double position, int direction, double distance,
+    uint32_t loop_start, uint32_t loop_end,
+    double *out_position, int *out_direction
+) {
+    double start = (double)loop_start, end = (double)loop_end;
+    double length = end - start, period = 2.0 * length;
+    double phase, next;
+    int forward = direction >= 0;
+    if (out_position == NULL || out_direction == NULL || loop_end <= loop_start ||
+        !isfinite(position) || position < 0.0 || position > (double)UINT32_MAX ||
+        !isfinite(distance) || distance < 0.0 || (!forward && position < start)) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    next = forward ? position + distance : position - distance;
+    if (position <= end && (distance == 0.0 ||
+        (forward ? next < end : next > start))) {
+        *out_position = next;
+        *out_direction = forward ? 1 : -1;
+        return VTX_C_MIXER_STATUS_OK;
+    }
+    if (position < start) {
+        // Keep the intro intact; only distance beyond the first upper turn loops.
+        distance -= end - position;
+        phase = length;
+    } else {
+        phase = forward ? position - start : period - (position - start);
+    }
+    phase = fmod(phase, period);
+    if (phase < 0.0) { phase += period; }
+    // Reduce before addition so even a very large finite distance stays finite.
+    phase = fmod(phase + fmod(distance, period), period);
+    *out_direction = phase < length ? 1 : -1;
+    *out_position = phase < length ? start + phase : end - (phase - length);
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 static void vtx_c_mixer_advance_ping_pong_loop_position(VTXCMixerVoice *voice) {
-    double first_loop_frame;
-    double last_loop_frame;
-    double span;
-    double period;
-
-    voice->sample_position += voice->sample_step * (double)voice->ping_pong_direction;
-
-    first_loop_frame = (double)voice->loop_start_frame;
-    last_loop_frame = (double)(voice->loop_end_frame - 1u);
-    span = last_loop_frame - first_loop_frame;
-    if (span <= 0.0) {
-        voice->sample_position = first_loop_frame;
-        voice->ping_pong_direction = 1;
-        return;
-    }
-
-    period = span * 2.0;
-    if (voice->ping_pong_direction > 0 && voice->sample_position > last_loop_frame) {
-        double overshoot = fmod(voice->sample_position - last_loop_frame, period);
-        voice->sample_position = last_loop_frame + overshoot;
-    } else if (voice->ping_pong_direction < 0 && voice->sample_position < first_loop_frame) {
-        double overshoot = fmod(first_loop_frame - voice->sample_position, period);
-        voice->sample_position = first_loop_frame - overshoot;
-    }
-
-    if (voice->ping_pong_direction > 0 && voice->sample_position > last_loop_frame) {
-        double overshoot = voice->sample_position - last_loop_frame;
-        voice->sample_position = last_loop_frame - overshoot;
-        voice->ping_pong_direction = -1;
-    } else if (voice->ping_pong_direction < 0 && voice->sample_position < first_loop_frame) {
-        double overshoot = first_loop_frame - voice->sample_position;
-        voice->sample_position = first_loop_frame + overshoot;
-        voice->ping_pong_direction = 1;
+    if (vtx_c_mixer_project_ping_pong_cursor(voice->sample_position, voice->ping_pong_direction,
+        voice->sample_step, voice->loop_start_frame, voice->loop_end_frame,
+        &voice->sample_position, &voice->ping_pong_direction) != VTX_C_MIXER_STATUS_OK) {
+        voice->active = 0;
     }
 }
 
@@ -1907,7 +1910,9 @@ VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
     voice->fadeout_value = vtx_c_mixer_clamp(fadeout_value, 0.0f, 1.0f);
     voice->active = voice->sample_frame_count > 0 &&
         voice->sample_pcm != NULL &&
-        voice->sample_position < (double)voice->sample_frame_count &&
+        (voice->sample_position < (double)voice->sample_frame_count ||
+         (voice->loop_mode == VTX_C_MIXER_LOOP_PING_PONG &&
+          voice->sample_position == (double)voice->loop_end_frame)) &&
         (voice->has_external_envelope_state || voice->fadeout_value > 0.0f);
     return VTX_C_MIXER_STATUS_OK;
 }
@@ -2316,6 +2321,11 @@ VTXCMixerStatus vtx_c_mixer_render(
                 continue;
             }
             source_index = (uint32_t)voice->sample_position;
+            if (voice->loop_mode == VTX_C_MIXER_LOOP_PING_PONG &&
+                voice->sample_position >= (double)(voice->loop_end_frame - 1u) &&
+                voice->sample_position <= (double)voice->loop_end_frame) {
+                source_index = voice->loop_end_frame - 1u;
+            }
             if (voice->sample_pcm == NULL || source_index >= voice->sample_frame_count) {
                 voice->active = 0;
                 continue;

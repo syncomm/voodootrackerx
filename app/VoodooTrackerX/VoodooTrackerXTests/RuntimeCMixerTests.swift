@@ -2215,8 +2215,8 @@ final class RuntimeCMixerTests: XCTestCase {
             XCTAssertEqual(actual.keyOn, expected.keyOn)
             XCTAssertEqual(actual.fadeoutValue, expected.fadeoutValue)
             XCTAssertEqual(actual.active, expected.active)
-            if frame == 7 { XCTAssertEqual(actual.samplePosition, 2.75); XCTAssertFalse(actual.keyOn) }
-            if frame == 8 { XCTAssertEqual(actual.samplePosition, 2); XCTAssertTrue(actual.keyOn); XCTAssertEqual(actual.fadeoutValue, 1) }
+            if frame == 7 { XCTAssertEqual(actual.samplePosition, 4.75); XCTAssertFalse(actual.keyOn) }
+            if frame == 8 { XCTAssertEqual(actual.samplePosition, 4); XCTAssertTrue(actual.keyOn); XCTAssertEqual(actual.fadeoutValue, 1) }
         }
         let applied = core.drainAppliedAdapterEventDiagnostics()
         XCTAssertEqual(applied.count, 4)
@@ -2348,7 +2348,7 @@ final class RuntimeCMixerTests: XCTestCase {
             for (frame, step) in updates {
                 XCTAssertTrue(offline.scheduleVoicePlaybackStepUpdate(voiceIndex: voice, scheduledFrame: frame, playbackStep: step).wasAccepted)
             }
-            let frozenPosition = mode == .none ? 5.25 : (mode == .forward ? 1.25 : 2.75)
+            let frozenPosition = mode == .none ? 5.25 : (mode == .forward ? 1.25 : 4.75)
             for (index, count) in [3, 6, 12, 3, 3].enumerated() {
                 XCTAssertEqual(renderRuntimePCM(core, frames: count), offline.render(frames: count).interleavedPCM)
                 let runtimeVoice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))

@@ -421,9 +421,9 @@ host.
   after merged-source acceptance and successful native arm64 CI, including the
   actual canonical Debug prewarm regression. Post-song host/offline
   tail parity and live nonzero-order cold start under #516 remain separately OPEN;
-  G41 characterization follows the pending G40 review.
-- G40's bounded opt-in FT2 static pan law is qualified for Gregory review;
-  acceptance and PR submission remain Gregory's. FT2 final evaluation recovers all 256
+  G41 integration retains its separate qualification boundary.
+- G40's bounded opt-in FT2 static pan law is CLOSED through merged
+  [PR #533](https://github.com/syncomm/voodootrackerx/pull/533). FT2 final evaluation recovers all 256
   header/8xx bytes and the 16 Cx positions for the C-owned immutable Q16 table,
   including byte 255's nonzero left coefficient. FT2 scale remains 0.3125;
   VTX linear/unity runtime, preview and WAV/M4A defaults are unchanged.
@@ -436,6 +436,15 @@ host.
   tails remain open. Ordinary Xcode Release tests need a future independent
   optimized-test-instrumentation policy; the supported fault-injection suite
   runs in Debug, without exposing those hooks in the Release product.
+- G41B offset admission, memory and refused-source retirement are CLOSED through
+  merged [PR #534](https://github.com/syncomm/voodootrackerx/pull/534). G41C's bounded
+  shared C cursor/Swift continuation contract is CLOSED:
+  period `2L`, upper turning coordinate `loopEnd`, reads capped at `loopEnd-1`,
+  valid one-frame loops and exact-turn restores. New offsets at the loop end
+  remain refused. The [bounded evidence](ft2-xm-closure-matrix.md#g41-bounded-offset-admission-and-shared-ping-pong-geometry)
+  records original performance gates, their thin margin and 56 historical-only
+  controls. Acceptance requires Gregory's merge and native arm64 CI;
+  broader G41/backend integration stays PARTIAL.
 - Editor audition uses the existing persistent preview stream, isolated from
   song transport and normal runtime playback.
 

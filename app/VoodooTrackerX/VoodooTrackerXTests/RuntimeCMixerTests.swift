@@ -4,6 +4,71 @@ import CoreAudio
 import XCTest
 import Synchronization
 
+final class OrdinaryEDGainRuntimeTests: XCTestCase {
+    func testMappedOrdinaryEDGainReachesCOnceWithExactFramesCursorAndPCM() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            for header in [0, 32, 64] { for delay in [0, 1] {
+                let samples = [PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+                    pcm: Array(repeating: -0.25, count: 128), volume: 1, relativeNote: 0,
+                    finetune: 0, baseSampleRate: 8363, loopLength: 128, loopType: 1),
+                    PlaybackSample(instrumentIndex: 1, sampleIndex: 1,
+                    pcm: Array(repeating: 0.5, count: 128), volume: Float(header) / 64, relativeNote: 0,
+                    finetune: 0, baseSampleRate: 8363, loopLength: 128, loopType: 1)]
+                let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+                    makePlaybackRow(index: 0, note: 52, instrument: 1, effectType: 14,
+                        effectParam: UInt8(0xD0 + delay)), makePlaybackRow(index: 1),
+                    makePlaybackRow(index: 2, effectType: 12, effectParam: 32), makePlaybackRow(index: 3)
+                ]], instrumentsByIndex: [1: .init(index: 1, samples: samples,
+                    noteSampleMap: Array(repeating: 1, count: 96))], initialTiming: .init(speed: 6, bpm: 125),
+                    usesLinearFrequencyTable: linear)
+                let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+                let request = PlaybackSongOfflineRenderRequest(song: song, config: config, rows: 4)
+                let renderer = PlaybackSongOfflineRenderer(), offline = renderer.render(request)
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                let plan = try XCTUnwrap(runtime.plan), birth = delay * Int(rate / 50)
+                let onset = Int(rate * 0.005), reveal = 12 * Int(rate / 50)
+                XCTAssertEqual(plan, offline.plan)
+                XCTAssertEqual(plan.pattern.events.map(\.gain), [Float(header) / 64])
+                XCTAssertEqual(plan.pattern.events.map(\.scheduledStartFrame), [birth])
+                XCTAssertEqual(plan.diagnostics.eventMappings.map(\.sampleIndex), [1])
+                XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM,
+                    offline.block.interleavedPCM)
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                var pcm = [Float](), applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+                for boundary in [birth, birth + onset + 1, reveal, reveal + 1, offline.block.frameCount] {
+                    while pcm.count < boundary {
+                        pcm += renderCoreAudioRuntimePCM(core, frames: min(997, boundary - pcm.count))
+                        applied += core.drainAppliedAdapterEventDiagnostics()
+                    }
+                    if boundary == birth {
+                        XCTAssertNil(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                    } else {
+                        let voice = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                        XCTAssertTrue(voice.active)
+                        XCTAssertEqual(core.snapshot().activeVoiceCount, 1)
+                        let cursor = (Double(boundary - birth) * plan.pattern.events[0].playbackStep)
+                            .truncatingRemainder(dividingBy: 128)
+                        XCTAssertEqual(voice.samplePosition, cursor, accuracy: 1e-8)
+                        if boundary < reveal {
+                            XCTAssertEqual(voice.audibleOutputState?.target[0], Float(header) / 64)
+                        }
+                    }
+                }
+                XCTAssertEqual(pcm, offline.block.interleavedPCM)
+                XCTAssertEqual(pcm[birth], 0)
+                XCTAssertEqual(pcm[birth + onset / 2], Float(header) / 256)
+                XCTAssertEqual(pcm[birth + onset], Float(header) / 128)
+                XCTAssertEqual(pcm[18 * Int(rate / 50)], 0.25)
+                XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 &&
+                    $0.appliedFrame == UInt64($0.event.scheduledFrame) })
+                XCTAssertEqual(applied.filter { if case .noteTrigger = $0.result { return true }; return false }.count, 1)
+            } }
+        } }
+    }
+}
+
 /// Genuine saturation controls keep all native slots live; no ended-source leak is involved.
 final class RuntimeMixerAdmissionFailureTests: XCTestCase {
     private func core(_ rate: Double = 48_000) -> RuntimeCMixerRenderCore {

@@ -248,7 +248,12 @@ approved, tested correction before backend freeze.
 Absent routing, a missing mapped identity, declared zero-payload header metadata,
 represented volume-zero PCM and refused pitch are distinct. This open gap changes
 neither their source/cut/reset contracts nor G23/G30/G31 closure. Represented ED
-zero-volume gain carry remains a separate open discrepancy. The [Clear Song Data
+note+instrument dispatch restores the selected header volume once: ED0 at row
+entry and in-row EDx at its trigger, before an explicit column volume setter.
+Quiet/zero headers remain represented; note-only volume carry and out-of-row
+admission are unchanged. [OrdinaryEDGainTests](../tests/vtx_render_bounded_xm/OrdinaryEDGainTests.swift)
+and runtime controls pin this gain boundary, preserving onset, cursor and retirement.
+The [Clear Song Data
 and writer admission concerns](design/editable-document-save-export-model.md#export-xm)
 also remain separate decisions before claiming a coherent routing release boundary.
 
@@ -797,8 +802,8 @@ the delay tick, then on the admitted source after the existing trigger reset
 before mixing; its diagnostic remains observable. Out-of-row delays execute Bx
 without a trigger/reset. Inactive generations retain semantic evidence without
 C step delivery. `OrdinaryDelayedVibratoTests` pins this bounded contract;
-G23 instrument-only dispatch, absent-map fallback and represented ED gain debt
-remain separate.
+G23 instrument-only dispatch, absent-map fallback and the ordinary ED
+header-volume contract remain separate.
 
 Amiga `4xy` and the vibrato half of `6xy` apply the same signed delta using
 `resultFT2 = (baseFT2 + signedDelta) mod 65536`, then

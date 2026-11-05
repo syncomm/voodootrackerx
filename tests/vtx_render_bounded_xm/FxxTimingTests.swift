@@ -158,31 +158,31 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testNativeSelectionPhysicalBaseline() throws {
-        // G21 changes E9/R retirement PCM and window carry only; the historical physical
-        // hashes still pin events, IDs, diagnostics and source ownership. Independently
-        // retain every non-retrigger evidence byte from the pre-G21 baseline.
-        // Native output interpolation contracts multiply-add on arm64, unlike generic
-        // x86_64. An isolated native replay reproduces all eight CI digests; only the
-        // final R93 tail PCM differs. Pin raw bytes on both, retaining exact shared guards.
+        // Ordinary ED admission restores the represented zero-volume header in the ED3 sentinel.
+        // Pin its corrected gain/PCM; source, pitch, cursor and clock evidence stays exact.
+        // Pin full output and the projection without retriggers independently.
+        // The physical projection also contains gain; its corrected scalar is intentional.
+        // Output interpolation contracts multiply-add on arm64; keep separate full-PCM
+        // hashes and exact shared source/pitch/clock guards.
         #if arch(arm64)
-        let expected = ["false-44100": "ddf27861d2e1dc04f3708eed4ba3ef2916e55bfa1d96c275d9c69a909cc3c9dd",
-            "false-48000": "74a0da790d49a5f6e8c845dcdc99b6ee1588343f874b2d0cc73cabbb01114938",
-            "true-44100": "409bb217405aa34ec9cb21facbca867e0ff1f267e444bbee8c0672f05d397cda",
-            "true-48000": "5f2592d2001e3f3bb54f5d49997771b4dca471a3168044476cdbd70f2f4fe455"]
+        let expected = ["false-44100": "a0a75189adba476bcd87c386cf4f45005a6062f52fb9cb8a480835cae3f27b4d",
+            "false-48000": "6d57bf6415a70b007ed4de6afd6f538441e3034cc390f7f122c3aaf71bf965e5",
+            "true-44100": "df4eb81b0d584d17db4932ef5bb6ae716ea5fec0f3ad5e59957bcdabc66bb229",
+            "true-48000": "6edfa80b8f4f92f1ccd25f168dd8f4ec02615147168769a761f0cc0c733e38b3"]
         #else
-        let expected = ["false-44100": "4b8a9fc1e817d96f820b3b8a9b6ae1e99f81680817d5510e9e919ff48798ac7b",
-            "false-48000": "6badba41a174226db62c58eb64726b4029b1561a1a39065ff3f5b6513f4cc846",
-            "true-44100": "c48b821489fac3b828cad46c60403309259443aa4437cd042fc3bc788f02819f",
-            "true-48000": "173c74b1f0ed8d39f0841d54bc272c738df2e969cf68c06a2010bd6dca239ada"]
+        let expected = ["false-44100": "e81816039299ae5ef1a085d36dbb791ae69c460c4b341c08f67a8ea0e47e6262",
+            "false-48000": "7fb96a6821805a03cad1ef6267320bd5e773595314bdf0e63ccc503b23be76df",
+            "true-44100": "cf1de8d324fa06a14ead05a2ae6ea31bba33025caa78a53eb8b60988c7c1fec1",
+            "true-48000": "62443c07cd9cbc19898971c621c10f50c7c40578cbeeb6e027f9c0361ba9b4dd"]
         #endif
-        let expectedWithoutRetriggers = ["false-44100": "2cc55adc95a37363e8d276bac0e7b691bc934fa865bd5a0477980d73e31ba0c2",
-            "false-48000": "8a47261c9f29b7963d53c4dfc4fbba28682d280d42c154fbee59925ba2f36b74",
-            "true-44100": "1b5c0ed05dbe6ee6eb24e5512acbdb7398ad4dfb5269e8b43af30f28ae72dcb1",
-            "true-48000": "bfed0722f8fceccb442db60386753ac1f725d45619513df7d7a197198443fdd0"]
-        let expectedPhysical = ["false-44100": "b6ec4b72c0a4e4531472c59c1b51ca1fde4dab70db0f337a478891c49e6006d0",
-            "false-48000": "dce7f668d8c717b21e03c87dc4c69a4b153710aa8e059e609d6ddfa4df019372",
-            "true-44100": "34e17e1bc2c569f091a9f7a699fdbde6d21458cc6f4599d5f8531bc117d9fa91",
-            "true-48000": "8f792ecb995f54937cb0d538c945304a638a69a1655f7751d562e9d75dd2e538"]
+        let expectedWithoutRetriggers = ["false-44100": "bc7a0e106f2e39674ad60664dc40c9b4012573586b443bd128151e6ba835d76c",
+            "false-48000": "c8ee2a851da1644b2484db64a6d3e9af38344174ee87b8908c34d372617fc1e9",
+            "true-44100": "875184385581e5250d8b66cd35755e28beb8913e446fbe11ebeb3b4b55f0345d",
+            "true-48000": "d7ec4153c6c6dfe5c27b4b9dd989885da1ed11839943e859abd02958e9a3948e"]
+        let expectedPhysical = ["false-44100": "389777bf94f2ea13e58016e121d3ec29b3e6303b69dd3930e5c8c59f4fcd387d",
+            "false-48000": "4371d3966517938920fb9755bf8b74377250ddc6b7ed3a02a6b468a454496736",
+            "true-44100": "d6a100e893de4241242515dc6676f3874a27c50920f9876d93ecddbee247c901",
+            "true-48000": "5fcb3fd41523065e0ded22dcc2f89fd0873328002a76de135482680c85af9d86"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data(), physical = Data(), unchanged = SHA256()
             for cells in clockSentinels + selectionSentinels {
@@ -266,29 +266,30 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testCanonicalClockPhysicalBaseline() throws {
-        // G21 changes E9/R retirement PCM and window carry only; the historical physical
-        // hashes still pin events, IDs, diagnostics and source ownership. Independently
-        // retain every non-retrigger evidence byte from the pre-G21 baseline.
-        // Same isolated output-interpolation rounding as the selection baseline above.
+        // Ordinary ED admission restores the represented zero-volume header in the ED3 sentinel.
+        // Pin its corrected gain/PCM; source, pitch, cursor and clock evidence stays exact.
+        // Full output, the projection without retriggers and the physical projection
+        // independently pin the corrected gain and unchanged source/pitch/clock state.
+        // Keep the same architecture-specific interpolation hashes as the selection guard.
         #if arch(arm64)
-        let expected = ["false44100": "363b1992de88fad559e660cc4d6f84a88ec4428ab90c880cd547e2972309a968",
-            "false48000": "0992275562d61d4e5c23cd983871aa52f98c70ce12f270adaaedcdfd45f3f18b",
-            "true44100": "5371699abbffa1dac115d02ac1bcbfe98535bcdff767a40685a0f0ca6e21015c",
-            "true48000": "58cdfc38d5aba80472ae2084bf363cac8224fe10b6c5491df877c722afa3871e"]
+        let expected = ["false44100": "660a14b8a4413c2ff15d8b3499c317ae94730e2f622913187565f1559035030c",
+            "false48000": "32a13ce637cb9324578e82a10f8757fc944018ce63044e12a7bda1f610d07d1e",
+            "true44100": "a412c1aa879ec745a37d192ca260577537f34fba93ce7889e919edea3c3c521a",
+            "true48000": "deec49cd0f77b1713937c39401a5517e50c69eb6016ac8f799a8179f43341bf6"]
         #else
-        let expected = ["false44100": "f80ce53d35740a2ece49e8c2c23ca3648a43320a7037c07e4a71bc0078ed565c",
-            "false48000": "281cd7d7c20acb3cbbd5f3de3ddb593bf7a5ff019e540bb4001490a0cd33a6ed",
-            "true44100": "cac86d3d1a81e4de522297fdf3a7db4dac3049e13d783dffd82aa0edafe5d0d5",
-            "true48000": "16670195286fb50020b1557785f43ff230d799e7bb5bcbddc9e8edca393ff49c"]
+        let expected = ["false44100": "ec9a71a2368b85048bb8da5f276b31140aa840eb099bc96147b2022d95e97452",
+            "false48000": "46689963e14972fa5605e54eeac70afd298e04774f75717310cb132fe1b36987",
+            "true44100": "dcc4b09f40dc38e7bbe357fca8481b2d0cf3b1210a3a704852a6d7635dd0f73b",
+            "true48000": "57fef7c52c9f97a1514cf8fe3a00fad25999fca8b8740119761362a43658a141"]
         #endif
-        let expectedWithoutRetriggers = ["false44100": "48088011616e77fb47cc1503debeeb934917686309041bafc8a79aa9f6a51c1c",
-            "false48000": "bb20b87e9f52379cbd6f3ac76b336a81c9fbb2f319452b831b76e15ee46fcc99",
-            "true44100": "007cd9702b4a6fe86d86be9af403cd4d4d3b574add9949746d4c504883bc700a",
-            "true48000": "04451c9c8ce5f59e6f83b0c73366ae74121a4645f52bec4fefc473c85b19a9ef"]
-        let expectedPhysical = ["false44100": "ba4ee982f64c18033eedbf4a196a9c61f1b6d443f3f542628920741ed47195cd",
-            "false48000": "d3586f7d9d711591b5f51ccb1638a653528ee77b4738115a0ecab86d47b4ebda",
-            "true44100": "0fd35f23c05281d3b1bac46befe3d83c7844c1a2b5ee6e729f80afb69c37e06f",
-            "true48000": "299e61a521cf9a4635228c9e529924af9e30b2e09fe2470e3b33459c00a63573"]
+        let expectedWithoutRetriggers = ["false44100": "d9799c3654c427f3825df36a9c44ba582b5efd1ffb553b7e526ff078f84d8001",
+            "false48000": "2d8c3aa27d63bd48d269467d39fef9b18871da4e3abe25ba51ccf97660510e81",
+            "true44100": "6ade8019280894726354fa4e43fd2306691aee841c3176f10a1f973afb488130",
+            "true48000": "5f5eb5003a203dc3e13fe15142a95eb0533b6d6524c2891492bed0e7b2ca7b43"]
+        let expectedPhysical = ["false44100": "569698ca6fac67df44881437d59256af2538d3ef2b27ddd62987aeea1ea41ec6",
+            "false48000": "a65d93f88d30e1c0b28d9ac798b8eff5f38ab81cae9a8463804d377506097a88",
+            "true44100": "de13be13dc9e17f48dfb1152ffe46d243414faff35f77cce15dad4f78556d29d",
+            "true48000": "65a6d531c25a96a7b77b2dd916c285ba98e6551df5e1f9c2c9c903304df92a0a"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data(), physical = Data(), unchanged = SHA256()
             for cells in clockSentinels {

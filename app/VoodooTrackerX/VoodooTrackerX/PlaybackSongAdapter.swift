@@ -1330,9 +1330,11 @@ enum PlaybackSongSyntheticAdapter {
                !hasNoteDelayEffect || Int(cell.effectParam & 15) < timingConfig.speed {
                 channelState.carriedNote = cell.note
             }
+            // ED0 admits ordinary notes immediately; volume-column tone keeps its reset gate.
             let hasValidImmediateNoteInstrument = (1...96).contains(cell.note) &&
                 cell.instrument > 0 &&
-                (!hasNoteDelayEffect || (cell.effectParam == 0xD0 && ordinaryEmptyHeader != nil))
+                (!hasNoteDelayEffect || (cell.effectParam == 0xD0 &&
+                    (ordinaryEmptyHeader != nil || !handlesTonePortamento)))
             // Target routing and retained sounding-header defaults are independent.
             // Both modes reuse the owned-header or cold instrument reset below.
             let toneTargetSelection: SampleSelection? = hasValidImmediateNoteInstrument && handlesTonePortamento
@@ -2539,10 +2541,10 @@ enum PlaybackSongSyntheticAdapter {
                 // Reset at that trigger, rather than on an out-of-row delay.
                 resetTremoloTriggerPhases(state: &channelState)
                 context.semanticPitchBuilder.add(tick: scheduledNoteTick, channel: channelIndex, action: .automaticReset(.delayedNote))
-                if channelState.tremolo.activated, cell.instrument > 0, !retainsDelayedTrigger {
-                    channelState.baseChannelVolume = 64
-                    // FT2's delayed trigger replays an explicit volume value,
-                    // not slide commands already handled by the column path.
+                if cell.instrument > 0, !retainsDelayedTrigger {
+                    // Load the selected header at dispatch, then replay an explicit
+                    // setter. Song gain consumes this channel value only once.
+                    channelState.baseChannelVolume = sampleVolumeRawEstimate(for: sample.volume)
                     if case .setVolume = volumeColumn.command {
                         _ = applyVolumeColumn(volumeColumn, to: &channelState)
                     }

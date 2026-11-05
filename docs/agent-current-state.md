@@ -516,7 +516,9 @@ and normalization details.
 - Exact mapped declared-empty ordinary ED0/in-row EDx cuts the prior source at
   dispatch and applies the header/default/reset state without new PCM or fallback.
   Represented PCM with header volume zero is a different source condition;
-  represented ED zero-volume gain carry remains a separate open discrepancy.
+  ordinary note+instrument ED0/in-row EDx restores the selected header volume
+  at dispatch before an explicit column volume setter. Song gain consumes it
+  once, including quiet/zero headers; note-only volume carry stays separate.
 - Noncanonical short/partial loaded XM headers can yield nil maps with PCM.
   Loader reachability is observed; no read-only fallback exception or abnormal-file
   FT2 playback semantics is verified. Current fallback is legacy behavior, not a

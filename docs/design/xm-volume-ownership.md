@@ -59,6 +59,19 @@ Sample-header volume initializes/restores the channel default. Song audible gain
 consumes channel/output volume once; the header is not multiplied again as an
 independent song-gain factor. Header metadata and tracker state remain distinct.
 
+Ordinary note+instrument ED0 uses that immediate default initialization before
+same-cell volume writers. An in-row delayed note restores its selected header
+volume at the actual trigger, then replays an explicit volume-column setter.
+Header 32 therefore admits gain 0.5, not 1; header 0 admits a silent represented
+source. The prior source keeps its output until dispatch, and C20 later replaces
+channel volume without a second header multiplier. Note-only ED carries channel
+volume; instrument-only ED retains G23's separate cached-default dispatch.
+Out-of-row delays admit no source. Both-rate/mode
+[OrdinaryEDGainTests](../../tests/vtx_render_bounded_xm/OrdinaryEDGainTests.swift)
+and C-runtime controls cover targets, onset, retirement, cursor and continuation.
+This gain boundary changes no VTX/FT2 mix profile, envelope/pan arithmetic,
+selected-origin preparation, or broader host/performance qualification.
+
 Exact mapped represented PCM remains a valid song source at header volume 0.
 The canonical resolver's song eligibility requires PCM, independently of header
 loudness; identity, note/map validation and fallback policies are unchanged.

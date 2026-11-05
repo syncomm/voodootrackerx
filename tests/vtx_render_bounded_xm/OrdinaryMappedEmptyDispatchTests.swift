@@ -148,15 +148,14 @@ final class OrdinaryMappedEmptyDispatchTests: XCTestCase {
         } } }
     }
 
-    func testRepresentedQuietEDCharacterizesUnchangedLegacyGain() {
+    func testRepresentedQuietEDRestoresZeroHeaderAndKeepsSource() {
         for linear in [true, false] { for rate in [44_100.0, 48_000] { for delay in [0, 3] {
             let quiet = A.adapt(song(delay: delay, linear: linear, destination: 0, quiet: true), orderIndex: 0, sampleRate: rate)
             XCTAssertTrue(quiet.xmEmptyRoutes.isEmpty)
             XCTAssertEqual(quiet.pattern.events.count, 2)
-            // Unchanged baseline retains the prior gain for represented ED0/EDx,
-            // even with a zero-volume header. Its correctness is a separate open issue.
+            // A represented silent sample admits a real source with its header gain.
             XCTAssertEqual(quiet.diagnostics.eventMappings[1].sampleVolume, 0)
-            XCTAssertEqual(quiet.pattern.events[1].gain, 20.0 / 64)
+            XCTAssertEqual(quiet.pattern.events[1].gain, 0)
             XCTAssertEqual(quiet.pattern.events[1].sample.frameCount, 512)
         } } }
     }

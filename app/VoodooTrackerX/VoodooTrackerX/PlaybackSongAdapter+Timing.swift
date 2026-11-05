@@ -203,7 +203,8 @@ enum PlaybackSongFxxTimingPlanner {
     static func plan(
         _ song: PlaybackSong,
         traversalPlan: PlaybackSongTraversalPlan,
-        sampleRate: Double
+        sampleRate: Double,
+        isCancelled: (() -> Bool)? = nil
     ) -> PlaybackSongFxxTimingPlan {
         let initialConfig = SyntheticTrackerTimingConfig(
             speed: song.initialTiming.speed,
@@ -217,6 +218,7 @@ enum PlaybackSongFxxTimingPlanner {
         var timingChanges = [PlaybackSongSyntheticTimingChangeDiagnostic]()
 
         for traversalRow in traversalPlan.rows {
+            if traversalRow.syntheticRow & 127 == 0, isCancelled?() == true { break }
             let row = traversalRow.row
             let syntheticRow = traversalRow.syntheticRow
             let source = traversalRow.source

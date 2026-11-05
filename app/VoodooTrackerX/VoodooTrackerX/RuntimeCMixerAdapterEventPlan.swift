@@ -368,7 +368,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         song: PlaybackSong?,
         sampleRate: Double,
         profileSession: AdapterPlanProfileSession? = nil,
-        preparedPlan: PlaybackSongSyntheticPlan? = nil
+        preparedPlan: PlaybackSongSyntheticPlan? = nil,
+        coldOrigin: PlaybackPosition? = nil,
+        isCancelled: (() -> Bool)? = nil
     ) -> RuntimeCMixerAdapterEventPlan {
         let makeStart = profileSession?.beginPhase()
         guard let song else {
@@ -380,15 +382,21 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             )
             return unavailablePlan
         }
-        let adaptedPlan = preparedPlan ?? PlaybackSongSyntheticAdapter.adapt(
-            song,
-            startOrderIndex: 0,
-            orderCount: song.orders.count,
-            sampleRate: sampleRate,
-            profileSession: profileSession
-        )
+        let adaptedPlan: PlaybackSongSyntheticPlan
+        if let preparedPlan { adaptedPlan = preparedPlan }
+        else if let coldOrigin {
+            guard let cold = PlaybackSongSyntheticAdapter.adaptForRuntime(song, origin: coldOrigin,
+                sampleRate: sampleRate, profileSession: profileSession, isCancelled: isCancelled) else {
+                return .unavailable(sampleRate: sampleRate)
+            }
+            adaptedPlan = cold
+        } else {
+            adaptedPlan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 0,
+                orderCount: song.orders.count, sampleRate: sampleRate, profileSession: profileSession)
+        }
+        if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
         return assemble(song: song, adaptedPlan: adaptedPlan, sampleRate: sampleRate,
-            profileSession: profileSession, makeStart: makeStart)
+            profileSession: profileSession, makeStart: makeStart, isCancelled: isCancelled)
     }
 
     // Event materialization has a large Debug stack frame. Enter it only after
@@ -399,7 +407,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         adaptedPlan: PlaybackSongSyntheticPlan,
         sampleRate: Double,
         profileSession: AdapterPlanProfileSession?,
-        makeStart: UInt64?
+        makeStart: UInt64?,
+        isCancelled: (() -> Bool)?
     ) -> RuntimeCMixerAdapterEventPlan {
         let diagnosticIndexingStart = profileSession?.beginPhase()
         let scheduler = SyntheticTrackerScheduler(config: adaptedPlan.timingConfig)
@@ -487,6 +496,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         var events = RuntimeCMixerAdapterPlanAssembly(initialCapacity: adaptedPlan.pattern.events.count,
             measuresCategories: profileSession != nil)
         var nextID = 0
+        var nextCancellationCheck = 0
         var seenNoteTriggerChannels = Set<Int>()
         profileSession?.recordPhase(
             "adapter_diagnostic_indexing",
@@ -504,6 +514,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
 
         let eventGenerationStart = profileSession?.beginPhase()
         for (eventIndex, syntheticEvent) in adaptedPlan.pattern.events.enumerated() {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let mapping = eventMappingsByIndex[eventIndex] else {
                 continue
             }
@@ -666,6 +680,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for eventIndex in adaptedPlan.initialHeldPitchEventIndices.sorted() {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard !adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.contains(eventIndex) else { continue }
             let event = adaptedPlan.pattern.events[eventIndex]
             guard let mapping = eventMappingsByIndex[eventIndex] else { continue }
@@ -678,6 +696,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for update in adaptedPlan.diagnostics.voiceStateUpdates where update.applied && update.activeVoiceUpdated {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let activeEventIndex = update.activeEventIndex else {
                 continue
             }
@@ -791,6 +813,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for (index, diagnostic) in adaptedPlan.diagnostics.tonePortamentoEffects.enumerated() where diagnostic.applied {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             // Construction IDs encode only this pair's Bx-before-tone tie order.
             if let vibrato = bxTonePairs.byTone[index] {
                 appendVibrato(adaptedPlan.diagnostics.vibratoEffects[vibrato])
@@ -828,6 +854,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.portamentoSlideEffects where diagnostic.applied {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -865,6 +895,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.finePortamentoUpEffects where diagnostic.applied && !diagnostic.appliedToInitialPlaybackStep {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -887,6 +921,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.finePortamentoDownEffects where diagnostic.applied && !diagnostic.appliedToInitialPlaybackStep {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -909,6 +947,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.extraFinePortamentoEffects where diagnostic.applied && !diagnostic.appliedToInitialPlaybackStep {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -937,6 +979,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.arpeggioEffects where diagnostic.applied {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -962,6 +1008,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.envelopePositionEffects where diagnostic.applied {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let activeEventIndex = diagnostic.activeEventIndex,
                   let appliedPositionFrame = diagnostic.appliedPositionFrame else {
                 continue
@@ -984,6 +1034,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for cut in adaptedPlan.diagnostics.noteCutEffects where cut.applied {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             events.append(RuntimeCMixerAdapterEvent(
                 id: nextID,
                 source: cut.source,
@@ -1027,6 +1081,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         // Immutable lists share their backing storage across a publication run.
         let carriedPlaybackStateCategories = ["carried_playback_state"]
         for update in stateEvents {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard adaptedPlan.xmEnvelopeTimeline?.updatesByEvent[update.activeEventIndex] == nil else { continue }
             guard let mapping = eventMappingsByIndex[update.activeEventIndex] else { continue }
             // A carried voice may have started on a different row/tick (including EDx).
@@ -1039,6 +1097,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
         let emptyRouteStopCategories = ["empty_route_source_stop"]
         for route in adaptedPlan.xmEmptyRoutes {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let old = route.stoppedEventIndex else { continue }
             events.append(.init(id: events.count, source: route.source, channelIndex: route.channelIndex,
                 syntheticTick: route.tick, scheduledFrame: route.scheduledFrame,
@@ -1047,12 +1109,20 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
         let channelSemanticCategories = ["xm_channel_semantic_tick"]
         for update in adaptedPlan.xmEnvelopeTimeline?.channelUpdates ?? [] where sourceFreeChannels.contains(update.channelIndex) {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             events.append(.init(id: events.count, source: update.source, channelIndex: update.channelIndex,
                 syntheticTick: update.tick, scheduledFrame: update.scheduledFrame, action: .channelSemanticUpdate(update),
                 categories: channelSemanticCategories))
         }
         let envelopeSemanticCategories = ["xm_envelope_semantic_tick"]
         for update in adaptedPlan.xmEnvelopeTimeline?.updates ?? [] {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             events.append(RuntimeCMixerAdapterEvent(id: events.count, source: update.source,
                 channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
                 action: .envelopeSemanticUpdate(activeEventIndex: update.eventIndex, state: update.state),
@@ -1069,6 +1139,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.count
         var nextPitchID = audibleIDStart + preexistingAudibleCount
         for (ordinal, update) in (adaptedPlan.xmAudibleTimeline?.updates ?? []).enumerated() {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             let id = audibleIDStart + ordinal + (ordinal < preexistingAudibleCount ? 0 : reservedPitchIDCount)
             events.append(RuntimeCMixerAdapterEvent(id: id, source: update.source,
                 channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
@@ -1076,6 +1150,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
         let instrumentAutoPitchCategories = ["step_update", "instrument_auto_pitch"]
         for request in adaptedPlan.instrumentAutovibratoRequests {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard adaptedPlan.diagnostics.rowMappings.indices.contains(request.syntheticRow) else { continue }
             events.append(.init(id: nextPitchID,
                 source: adaptedPlan.diagnostics.rowMappings[request.syntheticRow].source,
@@ -1088,6 +1166,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
 
         let introducedHoldCategories = ["step_update", "initial_pitch_hold"]
         for eventIndex in adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.sorted() {
+            if events.count >= nextCancellationCheck {
+                nextCancellationCheck = events.count + 1024
+                if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
+            }
             guard let mapping = eventMappingsByIndex[eventIndex] else { continue }
             events.append(.init(id: nextPitchID, source: mapping.source,
                 channelIndex: mapping.channelIndex, syntheticTick: mapping.syntheticTick,
@@ -1098,7 +1180,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         profileSession?.recordPhase("adapter_semantic_event_materialization", startedAt: semanticMaterializationStart)
         let sortingStart = profileSession?.beginPhase()
         let unsortedEventCount = events.count
+        if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
         let assembly = events.finish(profileSession: profileSession)
+        if isCancelled?() == true { return .unavailable(sampleRate: sampleRate) }
         let plannedSongEndFrame = adaptedPlan.diagnostics.rowTiming
             .map { max($0.rowStartFrame, $0.rowStartFrame + max(0, $0.rowDurationFrames)) }
             .max()

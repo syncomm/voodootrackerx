@@ -2,6 +2,444 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+final class ColdRuntimeOriginTests: XCTestCase {
+    @MainActor
+    func testColdSeekCancelsObsoleteEditableLoopPreparationBeforeReplacement() async throws {
+        let scheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audio = TestRuntimeAdapterAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        let score = song()
+        engine.load(song: score, initialContext: context(1))
+        engine.play(from: context(1), loopEnabled: true, timingSession: nil)
+        engine.requestEditablePatternLoopRefresh(song: score)
+        let refreshIndex = scheduler.jobs.count - 1
+        let refresh = scheduler.jobs[refreshIndex]
+        XCTAssertEqual(refresh.cancelCount, 0)
+        engine.seek(to: .init(orderIndex: 2))
+        XCTAssertEqual(refresh.cancelCount, 1)
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        scheduler.complete(at: refreshIndex)
+        await Task.yield()
+        XCTAssertEqual(engine.state.mode, .preparing)
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        scheduler.complete(at: scheduler.jobs.count - 1)
+        await Task.yield()
+        XCTAssertTrue(engine.state.isPlaying)
+        XCTAssertEqual(audio.configuredPlans.last?.plan?.diagnostics.rowTiming.first?.source.orderIndex, 2)
+        engine.stop()
+    }
+
+    func testMovedPlanRetiresOnWorkerWhileMainKeepsItsEmptyBox() throws {
+        let worker = RuntimeAdapterPlanWorker()
+        var plan = RuntimeCMixerAdapterEventPlan.make(song: song(), sampleRate: 48_000)
+        weak var row = plan.plan?.xmChannelRows.first
+        XCTAssertNotNil(row)
+        let retirement = RuntimeAdapterPlanRetirement(taking: &plan)
+        XCTAssertFalse(plan.generated)
+        worker.queue.suspend()
+        worker.retire(retirement)
+        XCTAssertNotNil(row, "Moving must retain the graph until its worker handoff")
+        worker.queue.resume()
+        worker.queue.sync {}
+        withExtendedLifetime(retirement) {
+            XCTAssertNil(row, "The caller's box must not retain an already retired graph")
+        }
+    }
+
+    func testResultRevokesImmediatelyAndReleasesOutsideStorageLockOnWorker() throws {
+        let worker = RuntimeAdapterPlanWorker()
+        let result = RuntimeAdapterPlanPrewarmResult(generation: 1,
+            plan: RuntimeCMixerAdapterEventPlan.make(song: song(), sampleRate: 48_000),
+            makeMS: 1, completedAfterCancellation: false, adapterPlanProfileSession: nil,
+            retirementWorker: worker)
+        let queuedCopy = result
+        weak var row = result.plan?.plan?.xmChannelRows.first
+        XCTAssertNotNil(row)
+        worker.queue.suspend()
+        result.discardPlan()
+        result.discardPlan()
+        XCTAssertNil(result.plan)
+        XCTAssertNil(queuedCopy.plan)
+        XCTAssertNotNil(row, "Revocation must not perform final destruction on the caller")
+        worker.queue.resume()
+        worker.queue.sync {}
+        withExtendedLifetime(queuedCopy) { XCTAssertNil(row) }
+    }
+
+    func testAbandonedUnpublishedResultStillTransfersItsLastGraph() throws {
+        let worker = RuntimeAdapterPlanWorker()
+        var result: RuntimeAdapterPlanPrewarmResult? = .init(generation: 1,
+            plan: RuntimeCMixerAdapterEventPlan.make(song: song(), sampleRate: 48_000),
+            makeMS: 1, completedAfterCancellation: false, adapterPlanProfileSession: nil,
+            retirementWorker: worker)
+        weak var row = result?.plan?.plan?.xmChannelRows.first
+        XCTAssertNotNil(row)
+        worker.queue.suspend()
+        result = nil
+        XCTAssertNotNil(row)
+        worker.queue.resume()
+        worker.queue.sync {}
+        XCTAssertNil(row)
+    }
+
+    func testOnWorkerRevocationPrecedesAlreadyQueuedReplacement() throws {
+        let worker = RuntimeAdapterPlanWorker()
+        let result = RuntimeAdapterPlanPrewarmResult(generation: 1,
+            plan: RuntimeCMixerAdapterEventPlan.make(song: song(), sampleRate: 48_000),
+            makeMS: 1, completedAfterCancellation: false, adapterPlanProfileSession: nil,
+            retirementWorker: worker)
+        weak var row = result.plan?.plan?.xmChannelRows.first
+        XCTAssertNotNil(row)
+        let checked = expectation(description: "old graph gone before the next worker operation")
+        worker.queue.suspend()
+        worker.queue.async { result.discardPlan() }
+        worker.queue.async { [weak row] in
+            XCTAssertNil(row, "An async cleanup queued behind this operation would overlap graphs")
+            checked.fulfill()
+        }
+        worker.queue.resume()
+        wait(for: [checked], timeout: 3)
+        withExtendedLifetime(result) {}
+    }
+
+    @MainActor
+    func testOnlyDifferentReadyOriginRetiresPublishedOwnership() async throws {
+        let scheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audio = TestRuntimeAdapterAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        engine.load(song: song(), initialContext: context(1))
+        engine.play(from: context(1))
+        XCTAssertEqual(scheduler.retirementCount, 0)
+        engine.seek(to: .init(orderIndex: 1))
+        XCTAssertEqual(scheduler.retirementCount, 0)
+        engine.seek(to: .init(orderIndex: 2))
+        XCTAssertEqual(scheduler.retirementCount, 1)
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        engine.seek(to: .init(orderIndex: 2))
+        XCTAssertEqual(scheduler.retirementCount, 1)
+        scheduler.complete(at: 1)
+        await Task.yield()
+        XCTAssertTrue(engine.state.isPlaying)
+        engine.load(song: nil)
+        XCTAssertEqual(scheduler.retirementCount, 2)
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+    }
+
+    private func context(_ order: Int, row: Int = 0) -> PlaybackStartContext {
+        .init(moduleTitle: "Cold origin control", songPosition: order, patternIndex: order, row: row)
+    }
+
+    private func song(linear: Bool = true, seed: UInt8 = 0x31) -> PlaybackSong {
+        let sample = makePlaybackSample(pcm: (0..<1024).map { Float($0 % 32) / 64 - 0.25 },
+            baseSampleRate: 8363, loopStart: 0, loopLength: 1024, loopType: 1)
+        return makePlaybackSong(orderPatternIndices: [0, 1, 2], patternRowsByIndex: [
+            0: [makePlaybackRow(index: 0, effectType: 14, effectParam: seed)],
+            1: [makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 53, effectType: 3, effectParam: 4)],
+            2: [makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 53, effectType: 3, effectParam: 4)]
+        ], instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            usesLinearFrequencyTable: linear)
+    }
+
+    @MainActor
+    func testColdE31ReachesCConsumerAtExactFramesWithFreshSource() throws {
+        for rate in [44_100.0, 48_000] { for linear in [true, false] {
+            var outputs = [[Float]]()
+            for seed: UInt8 in [0x31, 0x30] {
+                let trace = TestRuntimeCMixerTraceWriter()
+                let audio = RuntimeCMixerAudioEngine(sampleRate: rate,
+                    startsOutputHostOnDemand: false, traceWriter: trace)
+                let engine = PlaybackEngine(audioEngine: audio, runtimeCMixerTraceWriter: trace,
+                    startsRealtimeTimer: false,
+                    runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler())
+                engine.load(song: song(linear: linear, seed: seed), initialContext: context(1))
+                engine.play(from: context(1))
+                let frame = rate == 48_000 ? 6720 : 6174
+                outputs.append(audio.renderForTesting(frameCount: frame + 1))
+                let event = try XCTUnwrap(trace.events.first { $0.plannedSourceRowIndex == 1 &&
+                    $0.plannedSourceTickInRow == 1 && $0.sampleStepAfter != nil && $0.plannedEventID != nil })
+                XCTAssertEqual(event.eventAppliedFrame, UInt64(frame))
+                XCTAssertEqual(event.plannedVsAppliedDelta, 0)
+                XCTAssertEqual(event.adapterActiveEventIndex, 0)
+                if linear {
+                    XCTAssertEqual(event.sampleStepAfter, rate == 48_000 ? 0.1767578125 : 0.1923828125)
+                }
+                engine.stop()
+            }
+            XCTAssertEqual(outputs[0], outputs[1], "Unplayed E31 must not change cold PCM")
+        } }
+    }
+
+    @MainActor
+    func testSelectionCoalescesAndRejectsFinishedStalePlans() async throws {
+        let audio = TestRuntimeAdapterAudioOutput()
+        let scheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        engine.load(song: song())
+        engine.prepareColdStart(from: context(1))
+        engine.prepareColdStart(from: context(2, row: 1))
+        engine.prepareColdStart(from: context(2, row: 1))
+        XCTAssertEqual(scheduler.requests.count, 3)
+        XCTAssertEqual(scheduler.jobs.map(\.cancelCount), [1, 1, 0])
+        scheduler.complete(at: 0)
+        scheduler.complete(at: 1)
+        await Task.yield()
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        scheduler.complete(at: 2)
+        await Task.yield()
+        let plan = try XCTUnwrap(audio.configuredPlans.last)
+        XCTAssertEqual(plan.plan?.diagnostics.rowTiming.first?.source,
+            PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 1))
+        engine.play(from: context(2, row: 1))
+        engine.stop()
+        engine.play(from: context(2, row: 1))
+        XCTAssertEqual(scheduler.requests.count, 3)
+        XCTAssertEqual(audio.generatedPlanConfigureCount, 1)
+    }
+
+    @MainActor
+    func testRateModeReplacementAndStoppedDebugStartUseFullKey() async throws {
+        let audio = TestRuntimeAdapterAudioOutput()
+        let scheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        engine.load(song: song(), initialStart: .init(orderIndex: 1, rowIndex: 1))
+        XCTAssertEqual(scheduler.requests[0].origin?.position.rowIndex, 1)
+        let old = scheduler.requests[0].origin
+        engine.load(song: song(linear: false), initialContext: context(1))
+        XCTAssertNotEqual(old?.songGeneration, scheduler.requests[1].origin?.songGeneration)
+        XCTAssertEqual(scheduler.requests[1].origin?.usesLinearFrequencyTable, false)
+        _ = engine.seek(to: .init(orderIndex: 2, rowIndex: 1), autoplay: false)
+        XCTAssertEqual(scheduler.requests.last?.origin?.position.orderIndex, 2)
+        scheduler.complete(at: 1)
+        await Task.yield()
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        scheduler.complete(at: 2)
+        await Task.yield()
+        XCTAssertTrue(audio.hasRuntimeAdapterEventPlan)
+        audio.audioBufferSampleRate = 48_000
+        engine.prepareColdStart(from: context(2, row: 1))
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        XCTAssertEqual(scheduler.requests.last?.origin?.sampleRate, 48_000)
+        scheduler.complete(at: 2)
+        await Task.yield()
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        scheduler.complete(at: 3)
+        await Task.yield()
+        XCTAssertTrue(audio.hasRuntimeAdapterEventPlan)
+    }
+
+    @MainActor
+    func testColdDefaultsRejectUnplayedFxxAndSlideMemoryButPlayedHistoryRetainsThem() throws {
+        for rate in [44_100.0, 48_000] { for linear in [true, false] {
+            let original = song(linear: linear)
+            let prefix = PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 1, effectParam: 5),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 15, effectParam: 3),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 15, effectParam: 150)])
+            let score = makePlaybackSong(orderPatternIndices: [0, 1], patternRowsByIndex: [0: [prefix],
+                1: [makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: 1)]],
+                instrumentsByIndex: original.instrumentsByIndex, usesLinearFrequencyTable: linear)
+            let audio = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: rate)
+            let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+                runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler())
+            engine.load(song: score, initialContext: context(1))
+            engine.play(from: context(1))
+            let cold = try XCTUnwrap(audio.configuredPlans.last?.plan)
+            XCTAssertEqual(cold.diagnostics.rowTiming.map(\.effectiveSpeed), [6, 6])
+            XCTAssertEqual(cold.diagnostics.rowTiming.map(\.effectiveBPM), [125, 125])
+            XCTAssertEqual(cold.diagnostics.rowTiming[1].rowStartFrame, rate == 48_000 ? 5760 : 5292)
+            XCTAssertTrue(cold.diagnostics.portamentoSlideEffects.allSatisfy { $0.stepUpdates.isEmpty })
+            let played = PlaybackSongSyntheticAdapter.adapt(score, startOrderIndex: 0, orderCount: 2, sampleRate: rate)
+            XCTAssertEqual(played.diagnostics.rowTiming.last?.effectiveSpeed, 3)
+            XCTAssertEqual(played.diagnostics.rowTiming.last?.effectiveBPM, 150)
+            XCTAssertTrue(played.diagnostics.portamentoSlideEffects.contains {
+                $0.source.orderIndex == 1 && !$0.stepUpdates.isEmpty })
+        } }
+    }
+
+    @MainActor
+    func testColdLoopAnchorIsPatternLocalAndBackwardJumpMayVisitEarlierOrder() throws {
+        let scheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audio = TestRuntimeAdapterAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        let loop = makePlaybackSong(orderPatternIndices: [0, 1], patternRowsByIndex: [
+            0: [makePlaybackRow(index: 0), makePlaybackRow(index: 1, effectType: 14, effectParam: 0x60)],
+            1: [makePlaybackRow(index: 0), makePlaybackRow(index: 1),
+                makePlaybackRow(index: 2, effectType: 14, effectParam: 0x61), makePlaybackRow(index: 3)]])
+        engine.load(song: loop, initialContext: context(1))
+        engine.play(from: context(1))
+        XCTAssertEqual(audio.configuredPlans.last?.plan?.diagnostics.rowTiming.map { $0.source.rowIndex },
+            [0, 1, 2, 0, 1, 2, 3])
+        engine.stop()
+        let jump = makePlaybackSong(orderPatternIndices: [0, 1, 2], patternRowsByIndex: [
+            0: [makePlaybackRow(index: 0, effectType: 11, effectParam: 2)],
+            1: [makePlaybackRow(index: 0, effectType: 11, effectParam: 0)],
+            2: [makePlaybackRow(index: 0)]])
+        engine.load(song: jump, initialContext: context(1))
+        engine.play(from: context(1))
+        XCTAssertEqual(audio.configuredPlans.last?.plan?.diagnostics.rowTiming.map { $0.source.orderIndex }, [1, 0, 2])
+        // Selected-range rendering still refuses a jump below its declared range.
+        XCTAssertEqual(PlaybackSongSyntheticAdapter.adapt(jump, startOrderIndex: 1, orderCount: 2, sampleRate: 48_000)
+            .diagnostics.rowTiming.map { $0.source.orderIndex }, [1])
+    }
+
+    func testCancellationRevokesAllCopiesOfUnpublishedResult() throws {
+        var result: RuntimeAdapterPlanPrewarmResult? = .init(generation: 1,
+            plan: RuntimeCMixerAdapterEventPlan.make(song: song(), sampleRate: 48_000),
+            makeMS: 1, completedAfterCancellation: false, adapterPlanProfileSession: nil,
+            retirementWorker: RuntimeAdapterPlanWorker())
+        let queuedCopy = try XCTUnwrap(result)
+        result?.discardPlan()
+        result = nil
+        XCTAssertNil(queuedCopy.plan)
+        var checks = 0
+        let cancelled = RuntimeCMixerAdapterEventPlan.make(song: song(), sampleRate: 48_000,
+            coldOrigin: .init(orderIndex: 1, patternIndex: 1, rowIndex: 0), isCancelled: {
+                checks += 1
+                return checks >= 3
+            })
+        XCTAssertFalse(cancelled.generated)
+    }
+
+    @MainActor
+    func testSerialWorkerRapidColdChangesPublishOnlyLatestGraph() async throws {
+        let audio = TestRuntimeAdapterAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false)
+        let score = makePlaybackSong(orderPatternIndices: Array(0..<24),
+            patternRowCounts: Dictionary(uniqueKeysWithValues: (0..<24).map { ($0, 128) }))
+        engine.load(song: score)
+        for order in 1..<24 { engine.prepareColdStart(from: context(order)) }
+        engine.play(from: context(23))
+        await Task.yield()
+        XCTAssertEqual(audio.generatedPlanConfigureCount, 1)
+        XCTAssertEqual(audio.configuredPlans.last?.plan?.diagnostics.rowTiming.first?.source.orderIndex, 23)
+        XCTAssertEqual(audio.configuredPlans.last?.plan?.diagnostics.rowTiming.count, 128)
+        engine.stop()
+    }
+
+    @MainActor
+    func testActiveSeekIsColdAndAsyncWithExactCSourceAndFrames() async throws {
+        for rate in [44_100.0, 48_000] { for linear in [true, false] {
+            let original = song(linear: linear)
+            let destination = [makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 53, effectType: 3, effectParam: 4),
+                makePlaybackRow(index: 2, effectType: 3)]
+            let score = makePlaybackSong(orderPatternIndices: [0, 1, 2], patternRowsByIndex: [
+                0: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 14, effectParam: 0x31)],
+                1: [makePlaybackRow(index: 0, effectType: 14, effectParam: 0x30)], 2: destination],
+                instrumentsByIndex: original.instrumentsByIndex, usesLinearFrequencyTable: linear)
+            let oracleSong = makePlaybackSong(orderPatternIndices: [2], patternRowsByIndex: [2: destination],
+                instrumentsByIndex: original.instrumentsByIndex, usesLinearFrequencyTable: linear)
+            let oracle = RuntimeCMixerAdapterEventPlan.make(song: oracleSong, sampleRate: rate)
+            let trace = TestRuntimeCMixerTraceWriter()
+            let audio = RuntimeCMixerAudioEngine(sampleRate: rate, startsOutputHostOnDemand: false, traceWriter: trace)
+            let scheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+            let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+                runtimeAdapterPlanPrewarmScheduler: scheduler)
+            engine.load(song: score)
+            engine.play(from: context(0))
+            _ = audio.renderForTesting(frameCount: 1)
+            engine.seek(to: .init(orderIndex: 2))
+            XCTAssertEqual(engine.state.mode, .preparing)
+            XCTAssertFalse(engine.state.isPlaying)
+            XCTAssertTrue(engine.state.isActive)
+            XCTAssertEqual(scheduler.jobs.last?.waitCount, 0)
+            XCTAssertEqual(scheduler.requests.last?.origin?.position.orderIndex, 2)
+            XCTAssertEqual(audio.snapshotForTesting().activeVoiceCount, 0)
+            scheduler.complete(at: 1)
+            await Task.yield()
+            XCTAssertEqual(engine.state.mode, .playing)
+            let target = rate == 48_000 ? 6720 : 6174
+            _ = audio.renderForTesting(frameCount: target + 1)
+            let event = try XCTUnwrap(trace.events.last { $0.plannedSourceOrderIndex == 2 &&
+                $0.plannedSourceRowIndex == 1 && $0.plannedSourceTickInRow == 1 &&
+                $0.sampleStepAfter != nil && $0.plannedEventID != nil })
+            let expected = try XCTUnwrap(oracle.events.first { $0.source.rowIndex == 1 && $0.syntheticTick == 1 &&
+                $0.categories.contains("portamento_update") })
+            if case let .stepUpdate(index, step) = expected.action {
+                XCTAssertEqual(index, 0)
+                XCTAssertEqual(event.sampleStepAfter, step)
+            } else { XCTFail("Missing cold oracle step") }
+            XCTAssertEqual(event.adapterActiveEventIndex, 0)
+            XCTAssertEqual(event.plannedEventFrame, target)
+            XCTAssertEqual(event.eventAppliedFrame.map(Int.init), event.plannedRuntimeFrame)
+            XCTAssertEqual(event.plannedVsAppliedDelta, 0)
+            if linear { XCTAssertEqual(event.sampleStepAfter, rate == 48_000 ? 0.1767578125 : 0.1923828125) }
+            engine.stop()
+        } }
+    }
+
+    @MainActor
+    func testColdSeekLatestWinsStopCancelsAndReplacementCannotAutoplay() async throws {
+        let audio = TestRuntimeAdapterAudioOutput()
+        let scheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        engine.load(song: song(), initialContext: context(1))
+        engine.play(from: context(1))
+        engine.seek(to: .init(orderIndex: 2))
+        engine.seek(to: .init(orderIndex: 2))
+        XCTAssertEqual(scheduler.requests.count, 2, "Duplicate pending seek must coalesce")
+        engine.seek(to: .init(orderIndex: 0))
+        XCTAssertEqual(scheduler.jobs[1].cancelCount, 1)
+        scheduler.complete(at: 1)
+        await Task.yield()
+        XCTAssertEqual(engine.state.mode, .preparing)
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        scheduler.complete(at: 2)
+        await Task.yield()
+        XCTAssertEqual(engine.state.mode, .playing)
+        XCTAssertEqual(audio.consumedContexts.last??.orderIndex, 0)
+        engine.seek(to: .init(orderIndex: 1))
+        engine.togglePlayStop(from: nil)
+        scheduler.complete(at: 3)
+        await Task.yield()
+        XCTAssertEqual(engine.state, .stopped)
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        engine.seek(to: .init(orderIndex: 1), autoplay: true)
+        XCTAssertEqual(scheduler.requests.count, 5, "Stop cancelled this key; reschedule on the serial worker")
+        engine.load(song: song(linear: false))
+        scheduler.complete(at: 4)
+        await Task.yield()
+        XCTAssertEqual(engine.state, .stopped)
+        XCTAssertFalse(audio.hasRuntimeAdapterEventPlan)
+        scheduler.complete(at: 5)
+        await Task.yield()
+        XCTAssertFalse(engine.state.isActive)
+    }
+
+    @MainActor
+    func testReadyMatchingColdSeekReusesPlanAndRateChangeSupersedesPendingWork() async throws {
+        let audio = TestRuntimeAdapterAudioOutput()
+        let scheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(audioEngine: audio, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        engine.load(song: song(), initialContext: context(1))
+        engine.play(from: context(1))
+        engine.seek(to: .init(orderIndex: 1))
+        XCTAssertEqual(engine.state.mode, .playing)
+        XCTAssertEqual(scheduler.requests.count, 1)
+        engine.seek(to: .init(orderIndex: 2))
+        audio.audioBufferSampleRate = 48_000
+        scheduler.complete(at: 1)
+        await Task.yield()
+        XCTAssertEqual(engine.state.mode, .preparing)
+        XCTAssertEqual(scheduler.requests.last?.origin?.sampleRate, 48_000)
+        scheduler.complete(at: 2)
+        await Task.yield()
+        XCTAssertEqual(engine.state.mode, .playing)
+        XCTAssertEqual(audio.consumedContexts.last??.orderIndex, 2)
+    }
+
+}
+
 final class PlaybackEngineTests: XCTestCase {
     func testCanonicalDebugPrewarmHandlesBxBeforeToneOnItsDispatchWorker() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -1079,7 +1517,7 @@ final class PlaybackEngineTests: XCTestCase {
 
         XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 7, rowIndex: 0))
         XCTAssertNil(audioOutput.consumedPatternLoopRanges.last ?? nil)
-        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [49, 51])
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [51])
     }
 
     @MainActor
@@ -1157,7 +1595,7 @@ final class PlaybackEngineTests: XCTestCase {
 
         XCTAssertEqual(noteTriggerNotes(in: RuntimeCMixerAdapterEventPlan.make(song: prewarmScheduler.requests.last?.song, sampleRate: 100)), [49, 51])
 
-        prewarmScheduler.complete(at: 1)
+        prewarmScheduler.complete(at: prewarmScheduler.requests.count - 1)
         await Task.yield()
         advanceRows(3, engine: engine, timing: initialSong.initialTiming)
 

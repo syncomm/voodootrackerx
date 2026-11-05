@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         didSet { editableDocumentRevision &+= 1 }
     }
     private var loadedMetadata: ParsedModuleMetadata?
+    private var isApplyingPlaybackPresentation = false
+    private var pendingDebugStop: (seconds: TimeInterval?, replay: Bool)?
     private lazy var documentReplacementCoordinator = DocumentReplacementCoordinator(
         contextProvider: { [weak self] in
             self?.currentDocumentReplacementContext() ?? DocumentReplacementContext(
@@ -304,15 +306,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
             )
         case ApplicationMenuBuilder.Actions.play:
-            return displayedMetadata != nil && !playbackEngine.state.isPlaying
+            return displayedMetadata != nil && !playbackEngine.state.isActive
         case ApplicationMenuBuilder.Actions.playCurrentPattern:
             return TrackerTransportCommandAvailability.canPlayCurrentPattern(
                 metadata: displayedMetadata,
                 currentPatternIndex: currentPatternIndex,
-                isPlaybackActive: playbackEngine.state.isPlaying
+                isPlaybackActive: playbackEngine.state.isActive
             )
         case ApplicationMenuBuilder.Actions.stop:
-            return playbackEngine.state.isPlaying
+            return playbackEngine.state.isActive
         case ApplicationMenuBuilder.Actions.toggleLoop:
             menuItem.state = isLoopPlaybackEnabled ? .on : .off
             return true
@@ -320,7 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             menuItem.state = isEditModeEnabled ? .on : .off
             return true
         case ApplicationMenuBuilder.Actions.clearCurrentPattern:
-            return !playbackEngine.state.isPlaying &&
+            return !playbackEngine.state.isActive &&
                 EditorCommandAvailability.canClearCurrentPattern(
                     hasBlankDocument: blankDocument != nil,
                     sourceContext: currentEditorNoteAuditionSourceContext()
@@ -375,14 +377,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self?.applyPlaybackPosition(position)
         }
         playbackEngine.playbackDidStop = { [weak self] in
-            guard let position = self?.playbackEngine.currentPosition else {
-                self?.syncControlPanelView()
+            guard let self else { return }
+            self.isApplyingPlaybackPresentation = true
+            defer { self.isApplyingPlaybackPresentation = false }
+            guard let position = self.playbackEngine.currentPosition else {
+                self.syncControlPanelView()
                 return
             }
-            self?.applyStoppedPlaybackPosition(position)
+            self.applyStoppedPlaybackPosition(position)
         }
         playbackEngine.playbackDidFail = { [weak self] fault in
             self?.presentRuntimeMixerAdmissionFailure(fault)
+        }
+        playbackEngine.transportStateDidChange = { [weak self] in
+            guard let self else { return }
+            self.syncControlPanelView()
+            if self.playbackEngine.state.isPlaying, let pending = self.pendingDebugStop {
+                self.pendingDebugStop = nil
+                self.scheduleDebugStop(after: pending.seconds, replayAfterStop: pending.replay)
+            } else if self.playbackEngine.state.mode == .stopped {
+                self.pendingDebugStop = nil
+            }
         }
         playbackEngine.runtimeAdapterPlanDidUpdate = { [weak self] in
             self?.syncControlPanelView()
@@ -599,16 +614,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return .editable(
                 document: document,
                 displayName: document.title,
-                isPlaybackActive: playbackEngine.state.isPlaying,
+                isPlaybackActive: playbackEngine.state.isActive,
                 hasValidEditableState: displayedMetadata != nil
             )
         }
 
         if loadedMetadata != nil {
-            return .loadedReadOnly(isPlaybackActive: playbackEngine.state.isPlaying)
+            return .loadedReadOnly(isPlaybackActive: playbackEngine.state.isActive)
         }
 
-        return .none(isPlaybackActive: playbackEngine.state.isPlaying)
+        return .none(isPlaybackActive: playbackEngine.state.isActive)
     }
 
     private func currentWAVExportDocumentContext() -> WAVExportDocumentContext {
@@ -616,7 +631,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return .editable(
                 document: document,
                 displayName: document.title,
-                isPlaybackActive: playbackEngine.state.isPlaying,
+                isPlaybackActive: playbackEngine.state.isActive,
                 hasValidDisplayState: displayedMetadata != nil
             )
         }
@@ -625,12 +640,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return .loadedReadOnly(
                 playbackSong: playbackEngine.song,
                 displayName: metadata.title,
-                isPlaybackActive: playbackEngine.state.isPlaying,
+                isPlaybackActive: playbackEngine.state.isActive,
                 hasValidDisplayState: displayedMetadata != nil
             )
         }
 
-        return .none(isPlaybackActive: playbackEngine.state.isPlaying)
+        return .none(isPlaybackActive: playbackEngine.state.isActive)
     }
 
     private func handleExportXMShellResult(_ result: ExportXMShellResult) {
@@ -776,7 +791,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func currentLoadedModuleEditableCopyContext() -> LoadedModuleEditableCopyContext {
         if blankDocument != nil, loadedMetadata == nil {
-            return .editable(isPlaybackActive: playbackEngine.state.isPlaying)
+            return .editable(isPlaybackActive: playbackEngine.state.isActive)
         }
         if loadedMetadata != nil {
             return .loadedReadOnly(
@@ -785,10 +800,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 playbackSong: playbackEngine.song,
                 selection: loadedModuleSelection,
                 currentPatternIndex: currentPatternIndex,
-                isPlaybackActive: playbackEngine.state.isPlaying
+                isPlaybackActive: playbackEngine.state.isActive
             )
         }
-        return .none(isPlaybackActive: playbackEngine.state.isPlaying)
+        return .none(isPlaybackActive: playbackEngine.state.isActive)
     }
 
     private func handleLoadedModuleEditableCopyResult(_ result: LoadedModuleEditableCopyResult) {
@@ -966,7 +981,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let blankDocument {
             return .editableDocument(
                 blankDocument,
-                isPlaybackActive: playbackEngine.state.isPlaying,
+                isPlaybackActive: playbackEngine.state.isActive,
                 allowsKeymapRangeAssignment: instrumentKeymapRangeAssignmentCoordinator.canBegin
             )
         }
@@ -1058,7 +1073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let blankDocument {
             return .editableDocument(
                 blankDocument,
-                isPlaybackActive: playbackEngine.state.isPlaying,
+                isPlaybackActive: playbackEngine.state.isActive,
                 isImportingWAV: sampleEditorWAVImportCoordinator.isImporting,
                 hasConflictingLifecycleOperation: sampleEditorClearCoordinator.isActive ||
                     sampleEditorMoveCoordinator.isActive ||
@@ -1082,7 +1097,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             documentIdentity: loadedMetadata == nil ? editableDocumentIdentity : nil,
             documentRevision: editableDocumentRevision,
             document: loadedMetadata == nil ? blankDocument : nil,
-            isPlaybackActive: playbackEngine.state.isPlaying
+            isPlaybackActive: playbackEngine.state.isActive
         )
     }
 
@@ -1446,7 +1461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func selectSongOrderEditorOrder(_ orderPosition: Int) {
-        guard !playbackEngine.state.isPlaying else {
+        guard !playbackEngine.state.isActive else {
             return
         }
 
@@ -1460,7 +1475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   selectingOrderPosition: orderPosition,
                   metadata: metadata,
                   currentOrderPosition: selectedSongPositionIndex,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ) != nil else {
             return
         }
@@ -1471,7 +1486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func selectSongOrderEditorPattern(_ patternIndex: Int) {
-        guard !playbackEngine.state.isPlaying else {
+        guard !playbackEngine.state.isActive else {
             return
         }
 
@@ -1485,7 +1500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   selectingPatternIndex: patternIndex,
                   metadata: metadata,
                   currentPatternIndex: currentPatternIndex,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ),
               selectPatternForDisplay(selectedPatternIndex, in: metadata) else {
             return
@@ -1497,7 +1512,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func assignSongOrderEditorPattern(_ patternIndex: Int) {
-        guard !playbackEngine.state.isPlaying else {
+        guard !playbackEngine.state.isActive else {
             return
         }
 
@@ -1509,7 +1524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let updatedDocument = SongOrderEditorNavigation.editableDocument(
             document,
             assigningPatternIndexToSelectedOrder: patternIndex,
-            isPlaybackActive: playbackEngine.state.isPlaying
+            isPlaybackActive: playbackEngine.state.isActive
         ) else {
             return
         }
@@ -1533,7 +1548,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               loadedMetadata == nil,
               let updatedDocument = SongOrderEditorNavigation.editableDocumentCreatingBlankPatternForEditing(
                   document,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ) else {
             return
         }
@@ -1546,7 +1561,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               loadedMetadata == nil,
               let updatedDocument = SongOrderEditorNavigation.editableDocumentDuplicatingCurrentPatternForEditing(
                   document,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ) else {
             return
         }
@@ -1563,7 +1578,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               loadedMetadata == nil,
               let updatedDocument = SongOrderEditorNavigation.editableDocumentInsertingOrderAfterSelected(
                   document,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ) else {
             return
         }
@@ -1576,7 +1591,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               loadedMetadata == nil,
               let updatedDocument = SongOrderEditorNavigation.editableDocumentDeletingSelectedOrder(
                   document,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ) else {
             return
         }
@@ -1589,7 +1604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               loadedMetadata == nil,
               let updatedDocument = SongOrderEditorNavigation.editableDocumentDuplicatingSelectedOrder(
                   document,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ) else {
             return
         }
@@ -1602,7 +1617,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               loadedMetadata == nil,
               let updatedDocument = SongOrderEditorNavigation.editableDocumentMovingSelectedOrderUp(
                   document,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ) else {
             return
         }
@@ -1615,7 +1630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               loadedMetadata == nil,
               let updatedDocument = SongOrderEditorNavigation.editableDocumentMovingSelectedOrderDown(
                   document,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ) else {
             return
         }
@@ -1629,7 +1644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               let updatedDocument = SongOrderEditorNavigation.editableDocumentSteppingSelectedOrderPattern(
                   document,
                   delta: delta,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ) else {
             return
         }
@@ -1639,7 +1654,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func currentEditableDocumentEditContext() -> EditableDocumentEditContext {
         if let blankDocument, loadedMetadata == nil {
-            return .editable(document: blankDocument, isPlaybackActive: playbackEngine.state.isPlaying)
+            return .editable(document: blankDocument, isPlaybackActive: playbackEngine.state.isActive)
         }
         return loadedMetadata == nil ? .none : .loadedReadOnly
     }
@@ -1697,7 +1712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let blankDocument {
             return SongOrderEditorDisplayState.editableDocument(
                 blankDocument,
-                isOrderMutationEnabled: !playbackEngine.state.isPlaying,
+                isOrderMutationEnabled: !playbackEngine.state.isActive,
                 isClearSongEnabled: clearSongDataCoordinator.canBegin
             )
         }
@@ -1715,9 +1730,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let controller = songOrderEditorWindowController else { return }
         guard SongOrderEditorRefreshPolicy.shouldRefresh(
             isWindowVisible: controller.isVisibleForRefresh,
-            isPlaybackActive: playbackEngine.state.isPlaying
+            isPlaybackActive: playbackEngine.state.isActive
         ) else {
-            if controller.isVisibleForRefresh, playbackEngine.state.isPlaying {
+            if controller.isVisibleForRefresh, playbackEngine.state.isActive {
                 // Preserve the panel's playback-refresh policy while ensuring
                 // this destructive control never looks spuriously available.
                 controller.applyClearSongAvailability(false)
@@ -1746,7 +1761,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func clearCurrentEditablePatternForEditing() -> Bool {
         guard var document = blankDocument,
               loadedMetadata == nil,
-              !playbackEngine.state.isPlaying,
+              !playbackEngine.state.isActive,
               EditorCommandAvailability.canClearCurrentPattern(
                   hasBlankDocument: true,
                   sourceContext: document.noteAuditionSourceContext
@@ -1807,7 +1822,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     documentRevision: editableDocumentRevision,
                     document: document
                 ),
-                isPlaybackActive: playbackEngine.state.isPlaying,
+                isPlaybackActive: playbackEngine.state.isActive,
                 hasConflictingDocumentPresentation: hasConflict
             )
         }
@@ -1823,13 +1838,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     sourcePatternIndex: currentPatternIndex,
                     bridgeEligible: loadedModuleCanMakeEditableCopy()
                 ),
-                isPlaybackActive: playbackEngine.state.isPlaying,
+                isPlaybackActive: playbackEngine.state.isActive,
                 hasConflictingDocumentPresentation: hasConflict
             )
         }
         return ClearSongDataContext(
             source: .none,
-            isPlaybackActive: playbackEngine.state.isPlaying,
+            isPlaybackActive: playbackEngine.state.isActive,
             hasConflictingDocumentPresentation: hasConflict
         )
     }
@@ -1863,6 +1878,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func loadModule(from url: URL) {
+        isApplyingPlaybackPresentation = true
+        defer { isApplyingPlaybackPresentation = false }
         let timingSession = playbackTimingRecorder.beginLifecycle("load")
         var timingMetadata: ParsedModuleMetadata?
         var timingPlaybackSong: PlaybackSong?
@@ -1896,7 +1913,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             )
 
             let engineLoadStart = timingSession?.beginPhase()
-            playbackEngine.load(song: playbackSong, timingSession: timingSession)
+            playbackEngine.load(song: playbackSong,
+                initialStart: PlaybackDebugLaunchConfiguration.parse().startRequest, timingSession: timingSession)
             timingSession?.recordPhase(
                 "playback_engine_load",
                 startedAt: engineLoadStart,
@@ -2018,7 +2036,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         let selectedPatternIndex = displayedPatternEntries[selectedPatternSelectionIndex].patternIndex
-        if blankDocument != nil, loadedMetadata == nil, !playbackEngine.state.isPlaying {
+        if blankDocument != nil, loadedMetadata == nil, !playbackEngine.state.isActive {
             if !editableDocumentNavigationCoordinator.selectPatternForViewing(selectedPatternIndex) {
                 syncControlPanelView()
             }
@@ -2112,7 +2130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let metadata = displayedMetadata else {
             return
         }
-        if blankDocument != nil, loadedMetadata == nil, !playbackEngine.state.isPlaying {
+        if blankDocument != nil, loadedMetadata == nil, !playbackEngine.state.isActive {
             if !editableDocumentNavigationCoordinator.selectOrderPosition(sender.integerValue) {
                 syncControlPanelView()
             }
@@ -2159,11 +2177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc
     private func playCurrentPatternPressed(_ sender: Any?) {
         let timingSession = playbackTimingRecorder.beginLifecycle("play")
-        guard !playbackEngine.state.isPlaying,
+        guard !playbackEngine.state.isActive,
               TrackerTransportCommandAvailability.canPlayCurrentPattern(
                   metadata: displayedMetadata,
                   currentPatternIndex: currentPatternIndex,
-                  isPlaybackActive: playbackEngine.state.isPlaying
+                  isPlaybackActive: playbackEngine.state.isActive
               ),
               prepareEditablePlaybackSnapshotForPlayIfNeeded(timingSession: timingSession) else {
             syncControlPanelView()
@@ -2201,7 +2219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard displayedMetadata != nil else {
             return false
         }
-        let timingSession = playbackEngine.state.isPlaying ? nil : playbackTimingRecorder.beginLifecycle("play")
+        let timingSession = playbackEngine.state.isActive ? nil : playbackTimingRecorder.beginLifecycle("play")
         guard prepareEditablePlaybackSnapshotForPlayIfNeeded(timingSession: timingSession) else {
             syncControlPanelView()
             finishPlayTimingSession(timingSession, context: nil)
@@ -2278,12 +2296,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func performDebugAutoplay(_ configuration: PlaybackDebugLaunchConfiguration) {
         let timingSession = playbackTimingRecorder.beginLifecycle("play")
         if let request = configuration.startRequest {
+            pendingDebugStop = (configuration.stopAfterSeconds, configuration.replayAfterStop)
             playbackEngine.seek(to: request, autoplay: true, timingSession: timingSession)
         } else {
             let context = measuredPlaybackStartContext(timingSession: timingSession)
             playbackEngine.play(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
         }
-        scheduleDebugStop(after: configuration.stopAfterSeconds, replayAfterStop: configuration.replayAfterStop)
+        if configuration.startRequest == nil {
+            scheduleDebugStop(after: configuration.stopAfterSeconds, replayAfterStop: configuration.replayAfterStop)
+        }
         syncControlPanelView()
         finishPlayTimingSession(timingSession, context: currentPlaybackStartContext())
     }
@@ -2328,7 +2349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func debugSeekToOrder(_ orderIndex: Int, rowIndex: Int) {
-        let shouldAutoplay = playbackEngine.state.isPlaying
+        let shouldAutoplay = playbackEngine.state.isActive
         playbackEngine.seek(
             to: PlaybackDebugStartRequest(orderIndex: orderIndex, rowIndex: rowIndex),
             autoplay: shouldAutoplay
@@ -2344,14 +2365,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if isEditModeEnabled {
             return .edit
         }
-        if playbackEngine.state.isPlaying {
+        if playbackEngine.state.isActive {
             return .playOnly
         }
         return .navigation
     }
 
     private func prepareEditablePlaybackSnapshotForPlayIfNeeded(timingSession: PlaybackTimingTraceSession?) -> Bool {
-        guard !playbackEngine.state.isPlaying,
+        guard !playbackEngine.state.isActive,
               loadedMetadata == nil,
               let document = blankDocument else {
             return true
@@ -2366,7 +2387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
 
         let loadStart = timingSession?.beginPhase()
-        playbackEngine.load(song: song, timingSession: timingSession)
+        playbackEngine.load(song: song, initialContext: currentPlaybackStartContext(), timingSession: timingSession)
         timingSession?.recordPhase(
             "editable_playback_engine_load_snapshot",
             startedAt: loadStart,
@@ -2376,7 +2397,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func currentPlaybackStartContext() -> PlaybackStartContext? {
-        if let blankDocument, loadedMetadata == nil, !playbackEngine.state.isPlaying {
+        if let blankDocument, loadedMetadata == nil, !playbackEngine.state.isActive {
             return TrackerPlaybackStartContextResolver.normalPlayContext(
                 editableDocument: blankDocument,
                 row: 0
@@ -2618,6 +2639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if resetCursor {
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
         }
+        prepareStoppedPlaybackSelection()
     }
 
     private func displayedPatternIndex(in metadata: ParsedModuleMetadata, songPosition: Int) -> Int? {
@@ -2727,6 +2749,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             scrollCursorFieldHorizontallyIntoView(offset: 0)
         }
         refreshTrackerChromeOverlay()
+        prepareStoppedPlaybackSelection()
+    }
+
+    private func prepareStoppedPlaybackSelection() {
+        guard !isApplyingPlaybackPresentation, loadedMetadata != nil,
+              !playbackEngine.state.isActive else { return }
+        playbackEngine.prepareColdStart(from: currentPlaybackStartContext())
     }
 
     private func handlePatternNavigation(_ command: PatternNavigationCommand) {
@@ -3293,7 +3322,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func syncControlPanelView(reloadInstrumentControls shouldReloadInstrumentControls: Bool = true) {
-        if playbackEngine.state.isPlaying {
+        mainWindow?.subtitle = playbackEngine.state.mode == .preparing ? "Preparing playback…" : ""
+        if playbackEngine.state.isActive {
             clearSongDataCoordinator.invalidateActiveConfirmationForPlaybackStart()
         }
         defer {
@@ -3312,7 +3342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 selectedOctave: selectedOctave,
                 isLoopEnabled: isLoopPlaybackEnabled,
                 isEditModeEnabled: isEditModeEnabled,
-                isPlaybackActive: playbackEngine.state.isPlaying
+                isPlaybackActive: playbackEngine.state.isActive
             ))
             return
         }
@@ -3334,7 +3364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 selectedOctave: selectedOctave,
                 isLoopEnabled: isLoopPlaybackEnabled,
                 isEditModeEnabled: isEditModeEnabled,
-                isPlaybackActive: playbackEngine.state.isPlaying,
+                isPlaybackActive: playbackEngine.state.isActive,
                 songTime: ControlPanelDisplayState.songTimeDisplay(
                     durationSeconds: playbackEngine.runtimeAdapterPlanDurationSeconds
                 ),

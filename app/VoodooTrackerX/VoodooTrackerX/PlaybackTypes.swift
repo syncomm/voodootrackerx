@@ -2,6 +2,7 @@ import Foundation
 
 enum PlaybackMode: Equatable {
     case stopped
+    case preparing
     case playing
     case paused
 }
@@ -120,6 +121,9 @@ struct PlaybackState: Equatable {
     var isPlaying: Bool {
         mode == .playing
     }
+
+    /// Preparation owns the transport until it starts, is superseded, or Stop cancels it.
+    var isActive: Bool { isPlaying || mode == .preparing }
 }
 
 enum PlaybackTransportAction: Equatable {

@@ -46,7 +46,9 @@ enum PlaybackSongTraversalPlanner {
     static func plan(
         _ song: PlaybackSong,
         startOrderIndex: Int,
-        orderCount: Int
+        orderCount: Int,
+        initialPosition: PlaybackPosition? = nil,
+        isCancelled: (() -> Bool)? = nil
     ) -> PlaybackSongTraversalPlan {
         let safeOrderCount = max(0, orderCount)
         guard safeOrderCount > 0 else {
@@ -102,13 +104,18 @@ enum PlaybackSongTraversalPlanner {
         var loopStarts = [LoopKey: Int]()
         var loopRemaining = [LoopKey: Int]()
         var visitedPositions = Set<TraversalPositionKey>()
-        var currentOrderIndex = startOrderIndex
-        var currentRowIndex = 0
+        // Initial history and allowed destinations are distinct: a cold later
+        // start can subsequently execute a Bxx jump into an earlier order.
+        var currentOrderIndex = initialPosition?.orderIndex ?? startOrderIndex
+        var currentRowIndex = initialPosition.flatMap { position in
+            song.patternsByIndex[position.patternIndex]?.rows.firstIndex { $0.index == position.rowIndex }
+        } ?? 0
         var stopReason: PlaybackSongSyntheticTraversalStopReason = .selectedRangeEnd
         var guardHit = false
 
         while currentOrderIndex >= startOrderIndex,
               currentOrderIndex < selectedEndOrderIndex {
+            if isCancelled?() == true { break }
             guard song.orders.indices.contains(currentOrderIndex) else {
                 stopReason = .invalidOrder
                 adaptedOrders.append(PlaybackSongSyntheticOrderDiagnostic(
@@ -153,6 +160,7 @@ enum PlaybackSongTraversalPlanner {
                   song.orders.indices.contains(currentOrderIndex),
                   currentOrderIndex == order.orderIndex,
                   currentRowIndex < pattern.rows.count {
+                if rows.count & 127 == 0, isCancelled?() == true { break }
                 if rows.count >= maxTraversalRows {
                     guardHit = true
                     stopReason = .traversalGuardHit

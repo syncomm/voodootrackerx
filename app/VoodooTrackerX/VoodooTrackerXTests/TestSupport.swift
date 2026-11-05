@@ -733,7 +733,7 @@ final class TestPlaybackAudioOutput: PlaybackAudioOutput {
 
 @MainActor
 final class TestRuntimeAdapterAudioOutput: PlaybackAudioOutput, PlaybackAudioBackendProviding, RuntimeCMixerAdapterEventConsuming {
-    let audioBufferSampleRate: Double
+    var audioBufferSampleRate: Double
     let runtimeAudioBackend: RuntimeAudioBackend = .cMixer
     private(set) var triggeredRequests = [AudioVoiceRequest]()
     private(set) var updatedControls = [(channel: Int, controls: AudioChannelControls)]()
@@ -829,11 +829,20 @@ final class TestRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob, @unc
 
 @MainActor
 final class TestRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling {
+    private let retirementWorker = RuntimeAdapterPlanWorker()
+    private(set) var retirementCount = 0
     private(set) var requests = [RuntimeAdapterPlanPrewarmRequest]()
     private(set) var jobs = [TestRuntimeAdapterPlanPrewarmJob]()
     private var completions = [(@Sendable (RuntimeAdapterPlanPrewarmResult) -> Void)]()
     private var defaultResults = [RuntimeAdapterPlanPrewarmResult]()
     var makeMS: Double = 2.0
+
+    func retire(_ retirement: RuntimeAdapterPlanRetirement) {
+        retirementCount += 1
+        retirementWorker.retire(retirement)
+        // This deterministic fake constructs on its caller; drain before its next make.
+        retirementWorker.queue.sync {}
+    }
 
     func schedule(
         request: RuntimeAdapterPlanPrewarmRequest,
@@ -844,14 +853,17 @@ final class TestRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmSch
         let plan = RuntimeCMixerAdapterEventPlan.make(
             song: request.song,
             sampleRate: request.sampleRate,
-            profileSession: profileSession
+            profileSession: profileSession,
+            coldOrigin: request.origin?.position
         )
         let result = RuntimeAdapterPlanPrewarmResult(
             generation: request.generation,
             plan: plan,
             makeMS: makeMS,
             completedAfterCancellation: false,
-            adapterPlanProfileSession: profileSession
+            adapterPlanProfileSession: profileSession,
+            retirementWorker: retirementWorker,
+            origin: request.origin
         )
         requests.append(request)
         jobs.append(job)

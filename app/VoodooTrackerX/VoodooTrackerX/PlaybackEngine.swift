@@ -1,19 +1,137 @@
 import Foundation
 import os
 
+/// Complete semantic identity for one stopped cold preparation; selection is not history.
+struct RuntimeAdapterPlanOrigin: Equatable {
+    let songGeneration: UInt64
+    let position: PlaybackPosition
+    let sampleRate: Double
+    let usesLinearFrequencyTable: Bool
+    let isolatedPatternIndex: Int?
+}
+
 struct RuntimeAdapterPlanPrewarmRequest: @unchecked Sendable {
     let generation: UInt64
     let song: PlaybackSong
     let sampleRate: Double
     let adapterPlanProfileRecorder: AdapterPlanProfileRecorder?
+    var origin: RuntimeAdapterPlanOrigin? = nil
 }
 
 struct RuntimeAdapterPlanPrewarmResult: @unchecked Sendable {
     let generation: UInt64
-    let plan: RuntimeCMixerAdapterEventPlan?
+    private let storage: RuntimeAdapterPlanPrewarmStorage
+    var plan: RuntimeCMixerAdapterEventPlan? { storage.plan }
     let makeMS: Double?
     let completedAfterCancellation: Bool
     let adapterPlanProfileSession: AdapterPlanProfileSession?
+    var origin: RuntimeAdapterPlanOrigin? = nil
+
+    init(generation: UInt64, plan: RuntimeCMixerAdapterEventPlan?, makeMS: Double?,
+         completedAfterCancellation: Bool, adapterPlanProfileSession: AdapterPlanProfileSession?,
+         retirementWorker: RuntimeAdapterPlanWorker,
+         origin: RuntimeAdapterPlanOrigin? = nil) {
+        self.generation = generation
+        storage = RuntimeAdapterPlanPrewarmStorage(plan, worker: retirementWorker)
+        self.makeMS = makeMS
+        self.completedAfterCancellation = completedAfterCancellation
+        self.adapterPlanProfileSession = adapterPlanProfileSession
+        self.origin = origin
+    }
+
+    func discardPlan() { storage.discard() }
+}
+
+/// Owns a moved graph until the preparation worker empties it. After handoff,
+/// callers may retain the box, but never access its value again.
+final class RuntimeAdapterPlanRetirement: @unchecked Sendable {
+    private var value = RuntimeCMixerAdapterEventPlan.unavailable()
+
+    @inline(never)
+    init(taking plan: inout RuntimeCMixerAdapterEventPlan) {
+        swap(&value, &plan)
+    }
+
+    @inline(never)
+    fileprivate init(taking plan: inout RuntimeCMixerAdapterEventPlan?) {
+        if plan != nil { swap(&value, &plan!) }
+        plan = nil
+    }
+
+    fileprivate func releasePlan() {
+        value = .unavailable()
+    }
+}
+
+/// The existing serial preparation queue also owns physical plan retirement.
+/// Queue/key identity is immutable; transferred boxes are emptied only here.
+final class RuntimeAdapterPlanWorker: @unchecked Sendable {
+    let queue = DispatchQueue(
+        label: "com.syncomm.VoodooTrackerX.runtime-adapter-plan-prewarm",
+        qos: .utility
+    )
+    private let key = DispatchSpecificKey<UInt8>()
+
+    init() { queue.setSpecific(key: key, value: 1) }
+
+    func retire(_ retirement: RuntimeAdapterPlanRetirement) {
+        if DispatchQueue.getSpecific(key: key) != nil {
+            release(retirement)
+        } else {
+            queue.async { self.release(retirement) }
+        }
+    }
+
+    fileprivate func retire(_ storage: RuntimeAdapterPlanPrewarmStorage) {
+        if DispatchQueue.getSpecific(key: key) != nil {
+            storage.releaseRetiredPlan()
+        } else {
+            queue.async { storage.releaseRetiredPlan() }
+        }
+    }
+
+    private func release(_ retirement: RuntimeAdapterPlanRetirement) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        precondition(!Thread.isMainThread)
+        retirement.releasePlan()
+    }
+}
+
+// Logical revocation is immediate. Physical destruction belongs to the same
+// worker as construction, including results held by an unpublished completion.
+private final class RuntimeAdapterPlanPrewarmStorage: @unchecked Sendable {
+    private let lock = NSLock()
+    private let worker: RuntimeAdapterPlanWorker
+    private var revoked = false
+    private var value: RuntimeCMixerAdapterEventPlan?
+    init(_ plan: RuntimeCMixerAdapterEventPlan?, worker: RuntimeAdapterPlanWorker) {
+        value = plan
+        self.worker = worker
+    }
+    deinit {
+        // A weak-self completion can be abandoned without ever reaching install.
+        if value != nil { worker.retire(RuntimeAdapterPlanRetirement(taking: &value)) }
+    }
+    var plan: RuntimeCMixerAdapterEventPlan? {
+        lock.lock()
+        defer { lock.unlock() }
+        return revoked ? nil : value
+    }
+    func discard() {
+        lock.lock()
+        let needsRetirement = !revoked
+        revoked = true
+        lock.unlock()
+        if needsRetirement { worker.retire(self) }
+    }
+    fileprivate func releaseRetiredPlan() {
+        dispatchPrecondition(condition: .onQueue(worker.queue))
+        precondition(!Thread.isMainThread)
+        lock.lock()
+        let retirement = RuntimeAdapterPlanRetirement(taking: &value)
+        lock.unlock()
+        retirement.releasePlan()
+    }
 }
 
 protocol RuntimeAdapterPlanPrewarmJob: AnyObject {
@@ -25,6 +143,7 @@ protocol RuntimeAdapterPlanPrewarmJob: AnyObject {
 
 @MainActor
 protocol RuntimeAdapterPlanPrewarmScheduling: AnyObject {
+    func retire(_ retirement: RuntimeAdapterPlanRetirement)
     func schedule(
         request: RuntimeAdapterPlanPrewarmRequest,
         completion: @escaping @Sendable (RuntimeAdapterPlanPrewarmResult) -> Void
@@ -52,7 +171,7 @@ private struct EditablePatternLoopRefreshSnapshot: @unchecked Sendable {
 private struct PendingEditablePatternLoopRefresh {
     let generation: UInt64
     let snapshot: EditablePatternLoopRefreshSnapshot
-    let plan: RuntimeCMixerAdapterEventPlan
+    var plan: RuntimeCMixerAdapterEventPlan
     let makeMS: Double?
 }
 
@@ -66,6 +185,13 @@ private struct IsolatedPatternLoopPlaybackRestoreState {
     var runtimeAdapterEventPlan: RuntimeCMixerAdapterEventPlan
     var runtimeAdapterPlanCacheSource: RuntimeAdapterPlanCacheSource
     var runtimeAdapterPlanUseCount: Int
+    var origin: RuntimeAdapterPlanOrigin?
+}
+
+private struct PendingColdSeek {
+    let generation: UInt64
+    let start: PlaybackResolvedDebugStart
+    let timingSession: PlaybackTimingTraceSession?
 }
 
 private final class DispatchQueueRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob, @unchecked Sendable {
@@ -82,8 +208,10 @@ private final class DispatchQueueRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPla
     func cancel() {
         condition.lock()
         cancelled = true
+        let completedResult = result
         condition.broadcast()
         condition.unlock()
+        completedResult?.discardPlan()
     }
 
     func waitForResult() -> RuntimeAdapterPlanPrewarmResult? {
@@ -105,31 +233,35 @@ private final class DispatchQueueRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPla
 
     func finish(_ result: RuntimeAdapterPlanPrewarmResult) {
         condition.lock()
+        let wasCancelled = cancelled
         self.result = result
         condition.broadcast()
         condition.unlock()
+        // On-worker revocation empties immediately, ahead of the next make.
+        if wasCancelled { result.discardPlan() }
     }
 }
 
 private final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling {
-    private let queue = DispatchQueue(
-        label: "com.syncomm.VoodooTrackerX.runtime-adapter-plan-prewarm",
-        qos: .utility
-    )
+    private let worker = RuntimeAdapterPlanWorker()
+
+    func retire(_ retirement: RuntimeAdapterPlanRetirement) { worker.retire(retirement) }
 
     func schedule(
         request: RuntimeAdapterPlanPrewarmRequest,
         completion: @escaping @Sendable (RuntimeAdapterPlanPrewarmResult) -> Void
     ) -> RuntimeAdapterPlanPrewarmJob {
+        let worker = self.worker
         let job = DispatchQueueRuntimeAdapterPlanPrewarmJob(generation: request.generation)
-        queue.async {
+        worker.queue.async {
             guard !job.isCancelled else {
                 let result = RuntimeAdapterPlanPrewarmResult(
                     generation: request.generation,
                     plan: nil,
                     makeMS: nil,
                     completedAfterCancellation: true,
-                    adapterPlanProfileSession: nil
+                    adapterPlanProfileSession: nil,
+                    retirementWorker: worker
                 )
                 job.finish(result)
                 completion(result)
@@ -140,15 +272,19 @@ private final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdap
             let plan = RuntimeCMixerAdapterEventPlan.make(
                 song: request.song,
                 sampleRate: request.sampleRate,
-                profileSession: profileSession
+                profileSession: profileSession,
+                coldOrigin: request.origin?.position,
+                isCancelled: { job.isCancelled }
             )
             let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
             let result = RuntimeAdapterPlanPrewarmResult(
                 generation: request.generation,
-                plan: plan,
+                plan: job.isCancelled ? nil : plan,
                 makeMS: elapsedMS,
                 completedAfterCancellation: job.isCancelled,
-                adapterPlanProfileSession: profileSession
+                adapterPlanProfileSession: profileSession,
+                retirementWorker: worker,
+                origin: request.origin
             )
             job.finish(result)
             completion(result)
@@ -186,6 +322,9 @@ final class PlaybackEngine: PlaybackTransport {
     private var pendingPositionCommand: PlaybackPositionCommand?
     private var runtimeAdapterEventPlan = RuntimeCMixerAdapterEventPlan.unavailable()
     private var runtimeAdapterPlanGeneration: UInt64 = 0
+    private var runtimeSongGeneration: UInt64 = 0
+    private var runtimeAdapterPlanOrigin: RuntimeAdapterPlanOrigin?
+    private var pendingColdSeek: PendingColdSeek?
     private var runtimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob?
     private var runtimeAdapterPlanPrewarmTimingSession: PlaybackTimingTraceSession?
     private var runtimeAdapterPlanCacheSource = RuntimeAdapterPlanCacheSource.none
@@ -209,6 +348,7 @@ final class PlaybackEngine: PlaybackTransport {
     var playbackDidStop: (() -> Void)?
     var playbackDidFail: ((RuntimeCMixerAdmissionFault) -> Void)?
     var runtimeAdapterPlanDidUpdate: (() -> Void)?
+    var transportStateDidChange: (() -> Void)?
 
     var runtimeAdapterPlanDurationSeconds: TimeInterval? {
         runtimeAdapterEventPlan.plannedSongEndSeconds
@@ -266,7 +406,9 @@ final class PlaybackEngine: PlaybackTransport {
                 : .defaultPolicy
     }
 
-    func load(song: PlaybackSong?, timingSession: PlaybackTimingTraceSession? = nil) {
+    func load(song: PlaybackSong?, initialContext: PlaybackStartContext? = nil,
+              initialStart: PlaybackDebugStartRequest? = nil, timingSession: PlaybackTimingTraceSession? = nil) {
+        runtimeSongGeneration &+= 1
         runtimeAdapterPlanGeneration &+= 1
         cancelRuntimeAdapterPlanPrewarm(reason: "load_invalidation")
         cancelEditablePatternLoopRefresh(reason: "load_invalidation")
@@ -282,7 +424,11 @@ final class PlaybackEngine: PlaybackTransport {
         self.song = song
         timing = song?.initialTiming ?? .xmDefault
         currentPosition = song?.startPosition
-        currentPublishedFollowPosition = song?.startPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
+        if let song {
+            currentPosition = initialStart.flatMap { resolveDebugStart($0, in: song)?.position }
+                ?? playbackStartPosition(from: initialContext, in: song) ?? song.startPosition
+        }
+        currentPublishedFollowPosition = currentPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
         pendingPositionCommand = nil
         channelStates.removeAll()
         globalState = PlaybackGlobalState()
@@ -298,6 +444,7 @@ final class PlaybackEngine: PlaybackTransport {
             fields: PlaybackTimingTraceFields.playbackSong(song)
         )
         invalidateRuntimeAdapterEventPlan(timingSession: timingSession)
+        runtimeAdapterPlanOrigin = currentPosition.flatMap { position in song.map { origin(for: position, in: $0) } }
         scheduleRuntimeAdapterPlanPrewarmIfNeeded(for: song, timingSession: timingSession)
         cancelRuntimeCMixerSongEndStop()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
@@ -335,7 +482,7 @@ final class PlaybackEngine: PlaybackTransport {
         editablePatternLoopRefreshGeneration &+= 1
         editablePatternLoopRefreshJob?.cancel()
         editablePatternLoopRefreshJob = nil
-        pendingEditablePatternLoopRefresh = nil
+        retirePendingEditablePatternLoopRefresh()
 
         let generation = editablePatternLoopRefreshGeneration
         let snapshot = EditablePatternLoopRefreshSnapshot(song: playbackRefreshSong)
@@ -343,7 +490,8 @@ final class PlaybackEngine: PlaybackTransport {
             generation: generation,
             song: playbackRefreshSong,
             sampleRate: audioEngine.audioBufferSampleRate,
-            adapterPlanProfileRecorder: nil
+            adapterPlanProfileRecorder: nil,
+            origin: activePatternLoopRange.map { origin(for: $0.firstPosition, in: playbackRefreshSong) }
         )
         editablePatternLoopRefreshJob = runtimeAdapterPlanPrewarmScheduler.schedule(request: request) { [weak self] result in
             Task { @MainActor [weak self] in
@@ -367,7 +515,7 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func playCurrentPatternLoop(from context: PlaybackStartContext?, timingSession: PlaybackTimingTraceSession?) {
-        guard !state.isPlaying else {
+        guard !state.isActive else {
             timingSession?.recordPhase(
                 "playback_engine_play_current_pattern_ignored_already_playing",
                 startedAt: nil,
@@ -410,9 +558,11 @@ final class PlaybackEngine: PlaybackTransport {
 
         isolatedPatternLoopPlaybackRestoreState = IsolatedPatternLoopPlaybackRestoreState(
             sourceSong: sourceSong,
-            runtimeAdapterEventPlan: runtimeAdapterEventPlan,
-            runtimeAdapterPlanCacheSource: runtimeAdapterPlanCacheSource,
-            runtimeAdapterPlanUseCount: runtimeAdapterPlanUseCount
+            // Restore the song, not a second retained full-song history graph.
+            runtimeAdapterEventPlan: .unavailable(sampleRate: audioEngine.audioBufferSampleRate),
+            runtimeAdapterPlanCacheSource: .none,
+            runtimeAdapterPlanUseCount: 0,
+            origin: nil
         )
         isolatedPatternLoopPlaybackContext = IsolatedPatternLoopPlaybackContext(
             patternIndex: loopContext.patternIndex,
@@ -448,7 +598,7 @@ final class PlaybackEngine: PlaybackTransport {
         action: PlaybackTransportAction,
         timingSession: PlaybackTimingTraceSession?
     ) {
-        guard !state.isPlaying else {
+        guard !state.isActive else {
             timingSession?.recordPhase(
                 "playback_engine_play_ignored_already_playing",
                 startedAt: nil,
@@ -467,10 +617,6 @@ final class PlaybackEngine: PlaybackTransport {
             )
             return
         }
-        guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession) else {
-            logger.error("Unable to prepare runtime adapter event plan; playback start aborted")
-            return
-        }
         let startPositionStart = timingSession?.beginPhase()
         let resolvedDebugStart = debugStart.flatMap { resolveDebugStart($0, in: song) }
         let positionBeforePlay = currentPosition
@@ -480,9 +626,14 @@ final class PlaybackEngine: PlaybackTransport {
             startedAt: startPositionStart,
             fields: PlaybackTimingTraceFields.playbackPosition(currentPosition)
         )
+        if let currentPosition { selectColdOrigin(currentPosition, in: song, timingSession: timingSession) }
+        guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession) else {
+            logger.error("Unable to prepare runtime adapter event plan; playback start aborted")
+            return
+        }
 
         let resetStart = timingSession?.beginPhase()
-        resetRuntimeState(resetTiming: resolvedDebugStart != nil)
+        resetRuntimeState(resetTiming: resolvedDebugStart != nil || usesRuntimeAdapterEventPlan)
         activePatternLoopRange = loopEnabled
             ? currentPosition.flatMap { song.patternLoopRange(containing: $0) }
             : nil
@@ -542,60 +693,104 @@ final class PlaybackEngine: PlaybackTransport {
         autoplay: Bool? = nil,
         timingSession: PlaybackTimingTraceSession? = nil
     ) -> PlaybackPosition? {
+        let callTiming = playbackTimingRecorder?.beginLifecycle("seek_call")
+        defer { callTiming?.finish(fields: [PlaybackTimingTraceField("preparing", state.mode == .preparing)]) }
         guard let song,
               let resolvedStart = resolveDebugStart(request, in: song) else {
             return nil
         }
-        let shouldPlay = autoplay ?? state.isPlaying
+        let shouldPlay = autoplay ?? state.isActive
+        if shouldPlay, pendingColdSeek?.start == resolvedStart,
+           runtimeAdapterPlanOrigin == origin(for: resolvedStart.position, in: song) {
+            return resolvedStart.position
+        }
+        cancelPendingColdSeek(reason: "superseded")
+        let seekTiming = playbackTimingRecorder?.beginLifecycle("seek")
+        let resetStart = seekTiming?.beginPhase()
         timer?.invalidate()
         timer = nil
         cancelRuntimeCMixerFollowTimer()
         cancelRuntimeCMixerSongEndStop()
+        // A deliberate seek is a discontinuity: quiesce the old host and clear
+        // its voices/queue before any new generation can become audible.
+        cancelEditablePatternLoopRefresh(reason: "cold_seek")
         stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "debug_seek")
         currentPosition = resolvedStart.position
         resetRuntimeState(resetTiming: true)
-        activeDebugStartTraceContext = shouldPlay
-            ? PlaybackDebugStartTraceContext(
-                request: resolvedStart.request,
-                position: resolvedStart.position,
-                actualTickInRow: resolvedStart.actualTickInRow
-            )
-            : nil
-
-        if shouldPlay {
-            guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession) else {
-                activeDebugStartTraceContext = nil
-                apply(action: .stop, nextState: .stopped)
-                logger.error("Unable to prepare runtime adapter event plan for debug seek; playback start aborted")
-                return resolvedStart.position
+        seekTiming?.recordPhase("cold_seek_stop_reset", startedAt: resetStart)
+        let context = PlaybackStartContext(moduleTitle: song.title,
+            songPosition: resolvedStart.position.orderIndex, patternIndex: resolvedStart.position.patternIndex,
+            row: resolvedStart.position.rowIndex)
+        if shouldPlay, audioEngine as? RuntimeCMixerAdapterEventConsuming != nil {
+            // Publish intent before selection notifications can request a different
+            // stopped origin. No timer/follow runs until the exact plan is ready.
+            apply(action: .play, nextState: PlaybackState(mode: .preparing, context: context))
+            let scheduleStart = seekTiming?.beginPhase()
+            selectColdOrigin(resolvedStart.position, in: song, timingSession: seekTiming)
+            seekTiming?.recordPhase("cold_seek_schedule", startedAt: scheduleStart,
+                fields: runtimeAdapterPlanGenerationFields(runtimeAdapterPlanGeneration))
+            pendingColdSeek = PendingColdSeek(generation: runtimeAdapterPlanGeneration,
+                start: resolvedStart, timingSession: seekTiming)
+            publishPlaybackFollowPosition(timerPosition: resolvedStart.position, tickInRow: 0, allowBackendOverride: false)
+            if runtimeAdapterEventPlan.generated {
+                // This path is strictly an already validated matching graph.
+                finishPendingColdSeek()
             }
-            let enterStart = timingSession?.beginPhase()
-            enter(position: resolvedStart.position, previousPosition: nil, timingSession: timingSession)
-            applyDebugStartTickIfNeeded(resolvedStart.actualTickInRow, at: resolvedStart.position)
-            timingSession?.recordPhase(
-                "playback_engine_enter_selected_playback_position",
-                startedAt: enterStart,
-                fields: PlaybackTimingTraceFields.playbackPosition(resolvedStart.position)
-            )
-            let restartTimerStart = timingSession?.beginPhase()
-            restartTimer()
-            timingSession?.recordPhase(
-                "playback_engine_restart_timer",
-                startedAt: restartTimerStart,
-                fields: [PlaybackTimingTraceField("starts_realtime_timer", startsRealtimeTimer)]
-            )
-            apply(action: .play, nextState: PlaybackState(mode: .playing, context: state.context))
-            guard !serviceRuntimeCMixerAdmissionFailure() else { return resolvedStart.position }
-            scheduleRuntimeCMixerSongEndStopIfNeeded()
+            seekTiming?.recordPhase("cold_seek_call_return", startedAt: nil)
+            return resolvedStart.position
+        }
+        selectColdOrigin(resolvedStart.position, in: song, timingSession: timingSession)
+        if shouldPlay {
+            startColdSeek(resolvedStart, context: context, timingSession: timingSession)
         } else {
             publishPlaybackFollowPosition(timerPosition: resolvedStart.position, tickInRow: 0, allowBackendOverride: false)
             apply(action: .stop, nextState: .stopped)
         }
+        seekTiming?.finish(fields: [PlaybackTimingTraceField("autoplay", shouldPlay)])
         return resolvedStart.position
     }
 
     func stop() {
         stop(action: .stop)
+    }
+
+    private func startColdSeek(_ start: PlaybackResolvedDebugStart, context: PlaybackStartContext?,
+                               timingSession: PlaybackTimingTraceSession?) {
+        activeDebugStartTraceContext = PlaybackDebugStartTraceContext(request: start.request,
+            position: start.position, actualTickInRow: start.actualTickInRow)
+        let enterStart = timingSession?.beginPhase()
+        enter(position: start.position, previousPosition: nil, timingSession: timingSession)
+        applyDebugStartTickIfNeeded(start.actualTickInRow, at: start.position)
+        timingSession?.recordPhase("cold_seek_queue_install_and_host_start", startedAt: enterStart)
+        restartTimer()
+        apply(action: .play, nextState: PlaybackState(mode: .playing, context: context))
+        guard !serviceRuntimeCMixerAdmissionFailure() else { return }
+        scheduleRuntimeCMixerSongEndStopIfNeeded()
+    }
+
+    private func finishPendingColdSeek() {
+        guard let pending = pendingColdSeek, pending.generation == runtimeAdapterPlanGeneration,
+              state.mode == .preparing, let song,
+              runtimeAdapterPlanOrigin == origin(for: pending.start.position, in: song),
+              runtimeAdapterEventPlan.generated else { return }
+        pendingColdSeek = nil
+        pending.timingSession?.recordPhase("cold_seek_ready", startedAt: nil)
+        // Cached configuration may have been cleared by stopAll; this call only
+        // installs the matching ready graph and cannot construct or wait for it.
+        if let consumer = audioEngine as? RuntimeCMixerAdapterEventConsuming,
+           !consumer.hasRuntimeAdapterEventPlan {
+            consumer.configureRuntimeAdapterEventPlan(
+                runtimeAdapterEventPlan, generationMS: nil, timingSession: pending.timingSession)
+        }
+        runtimeAdapterPlanUseCount += 1
+        startColdSeek(pending.start, context: state.context, timingSession: pending.timingSession)
+        pending.timingSession?.finish(fields: [PlaybackTimingTraceField("outcome", "playing")])
+    }
+
+    private func cancelPendingColdSeek(reason: String) {
+        guard let pending = pendingColdSeek else { return }
+        pendingColdSeek = nil
+        pending.timingSession?.finish(fields: [PlaybackTimingTraceField("outcome", reason)])
     }
 
     func stopFromDebugTimer() {
@@ -611,6 +806,11 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     private func stop(notify: Bool, resetAudio: Bool, action: PlaybackTransportAction = .stop, reason: String = "transport_stop_preserve_position") {
+        if pendingColdSeek != nil {
+            cancelPendingColdSeek(reason: "stopped")
+            runtimeAdapterPlanGeneration &+= 1
+            cancelRuntimeAdapterPlanPrewarm(reason: "stop_during_seek")
+        }
         let wasActive = state.mode != .stopped || timer != nil
         guard wasActive || resetAudio else {
             logger.debug("Ignoring stop request because playback is already stopped")
@@ -675,6 +875,7 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func pause() {
+        if state.mode == .preparing { stop(); return }
         guard state.mode == .playing else {
             return
         }
@@ -687,7 +888,7 @@ final class PlaybackEngine: PlaybackTransport {
 
     func togglePlayPause(from context: PlaybackStartContext?) {
         switch state.mode {
-        case .playing:
+        case .playing, .preparing:
             pause()
         case .paused, .stopped:
             play(from: context ?? state.context)
@@ -699,7 +900,7 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func togglePlayStop(from context: PlaybackStartContext?, timingSession: PlaybackTimingTraceSession?) {
-        if state.isPlaying {
+        if state.isActive {
             stop(action: .spacebarStop)
         } else {
             play(from: context ?? state.context, debugStart: nil, loopEnabled: false, action: .spacebarPlay, timingSession: timingSession)
@@ -707,7 +908,7 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func togglePlayStop(from context: PlaybackStartContext?, loopEnabled: Bool, timingSession: PlaybackTimingTraceSession?) {
-        if state.isPlaying {
+        if state.isActive {
             stop(action: .spacebarStop)
         } else {
             play(from: context ?? state.context, debugStart: nil, loopEnabled: loopEnabled, action: .spacebarPlay, timingSession: timingSession)
@@ -726,6 +927,7 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func apply(action: PlaybackTransportAction, nextState: PlaybackState) {
         state = nextState
+        transportStateDidChange?()
         logger.debug("Playback transport action: \(String(describing: action), privacy: .public)")
     }
 
@@ -733,16 +935,20 @@ final class PlaybackEngine: PlaybackTransport {
         guard let restoreState = isolatedPatternLoopPlaybackRestoreState else {
             return
         }
+        let retirement = configureAudioPlan && runtimeAdapterEventPlan.generated
+            ? RuntimeAdapterPlanRetirement(taking: &runtimeAdapterEventPlan) : nil
         song = restoreState.sourceSong
         runtimeAdapterEventPlan = restoreState.runtimeAdapterEventPlan
         runtimeAdapterPlanCacheSource = restoreState.runtimeAdapterPlanCacheSource
         runtimeAdapterPlanUseCount = restoreState.runtimeAdapterPlanUseCount
+        runtimeAdapterPlanOrigin = restoreState.origin
         isolatedPatternLoopPlaybackRestoreState = nil
         isolatedPatternLoopPlaybackContext = nil
         if configureAudioPlan,
            let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming {
             adapterConsumer.configureRuntimeAdapterEventPlan(runtimeAdapterEventPlan, generationMS: nil, timingSession: nil)
         }
+        if let retirement { runtimeAdapterPlanPrewarmScheduler.retire(retirement) }
         runtimeAdapterPlanDidUpdate?()
     }
 
@@ -770,7 +976,42 @@ final class PlaybackEngine: PlaybackTransport {
         (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.hasRuntimeAdapterEventPlan == true
     }
 
+    /// Prepare stopped selection using the same origin authority as Play.
+    func prepareColdStart(from context: PlaybackStartContext?) {
+        guard !state.isActive, let song,
+              let position = playbackStartPosition(from: context, in: song) ?? song.startPosition else { return }
+        selectColdOrigin(position, in: song, timingSession: nil)
+    }
+
+    private func origin(for position: PlaybackPosition, in song: PlaybackSong) -> RuntimeAdapterPlanOrigin {
+        RuntimeAdapterPlanOrigin(songGeneration: runtimeSongGeneration, position: position,
+            sampleRate: audioEngine.audioBufferSampleRate, usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+            isolatedPatternIndex: isolatedPatternLoopPlaybackContext?.patternIndex)
+    }
+
+    private func selectColdOrigin(_ position: PlaybackPosition, in song: PlaybackSong,
+                                  timingSession: PlaybackTimingTraceSession?) {
+        guard audioEngine as? RuntimeCMixerAdapterEventConsuming != nil else { return }
+        let selectedOrigin = origin(for: position, in: song)
+        if selectedOrigin == runtimeAdapterPlanOrigin {
+            if !runtimeAdapterEventPlan.generated, runtimeAdapterPlanPrewarmJob == nil {
+                scheduleRuntimeAdapterPlanPrewarmIfNeeded(for: song, timingSession: timingSession)
+            }
+            return
+        }
+        runtimeAdapterPlanGeneration &+= 1
+        cancelRuntimeAdapterPlanPrewarm(reason: "cold_origin_changed")
+        // Revoke consumers now; physical retirement precedes replacement on the worker.
+        invalidateRuntimeAdapterEventPlan(timingSession: timingSession)
+        runtimeAdapterPlanOrigin = selectedOrigin
+        scheduleRuntimeAdapterPlanPrewarmIfNeeded(for: song, timingSession: timingSession)
+    }
+
     private func invalidateRuntimeAdapterEventPlan(timingSession: PlaybackTimingTraceSession?) {
+        // Move, rather than capture a raw plan local whose last release could race
+        // back onto MainActor. The box cannot be emptied until consumers detach.
+        let retirement = runtimeAdapterEventPlan.generated
+            ? RuntimeAdapterPlanRetirement(taking: &runtimeAdapterEventPlan) : nil
         let unavailablePlan = RuntimeCMixerAdapterEventPlan.unavailable(sampleRate: audioEngine.audioBufferSampleRate)
         runtimeAdapterEventPlan = unavailablePlan
         runtimeAdapterPlanCacheSource = .none
@@ -778,6 +1019,7 @@ final class PlaybackEngine: PlaybackTransport {
         if let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming {
             adapterConsumer.configureRuntimeAdapterEventPlan(unavailablePlan, generationMS: nil, timingSession: timingSession)
         }
+        if let retirement { runtimeAdapterPlanPrewarmScheduler.retire(retirement) }
         timingSession?.recordPhase(
             "runtime_adapter_event_plan_invalidated",
             startedAt: nil,
@@ -795,7 +1037,8 @@ final class PlaybackEngine: PlaybackTransport {
             generation: generation,
             song: song,
             sampleRate: audioEngine.audioBufferSampleRate,
-            adapterPlanProfileRecorder: adapterPlanProfileRecorder
+            adapterPlanProfileRecorder: adapterPlanProfileRecorder,
+            origin: runtimeAdapterPlanOrigin
         )
         let fields = runtimeAdapterPlanGenerationFields(generation) +
             PlaybackTimingTraceFields.playbackSong(song) +
@@ -821,14 +1064,26 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func completeRuntimeAdapterPlanPrewarm(_ result: RuntimeAdapterPlanPrewarmResult) {
         guard result.generation == runtimeAdapterPlanGeneration,
+              result.origin == runtimeAdapterPlanOrigin,
               runtimeAdapterPlanPrewarmJob?.generation == result.generation else {
             return
         }
+        if result.origin?.sampleRate != audioEngine.audioBufferSampleRate,
+           let song, let position = runtimeAdapterPlanOrigin?.position {
+            let pending = pendingColdSeek
+            selectColdOrigin(position, in: song, timingSession: pending?.timingSession)
+            if let pending {
+                pendingColdSeek = PendingColdSeek(generation: runtimeAdapterPlanGeneration,
+                    start: pending.start, timingSession: pending.timingSession)
+            }
+            return
+        }
         recordRuntimeAdapterPlanPrewarmMake(result)
-        finishRuntimeAdapterPlanPrewarm(
-            result: result,
-            outcome: installRuntimeAdapterPlanPrewarmResult(result) ? "installed" : "unavailable"
-        )
+        let installed = installRuntimeAdapterPlanPrewarmResult(result)
+        finishRuntimeAdapterPlanPrewarm(result: result, outcome: installed ? "installed" : "unavailable")
+        if pendingColdSeek?.generation == result.generation {
+            if installed { finishPendingColdSeek() } else { stop() }
+        }
     }
 
     private func installRuntimeAdapterPlanPrewarmResult(_ result: RuntimeAdapterPlanPrewarmResult) -> Bool {
@@ -838,6 +1093,7 @@ final class PlaybackEngine: PlaybackTransport {
             runtimeAdapterPlanPrewarmJob = nil
             return false
         }
+        result.discardPlan()
         let configureStart = runtimeAdapterPlanPrewarmTimingSession?.beginPhase()
         runtimeAdapterEventPlan = plan
         runtimeAdapterPlanCacheSource = .prewarm
@@ -901,6 +1157,7 @@ final class PlaybackEngine: PlaybackTransport {
               plan.generated else {
             return
         }
+        result.discardPlan()
         pendingEditablePatternLoopRefresh = PendingEditablePatternLoopRefresh(
             generation: result.generation,
             snapshot: snapshot,
@@ -913,7 +1170,15 @@ final class PlaybackEngine: PlaybackTransport {
         editablePatternLoopRefreshGeneration &+= 1
         editablePatternLoopRefreshJob?.cancel()
         editablePatternLoopRefreshJob = nil
+        retirePendingEditablePatternLoopRefresh()
+    }
+
+    private func retirePendingEditablePatternLoopRefresh() {
+        guard pendingEditablePatternLoopRefresh != nil else { return }
+        // This value has never been installed in the render consumer.
+        let retirement = RuntimeAdapterPlanRetirement(taking: &pendingEditablePatternLoopRefresh!.plan)
         pendingEditablePatternLoopRefresh = nil
+        runtimeAdapterPlanPrewarmScheduler.retire(retirement)
     }
 
     private func finishRuntimeAdapterPlanPrewarm(result: RuntimeAdapterPlanPrewarmResult, outcome: String) {
@@ -984,11 +1249,13 @@ final class PlaybackEngine: PlaybackTransport {
         }
         if let result = waitForRuntimeAdapterPlanPrewarmIfNeeded(timingSession: timingSession),
            result.generation == runtimeAdapterPlanGeneration,
+           result.origin == runtimeAdapterPlanOrigin,
            !result.completedAfterCancellation,
            let plan = result.plan,
            plan.generated {
             runtimeAdapterPlanPrewarmJob = nil
             recordRuntimeAdapterPlanPrewarmMake(result)
+            result.discardPlan()
             runtimeAdapterEventPlan = plan
             runtimeAdapterPlanCacheSource = .prewarm
             runtimeAdapterPlanUseCount = 0
@@ -1028,7 +1295,8 @@ final class PlaybackEngine: PlaybackTransport {
         let plan = RuntimeCMixerAdapterEventPlan.make(
             song: song,
             sampleRate: audioEngine.audioBufferSampleRate,
-            profileSession: profileSession
+            profileSession: profileSession,
+            coldOrigin: runtimeAdapterPlanOrigin?.position
         )
         let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
         timingSession?.recordPhase(
@@ -1412,6 +1680,8 @@ final class PlaybackEngine: PlaybackTransport {
         }
 
         song = refreshedSong
+        runtimeSongGeneration &+= 1
+        runtimeAdapterPlanOrigin = origin(for: refreshedAnchor, in: refreshedSong)
         self.activePatternLoopRange = refreshedRange
         runtimeAdapterEventPlan = pendingEditablePatternLoopRefresh.plan
         runtimeAdapterPlanCacheSource = .prewarm

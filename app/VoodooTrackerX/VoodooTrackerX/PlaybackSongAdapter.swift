@@ -645,7 +645,7 @@ enum PlaybackSongSyntheticAdapter {
         profileSession: AdapterPlanProfileSession? = nil
     ) -> PlaybackSongSyntheticPlan {
         adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
-              profileSession: profileSession, eligibilityOracle: nil)
+              profileSession: profileSession, eligibilityOracle: nil)!
     }
 
     #if DEBUG
@@ -655,7 +655,7 @@ enum PlaybackSongSyntheticAdapter {
         adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
               profileSession: nil, eligibilityOracle: { event, frame, plan in
                   PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: event, at: frame, plan: plan)
-              })
+              })!
     }
 
     /// Test-only injection of the frozen pre-compaction projection into a complete adapter plan.
@@ -663,23 +663,36 @@ enum PlaybackSongSyntheticAdapter {
         orderCount: Int, sampleRate: Double,
         oracle: @escaping (PlaybackSongFxxTimingPlan, inout AdapterRowContext) -> Void) -> PlaybackSongSyntheticPlan {
         adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
-              profileSession: nil, eligibilityOracle: nil, globalVolumeProjectionOracle: oracle)
+              profileSession: nil, eligibilityOracle: nil, globalVolumeProjectionOracle: oracle)!
     }
     #endif
+
+    /// Starts the existing interpreter cold at an origin, retaining whole-song traversal bounds.
+    static func adaptForRuntime(_ song: PlaybackSong, origin: PlaybackPosition, sampleRate: Double,
+                                profileSession: AdapterPlanProfileSession? = nil,
+                                isCancelled: (() -> Bool)? = nil) -> PlaybackSongSyntheticPlan? {
+        adapt(song, startOrderIndex: 0, orderCount: song.orders.count, sampleRate: sampleRate,
+              profileSession: profileSession, eligibilityOracle: nil,
+              initialPosition: origin, isCancelled: isCancelled)
+    }
 
     private static func adapt(
         _ song: PlaybackSong, startOrderIndex: Int, orderCount: Int, sampleRate: Double,
         profileSession: AdapterPlanProfileSession?,
         eligibilityOracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?,
-        globalVolumeProjectionOracle: ((PlaybackSongFxxTimingPlan, inout AdapterRowContext) -> Void)? = nil
-    ) -> PlaybackSongSyntheticPlan {
+        globalVolumeProjectionOracle: ((PlaybackSongFxxTimingPlan, inout AdapterRowContext) -> Void)? = nil,
+        initialPosition: PlaybackPosition? = nil, isCancelled: (() -> Bool)? = nil
+    ) -> PlaybackSongSyntheticPlan? {
         let totalStart = profileSession?.beginPhase()
         let traversalStart = profileSession?.beginPhase()
         let traversalPlan = PlaybackSongTraversalPlanner.plan(
             song,
             startOrderIndex: startOrderIndex,
-            orderCount: orderCount
+            orderCount: orderCount,
+            initialPosition: initialPosition,
+            isCancelled: isCancelled
         )
+        if isCancelled?() == true { return nil }
         profileSession?.recordPhase(
             "order_traversal",
             startedAt: traversalStart,
@@ -697,8 +710,10 @@ enum PlaybackSongSyntheticAdapter {
         let timingPlan = PlaybackSongFxxTimingPlanner.plan(
             song,
             traversalPlan: traversalPlan,
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            isCancelled: isCancelled
         )
+        if isCancelled?() == true { return nil }
         profileSession?.recordPhase(
             "timing_frame_calculation",
             startedAt: timingStart,
@@ -754,6 +769,7 @@ enum PlaybackSongSyntheticAdapter {
         var eventGenerationNanoseconds: UInt64 = 0
         var semanticPublicationNanoseconds: UInt64 = 0
         for (rowIndex, traversalRow) in traversalPlan.rows.enumerated() {
+            if isCancelled?() == true { return nil }
             rowMappings.append(PlaybackSongSyntheticRowMapping(
                 source: traversalRow.source,
                 syntheticRow: traversalRow.syntheticRow
@@ -890,11 +906,13 @@ enum PlaybackSongSyntheticAdapter {
             ]
         )
 
+        if isCancelled?() == true { return nil }
         if let globalVolumeProjectionOracle {
             globalVolumeProjectionOracle(timingPlan, &context)
         } else {
             planGlobalVolumeChannelTargets(timingPlan: timingPlan, context: &context, profileSession: profileSession)
         }
+        if isCancelled?() == true { return nil }
         let rowTimingDiagnostics = timingPlan.rowTimingDiagnostics
         let canonicalTickClock = PlaybackSongCanonicalTickClock(runs: clockRuns, totalCanonicalTicks: canonicalTickCount,
             sampleRate: timingConfig.sampleRate, rowTiming: rowTimingDiagnostics, rowDiagnostics: context.rowDiagnostics)
@@ -902,7 +920,7 @@ enum PlaybackSongSyntheticAdapter {
             timingConfig: timingConfig,
             pattern: SyntheticPattern(rowCount: traversalPlan.pathLength, events: context.events),
             diagnostics: PlaybackSongSyntheticDiagnostics(
-                requestedStartOrderIndex: startOrderIndex,
+                requestedStartOrderIndex: initialPosition?.orderIndex ?? startOrderIndex,
                 requestedOrderCount: safeOrderCount,
                 sampleRate: timingConfig.sampleRate,
                 initialSpeed: timingConfig.speed,
@@ -954,6 +972,7 @@ enum PlaybackSongSyntheticAdapter {
         plan.instrumentAutovibratoRequests = automaticPitchBuilder.requests
         plan.instrumentAutovibratoInitialHoldEventIndices = automaticPitchBuilder.introducedHoldEventIndices
         plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
+        if isCancelled?() == true { return nil }
         admitFinePitchPublications(in: &plan, ordinaryDelayedVibratoIndices: context.ordinaryDelayedVibratoIndices,
             profileSession: profileSession, oracle: eligibilityOracle)
         // Eligibility must see managed envelope/release lifetime. Only completed
@@ -961,6 +980,7 @@ enum PlaybackSongSyntheticAdapter {
         if excludeCompletedCold500Publications(from: &plan) {
             plan.xmAudibleTimeline = PlaybackXMAudibleTimeline(plan: plan)
         }
+        if isCancelled?() == true { return nil }
         // Install only after existing diagnostic/admission mutations have completed.
         plan.semanticPitchProjection = context.semanticPitchBuilder.evidence
         plan.instrumentAutovibratoClock = context.semanticPitchBuilder.automatic.evidence

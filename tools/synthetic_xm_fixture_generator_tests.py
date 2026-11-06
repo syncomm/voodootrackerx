@@ -67,6 +67,7 @@ ALL_FIXTURES = [
     "panning-slide-semantics.xm",
     "panning-slide-musical-study.xm",
     "glissando-tone-output.xm",
+    "volume-lxx-loop-end.xm",
 ]
 
 
@@ -724,6 +725,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "panning-slide-semantics.xm").resolve(),
                     (output_dir / "generated" / "panning-slide-musical-study.xm").resolve(),
                     (output_dir / "generated" / "glissando-tone-output.xm").resolve(),
+                    (output_dir / "generated" / "volume-lxx-loop-end.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -785,6 +787,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/volume-column-slide-timing.xm",
                     "generated/volume-column-vibrato.xm",
                     "generated/volume-envelope-q8.xm",
+                    "generated/volume-lxx-loop-end.xm",
                 ],
             )
             self.assertEqual(
@@ -899,6 +902,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/volume-column-slide-timing.xm",
                     "generated/volume-column-vibrato.xm",
                     "generated/volume-envelope-q8.xm",
+                    "generated/volume-lxx-loop-end.xm",
                     "source/basic-instrument-sample.manifest.json",
                 ],
             )
@@ -1001,6 +1005,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:panning-slide-semantics.xm": "generated/panning-slide-semantics.xm",
                     "xm:panning-slide-musical-study.xm": "generated/panning-slide-musical-study.xm",
                     "xm:glissando-tone-output.xm": "generated/glissando-tone-output.xm",
+                    "xm:volume-lxx-loop-end.xm": "generated/volume-lxx-loop-end.xm",
                     "xm:extreme-pitch-state-linear.xm": "generated/extreme-pitch-state-linear.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",

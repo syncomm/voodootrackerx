@@ -610,8 +610,10 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                     let position = positions.last { $0.scheduledFrame == frame }
                     if volumeEnabled {
                         let previous = state.volumeTick
+                        if resetVolume { carried.volume.positionedPastLoop = false }
                         if let position, position.applied {
-                            state.volumeTick = Int(position.effectParam)
+                            state.volumeTick = carried.volume.position(Int(position.effectParam),
+                                envelope: instrument.volume, keyOn: state.keyOn)
                             resetVolume = true
                         } else if !resetVolume && tick.advances {
                             if carries && releasing && instrument.volume.points.indices.contains(carried.volume.pendingPoint),

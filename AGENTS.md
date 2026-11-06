@@ -129,8 +129,8 @@ The canonical maintainer Debug executable is:
 
 - Use the same `-derivedDataPath build` for normal Xcode test actions.
 - Do not create task-specific build directories inside the repository and do
-  not expand `.gitignore` to accommodate them. Use `/tmp` or an external scratch
-  location only when a genuinely isolated build is required.
+  not expand `.gitignore` to accommodate them. An isolated local build, when
+  genuinely required, must follow the `/private/tmp` policy below.
 - Treat stale-build provenance as a first-class failure mode. Before evaluating
   app behavior or screenshots, rebuild the intended branch/diff and confirm the
   process being launched is the canonical product above.
@@ -264,6 +264,32 @@ governs canonical/editable routing and the read-only compatibility boundary.
 - Never commit screenshots, logs, local fixture modules, or temporary debugging
   output.
 
+## Maintainer-local temporary outputs (mandatory)
+
+- For **all local VTX/Codex tasks**, write generated temporary WAV/M4A/XM,
+  audition clips, traces, captures, JSON, reports, logs, benchmark evidence,
+  diagnostic executables, isolated builds, and scratch worktrees **only under
+  `/private/tmp`** (or `/tmp`, which resolves there on macOS). The canonical
+  repository-root `build/` and intentionally tracked public fixtures are
+  separate, explicitly governed exceptions.
+- Never use macOS's per-user `/var/folders/.../T/` or
+  `/private/var/folders/.../T/` as a VTX artifact destination. Do not trust
+  the default `TMPDIR`, unqualified `mktemp -d`, Python `tempfile`
+  defaults, or a tool's implicit scratch location.
+- Before running local diagnostic subprocesses, export `TMPDIR=/private/tmp`,
+  `TMP=/private/tmp`, and `TEMP=/private/tmp`. Create a unique task directory
+  using an **explicit** `/private/tmp/vtx-<task>.XXXXXXXX` template, pass
+  absolute output paths, and check that each resolved destination stays within
+  `/private/tmp` before writing. If a tool cannot honor this, **stop**.
+- Every handoff must give directly usable `/private/tmp` paths for reports,
+  listening clips, and evidence. If an output lands elsewhere, record the
+  violation, recover required artifacts into `/private/tmp` with checksum
+  verification, and do not make Gregory search system temp directories.
+- Preserve existing artifacts and never delete, prune, or move recovery evidence
+  without explicit maintainer authorization. Do not depend on a reboot for
+  preservation or cleanup. Hosted CI's OS-managed internal scratch files are
+  outside this maintainer-local output policy.
+
 ## Private corpus and artifact hygiene
 
 - Keep private modules, local corpus label maps, and artifacts derived from them
@@ -274,7 +300,8 @@ governs canonical/editable routing and the read-only compatibility boundary.
   absolute paths, or machine-specific notes. Use stable anonymized labels when a
   public-safe example is necessary.
 - Put WAVs, traces, captures, JSON, generated Markdown, screenshots, logs,
-  benchmarks, and private reports under `/tmp` or another ignored external path.
+  benchmarks, and private reports only under `/private/tmp` (or `/tmp`, its
+  macOS alias), following the mandatory local temporary-output policy above.
 - Add public reports under `docs/reports/` only when explicitly requested and
   reviewed for redistribution and privacy.
 - Run `scripts/scan-tracked-private-leaks.sh` before handoff for diagnostic,

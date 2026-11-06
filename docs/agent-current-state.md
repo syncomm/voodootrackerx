@@ -195,7 +195,9 @@ host.
   targets over the current tick and carries in-flight window progress.
   Direct and carried volume factors use signed Q8 slopes with exact point
   reassignment under the bounded G31 contract. Pan retains Float interpolation;
-  volume-Lxx loop/end positioning and cold before-first initialization remain open.
+  volume-Lxx now qualifies exact loop ends immediately and preserves past-end
+  traversal through the existing segment state. Its acceptance/performance gates
+  and the separate cold before-first initialization difference remain open.
   Non-retriggering resets use a 5 ms transition from current audible output
   through that same state. Ordinary instrument-only cells restore the last
   selected declared header's cached volume/pan and reset channel semantics;

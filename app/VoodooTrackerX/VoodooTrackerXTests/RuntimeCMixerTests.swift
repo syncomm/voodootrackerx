@@ -1979,6 +1979,65 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testVolumeLxxLoopEndSharesExactCoreTargetsFramesAndSourceCursors() throws {
+        let fixture = try referenceXMFixtureURL("generated/volume-lxx-loop-end.xm")
+        let original = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        for linear in [true, false] {
+            let song = PlaybackSong(title: original.title, orders: original.orders, patternsByIndex: original.patternsByIndex,
+                instrumentsByIndex: original.instrumentsByIndex, restartOrderIndex: 0, endBehavior: .stopAtEnd,
+                initialTiming: original.initialTiming, usesLinearFrequencyTable: linear,
+                xmSampleSlotProvenanceByInstrument: original.xmSampleSlotProvenanceByInstrument)
+            try assertXMEnvelopeRuntimeParity(song)
+            let blankPatterns = song.patternsByIndex.mapValues { pattern in
+                PlaybackPattern(index: pattern.index, rows: pattern.rows.map { row in
+                    PlaybackRow(index: row.index, cells: row.cells.map { cell in
+                        cell.effectType == 21 ? PlaybackCell(note: cell.note, instrument: cell.instrument,
+                            volumeColumn: cell.volumeColumn, effectType: 0, effectParam: 0) : cell
+                    })
+                })
+            }
+            let blank = PlaybackSong(title: song.title, orders: song.orders, patternsByIndex: blankPatterns,
+                instrumentsByIndex: song.instrumentsByIndex, restartOrderIndex: 0, endBehavior: .stopAtEnd,
+                initialTiming: song.initialTiming, usesLinearFrequencyTable: linear,
+                xmSampleSlotProvenanceByInstrument: song.xmSampleSlotProvenanceByInstrument)
+            for rate in [44_100.0, 48_000] {
+                let config = MixerRenderConfig(sampleRate: rate)
+                let policy = RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"])
+                let actual = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024, outputPolicy: policy)
+                let control = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024, outputPolicy: policy)
+                let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                actual.configureAdapterEventScheduleForTesting(plan.events, runtimeFrameOffset: 0)
+                control.configureAdapterEventScheduleForTesting(RuntimeCMixerAdapterEventPlan.make(song: blank, sampleRate: rate).events, runtimeFrameOffset: 0)
+                var cursor = 0
+                let ticks = Int(rate / 50)
+                for (row, position) in [(1, 9), (2, 3), (3, 12), (5, 0), (7, 255), (8, 9), (9, 15), (10, 0), (12, 10), (13, 12)] {
+                    let end = row * 6 * ticks + 1
+                    while cursor < end {
+                        let count = min(997, end - cursor)
+                        _ = renderRuntimePCM(actual, frames: count); _ = renderRuntimePCM(control, frames: count)
+                        cursor += count
+                    }
+                    for event in 0..<2 {
+                        let a = try XCTUnwrap(actual.adapterVoiceDiagnosticForTesting(eventIndex: event))
+                        let b = try XCTUnwrap(control.adapterVoiceDiagnosticForTesting(eventIndex: event))
+                        XCTAssertTrue(a.active)
+                        XCTAssertEqual(a.channelTag, event)
+                        XCTAssertEqual(a.sampleStep, b.sampleStep)
+                        XCTAssertEqual(a.samplePosition.rounded(.down), b.samplePosition.rounded(.down))
+                        XCTAssertEqual(a.samplePosition - a.samplePosition.rounded(.down), b.samplePosition - b.samplePosition.rounded(.down))
+                        XCTAssertEqual(a.sourceOnsetElapsedFrames, b.sourceOnsetElapsedFrames)
+                        XCTAssertEqual(a.envelopeSemanticState?.volumeTick, position)
+                    }
+                    let empty = try XCTUnwrap(actual.channelSemanticStateForTesting(2))
+                    XCTAssertNil(empty.sourceEventIndex)
+                    XCTAssertEqual(empty.sampleIndex, 2)
+                    XCTAssertEqual(empty.state.volumeTick, position)
+                }
+            }
+        }
+    }
+
+    @MainActor
     func testVolumeColumnSlidesUseExactSharedFramesInRuntimeCoreAndPlaybackEngine() throws {
         let fixture = try referenceXMFixtureURL("generated/volume-column-slide-timing.xm")
         let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)

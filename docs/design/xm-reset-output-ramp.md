@@ -551,14 +551,33 @@ captures also match the offline controls.
 Matched nongrid audio improves; existing onset/retirement, ramp accumulation
 and G40 pan-law residuals remain separately owned.
 
-Volume-Lxx loop/end positioning remains **open**. With points
-`(0,19),(3,53),(10,17),(15,61)`, volume flags 5 and loop indices 1/2, `L0A` retains VTX tick
-10/value 17 versus reference tick 3/value 53. After `L0C`, the next tick is
-VTX 3 versus reference 13. Resolve this in a separate contract before Phase 2
-freeze. Cold initialization on `(3,48),(10,16)` also remains open: VTX emits
-`48/64` on ticks 0...2 versus reference zero. Neither control is an arithmetic
-closure claim. Protected logical sustain clocks remain unchanged even where
-reference raw counters advance while their emitted factor holds.
+The separately implemented volume-Lxx contract below supersedes G31's retained
+positioning difference: L0A previously emitted tick 10/value 17 instead of
+tick 3/value 53, and L0C previously wrapped its next tick to 3 instead of 13.
+G31 arithmetic is unchanged. Cold initialization on `(3,48),(10,16)` remains
+**open**: VTX emits `48/64` on ticks 0...2 versus reference zero. Protected
+logical sustain clocks remain unchanged where reference raw counters advance
+while their emitted factor holds.
+
+### Volume Lxx loop/end positioning
+
+Enabled volume Lxx uses the existing segment-positioning state on its actual
+command tick. Selecting exactly a valid loop end immediately selects its start,
+except when key-off already applies and that end is the sustain point. A request
+strictly beyond the loop end traverses the tail; after the final point its factor
+holds while the logical clock keeps advancing. An explicit envelope reset clears
+this escape state; another Lxx establishes a new position. Interior, loop-disabled,
+volume-disabled, note-only carry, release/fadeout and source ownership retain
+their existing rules. G07 pan gating/positioning and G31 Q8 remain unchanged.
+
+`XMVolumeLxxLoopEndTests` and the public `volume-lxx-loop-end.xm` control pin
+command/following ticks, factors, final targets, silent/empty/completed sources,
+reset/re-position, both modes/rates and exact whole/window/stream/partition PCM.
+Runtime tests pin C target application frames and integer/fractional source
+cursors. The legacy frame-clamped Lxx diagnostic is not the semantic clock.
+Qualification/acceptance remains **OPEN**, owned by Gregory's review, original
+Release performance/memory gates and listening decision. No prior performance
+exception transfers; cold before-first and broader XM/backend closure stay open.
 
 ## Independently measured reference
 

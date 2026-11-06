@@ -50,6 +50,16 @@ interior L06 and F03/FFA timing. Volume-Lxx loop/end positioning, cold values
 before a nonzero first point, pan arithmetic and G40 remain separate contracts.
 Reference audio and diagnostic artifacts remain external.
 
+`volume-lxx-loop-end.xm` is an original 16-row, four-channel constant-PCM
+control. Volume points `(0,19),(3,53),(10,17),(15,61)`, loop indices 1/2,
+sustain index 2 and zero fadeout distinguish immediate L0A wrap, L0C/L0F/LFF
+tail traversal, L09 re-positioning, instrument-only reset and same-cell
+note97/L0A release. Exact routes select sounding S01, header-zero PCM S02 and
+declared-empty S03; the fourth channel stays uninitialized. The maintained
+generator owns its constant waveform recipe and all XM bytes. Model and runtime
+tests also qualify Amiga mode and both output rates. Cold before-first and pan
+envelope differences remain separate.
+
 `amiga-fine-extra-fine-finetune.xm` uses fourteen rows and twenty channels.
 Channels 0–3 seed/replay fine and extra-fine memories and cover note97, ordinary
 folding and active-source updates. Channels 4–8 use the actual E1F/E2F/X18/X28/

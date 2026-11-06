@@ -15900,6 +15900,109 @@
       "xm_output": "generated/glissando-tone-output.xm",
       "xm_sha256": "c4a63ec6d9a5d60a700fc862a0e0a6646e0d3c52134b6ef10c4e7469d584ef0c",
       "xm_size_bytes": 1192
+    },
+    {
+      "id": "volume-lxx-loop-end",
+      "name": "volume-lxx-loop-end.xm",
+      "purpose": "Original volume Lxx immediate loop-end wrap, escaped tail, re-position/reset and released sustain-end controls with sounding, zero-header and declared-empty routes.",
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "xm_output": "generated/volume-lxx-loop-end.xm",
+      "xm_sha256": "b1b954ab6a571d79910daac08b1b31bce66b8093ca2273ef800dc357c850b37f",
+      "xm_size_bytes": 1879,
+      "significant_rows": ["0: exact S01/S02/S03 routes", "1-3: L09/L0A/L0C", "5: instrument-only reset", "7-9: LFF/re-arm L09/L0F", "10: reset escaped tail", "12-13: same-cell note97+L0A, then L0C"],
+      "intended_tests": ["XMVolumeLxxLoopEndTests", "RuntimeCMixerTests volume Lxx core application"],
+      "unsupported_semantics": ["cold nonzero-first-point initialization", "pan envelope arithmetic and post-song tails"],
+      "module": {
+        "title": "VTX VOLUME LXX",
+        "tracker_name": "VTX SYNTH FIXTURE",
+        "channels": 4,
+        "orders": [0],
+        "patterns": [
+          {
+            "rows": 16,
+            "events": [
+              {"row": 0, "channel": 0, "note": 49, "instrument": 1},
+              {"row": 0, "channel": 1, "note": 50, "instrument": 1},
+              {"row": 0, "channel": 2, "note": 51, "instrument": 1},
+              {"row": 1, "channel": 0, "note": 0, "effect_type": 21, "effect_parameter": 9},
+              {"row": 1, "channel": 1, "note": 0, "effect_type": 21, "effect_parameter": 9},
+              {"row": 1, "channel": 2, "note": 0, "effect_type": 21, "effect_parameter": 9},
+              {"row": 2, "channel": 0, "note": 0, "effect_type": 21, "effect_parameter": 10},
+              {"row": 2, "channel": 1, "note": 0, "effect_type": 21, "effect_parameter": 10},
+              {"row": 2, "channel": 2, "note": 0, "effect_type": 21, "effect_parameter": 10},
+              {"row": 3, "channel": 0, "note": 0, "effect_type": 21, "effect_parameter": 12},
+              {"row": 3, "channel": 1, "note": 0, "effect_type": 21, "effect_parameter": 12},
+              {"row": 3, "channel": 2, "note": 0, "effect_type": 21, "effect_parameter": 12},
+              {"row": 5, "channel": 0, "note": 0, "instrument": 1},
+              {"row": 5, "channel": 1, "note": 0, "instrument": 1},
+              {"row": 5, "channel": 2, "note": 0, "instrument": 1},
+              {"row": 7, "channel": 0, "note": 0, "effect_type": 21, "effect_parameter": 255},
+              {"row": 7, "channel": 1, "note": 0, "effect_type": 21, "effect_parameter": 255},
+              {"row": 7, "channel": 2, "note": 0, "effect_type": 21, "effect_parameter": 255},
+              {"row": 8, "channel": 0, "note": 0, "effect_type": 21, "effect_parameter": 9},
+              {"row": 8, "channel": 1, "note": 0, "effect_type": 21, "effect_parameter": 9},
+              {"row": 8, "channel": 2, "note": 0, "effect_type": 21, "effect_parameter": 9},
+              {"row": 9, "channel": 0, "note": 0, "effect_type": 21, "effect_parameter": 15},
+              {"row": 9, "channel": 1, "note": 0, "effect_type": 21, "effect_parameter": 15},
+              {"row": 9, "channel": 2, "note": 0, "effect_type": 21, "effect_parameter": 15},
+              {"row": 10, "channel": 0, "note": 0, "instrument": 1},
+              {"row": 10, "channel": 1, "note": 0, "instrument": 1},
+              {"row": 10, "channel": 2, "note": 0, "instrument": 1},
+              {"row": 12, "channel": 0, "note": 97, "effect_type": 21, "effect_parameter": 10},
+              {"row": 12, "channel": 1, "note": 97, "effect_type": 21, "effect_parameter": 10},
+              {"row": 12, "channel": 2, "note": 97, "effect_type": 21, "effect_parameter": 10},
+              {"row": 13, "channel": 0, "note": 0, "effect_type": 21, "effect_parameter": 12},
+              {"row": 13, "channel": 1, "note": 0, "effect_type": 21, "effect_parameter": 12},
+              {"row": 13, "channel": 2, "note": 0, "effect_type": 21, "effect_parameter": 12}
+            ]
+          }
+        ],
+        "instruments": [
+          {
+            "name": "Public volume Lxx",
+            "samples": [
+              {"slot": 0, "name": "audible", "encoding": "signed_16_bit_delta_pcm", "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "constant"}, "pcm_sha256": "c915a5610be2b65023a7d5125ed0c2a07451b5426e06f6945e2da11b2fefe281", "volume": 64, "panning": 128, "finetune": 0, "relative_note": 0, "loop": {"mode": "forward", "start_frame": 0, "length_frames": 256}},
+              {"slot": 1, "name": "zero-header", "encoding": "signed_16_bit_delta_pcm", "pcm_recipe": {"amplitude": 8192, "frame_count": 256, "period_frames": 16, "waveform": "constant"}, "pcm_sha256": "c915a5610be2b65023a7d5125ed0c2a07451b5426e06f6945e2da11b2fefe281", "volume": 0, "panning": 128, "finetune": 0, "relative_note": 0, "loop": {"mode": "forward", "start_frame": 0, "length_frames": 256}},
+              {"slot": 2, "name": "declared-empty", "encoding": "signed_8_bit_delta_pcm", "pcm_recipe": {"amplitude": 1, "frame_count": 0, "period_frames": 16, "waveform": "constant"}, "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "volume": 64, "panning": 128, "finetune": 0, "relative_note": 0, "loop": {"mode": "none", "start_frame": 0, "length_frames": 0}}
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [0, 19],
+                [3, 53],
+                [10, 17],
+                [15, 61]
+              ],
+              "type_flags": 7,
+              "sustain_point": 2,
+              "loop_start_point": 1,
+              "loop_end_point": 2
+            },
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "fadeout": 0,
+            "autovibrato": {
+              "type": 0,
+              "sweep": 0,
+              "depth": 0,
+              "rate": 0
+            },
+            "note_sample_map": [
+              {"start_note": 1, "end_note": 49, "sample": 0},
+              {"start_note": 50, "end_note": 50, "sample": 1},
+              {"start_note": 51, "end_note": 51, "sample": 2},
+              {"start_note": 52, "end_note": 96, "sample": 0}
+            ]
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "bpm": 125,
+        "flags": 1
+      }
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

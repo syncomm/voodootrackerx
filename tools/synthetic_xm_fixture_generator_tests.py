@@ -68,6 +68,7 @@ ALL_FIXTURES = [
     "panning-slide-musical-study.xm",
     "glissando-tone-output.xm",
     "volume-lxx-loop-end.xm",
+    "cold-volume-envelope-start.xm",
 ]
 
 
@@ -726,6 +727,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "panning-slide-musical-study.xm").resolve(),
                     (output_dir / "generated" / "glissando-tone-output.xm").resolve(),
                     (output_dir / "generated" / "volume-lxx-loop-end.xm").resolve(),
+                    (output_dir / "generated" / "cold-volume-envelope-start.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -743,6 +745,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
                     "generated/cold-tone-portamento-initialization.xm",
+                    "generated/cold-volume-envelope-start.xm",
                     "generated/delayed-instrument-only-edx.xm",
                     "generated/e90-row-entry-retrigger.xm",
                     "generated/effect-memory.xm",
@@ -858,6 +861,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/cold-600-local-publication.xm",
                     "generated/cold-a00-output-restoration.xm",
                     "generated/cold-tone-portamento-initialization.xm",
+                    "generated/cold-volume-envelope-start.xm",
                     "generated/delayed-instrument-only-edx.xm",
                     "generated/e90-row-entry-retrigger.xm",
                     "generated/effect-memory.xm",
@@ -1006,6 +1010,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:panning-slide-musical-study.xm": "generated/panning-slide-musical-study.xm",
                     "xm:glissando-tone-output.xm": "generated/glissando-tone-output.xm",
                     "xm:volume-lxx-loop-end.xm": "generated/volume-lxx-loop-end.xm",
+                    "xm:cold-volume-envelope-start.xm": "generated/cold-volume-envelope-start.xm",
                     "xm:extreme-pitch-state-linear.xm": "generated/extreme-pitch-state-linear.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",

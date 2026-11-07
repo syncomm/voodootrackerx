@@ -105,7 +105,7 @@ final class XMVolumeEnvelopeQ8Tests: XCTestCase {
         }
     }
 
-    func testLxxQualifiedBoundariesAndSeparateColdBeforeFirstDifference() throws {
+    func testLxxQualifiedBoundariesAndColdBeforeFirstInitialization() throws {
         let curve = envelope([(0, 19), (3, 53), (10, 17), (15, 61)], loop: (1, 2))
         for rate in [44_100.0, 48_000] {
             for requested in [6, 10, 12] {
@@ -117,7 +117,7 @@ final class XMVolumeEnvelopeQ8Tests: XCTestCase {
                 XCTAssertEqual(states[7].state.volumeTick, qualified + 1)
             }
             let cold = try XCTUnwrap(adapt(song(envelope([(3, 48), (10, 16)])), rate).xmEnvelopeTimeline?.updatesByEvent[0])
-            XCTAssertEqual(cold.prefix(3).map(\.state.volumeValue), [0.75, 0.75, 0.75])
+            XCTAssertEqual(cold.prefix(4).map(\.state.volumeValue), [0, 0, 0, 0.75])
         }
     }
 

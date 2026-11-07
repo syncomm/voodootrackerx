@@ -450,6 +450,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             })
             var previous = CarriedState()
             var hasPrevious = false
+            var hasVolumeHistory = false
             let channelRows = rowsByChannel[channel] ?? []
             let carriedInstruments = PlaybackXMCarriedInstrumentProjection(rows: channelRows)
             let channelPans = Dictionary(uniqueKeysWithValues: channelRows.map { ($0.syntheticRow, $0.controls.panningValue) })
@@ -624,10 +625,18 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
                                 keyOn: state.keyOn, releasing: releasing)
                         }
                         if resetVolume {
-                            carried.volume.sample(state.volumeTick, envelope: instrument.volume, keyOn: state.keyOn, volumeQ8: true)
+                            // Only the first enabled-volume reset retains the cold zero seed
+                            // until point arrival. Pan/disabled-volume history is not volume
+                            // history; warm resets and explicit positioning keep their policy.
+                            let waitsForFirstPoint = !hasVolumeHistory && state.keyOn && position?.applied != true &&
+                                (instrument.volume.points.first.map { state.volumeTick < $0.tick } ?? false)
+                            if !waitsForFirstPoint {
+                                carried.volume.sample(state.volumeTick, envelope: instrument.volume, keyOn: state.keyOn, volumeQ8: true)
+                            }
                         } else {
                             carried.volume.advance(from: previous, to: state.volumeTick, envelope: instrument.volume, keyOn: state.keyOn, volumeQ8: true)
                         }
+                        hasVolumeHistory = true
                         state.volumeValue = carried.volume.value
                     } else {
                         state.volumeValue = 1

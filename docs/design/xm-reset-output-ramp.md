@@ -554,10 +554,10 @@ and G40 pan-law residuals remain separately owned.
 The separately implemented volume-Lxx contract below supersedes G31's retained
 positioning difference: L0A previously emitted tick 10/value 17 instead of
 tick 3/value 53, and L0C previously wrapped its next tick to 3 instead of 13.
-G31 arithmetic is unchanged. Cold initialization on `(3,48),(10,16)` remains
-**open**: VTX emits `48/64` on ticks 0...2 versus reference zero. Protected
-logical sustain clocks remain unchanged where reference raw counters advance
-while their emitted factor holds.
+G31 arithmetic is unchanged. The bounded cold initialization candidate below
+corrects ticks 0...2 before `(3,48),(10,16)`. Protected logical sustain clocks
+remain unchanged where reference raw counters advance while their emitted
+factor holds.
 
 ### Volume Lxx loop/end positioning
 
@@ -575,9 +575,32 @@ command/following ticks, factors, final targets, silent/empty/completed sources,
 reset/re-position, both modes/rates and exact whole/window/stream/partition PCM.
 Runtime tests pin C target application frames and integer/fractional source
 cursors. The legacy frame-clamped Lxx diagnostic is not the semantic clock.
-Qualification/acceptance remains **OPEN**, owned by Gregory's review, original
-Release performance/memory gates and listening decision. No prior performance
-exception transfers; cold before-first and broader XM/backend closure stay open.
+This bounded contract is **CLOSED** by Gregory's merge of PR #538, including its
+expressly approved performance exception. That exception applies only to this
+contract; cold initialization and broader XM/backend closure remain separate.
+
+### Cold volume before the first point
+
+The bounded candidate keeps the existing zero volume-segment seed at the first
+enabled-volume reset until its first point arrives. For `(3,48),(10,16)`, owned
+ticks 0...2 emit zero; tick 3 assigns `12288/16384`, then the existing signed Q8
+slope applies. ED1 births the source on tick 1 and reaches that point on song
+tick 4. Silent PCM sources advance normally; an exact empty route stays empty.
+An uninitialized channel gains no source or envelope clock.
+
+The existing envelope timeline owns one local enabled-volume-history flag per
+channel. Prior pan-only or disabled-volume processing does not initialize volume;
+prior enabled-volume processing remains warm across disabled instruments. Normal
+note-only carry retains its pending point. No direct curve evaluator, pan policy,
+clock owner, source route, C state or mixer DSP changes.
+
+`XMColdVolumeEnvelopeTests` and the original public ED1 fixture pin both modes
+and rates, immediate/ED0/ED1 controls, zero-time and single/segmented points,
+disabled/pan history, source/empty ownership and window/partition delivery.
+Acceptance/resource qualification remains **OPEN**. Warm resets can retain native
+accumulator/slope before the first point; explicit before-first Lxx has separate
+quirks. Those residuals remain owned by a subsequent effects follow-up. This
+candidate does not zero every reset or change unusual release precedence.
 
 ## Independently measured reference
 

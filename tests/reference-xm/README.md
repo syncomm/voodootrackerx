@@ -969,3 +969,9 @@ rounding remain separate from VTX's Float interpolation. G30B closes bounded
 extreme admission, carried periods, signed arithmetic and
 target/direction policy above. Final combined G30 verification remains open.
 No reference WAVs are included.
+
+`cold-volume-envelope-start.xm` is an original eight-row, four-channel cold
+volume-envelope control with points `(3,48),(10,16)`. Channel 1 starts audible
+PCM on ED1; channel 2 starts zero-header PCM; channel 3 selects an exact empty
+slot, while channel 0 stays uninitialized. Before the first point, the source
+advances with a zero envelope. Warm reset/seek and pan semantics are separate.

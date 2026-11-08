@@ -196,8 +196,10 @@ host.
   Direct and carried volume factors use signed Q8 slopes with exact point
   reassignment under the bounded G31 contract. Pan retains Float interpolation;
   volume-Lxx now qualifies exact loop ends immediately and preserves past-end
-  traversal through the existing segment state. Its acceptance/performance gates
-  and the separate cold before-first initialization difference remain open.
+  traversal through the existing segment state, accepted in PR #538 with its
+  contract-specific performance exception. The bounded cold volume initialization
+  candidate retains zero before the first point without delaying source birth;
+  qualification, warm before-first resets and explicit-seek quirks remain open.
   Non-retriggering resets use a 5 ms transition from current audible output
   through that same state. Ordinary instrument-only cells restore the last
   selected declared header's cached volume/pan and reset channel semantics;

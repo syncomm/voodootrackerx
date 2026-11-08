@@ -16003,6 +16003,187 @@
         "bpm": 125,
         "flags": 1
       }
+    },
+    {
+      "id": "cold-volume-envelope-start",
+      "name": "cold-volume-envelope-start.xm",
+      "purpose": "Original cold nonzero-first volume-envelope ED1 source, zero-header PCM, exact empty route and uninitialized-channel controls.",
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "xm_output": "generated/cold-volume-envelope-start.xm",
+      "significant_rows": [
+        "0: ch0 uninitialized; ch1 ED1 audible; ch2 zero-header PCM; ch3 declared empty"
+      ],
+      "intended_tests": [
+        "XMColdVolumeEnvelopeTests",
+        "RuntimeCMixerTests cold volume envelope"
+      ],
+      "unsupported_semantics": [
+        "warm before-first resets and explicit Lxx",
+        "pan arithmetic and unusual release precedence"
+      ],
+      "module": {
+        "title": "VTX COLD ED1",
+        "tracker_name": "VTX SYNTH FIXTURE",
+        "channels": 4,
+        "orders": [
+          0
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "bpm": 125,
+        "flags": 1,
+        "patterns": [
+          {
+            "rows": 8,
+            "events": [
+              {
+                "row": 0,
+                "channel": 1,
+                "note": 49,
+                "instrument": 1,
+                "volume_column": 0,
+                "effect_type": 14,
+                "effect_parameter": 209
+              },
+              {
+                "row": 0,
+                "channel": 2,
+                "note": 50,
+                "instrument": 1,
+                "volume_column": 0,
+                "effect_type": 0,
+                "effect_parameter": 0
+              },
+              {
+                "row": 0,
+                "channel": 3,
+                "note": 51,
+                "instrument": 1,
+                "volume_column": 0,
+                "effect_type": 0,
+                "effect_parameter": 0
+              }
+            ]
+          }
+        ],
+        "instruments": [
+          {
+            "name": "Independently authored",
+            "samples": [
+              {
+                "slot": 0,
+                "name": "public constant",
+                "encoding": "signed_16_bit_delta_pcm",
+                "pcm_recipe": {
+                  "waveform": "constant",
+                  "amplitude": 1024,
+                  "frame_count": 256,
+                  "period_frames": 16
+                },
+                "volume": 64,
+                "panning": 128,
+                "finetune": 0,
+                "relative_note": 0,
+                "loop": {
+                  "mode": "forward",
+                  "start_frame": 0,
+                  "length_frames": 256
+                },
+                "pcm_sha256": "7d38ca65fbbeb9a022b9dd6a106de57a3b07185270231b696332911f86cff019"
+              },
+              {
+                "slot": 1,
+                "name": "public constant",
+                "encoding": "signed_16_bit_delta_pcm",
+                "pcm_recipe": {
+                  "waveform": "constant",
+                  "amplitude": 1024,
+                  "frame_count": 256,
+                  "period_frames": 16
+                },
+                "volume": 0,
+                "panning": 128,
+                "finetune": 0,
+                "relative_note": 0,
+                "loop": {
+                  "mode": "forward",
+                  "start_frame": 0,
+                  "length_frames": 256
+                },
+                "pcm_sha256": "7d38ca65fbbeb9a022b9dd6a106de57a3b07185270231b696332911f86cff019"
+              },
+              {
+                "slot": 2,
+                "name": "empty",
+                "encoding": "signed_8_bit_delta_pcm",
+                "pcm_recipe": {
+                  "waveform": "constant",
+                  "amplitude": 1,
+                  "frame_count": 0,
+                  "period_frames": 16
+                },
+                "volume": 64,
+                "panning": 128,
+                "finetune": 0,
+                "relative_note": 0,
+                "loop": {
+                  "mode": "none",
+                  "start_frame": 0,
+                  "length_frames": 0
+                },
+                "pcm_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              }
+            ],
+            "volume_envelope": {
+              "enabled": true,
+              "points": [
+                [3, 48],
+                [10, 16]
+              ],
+              "type_flags": 1,
+              "sustain_point": null,
+              "loop_start_point": null,
+              "loop_end_point": null
+            },
+            "panning_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            },
+            "fadeout": 0,
+            "autovibrato": {
+              "type": 0,
+              "sweep": 0,
+              "depth": 0,
+              "rate": 0
+            },
+            "note_sample_map": [
+              {
+                "start_note": 1,
+                "end_note": 49,
+                "sample": 0
+              },
+              {
+                "start_note": 50,
+                "end_note": 50,
+                "sample": 1
+              },
+              {
+                "start_note": 51,
+                "end_note": 51,
+                "sample": 2
+              },
+              {
+                "start_note": 52,
+                "end_note": 96,
+                "sample": 0
+              }
+            ]
+          }
+        ]
+      },
+      "xm_sha256": "5f7919e5b2d13d01947ccfea6b1007085c1060d9dcbbc2e280628edc290e3568",
+      "xm_size_bytes": 1792
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

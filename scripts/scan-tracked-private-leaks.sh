@@ -80,6 +80,7 @@ is_allowed_tracker_fixture() {
     tests/reference-xm/generated/extreme-pitch-state-amiga.xm | \
     tests/reference-xm/generated/volume-envelope-q8.xm | \
     tests/reference-xm/generated/volume-lxx-loop-end.xm | \
+    tests/reference-xm/generated/cold-volume-envelope-start.xm | \
     tests/reference-xm/generated/extreme-pitch-state-linear.xm | \
     tests/reference-xm/generated/cold-tone-portamento-initialization.xm | \
     tests/reference-xm/generated/tone-portamento-retained-source-reset.xm | \

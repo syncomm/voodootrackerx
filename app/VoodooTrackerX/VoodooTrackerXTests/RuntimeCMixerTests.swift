@@ -1979,6 +1979,13 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
+    func testColdVolumeEnvelopeSharesRuntimeTargetsAndWindowState() throws {
+        let fixture = try referenceXMFixtureURL("generated/cold-volume-envelope-start.xm")
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)
+        try assertXMEnvelopeRuntimeParity(song)
+    }
+
+    @MainActor
     func testVolumeLxxLoopEndSharesExactCoreTargetsFramesAndSourceCursors() throws {
         let fixture = try referenceXMFixtureURL("generated/volume-lxx-loop-end.xm")
         let original = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: fixture.path), modulePath: fixture.path)

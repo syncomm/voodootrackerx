@@ -1107,6 +1107,114 @@ final class R02ReplacementParityTests: XCTestCase {
 }
 
 final class RuntimeCMixerColdPlanAssemblyTests: XCTestCase {
+    func testRowEffectCategoriesShareStorageAcrossRepeatedOrderedShapes() throws {
+        let noteLabels = Set(["note_trigger", "replacement", "sample_offset", "key_off"])
+        var sharedGroups = 0
+        for name in ["vibrato-semantics", "fine-pitch-directional-memory",
+                     "extra-fine-pitch-directional-memory", "fine-volume-directional-memory"] {
+            let plan = try categoryFixture(name)
+            let selected = plan.events.filter { event in
+                switch event.action {
+                case .noteTrigger: return event.categories.allSatisfy(noteLabels.contains)
+                case .gainPanUpdate: return true
+                case .stepUpdate:
+                    return event.categories.contains { ["vibrato_update", "e1x_fine_portamento_up",
+                        "e2x_fine_portamento_down", "xxy_extra_fine_portamento"].contains($0) }
+                default: return false
+                }
+            }
+            for (labels, events) in Dictionary(grouping: selected, by: \.categories) where events.count > 1 {
+                sharedGroups += 1
+                for next in events.dropFirst() { assertCategoryStorageShared(events[0].categories, next.categories) }
+                XCTAssertEqual(events.map(\.categories), Array(repeating: labels, count: events.count))
+            }
+        }
+        XCTAssertGreaterThan(sharedGroups, 8)
+    }
+
+    func testSharedCategoryCopyMutationCannotChangePublishedPlanOrQueue() throws {
+        let plan = try categoryFixture("vibrato-semantics")
+        let original = try XCTUnwrap(plan.events.first { $0.categories.contains("vibrato_update") })
+        let expected = original.categories
+        let json = try JSONEncoder().encode(plan.events.map(\.categories))
+        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 48_000), maximumRenderFrames: 4096)
+        let configured = core.configureAdapterEventSchedule(plan.eventStorage, runtimeFrameOffset: 0)
+        XCTAssertTrue(configured.planStorageShared)
+        XCTAssertEqual(configured.fullQueuedEventCopyCount, 0)
+        let retained = core.adapterEventScheduleForTesting()
+        let queued = try XCTUnwrap(retained.events.first { $0.id == original.id })
+        assertCategoryStorageShared(original.categories, queued.categories)
+        var clientCopy = original.categories
+        clientCopy[0] = "client_only"
+        clientCopy.append("client_only")
+        XCTAssertEqual(queued.categories, expected)
+        XCTAssertEqual(try JSONEncoder().encode(plan.events.map(\.categories)), json)
+        original.categories.withUnsafeBufferPointer { source in
+            clientCopy.withUnsafeBufferPointer { changed in XCTAssertNotEqual(source.baseAddress, changed.baseAddress) }
+        }
+        core.clearAdapterEventSchedule()
+        XCTAssertEqual(queued.categories, expected)
+        XCTAssertEqual(plan.events.first { $0.id == original.id }?.categories, expected)
+    }
+
+    func testEmptyDuplicateAndRareCategoriesSurviveAssemblyNativeDiagnosticsAndJSON() throws {
+        let labels = [[], ["dup", "dup"], ["step_update", "vibrato_update", "effect_memory_reused",
+            "6xy_vibrato_memory_applied", "vibrato_volume_slide_6xy"]]
+        let input = labels.enumerated().map { index, categories in
+            let update = PlaybackXMChannelUpdate(channelIndex: 0, instrumentIndex: 1, sampleIndex: nil,
+                sourceEventIndex: nil, source: .init(orderIndex: 0, patternIndex: 0, rowIndex: index),
+                tick: 0, scheduledFrame: index, bpm: 125, speed: 6, state: .init(), selectionFrame: index)
+            return event(index, index, categories: categories, action: .channelSemanticUpdate(update))
+        }
+        let result = assemble(Array(input.reversed()))
+        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 100, channelCount: 1), maximumRenderFrames: 8)
+        let configured = core.configureAdapterEventSchedule(RuntimeCMixerAdapterEventStorage(events: result.events), runtimeFrameOffset: 0)
+        XCTAssertTrue(configured.planStorageShared)
+        XCTAssertTrue(renderRuntimePCM(core, frames: 4).allSatisfy { $0 == 0 })
+        let applied = core.drainAppliedAdapterEventDiagnostics()
+        XCTAssertEqual(applied.map { $0.event.categories }, labels)
+        XCTAssertEqual(applied.map(\.appliedFrame), [0, 1, 2])
+        XCTAssertEqual(try JSONEncoder().encode(applied.map { $0.event.categories }), try JSONEncoder().encode(labels))
+        var emptyCopy = result.events[0].categories
+        var duplicateCopy = result.events[1].categories
+        emptyCopy.append("client_only"); duplicateCopy.removeLast()
+        XCTAssertEqual(result.events.map(\.categories), labels)
+    }
+
+    func testRareAmigaNoteMetadataRetainsExactOrderedCategoryValues() throws {
+        let plan = try categoryFixture("amiga-fine-extra-fine-finetune")
+        let notes = plan.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+        let expected: [[String]: Int] = [
+            ["note_trigger", "amiga_frequency_table", "amiga_period_sample_step"]: 14,
+            ["note_trigger", "amiga_frequency_table", "amiga_period_sample_step", "key_off"]: 5,
+            ["note_trigger", "replacement", "amiga_frequency_table", "amiga_period_sample_step"]: 4,
+            ["note_trigger", "replacement", "e1x_fine_portamento_up", "amiga_frequency_table", "amiga_period_sample_step"]: 2,
+            ["note_trigger", "replacement", "e2x_fine_portamento_down", "amiga_frequency_table", "amiga_period_sample_step"]: 2,
+            ["note_trigger", "replacement", "e5x_set_finetune", "amiga_frequency_table", "amiga_period_sample_step"]: 21,
+            ["note_trigger", "replacement", "xxy_extra_fine_portamento", "x1x_extra_fine_portamento_up",
+                "amiga_frequency_table", "amiga_period_sample_step"]: 2,
+            ["note_trigger", "replacement", "xxy_extra_fine_portamento", "x2x_extra_fine_portamento_down",
+                "amiga_frequency_table", "amiga_period_sample_step"]: 2,
+        ]
+        XCTAssertEqual(Dictionary(grouping: notes, by: \.categories).mapValues(\.count), expected)
+    }
+
+    private func categoryFixture(_ name: String) throws -> RuntimeCMixerAdapterEventPlan {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let path = root.appendingPathComponent("tests/reference-xm/generated/\(name).xm").path
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: path), modulePath: path)
+        return RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+    }
+
+    private func assertCategoryStorageShared(_ lhs: [String], _ rhs: [String],
+                                             file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(lhs.isEmpty, file: file, line: line)
+        lhs.withUnsafeBufferPointer { a in
+            rhs.withUnsafeBufferPointer { b in XCTAssertEqual(a.baseAddress, b.baseAddress, file: file, line: line) }
+        }
+    }
+
     func testRareChannelPayloadDoesNotDetermineEveryEventSlotWidth() {
         XCTAssertLessThan(MemoryLayout<RuntimeCMixerAdapterEventAction>.stride,
             MemoryLayout<PlaybackXMChannelUpdate>.stride)

@@ -17,4 +17,6 @@ if [ $MISSING -ne 0 ]; then
   exit 2
 fi
 
+python3 -B tools/check_effect_status.py
+
 echo "Basic file check passed."

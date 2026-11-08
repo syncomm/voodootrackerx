@@ -7,14 +7,15 @@ enum RuntimeCMixerAdapterEventSource: String, Equatable {
 }
 
 enum RuntimeCMixerAdapterEventAction: Equatable {
-    // Box only the large trigger payload during planning, keeping every semantic tick compact.
+    // Keep the large trigger payload indirect during planning.
     indirect case noteTrigger(eventIndex: Int, event: SyntheticTrackerEvent, mapping: PlaybackSongSyntheticEventMapping)
     case gainPanUpdate(activeEventIndex: Int, gain: Float?, pan: Float?)
     case stepUpdate(activeEventIndex: Int, playbackStep: Double)
     case envelopePositionUpdate(activeEventIndex: Int, positionFrame: Int)
     case playbackStateChange(activeEventIndex: Int, change: MixerPlaybackStateChange)
     case envelopeSemanticUpdate(activeEventIndex: Int, state: MixerEnvelopeSemanticState)
-    case channelSemanticUpdate(PlaybackXMChannelUpdate)
+    // Source-less ticks are rare; their widest payload must not inflate every event slot.
+    indirect case channelSemanticUpdate(PlaybackXMChannelUpdate)
     case sourceStop(activeEventIndex: Int, retireSong: Bool = false)
     case audibleTargetUpdate(PlaybackXMAudibleUpdate)
     // Compatibility observation: ECx's audibleTargetUpdate owns the volume transition.

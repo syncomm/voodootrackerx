@@ -637,6 +637,60 @@ final class PatternDelayRuntimeTests: XCTestCase {
 
 /// G37A/G38B pattern-local visits enter the existing runtime schedule as distinct generations.
 final class ImplicitPatternLoopRuntimeTests: XCTestCase {
+    func testSelectedOrderAndCursorStructuralE60KeepExactNativeBirths() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for cursorStart in [false, true] {
+            let wave = [0, 18, 34, 44, 48, 44, 34, 18, 0, -18, -34, -44, -48, -44, -34, -18]
+            let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
+                pcm: (0..<64).map { Float(wave[$0 % 16]) / 128 }, volume: 1,
+                panning: 128, relativeNote: 0, finetune: 0, baseSampleRate: 8363,
+                loopStart: 0, loopLength: 64, loopType: 1)
+            let notes: [[UInt8]] = [[49, 51, 53, 54], [56, 58, 60, 61]]
+            let patterns = notes.enumerated().map { pattern, notes in
+                PlaybackPattern(index: pattern, rows: notes.enumerated().map { row, note in
+                    let anchor = row == 1 && (pattern == 0 || cursorStart)
+                    let repeatLoop = pattern == 1 && row == 2
+                    return PlaybackRow(index: row, cells: [PlaybackCell(note: note, instrument: 1,
+                        volumeColumn: 0, effectType: anchor || repeatLoop ? 14 : 0,
+                        effectParam: anchor ? 0x60 : (repeatLoop ? 0x61 : 0)),
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0,
+                            effectType: pattern == 1 && row == 0 ? 14 : 0,
+                            effectParam: pattern == 1 && row == 0 ? 0x60 : 0)])
+                })
+            }
+            let song = PlaybackSong(title: "Public structural cursor E60 control",
+                orders: [.init(orderIndex: 0, patternIndex: 0), .init(orderIndex: 1, patternIndex: 1)],
+                patternsByIndex: Dictionary(uniqueKeysWithValues: patterns.map { ($0.index, $0) }),
+                instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+                restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125),
+                usesLinearFrequencyTable: linear)
+            let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let rowFrames = 6 * Int(rate / 50), firstGeneration = cursorStart ? 6 : 4
+            // VTX cursor audition may discover this pattern/channel's structural E60.
+            // It does not grant executed state from unplayed rows or previous patterns.
+            let expectedRows = cursorStart ? [2, 1, 2, 3] : [0, 1, 2, 0, 1, 2, 3]
+            let expectedIDs = Array(firstGeneration..<(firstGeneration + expectedRows.count))
+            let offset = -firstGeneration * rowFrames
+            let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate), maximumRenderFrames: 4096,
+                outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            let configured = core.configureAdapterEventSchedule(runtime.eventStorage, runtimeFrameOffset: offset)
+            XCTAssertTrue(configured.planStorageShared)
+            let end = expectedRows.count * rowFrames
+            var pcm = [Float](), frame = 0
+            while frame < end {
+                let count = min(257, end - frame)
+                pcm += renderRuntimePCM(core, frames: count); frame += count
+            }
+            XCTAssertTrue(pcm.contains { $0 != 0 })
+            let applied = core.drainAppliedAdapterEventDiagnostics()
+            let births = applied.filter { if case .noteTrigger = $0.event.action { return true }; return false }
+            XCTAssertEqual(births.map { $0.event.source.rowIndex }, expectedRows)
+            XCTAssertEqual(births.map { $0.event.id }, expectedIDs)
+            XCTAssertEqual(births.map { $0.event.activeEventIndex }, expectedIDs.map(Optional.some))
+            XCTAssertEqual(births.map(\.appliedFrame), expectedRows.indices.map { UInt64($0 * rowFrames) })
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+        } } }
+    }
+
     func testImplicitLoopBirthFramesCursorAndPCMMatchWholeOffline() throws {
         for linear in [true, false] { for rate in [44_100.0, 48_000] { for boundary in 0..<4 {
             let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0,
@@ -1053,6 +1107,66 @@ final class R02ReplacementParityTests: XCTestCase {
 }
 
 final class RuntimeCMixerColdPlanAssemblyTests: XCTestCase {
+    func testRareChannelPayloadDoesNotDetermineEveryEventSlotWidth() {
+        XCTAssertLessThan(MemoryLayout<RuntimeCMixerAdapterEventAction>.stride,
+            MemoryLayout<PlaybackXMChannelUpdate>.stride)
+        XCTAssertLessThanOrEqual(MemoryLayout<RuntimeCMixerAdapterEvent>.stride, 192)
+    }
+
+    func testRareChannelPayloadRetainsValueEqualityAndEveryOptionalField() {
+        for populated in [false, true] {
+            let source = PlaybackPosition(orderIndex: 3, patternIndex: 7, rowIndex: 9)
+            var update = PlaybackXMChannelUpdate(channelIndex: 2, instrumentIndex: 4,
+                sampleIndex: populated ? 15 : nil, sourceEventIndex: populated ? 31 : nil,
+                source: source, tick: 3, scheduledFrame: 12, bpm: 137, speed: 5,
+                state: .init(volumeTick: 17, panTick: 23, keyOn: false,
+                    fadeoutAccumulator: 12345, volumeValue: 0.375, panValue: 0.75),
+                carriedInstrumentIndex: populated ? 6 : nil,
+                cachedDefaultVolume: populated ? 0 : nil,
+                cachedDefaultPan: populated ? 255 : nil, selectionFrame: 8)
+            let original = RuntimeCMixerAdapterEvent(id: 11, source: source, channelIndex: 2,
+                syntheticTick: 3, scheduledFrame: 12, action: .channelSemanticUpdate(update),
+                categories: ["xm_channel_semantic_tick", "duplicate", "duplicate"],
+                effectType: 14, effectParam: 0, volumeColumn: populated ? 255 : nil)
+            XCTAssertEqual(original.action, .channelSemanticUpdate(update))
+            let result = assemble([original, event(2, 0)])
+            XCTAssertEqual(result.events, [event(2, 0), original])
+            XCTAssertEqual(result.events[1].activeEventIndex, update.sourceEventIndex)
+            guard case let .channelSemanticUpdate(retained) = result.events[1].action else {
+                return XCTFail("Missing channel semantic value")
+            }
+            XCTAssertEqual(retained, update)
+            XCTAssertEqual(result.events[1].categories, original.categories)
+            update.selectionFrame += 1
+            XCTAssertNotEqual(original.action, .channelSemanticUpdate(update))
+        }
+    }
+
+    func testRareChannelPayloadSharesQueueStorageAndDispatchesWithoutInventingAVoice() throws {
+        let update = PlaybackXMChannelUpdate(channelIndex: 0, instrumentIndex: 3, sampleIndex: nil,
+            sourceEventIndex: nil, source: .init(orderIndex: 1, patternIndex: 2, rowIndex: 3),
+            tick: 1, scheduledFrame: 6, bpm: 125, speed: 6, state: .init(),
+            carriedInstrumentIndex: 3, cachedDefaultVolume: 0, cachedDefaultPan: 255, selectionFrame: 6)
+        let original = event(7, 6, categories: ["xm_channel_semantic_tick"],
+            action: .channelSemanticUpdate(update))
+        let storage = RuntimeCMixerAdapterEventStorage(events: [original])
+        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 100, channelCount: 1), maximumRenderFrames: 64)
+        let configured = core.configureAdapterEventSchedule(storage, runtimeFrameOffset: 0)
+        XCTAssertTrue(configured.planStorageShared)
+        XCTAssertEqual(configured.fullQueuedEventCopyCount, 0)
+        let retained = core.adapterEventScheduleForTesting()
+        storage.events.withUnsafeBufferPointer { source in
+            retained.events.withUnsafeBufferPointer { queued in XCTAssertEqual(source.baseAddress, queued.baseAddress) }
+        }
+        XCTAssertTrue(renderRuntimePCM(core, frames: 8).allSatisfy { $0 == 0 })
+        let applied = try XCTUnwrap(core.drainAppliedAdapterEventDiagnostics().first)
+        XCTAssertEqual(applied.event, original)
+        XCTAssertEqual(applied.appliedFrame, 6)
+        XCTAssertEqual(applied.eventFrameDelta, 0)
+        XCTAssertEqual(core.channelSemanticStateForTesting(0), update)
+        XCTAssertEqual(core.snapshot().activeVoiceCount, 0)
+    }
+
     func testTriggerPayloadRemainsCompactAndSharesPCMThroughPermutation() {
         let original = event(4, 2, action: trigger())
         let result = assemble([original, event(1, 0)])

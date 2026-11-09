@@ -318,6 +318,70 @@ struct RuntimeCMixerAdapterEventLoopRange: Equatable {
     }
 }
 
+/// Plan-local immutable shapes; events retain Array values with ordinary COW isolation.
+private struct RuntimeCMixerRowEffectCategories {
+    // Bits select replacement, sample offset and key-off in their established order.
+    let note: [[String]] = (0..<8).map { flags in
+        var result = ["note_trigger"]
+        if flags & 1 != 0 { result.append("replacement") }
+        if flags & 2 != 0 { result.append("sample_offset") }
+        if flags & 4 != 0 { result.append("key_off") }
+        return result
+    }
+    let gain = ["gain_pan_update"]
+    let tremolo = ["gain_pan_update", "tremolo_7xy"]
+    let tremoloMemory = ["gain_pan_update", "tremolo_7xy", "effect_memory_reused"]
+    let globalSet = ["gain_pan_update", "gxx_global_volume_update", "global_volume_update"]
+    let globalChannel = ["gain_pan_update", "gxx_channel_target", "global_volume_update"]
+    let globalChannelSet = ["gain_pan_update", "gxx_channel_target", "global_volume_update", "gxx_global_volume_update"]
+    let globalSlide = ["gain_pan_update", "hxy_global_volume_update", "global_volume_update"]
+    let globalSlideChannel = ["gain_pan_update", "hxy_channel_target", "global_volume_update"]
+    let volumeSlide = ["gain_pan_update", "axy_volume_slide"]
+    let volumeSlideMemory = ["gain_pan_update", "axy_volume_slide", "effect_memory_reused", "axy_volume_slide_memory_reused"]
+    let volumeColumn = ["gain_pan_update", "volume_column_update"]
+    let panSlide = ["gain_pan_update", "pxy_panning_slide"]
+    let panSlideMemory = ["gain_pan_update", "pxy_panning_slide", "effect_memory_reused"]
+    let instrumentDefault = ["gain_pan_update", "instrument_default_volume_update"]
+    let fineVolumeUp = ["gain_pan_update", "eax_fine_volume_slide_up"]
+    let fineVolumeUpMemory = ["gain_pan_update", "eax_fine_volume_slide_up", "effect_memory_reused"]
+    let fineVolumeDown = ["gain_pan_update", "ebx_fine_volume_slide_down"]
+    let fineVolumeDownMemory = ["gain_pan_update", "ebx_fine_volume_slide_down", "effect_memory_reused"]
+    let toneVolume = ["gain_pan_update", "tone_portamento_volume_slide_5xy"]
+    let toneVolumeMemory = ["gain_pan_update", "tone_portamento_volume_slide_5xy", "effect_memory_reused",
+        "tone_portamento_volume_slide_5xy_memory_reused"]
+    let toneVolumeZeroMemory = ["gain_pan_update", "tone_portamento_volume_slide_5xy", "effect_memory_reused",
+        "tone_portamento_volume_slide_5xy_memory_reused", "tone_portamento_volume_slide_5xy_500_memory_reused"]
+    let vibratoVolume = ["gain_pan_update", "vibrato_volume_slide_6xy"]
+    let vibratoVolumeMemory = ["gain_pan_update", "vibrato_volume_slide_6xy", "effect_memory_reused",
+        "vibrato_volume_slide_600_memory_reused"]
+    let vibrato = ["step_update", "vibrato_update"]
+    let vibratoMemory = ["step_update", "vibrato_update", "effect_memory_reused"]
+    let vibrato4Memory = ["step_update", "vibrato_update", "effect_memory_reused", "4xy_vibrato_memory_applied"]
+    let vibrato6 = ["step_update", "vibrato_update", "vibrato_volume_slide_6xy"]
+    let vibrato6Memory = ["step_update", "vibrato_update", "effect_memory_reused", "6xy_vibrato_memory_applied",
+        "vibrato_volume_slide_6xy"]
+    let fineUp = RuntimeCMixerRowEffectCategories.fineShapes("e1x_fine_portamento_up")
+    let fineDown = RuntimeCMixerRowEffectCategories.fineShapes("e2x_fine_portamento_down")
+    // Low bits select memory/cold; groups of four select absent/up/down direction.
+    let extraFine: [[String]] = (0..<12).map { flags in
+        var result = ["step_update", "xxy_extra_fine_portamento"]
+        if flags & 1 != 0 { result.append("effect_memory_reused") }
+        if flags & 2 != 0 { result.append("cold_extra_fine_pitch_restoration") }
+        if flags / 4 == 1 { result.append("x1x_extra_fine_portamento_up") }
+        if flags / 4 == 2 { result.append("x2x_extra_fine_portamento_down") }
+        return result
+    }
+
+    private static func fineShapes(_ label: String) -> [[String]] {
+        (0..<4).map { flags in
+            var result = ["step_update", label]
+            if flags & 1 != 0 { result.append("effect_memory_reused") }
+            if flags & 2 != 0 { result.append("cold_fine_pitch_restoration") }
+            return result
+        }
+    }
+}
+
 struct RuntimeCMixerAdapterEventPlan: Equatable {
     let generated: Bool
     let sampleRate: Double
@@ -504,14 +568,14 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         )
 
         let eventGenerationStart = profileSession?.beginPhase()
+        let rowCategories = RuntimeCMixerRowEffectCategories()
         for (eventIndex, syntheticEvent) in adaptedPlan.pattern.events.enumerated() {
             guard let mapping = eventMappingsByIndex[eventIndex] else {
                 continue
             }
-            var categories = ["note_trigger"]
-            if seenNoteTriggerChannels.contains(mapping.channelIndex) {
-                categories.append("replacement")
-            }
+            let noteCategoryIndex = (seenNoteTriggerChannels.contains(mapping.channelIndex) ? 1 : 0) |
+                (mapping.sampleOffset.applied ? 2 : 0)
+            var categories = rowCategories.note[noteCategoryIndex]
             seenNoteTriggerChannels.insert(mapping.channelIndex)
             let bridgedPortamentoSlide = appliedPortamentoSlidesByTriggerKey[portamentoSlideTriggerKey(
                 eventIndex: eventIndex,
@@ -519,7 +583,6 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 channelIndex: mapping.channelIndex
             )]
             if mapping.sampleOffset.applied {
-                categories.append("sample_offset")
                 if mapping.sampleOffset.effectMemoryReused {
                     categories.append("effect_memory_reused")
                     if mapping.sampleOffset.effectType == 0x09,
@@ -629,7 +692,13 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             }
             let keyOffDiagnostic = keyOffDiagnosticsByEventIndex[eventIndex]?.first
             if syntheticEvent.keyOffFrame != nil {
-                categories.append("key_off")
+                // All intervening metadata is append-only. Reuse the common shape
+                // only when no rare labels were added; preserve their exact order otherwise.
+                if categories.count == rowCategories.note[noteCategoryIndex].count {
+                    categories = rowCategories.note[noteCategoryIndex | 4]
+                } else {
+                    categories.append("key_off")
+                }
                 if keyOffDiagnostic?.effectType == 0x14 {
                     categories.append("kxx_key_off")
                 }
@@ -687,62 +756,42 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             guard gain != nil || pan != nil else {
                 continue
             }
-            var categories = ["gain_pan_update"]
+            let categories: [String]
             switch update.command {
             case .txyTremor, .txyChannelTarget:
-                break // Final output alone owns physical T gain; pan remains independently deliverable.
+                categories = rowCategories.gain // Final output alone owns physical T gain.
             case .tremolo:
-                categories.append("tremolo_7xy")
-                if update.effectMemoryReused { categories.append("effect_memory_reused") }
+                categories = update.effectMemoryReused ? rowCategories.tremoloMemory : rowCategories.tremolo
             case .gxxSetGlobalVolume:
-                categories.append("gxx_global_volume_update")
-                categories.append("global_volume_update")
+                categories = rowCategories.globalSet
             case let .gxxChannelTarget(_, reason):
-                categories.append("gxx_channel_target")
-                categories.append("global_volume_update")
-                if reason == "global_volume_set" { categories.append("gxx_global_volume_update") }
+                categories = reason == "global_volume_set" ? rowCategories.globalChannelSet : rowCategories.globalChannel
             case .hxyGlobalVolumeSlide:
-                categories.append("hxy_global_volume_update")
-                categories.append("global_volume_update")
+                categories = rowCategories.globalSlide
             case .hxyChannelTarget:
-                categories.append("hxy_channel_target")
-                categories.append("global_volume_update")
+                categories = rowCategories.globalSlideChannel
             case .axyVolumeSlide:
-                categories.append("axy_volume_slide")
-                if update.effectMemoryReused {
-                    categories.append("effect_memory_reused")
-                    categories.append("axy_volume_slide_memory_reused")
-                }
+                categories = update.effectMemoryReused ? rowCategories.volumeSlideMemory : rowCategories.volumeSlide
             case .volumeColumn:
-                categories.append("volume_column_update")
+                categories = rowCategories.volumeColumn
             case .pxyPanningSlide:
-                categories.append("pxy_panning_slide")
-                if update.effectMemoryReused { categories.append("effect_memory_reused") }
+                categories = update.effectMemoryReused ? rowCategories.panSlideMemory : rowCategories.panSlide
             case .instrumentDefaultVolume:
-                categories.append("instrument_default_volume_update")
+                categories = rowCategories.instrumentDefault
             case .eaxFineVolumeSlideUp:
-                categories.append("eax_fine_volume_slide_up")
-                if update.effectMemoryReused { categories.append("effect_memory_reused") }
+                categories = update.effectMemoryReused ? rowCategories.fineVolumeUpMemory : rowCategories.fineVolumeUp
             case .ebxFineVolumeSlideDown:
-                categories.append("ebx_fine_volume_slide_down")
-                if update.effectMemoryReused { categories.append("effect_memory_reused") }
+                categories = update.effectMemoryReused ? rowCategories.fineVolumeDownMemory : rowCategories.fineVolumeDown
             case .effect5xyVolumeSlide:
-                categories.append("tone_portamento_volume_slide_5xy")
                 if update.effectMemoryReused {
-                    categories.append("effect_memory_reused")
-                    categories.append("tone_portamento_volume_slide_5xy_memory_reused")
-                    if update.effectParam == 0 {
-                        categories.append("tone_portamento_volume_slide_5xy_500_memory_reused")
-                    }
+                    categories = update.effectParam == 0 ? rowCategories.toneVolumeZeroMemory : rowCategories.toneVolumeMemory
+                } else {
+                    categories = rowCategories.toneVolume
                 }
             case .effect6xyVolumeSlide:
-                categories.append("vibrato_volume_slide_6xy")
-                if update.effectMemoryReused {
-                    categories.append("effect_memory_reused")
-                    categories.append("vibrato_volume_slide_600_memory_reused")
-                }
+                categories = update.effectMemoryReused ? rowCategories.vibratoVolumeMemory : rowCategories.vibratoVolume
             default:
-                break
+                categories = rowCategories.gain
             }
             events.append(RuntimeCMixerAdapterEvent(
                 id: nextID,
@@ -762,20 +811,14 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             vibrato: adaptedPlan.diagnostics.vibratoEffects)
         func appendVibrato(_ diagnostic: PlaybackSongSyntheticVibratoDiagnostic) {
             guard let activeEventIndex = diagnostic.activeEventIndex else { return }
+            let categories: [String]
+            if diagnostic.effectMemoryReused {
+                categories = diagnostic.effectType == 0x04 ? rowCategories.vibrato4Memory :
+                    (diagnostic.effectType == 0x06 ? rowCategories.vibrato6Memory : rowCategories.vibratoMemory)
+            } else {
+                categories = diagnostic.effectType == 0x06 ? rowCategories.vibrato6 : rowCategories.vibrato
+            }
             for update in diagnostic.stepUpdates {
-                var categories = ["step_update", "vibrato_update"]
-                if diagnostic.effectMemoryReused {
-                    categories.append("effect_memory_reused")
-                    if diagnostic.effectType == 0x04 {
-                        categories.append("4xy_vibrato_memory_applied")
-                    }
-                    if diagnostic.effectType == 0x06 {
-                        categories.append("6xy_vibrato_memory_applied")
-                    }
-                }
-                if diagnostic.effectType == 0x06 {
-                    categories.append("vibrato_volume_slide_6xy")
-                }
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,
                     source: diagnostic.source,
@@ -869,6 +912,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
+            let categories = rowCategories.fineUp[(diagnostic.execution.effectMemoryReused ? 1 : 0) |
+                (diagnostic.execution.cold ? 2 : 0)]
             for update in diagnostic.stepUpdates {
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,
@@ -877,9 +922,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     syntheticTick: update.syntheticTick,
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
-                    categories: ["step_update", "e1x_fine_portamento_up"] +
-                        (diagnostic.execution.effectMemoryReused ? ["effect_memory_reused"] : []) +
-                        (diagnostic.execution.cold ? ["cold_fine_pitch_restoration"] : []),
+                    categories: categories,
                     effectType: diagnostic.effectType,
                     effectParam: diagnostic.effectParam
                 ))
@@ -891,6 +934,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
+            let categories = rowCategories.fineDown[(diagnostic.execution.effectMemoryReused ? 1 : 0) |
+                (diagnostic.execution.cold ? 2 : 0)]
             for update in diagnostic.stepUpdates {
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,
@@ -899,9 +944,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     syntheticTick: update.syntheticTick,
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
-                    categories: ["step_update", "e2x_fine_portamento_down"] +
-                        (diagnostic.execution.effectMemoryReused ? ["effect_memory_reused"] : []) +
-                        (diagnostic.execution.cold ? ["cold_fine_pitch_restoration"] : []),
+                    categories: categories,
                     effectType: diagnostic.effectType,
                     effectParam: diagnostic.effectParam
                 ))
@@ -913,15 +956,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
+            let direction = diagnostic.direction == .up ? 4 : (diagnostic.direction == .down ? 8 : 0)
+            let categories = rowCategories.extraFine[direction |
+                (diagnostic.execution.effectMemoryReused ? 1 : 0) | (diagnostic.execution.cold ? 2 : 0)]
             for update in diagnostic.stepUpdates {
-                var categories = ["step_update", "xxy_extra_fine_portamento"]
-                if diagnostic.execution.effectMemoryReused { categories.append("effect_memory_reused") }
-                if diagnostic.execution.cold { categories.append("cold_extra_fine_pitch_restoration") }
-                if diagnostic.direction == .up {
-                    categories.append("x1x_extra_fine_portamento_up")
-                } else if diagnostic.direction == .down {
-                    categories.append("x2x_extra_fine_portamento_down")
-                }
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,
                     source: diagnostic.source,

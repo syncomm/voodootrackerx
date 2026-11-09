@@ -280,6 +280,15 @@ governs canonical/editable routing and the read-only compatibility boundary.
 
 ## Maintainer-local temporary outputs (mandatory)
 
+The designated `/private/tmp/vtx-.../` evidence root covers intentionally generated
+Codex and project diagnostic outputs. Incidental files managed by macOS, AppKit,
+CoreAudio, or other platform services, including caches and saved application
+state, do not violate this policy or block launches or qualification. Do not
+redirect or reconstruct those files solely for confinement; investigate actual
+crashes, data loss, or benchmark interference separately. Private-corpus and
+generated-artifact protections and the canonical repo-root `build/` policy remain
+in force.
+
 - For **all local VTX/Codex tasks**, write generated temporary WAV/M4A/XM,
   audition clips, traces, captures, JSON, reports, logs, benchmark evidence,
   diagnostic executables, isolated builds, and scratch worktrees **only under

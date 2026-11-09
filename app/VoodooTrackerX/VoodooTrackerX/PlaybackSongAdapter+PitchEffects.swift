@@ -2144,6 +2144,24 @@ extension PlaybackSongSyntheticAdapter {
         let executionCount = (columnVibrato ? 1 : 0) + (effectVibrato ? 1 : 0)
         let delayedNote = timingConfig.patternDelayCycles > 0 &&
             ((1...96).contains(cell.note) || (cell.note == 0 && cell.instrument > 0)) && cell.effectType == 14 && cell.effectParam >> 4 == 13
+        // Only a fresh ordinary 4xy list owns this reservation. Bound the existing
+        // dispatch span to ordinary XM speeds; held/composed/inherited paths keep
+        // their append policy. Valid converter inputs guarantee a nonempty list.
+        if effectVibrato, !combined, !columnVibrato, !volumeColumnOnly,
+           precedingInvocations == nil, executionTicks == nil, !executeSemanticPitch,
+           cell.note != 97, timingConfig.patternDelayCycles == 0,
+           (2...31).contains(timingConfig.speed), status == .applied,
+           let basePeriod, basePeriod.isFinite, (0...262_140).contains(basePeriod),
+           let outputPeriodBefore, outputPeriodBefore.isFinite,
+           let stepBefore, stepBefore.isFinite, stepBefore >= 0,
+           let baseSampleRate = channelState.activeSampleBaseSampleRate,
+           baseSampleRate > 0, baseSampleRate <= timingConfig.sampleRate,
+           timingConfig.sampleRate <= 192_000 {
+            // The finite period fits both native conversion domains. The rate
+            // bounds keep the existing Q24/Q16 coefficient products in range.
+            let capacity = timingConfig.nonzeroDispatchTicks.count.addingReportingOverflow(restoreAtRowEnd ? 1 : 0)
+            if !capacity.overflow { updates.reserveCapacity(capacity.partialValue) }
+        }
         for tick in executionTicks ?? (delayedNote ? (1..<timingConfig.speed) : timingConfig.nonzeroDispatchTicks) {
             // Each tick runs Bx first. Effect nibbles then overwrite shared memory
             // before a second execution, including the first tick's old Bx speed.

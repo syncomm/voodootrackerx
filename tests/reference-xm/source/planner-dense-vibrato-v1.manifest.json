@@ -1,0 +1,164 @@
+{
+  "fixtures": [
+    {
+      "id": "planner-dense-vibrato-v1",
+      "intended_tests": [
+        "Opt-in planning/memory stress; structural generator checks; separately bounded planner count validation."
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 32,
+        "flags": 1,
+        "instruments": [
+          {
+            "name": "BASIC SAMPLE",
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "length_frames": 0,
+                  "mode": "none",
+                  "start_frame": 0
+                },
+                "name": "SINE64",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 48,
+                  "frame_count": 64,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "b63bbb990bf1387c29e6a4aded2f83dc546150c1da8504c9e3a6487091d1dc15",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23
+        ],
+        "patterns": [
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}},
+          {"rows": 256,"fill": {"note": 49,"instrument": 1,"volume_column": 0,"effect_type": 4,"effect_parameter": 71}}
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX DENSE VIBRATO V1",
+        "tracker_name": "VTX SYNTH FIXTURE"
+      },
+      "name": "planner-dense-vibrato-v1.xm",
+      "purpose": "Versioned serialization of the original R3A dense-vibrato musical recipe; new XM identity, not the missing historical R2 input.",
+      "significant_rows": [
+        "Every cell: note 49, instrument 1, volume 0, effect 0447; 24 distinct patterns in order."
+      ],
+      "source_manifest": "source/planner-dense-vibrato-v1.manifest.json",
+      "unsupported_semantics": [
+        "Not a musical reference, performance qualification, or substitute for the missing R2 input."
+      ],
+      "xm_output": "generated/planner-dense-vibrato-v1.xm",
+      "xm_sha256": "f845b2b695db526fdcbef4924a598920779fd2b3f6d2028ac0559b67b554cd67",
+      "xm_size_bytes": 983959
+    }
+  ],
+  "generator": "scripts/generate-synthetic-xm-fixtures.py",
+  "generator_revision": 1,
+  "planning_profile": {
+    "adapter_events": 1376256,
+    "note_births": 196608,
+    "rows": 6144,
+    "sample_rate": 48000,
+    "scope": "One bounded 48000-Hz default-origin count check; not routine generator CI or a performance result.",
+    "vibrato_children": 983040
+  },
+  "schema_version": 3,
+  "source_manifest": "source/planner-dense-vibrato-v1.manifest.json",
+  "structural_fingerprint": {
+    "channels": 32,
+    "orders": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23
+    ],
+    "patterns": 24,
+    "populated_cells": 196608,
+    "randomness": "none",
+    "rows_per_pattern": 256,
+    "sample_encoding_bits": 8,
+    "sample_frames": 64,
+    "visited_rows": 6144
+  }
+}

@@ -150,6 +150,20 @@ The canonical maintainer Debug executable is:
 - Changes to parser behavior require focused fixtures and compatibility tests.
 - Use only project-generated, redistribution-safe fixtures in git.
 
+### Reproducible public fixture dependencies
+
+- Before a project-generated XM becomes a cross-session dependency for a test,
+  performance comparison, reference trace, gate, or follow-up PR, commit its
+  reviewed, redistributable source/recipe, explicit fixture version,
+  deterministic regeneration command, and verified SHA-256. Commit small
+  approved XM fixtures as well; keep transient generated binaries, measurements,
+  reports, and audio under `/private/tmp`.
+- A missing or changed input is a named evidence gap. Never silently substitute
+  a similar file or compare incompatible measurements. Future task prompts and
+  handoffs must identify required inputs by repo-relative recipe path/version,
+  command, and hash; a local absolute path is optional convenience, never the
+  sole source of truth.
+
 ### Runtime and rendering
 
 - Keep the macOS app in Swift + AppKit with modular, testable UI components.

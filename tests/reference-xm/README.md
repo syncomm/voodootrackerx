@@ -174,7 +174,7 @@ python3 scripts/generate-synthetic-xm-fixtures.py --write-xm
 python3 scripts/generate-synthetic-xm-fixtures.py --verify
 ```
 
-The default command prints the manifest to stdout and writes no files.
+With the default pack, the command prints the manifest to stdout and writes no files.
 `--write-manifest` writes only
 `tests/reference-xm/source/basic-instrument-sample.manifest.json`.
 `--write-xm` writes only approved generated XM files under
@@ -186,8 +186,66 @@ the filename, byte count, instrument/sample counts, and SHA-256. No command
 emits reference audio.
 
 Generated WAV, JSON, Markdown, trace, log, screenshot, and exploratory render
-artifacts stay under `/tmp` or another ignored local path unless a future PR
-explicitly approves committing that exact artifact.
+artifacts stay under `/private/tmp` (`/tmp` on macOS resolves there), following
+the repository's mandatory temporary-output policy. Only explicitly approved
+public fixtures belong in this pack.
+
+## Versioned performance workload
+
+`source/planner-dense-vibrato-v1.manifest.json` is the original public recipe
+for **planner-dense-vibrato-v1**, using generator revision 1 and manifest schema
+3. It promotes R3A's authored dense-control musical recipe: 24 distinct patterns
+of 256 rows, ordered 0–23, with 32 populated channels. Every cell is C-4,
+instrument 1, volume-column 0 and effect `447`; speed is 6, BPM 125 and frequency
+mode Linear. Its sole sample uses the existing mathematical 64-frame sine recipe
+(8-bit, amplitude 48, period 16), with no loop and disabled envelopes/autovibrato.
+All inputs are original project assets; no external modules or samples are required.
+
+The output is **983,959 bytes**, SHA-256:
+
+```text
+f845b2b695db526fdcbef4924a598920779fd2b3f6d2028ac0559b67b554cd67
+```
+
+The roughly 1 MiB XM is generated only under `/private/tmp`; its binary is not
+part of the approved committed pack. From the repository root, this one-command
+preflight creates a fresh directory, prints the usable output path, generates
+the XM and verifies its pinned hash, byte count and structural fingerprint:
+
+```bash
+env TMPDIR=/private/tmp TMP=/private/tmp TEMP=/private/tmp \
+  python3 -B scripts/generate-synthetic-xm-fixtures.py \
+  --manifest tests/reference-xm/source/planner-dense-vibrato-v1.manifest.json \
+  --fixture planner-dense-vibrato-v1.xm \
+  --output-dir "$(mktemp -d /private/tmp/vtx-planner-dense-v1.XXXXXXXX)" \
+  --write-xm --verify
+```
+
+The expected 48 kHz planner profile is 6,144 visited rows, 196,608 full
+note/cell dispatches, 983,040 vibrato pitch children and 1,376,256 final events.
+A separate bounded one-plan validation checks those runtime counts; routine
+generator tests/preflight verify structure and bytes without creating the large
+runtime graph. Fully populated cells, nonzero-tick effect publication and retained
+event/diagnostic graphs make this a planning/memory stress control; generating
+the XM itself does not require that runtime memory.
+
+This is a **new workload version**, not the absent historical R2 public-heavy
+input (`881cf90ca6ceb16db5b355e88661dcfcd997fea20b8c14f6e7c99f25e726ba1f`).
+The serialized title `VTX DENSE VIBRATO V1` also differs from R3A's 21-character
+in-memory title, which exceeds XM's 20-byte field. Historical R2 measurements
+retain their original input identity. R3B must freshly measure both R2 and its
+candidate on this same versioned fixture with immutable source/image/input
+receipts. The 2,333 ms public-heavy ceiling and all other gates remain unchanged;
+no performance exception or native arm64 qualification follows from generation.
+
+Before any project-generated XM becomes a cross-session test, comparison,
+trace, gate or follow-up dependency, commit its reviewed redistributable
+recipe/source, explicit version, regeneration command and verified SHA-256;
+commit small approved XMs too. Keep transient measurements, reports, audio and
+temporary binaries under `/private/tmp`. A missing/changed input is a named gap,
+never permission to substitute or compare incompatible measurements. Future
+prompts/handoffs must list repo-relative recipe/version, command and hash;
+temporary absolute paths alone are insufficient.
 
 ## Extreme pitch state and independent reset (G30B)
 

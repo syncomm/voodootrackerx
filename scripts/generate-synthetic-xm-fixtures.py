@@ -15,6 +15,7 @@ from typing import Any
 
 GENERATOR_NAME = "scripts/generate-synthetic-xm-fixtures.py"
 SOURCE_MANIFEST = "source/basic-instrument-sample.manifest.json"
+WORKLOAD_MANIFEST = "source/planner-dense-vibrato-v1.manifest.json"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PACK_ROOT = REPO_ROOT / "tests/reference-xm"
 DEFAULT_MANIFEST_PATH = DEFAULT_PACK_ROOT / SOURCE_MANIFEST
@@ -159,8 +160,12 @@ def _validate_sample(sample: dict[str, Any], expected_slot: int, label: str) -> 
 
 
 def _validate_manifest_structure(manifest: dict[str, Any]) -> None:
-    if manifest.get("schema_version") != 2:
-        raise ValueError("schema_version must be 2")
+    if not isinstance(manifest, dict) or manifest.get("schema_version") not in (2, 3):
+        raise ValueError("schema_version must be 2 or 3")
+    if manifest["schema_version"] == 3:
+        _require_int(manifest.get("generator_revision"), 1, 1, "workload generator revision")
+        if manifest.get("source_manifest") != WORKLOAD_MANIFEST:
+            raise ValueError("unsupported workload generator revision or source manifest")
     if manifest.get("generator") != GENERATOR_NAME:
         raise ValueError(f"generator must be {GENERATOR_NAME}")
     fixtures = manifest.get("fixtures")
@@ -181,7 +186,7 @@ def _validate_manifest_structure(manifest: dict[str, Any]) -> None:
             raise ValueError(f"fixture name is invalid or duplicated: {name!r}")
         ids.add(identifier)
         names.add(name)
-        if fixture["source_manifest"] != SOURCE_MANIFEST or fixture["xm_output"] != f"generated/{name}":
+        if fixture["source_manifest"] != _source_path(manifest) or fixture["xm_output"] != f"generated/{name}":
             raise ValueError(f"{label} provenance paths are not canonical")
         module = fixture["module"]
         module_fields = {"title", "tracker_name", "channels", "orders", "patterns", "instruments", "restart_position", "speed", "bpm", "flags"}
@@ -204,11 +209,18 @@ def _validate_manifest_structure(manifest: dict[str, Any]) -> None:
             _require_int(order, 0, len(patterns) - 1, f"{label} order pattern")
         instrument_count = len(module["instruments"])
         for pattern_index, pattern in enumerate(patterns):
-            if set(pattern) != {"rows", "events"}:
+            if not isinstance(pattern, dict) or set(pattern) not in ({"rows", "events"}, {"rows", "fill"}):
                 raise ValueError(f"{label} pattern fields are unsupported")
             rows = _require_int(pattern["rows"], 1, 256, f"{label} pattern rows")
+            events = pattern.get("events", [])
+            if "fill" in pattern:
+                fill = pattern["fill"]
+                if manifest["schema_version"] != 3 or not isinstance(fill, dict) or set(fill) - (EVENT_FIELDS - {"row", "channel"}):
+                    raise ValueError(f"{label} unsupported uniform pattern fill")
+                # Validate one uniform cell without expanding a dense event graph.
+                events = [dict(fill, row=0, channel=0)]
             occupied: set[tuple[int, int]] = set()
-            for event in pattern["events"]:
+            for event in events:
                 extras = set(event) - EVENT_FIELDS
                 if extras:
                     raise ValueError(f"{label} unsupported event fields: {sorted(extras)}")
@@ -268,6 +280,32 @@ def _validate_manifest_structure(manifest: dict[str, Any]) -> None:
 def validate_manifest(manifest: dict[str, Any], verify_derived: bool = True) -> None:
     """Validate schema, representable ranges, and optionally pinned hashes/sizes."""
     _validate_manifest_structure(manifest)
+    if manifest["schema_version"] == 3:
+        if len(manifest["fixtures"]) != 1:
+            raise ValueError("workload manifest requires one fixture")
+        module = manifest["fixtures"][0]["module"]
+        if not module["instruments"] or not module["instruments"][0]["samples"]:
+            raise ValueError("workload requires represented sample PCM")
+        patterns = module["patterns"]
+        fingerprint = {
+            "channels": module["channels"], "patterns": len(patterns),
+            "rows_per_pattern": patterns[0]["rows"], "orders": module["orders"],
+            "visited_rows": sum(patterns[i]["rows"] for i in module["orders"]),
+            "populated_cells": sum(patterns[i]["rows"] * module["channels"]
+                                   if "fill" in patterns[i] else len(patterns[i]["events"])
+                                   for i in module["orders"]),
+            "sample_frames": module["instruments"][0]["samples"][0]["pcm_recipe"]["frame_count"],
+            "sample_encoding_bits": ENCODING_BITS[module["instruments"][0]["samples"][0]["encoding"]],
+            "randomness": "none",
+        }
+        if any(p["rows"] != fingerprint["rows_per_pattern"] for p in patterns) or manifest.get("structural_fingerprint") != fingerprint:
+            raise ValueError("workload structural fingerprint is stale")
+        # This version's runtime profile is separately observed, not planned in CI.
+        profile = manifest.get("planning_profile", {})
+        expected = {"sample_rate": 48000, "rows": 6144, "note_births": 196608,
+                    "vibrato_children": 983040, "adapter_events": 1376256}
+        if not isinstance(profile, dict) or any(profile.get(k) != v for k, v in expected.items()):
+            raise ValueError("unsupported workload planning profile")
     if not verify_derived:
         return
     canonical = canonical_manifest(manifest)
@@ -330,11 +368,11 @@ def _u32(value: int) -> bytes:
 
 
 def _packed_pattern(pattern: dict[str, Any], channels: int) -> bytes:
-    events = {(event["row"], event["channel"]): event for event in pattern["events"]}
+    events = {(event["row"], event["channel"]): event for event in pattern.get("events", [])}
     data = bytearray()
     for row in range(pattern["rows"]):
         for channel in range(channels):
-            event = events.get((row, channel))
+            event = pattern.get("fill") if "fill" in pattern else events.get((row, channel))
             if event is None:
                 data.append(0x80)
                 continue
@@ -517,12 +555,25 @@ def resolved_child(output_dir: Path, relative_path: str) -> Path:
     return child
 
 
+def _source_path(manifest: dict[str, Any]) -> str:
+    return WORKLOAD_MANIFEST if manifest["schema_version"] == 3 else SOURCE_MANIFEST
+
+
+def _output_path(output_dir: Path, relative_path: str, manifest: dict[str, Any]) -> Path:
+    path = resolved_child(output_dir, relative_path)
+    if manifest["schema_version"] == 3 and sys.platform == "darwin":
+        # Large workload binaries are transient, unlike the approved small pack.
+        if not output_dir.resolve().is_relative_to(Path("/private/tmp")):
+            raise ValueError("workload output directory must resolve under /private/tmp")
+    return path
+
+
 def planned_paths(output_dir: Path, manifest: dict[str, Any] | None = None) -> dict[str, Path]:
     """Return the confined source-manifest and approved generated-XM paths."""
     source = manifest or load_source_manifest()
-    paths = {"source_manifest": resolved_child(output_dir, SOURCE_MANIFEST)}
+    paths = {"source_manifest": _output_path(output_dir, _source_path(source), source)}
     for name in fixture_names(source):
-        paths[f"xm:{name}"] = resolved_child(output_dir, f"generated/{name}")
+        paths[f"xm:{name}"] = _output_path(output_dir, f"generated/{name}", source)
     return paths
 
 
@@ -539,7 +590,7 @@ def _selected_names(manifest: dict[str, Any], selected: list[str] | None) -> lis
 def write_source_manifest(output_dir: Path, manifest: dict[str, Any] | None = None) -> Path:
     """Write the canonical reviewable source manifest under source/."""
     source = canonical_manifest(manifest or load_source_manifest())
-    path = resolved_child(output_dir, SOURCE_MANIFEST)
+    path = _output_path(output_dir, _source_path(source), source)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(deterministic_json(source), encoding="utf-8")
     return path
@@ -555,7 +606,7 @@ def write_xm_fixtures(
     validate_manifest(source)
     summaries = []
     for name in _selected_names(source, selected):
-        path = resolved_child(output_dir, f"generated/{name}")
+        path = _output_path(output_dir, f"generated/{name}", source)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(fixture_xm_bytes(source, name))
         summaries.append(fixture_summary(source, name))
@@ -579,7 +630,7 @@ def verify_xm_fixtures(
     validate_manifest(source)
     summaries = []
     for name in _selected_names(source, selected):
-        path = resolved_child(output_dir, f"generated/{name}")
+        path = _output_path(output_dir, f"generated/{name}", source)
         if not path.is_file() or path.read_bytes() != fixture_xm_bytes(source, name):
             raise ValueError(f"{path} differs from regenerated bytes")
         summaries.append(fixture_summary(source, name))
@@ -624,6 +675,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.write_xm:
             for summary in write_xm_fixtures(args.output_dir, manifest, args.fixture):
                 _print_summary("Wrote", summary)
+                if manifest["schema_version"] == 3:
+                    print(f"Output: {_output_path(args.output_dir, 'generated/' + summary['name'], manifest)}")
             acted = True
         if args.verify:
             for summary in verify_xm_fixtures(args.output_dir, manifest, args.fixture):

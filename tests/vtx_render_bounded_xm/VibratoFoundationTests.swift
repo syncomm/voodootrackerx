@@ -117,6 +117,58 @@ final class VibratoFoundationTests: XCTestCase {
         XCTAssertEqual(linear.diagnostics.vibratoEffects.last?.stepUpdates.first?.playbackStepBefore, step(4288))
     }
 
+    func testOrdinaryVibratoPreservesCompleteChildrenAgainstCombinedFallback() {
+        for linear in [true, false] {
+            for speed in 1...31 {
+                let ordinary = adapt([cell(4, 0x48, note: 49, instrument: 1), cell(4, 0), cell(4, 0)],
+                    linear: linear, speed: speed).diagnostics.vibratoEffects[1]
+                let combined = adapt([cell(4, 0x48, note: 49, instrument: 1), cell(6, 0), cell(4, 0)],
+                    linear: linear, speed: speed).diagnostics.vibratoEffects[1]
+                XCTAssertEqual(ordinary.stepUpdates, combined.stepUpdates)
+                XCTAssertEqual(ordinary.phaseAfter, combined.phaseAfter)
+                XCTAssertEqual(ordinary.currentPlaybackStepAfter, combined.currentPlaybackStepAfter)
+                XCTAssertEqual(ordinary.stepUpdates.count, speed - 1)
+            }
+        }
+    }
+
+    func testEmptyAndSpeedOneVibratoEmitNoChildren() {
+        for linear in [true, false] {
+            for cells in [[cell(4, 0x48), cell(4, 0)],
+                          [cell(4, 0x48, note: 49, instrument: 1), cell(4, 0)]] {
+                let speed = cells[0].note == 0 ? 6 : 1
+                let plan = adapt(cells, linear: linear, speed: speed)
+                let effects = plan.diagnostics.vibratoEffects
+                let hasSource = cells[0].note != 0
+                XCTAssertEqual(effects.count, 2)
+                XCTAssertTrue(effects.allSatisfy { $0.stepUpdates.isEmpty && $0.inactiveSourceStepUpdates.isEmpty })
+                XCTAssertTrue(effects.allSatisfy { $0.status == (hasSource ? .applied : .noActiveVoice) })
+                XCTAssertTrue(effects.allSatisfy { $0.activeVoiceFound == hasSource })
+                XCTAssertTrue(effects.allSatisfy { $0.activeEventIndex == (hasSource ? 0 : nil) })
+                XCTAssertTrue(effects.allSatisfy { $0.activeEventMappingIndex == (hasSource ? 0 : nil) })
+                XCTAssertEqual(effects.map(\.phaseAfter), hasSource ? [0, 0] : [80, 160])
+                XCTAssertEqual(plan.pattern.events.count, hasSource ? 1 : 0)
+            }
+        }
+    }
+
+    func testReservedRestoreKeepsExactExitChildAndSourceIdentity() throws {
+        for linear in [true, false] {
+            let ordinary = adapt([cell(4, 0x48, note: 49, instrument: 1), cell(4, 0), cell()], linear: linear)
+            let combined = adapt([cell(4, 0x48, note: 49, instrument: 1), cell(6, 0), cell()], linear: linear)
+            let a = ordinary.diagnostics.vibratoEffects[1]
+            let b = combined.diagnostics.vibratoEffects[1]
+            XCTAssertEqual(a.stepUpdates, b.stepUpdates)
+            XCTAssertEqual(a.activeEventIndex, b.activeEventIndex)
+            XCTAssertEqual(a.activeEventMappingIndex, b.activeEventMappingIndex)
+            let exit = try XCTUnwrap(a.stepUpdates.last)
+            XCTAssertEqual(a.stepUpdates.count, 6)
+            XCTAssertEqual(exit.syntheticTick, 6)
+            XCTAssertEqual(exit.scheduledFrame, 11_520)
+            XCTAssertTrue(exit.reachedTarget)
+        }
+    }
+
     func testPublicFixtureRendersIdenticallyAcrossWindows() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("reference-xm/generated/vibrato-semantics.xm")

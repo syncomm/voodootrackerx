@@ -46,7 +46,8 @@ enum PlaybackSongTraversalPlanner {
     static func plan(
         _ song: PlaybackSong,
         startOrderIndex: Int,
-        orderCount: Int
+        orderCount: Int,
+        initialPosition: PlaybackPosition? = nil
     ) -> PlaybackSongTraversalPlan {
         let safeOrderCount = max(0, orderCount)
         guard safeOrderCount > 0 else {
@@ -102,8 +103,26 @@ enum PlaybackSongTraversalPlanner {
         var loopStarts = [LoopKey: Int]()
         var loopRemaining = [LoopKey: Int]()
         var visitedPositions = Set<TraversalPositionKey>()
-        var currentOrderIndex = startOrderIndex
-        var currentRowIndex = 0
+        var currentOrderIndex = initialPosition?.orderIndex ?? startOrderIndex
+        var currentRowIndex = initialPosition?.rowIndex ?? 0
+        if let initialPosition {
+            guard (startOrderIndex..<selectedEndOrderIndex).contains(currentOrderIndex),
+                  let pattern = song.pattern(for: currentOrderIndex),
+                  pattern.index == initialPosition.patternIndex,
+                  pattern.rows.indices.contains(currentRowIndex) else {
+                return PlaybackSongTraversalPlan(rows: [], adaptedOrders: [], traversalDiagnostics: [],
+                    pathLength: 0, stopReason: .outOfRange, guardHit: false)
+            }
+            // Cold entry may read structural anchors, but must not execute skipped
+            // cells or seed musical state, loop counters, or execution diagnostics.
+            for rowIndex in 0..<currentRowIndex {
+                for (channelIndex, cell) in pattern.rows[rowIndex].cells.enumerated()
+                    where cell.effectType == 0x0E && cell.effectParam == 0x60 {
+                    loopStarts[LoopKey(orderIndex: currentOrderIndex, patternIndex: pattern.index,
+                        channelIndex: channelIndex)] = rowIndex
+                }
+            }
+        }
         var stopReason: PlaybackSongSyntheticTraversalStopReason = .selectedRangeEnd
         var guardHit = false
 

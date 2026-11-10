@@ -82,6 +82,45 @@ def load_module():
 
 
 class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
+    def test_cold_entry_recipe_has_exact_public_bytes_and_structural_cells(self):
+        generator = load_module()
+        manifest = generator.load_source_manifest(PACK_ROOT / generator.COLD_ENTRY_MANIFEST)
+        generator.validate_manifest(manifest)
+        if sys.platform == "darwin":
+            with self.assertRaises(ValueError): generator.planned_paths(PACK_ROOT, manifest)
+        payload = generator.fixture_xm_bytes(manifest, "cold-entry-v1.xm")
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), "cf9255e9280ea6254177dbd4eea9ce66ef6defbb9192c1002226c9a00e9af7cc")
+        self.assertEqual(payload, generator.fixture_xm_bytes(manifest, "cold-entry-v1.xm"))
+        u16 = lambda p: int.from_bytes(payload[p:p+2], "little")
+        u32 = lambda p: int.from_bytes(payload[p:p+4], "little")
+        self.assertEqual(payload[:17], b"Extended Module: ")
+        self.assertEqual([u16(p) for p in [58, 64, 68, 70, 72, 74, 76, 78]], [0x104, 2, 3, 2, 1, 1, 6, 125])
+        self.assertEqual(payload[80:82], bytes([0, 1]))
+        position, patterns = 60 + u32(60), []
+        for row_count in [1, 6]:
+            self.assertEqual((u32(position), u16(position+5)), (9, row_count))
+            end = position + 9 + u16(position+7)
+            position += 9
+            cells = []
+            for _ in range(row_count * 3):
+                marker = payload[position]; position += 1
+                values = [0] * 5
+                for field in range(5):
+                    if marker & (1 << field):
+                        values[field] = payload[position]; position += 1
+                cells.append(values)
+            self.assertEqual(position, end)
+            patterns.append(cells)
+        self.assertEqual(patterns[0], [[0, 0, 0, 14, 96], [0, 1, 0, 0, 0], [0, 0, 0, 15, 1]])
+        self.assertEqual(patterns[1][3:7], [[0, 0, 0, 14, 96], [0, 1, 0, 0, 0], [0, 0, 0, 15, 1], [0, 0, 0, 14, 97]])
+        self.assertEqual(patterns[1][9:11], [[51, 1, 0, 0, 0], [51, 0, 0, 0, 0]])
+        for mutation in ["title", "version", "path"]:
+            invalid = copy.deepcopy(manifest)
+            if mutation == "title": invalid["fixtures"][0]["module"]["title"] = "x" * 21
+            if mutation == "version": invalid["fixture_version"] = 2
+            if mutation == "path": invalid["source_manifest"] = "../outside.json"
+            with self.assertRaises(ValueError): generator.validate_manifest(invalid)
+
     def test_manifest_is_deterministic_and_names_generated_fixtures(self):
         generator = load_module()
 

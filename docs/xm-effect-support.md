@@ -1013,9 +1013,10 @@ support alone does not close these domains:
 - **Traversal:** G37A initial/default-start E6 looping is qualified in both
   modes/rates, including later orders in the actual traversal without prior
   channel E60 history. Direct selected-range adapter/offline tests start with
-  fresh history and remain valid. Cold live selected-order playback remains
-  OPEN: eager load-time order-0 prewarm can include unplayed earlier-row E60
-  or E31. Cross-family
+  fresh history and remain valid. Direct construction also accepts an explicit
+  cold order/row, with fresh musical state and same-pattern/channel structural
+  E60 lookup. Cold live selected-order/row playback remains OPEN: eager load-time
+  order-0 prewarm can retain unplayed Fxx and instrument-only state. Cross-family
   start-aware planning/reuse and memory/startup qualification belong to
   [release blocker #516](https://github.com/syncomm/voodootrackerx/issues/516),
   owned after G41 and required before release/backend freeze.

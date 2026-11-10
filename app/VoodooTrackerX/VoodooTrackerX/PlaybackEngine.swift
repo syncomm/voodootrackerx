@@ -1,6 +1,382 @@
 import Foundation
 import os
 
+/// Bounded request meaning only: never owns source, checkpoint, event or PCM payloads.
+/// This B1 primitive is deliberately not instantiated by the live playback engine.
+struct PlaybackPreparationKey: Equatable, Sendable {
+    enum FrequencyMode: Equatable, Sendable { case linear, amiga }
+    struct Bounds: Equatable, Sendable { let lowerOrder: Int; let upperOrder: Int }
+    enum Origin: Equatable, Sendable { case cold(order: Int, row: Int), warm(frontier: UInt64) }
+    enum Purpose: Equatable, Sendable { case normalPlay, resetSeek, loopRefresh, editRefresh }
+    struct LoopScope: Equatable, Sendable { let order: Int; let pattern: Int }
+
+    let instanceEpoch: UUID
+    let transportEpoch: UInt64
+    let documentID: UUID
+    let revision: UInt64
+    let sourceGeneration: UInt64
+    let sampleRateBits: UInt64
+    let frequencyMode: FrequencyMode
+    let traversalBounds: Bounds
+    let origin: Origin
+    let purpose: Purpose
+    let loopScope: LoopScope?
+    let backendVersion: UInt64
+    let plannerVersion: UInt64
+    let renderProfile: UInt64
+
+    init?(
+        instanceEpoch: UUID, transportEpoch: UInt64 = 0, documentID: UUID,
+        revision: UInt64 = 0, sourceGeneration: UInt64 = 0, sampleRate: Double,
+        frequencyMode: FrequencyMode = .linear,
+        traversalBounds: Bounds = .init(lowerOrder: 0, upperOrder: 1),
+        origin: Origin = .cold(order: 0, row: 0), purpose: Purpose = .normalPlay,
+        loopScope: LoopScope? = nil, backendVersion: UInt64 = 1,
+        plannerVersion: UInt64 = 1, renderProfile: UInt64 = 0
+    ) {
+        guard sampleRate.isFinite, sampleRate > 0,
+              traversalBounds.lowerOrder >= 0,
+              traversalBounds.upperOrder > traversalBounds.lowerOrder else { return nil }
+        if case let .cold(order, row) = origin {
+            guard (traversalBounds.lowerOrder..<traversalBounds.upperOrder).contains(order), row >= 0 else { return nil }
+        }
+        if let loopScope {
+            guard (traversalBounds.lowerOrder..<traversalBounds.upperOrder).contains(loopScope.order),
+                  loopScope.pattern >= 0 else { return nil }
+        }
+        self.instanceEpoch = instanceEpoch
+        self.transportEpoch = transportEpoch
+        self.documentID = documentID
+        self.revision = revision
+        self.sourceGeneration = sourceGeneration
+        self.sampleRateBits = sampleRate.bitPattern
+        self.frequencyMode = frequencyMode
+        self.traversalBounds = traversalBounds
+        self.origin = origin
+        self.purpose = purpose
+        self.loopScope = loopScope
+        self.backendVersion = backendVersion
+        self.plannerVersion = plannerVersion
+        self.renderProfile = renderProfile
+    }
+}
+
+/// Minted by one owner; equal content keys never authenticate another attempt.
+struct PlaybackPreparationAttempt: Equatable, Sendable {
+    fileprivate let ownerID: UUID
+    let epoch: UUID
+    let serial: UInt64
+}
+
+/// A producer checks this token only on its off-RT worker. Existing make is unchanged.
+final class PlaybackPreparationCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    fileprivate func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+}
+
+/// Notifications contain scalar identity/status only and may be delayed or discarded.
+struct PlaybackPreparationNotification: Equatable, Sendable {
+    enum Kind: Equatable, Sendable { case ready, retired, claimed }
+    let attempt: PlaybackPreparationAttempt
+    let kind: Kind
+}
+
+/// Off-RT ownership proof, independent of planning horizon, event identity and native audio.
+/// A separate core lets facade deinit revoke a paused producer without retaining the facade.
+final class PlaybackPreparationOwner<Product: Sendable>: Sendable {
+    typealias Attempt = PlaybackPreparationAttempt
+    typealias Notification = PlaybackPreparationNotification
+    enum Phase: Equatable, Sendable { case idle, constructing, draining, ready }
+    enum WaitStatus: Equatable, Sendable { case ready, retired, timedOut, invalid }
+    struct Snapshot: Sendable {
+        let activeAttempt: PlaybackPreparationAttempt?
+        let pendingAttempt: PlaybackPreparationAttempt?
+        let phase: Phase
+        let retiredCount: UInt64
+        let lastRetiredAttempt: PlaybackPreparationAttempt?
+        let isShutdown: Bool
+        let hasReadyProduct: Bool
+        var activeCount: Int { activeAttempt == nil ? 0 : 1 }
+        var pendingCount: Int { pendingAttempt == nil ? 0 : 1 }
+    }
+
+    private struct Request: Sendable {
+        let key: PlaybackPreparationKey
+        let attempt: PlaybackPreparationAttempt
+    }
+
+    /// All mutable state is protected by condition; neither producer nor observer runs under it.
+    private final class Core: @unchecked Sendable {
+        let condition = NSCondition()
+        let ownerID = UUID()
+        let queue: DispatchQueue
+        let producer: @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt, PlaybackPreparationCancellation) -> Product?
+        let notify: @Sendable (PlaybackPreparationNotification) -> Void
+        var epoch = UUID()
+        var serial: UInt64
+        var active: Request?
+        var pending: Request?
+        var token: PlaybackPreparationCancellation?
+        var product: Product?
+        var phase: Phase = .idle
+        var workerScheduled = false
+        var closed = false
+        var retiredCount: UInt64 = 0
+        var lastRetiredAttempt: PlaybackPreparationAttempt?
+
+        init(
+            target: DispatchQueue?, initialSerial: UInt64,
+            producer: @escaping @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt, PlaybackPreparationCancellation) -> Product?,
+            notify: @escaping @Sendable (PlaybackPreparationNotification) -> Void
+        ) {
+            // Always serial, including when a caller supplies a concurrent target for testing.
+            queue = DispatchQueue(label: "com.syncomm.VoodooTrackerX.preparation-owner", qos: .utility, target: target)
+            serial = initialSerial
+            self.producer = producer
+            self.notify = notify
+        }
+
+        func offer(_ key: PlaybackPreparationKey) -> PlaybackPreparationAttempt? {
+            condition.lock()
+            defer { condition.unlock() }
+            guard !closed else { return nil }
+            let next = serial.addingReportingOverflow(1)
+            if next.overflow {
+                epoch = UUID()
+                serial = 0
+            } else {
+                serial = next.partialValue
+            }
+            let attempt = PlaybackPreparationAttempt(ownerID: ownerID, epoch: epoch, serial: serial)
+            pending = Request(key: key, attempt: attempt)
+            revokeActiveLocked()
+            scheduleLocked()
+            condition.broadcast()
+            return attempt
+        }
+
+        func revokeActiveLocked() {
+            if active != nil {
+                token?.cancel()
+                phase = .draining
+            }
+        }
+
+        func scheduleLocked() {
+            guard !workerScheduled else { return }
+            workerScheduled = true
+            // One drain job, not one source-bearing closure per offered intent.
+            queue.async { [self] in drain() }
+        }
+
+        func stop(shutdown: Bool) {
+            condition.lock()
+            if shutdown { closed = true }
+            pending = nil
+            revokeActiveLocked()
+            if active != nil { scheduleLocked() }
+            condition.broadcast()
+            condition.unlock()
+        }
+
+        func observe(_ attempt: PlaybackPreparationAttempt, key: PlaybackPreparationKey) -> PlaybackPreparationAttempt? {
+            condition.lock()
+            defer { condition.unlock() }
+            guard !closed else { return nil }
+            if let active, active.attempt == attempt, active.key == key, phase != .draining { return attempt }
+            if let pending, pending.attempt == attempt, pending.key == key { return attempt }
+            return nil
+        }
+
+        func claim(_ attempt: PlaybackPreparationAttempt, key: PlaybackPreparationKey) -> Product? {
+            condition.lock()
+            guard !closed, phase == .ready,
+                  let active, active.attempt == attempt, active.key == key else {
+                condition.unlock()
+                return nil
+            }
+            // The local value pins the payload through unlocking and transfer to its new owner.
+            let claimed = product
+            product = nil
+            self.active = nil
+            token = nil
+            phase = .idle
+            condition.broadcast()
+            condition.unlock()
+            notify(.init(attempt: attempt, kind: .claimed))
+            return claimed
+        }
+
+        func wait(for attempt: PlaybackPreparationAttempt, timeout: TimeInterval) -> WaitStatus {
+            guard timeout.isFinite, timeout >= 0 else { return .timedOut }
+            let deadline = Date(timeIntervalSinceNow: timeout)
+            condition.lock()
+            defer { condition.unlock() }
+            guard attempt.ownerID == ownerID else { return .invalid }
+            while active?.attempt == attempt || pending?.attempt == attempt {
+                if active?.attempt == attempt, phase == .ready { return .ready }
+                guard condition.wait(until: deadline) else {
+                    if active?.attempt == attempt, phase == .ready { return .ready }
+                    if active?.attempt != attempt, pending?.attempt != attempt { return .retired }
+                    return .timedOut
+                }
+            }
+            // No speculative roots remain; a claimed product has transferred, not been destroyed.
+            return .retired
+        }
+
+        var snapshot: Snapshot {
+            condition.lock()
+            defer { condition.unlock() }
+            return Snapshot(activeAttempt: active?.attempt, pendingAttempt: pending?.attempt,
+                phase: phase, retiredCount: retiredCount, lastRetiredAttempt: lastRetiredAttempt,
+                isShutdown: closed, hasReadyProduct: product != nil)
+        }
+
+        func drain() {
+            while true {
+                condition.lock()
+                if let active {
+                    if phase == .ready {
+                        workerScheduled = false
+                        condition.unlock()
+                        return
+                    }
+                    // Construction is synchronous on this same serial worker; only ready
+                    // invalidation can leave an active request for the next drain iteration.
+                    precondition(phase == .draining)
+                    condition.unlock()
+                    autoreleasepool { discardReadyProduct() }
+                    retire(active.attempt)
+                    continue
+                }
+                guard let request = pending, !closed else {
+                    workerScheduled = false
+                    condition.broadcast()
+                    condition.unlock()
+                    return
+                }
+                pending = nil
+                active = request
+                let cancellation = PlaybackPreparationCancellation()
+                token = cancellation
+                phase = .constructing
+                condition.broadcast()
+                condition.unlock()
+
+                // No Product escapes this lexical/pool boundary except the sole ready slot.
+                // Thus rejected locals and their source children are gone before retirement.
+                let staged = autoreleasepool { buildAndStage(request, cancellation: cancellation) }
+                if staged {
+                    notify(.init(attempt: request.attempt, kind: .ready))
+                } else {
+                    retire(request.attempt)
+                }
+            }
+        }
+
+        @inline(never)
+        func buildAndStage(_ request: Request, cancellation: PlaybackPreparationCancellation) -> Bool {
+            let result = producer(request.key, request.attempt, cancellation)
+            condition.lock()
+            guard !closed, phase == .constructing, active?.attempt == request.attempt,
+                  result != nil else {
+                condition.unlock()
+                withExtendedLifetime(result) {}
+                return false
+            }
+            product = result
+            phase = .ready
+            condition.broadcast()
+            condition.unlock()
+            withExtendedLifetime(result) {}
+            return true
+        }
+
+        @inline(never)
+        func discardReadyProduct() {
+            condition.lock()
+            var discarded = product
+            product = nil
+            condition.unlock()
+            // Never perform a last release under the owner gate or on its caller's executor.
+            withExtendedLifetime(discarded) {}
+            discarded = nil
+        }
+
+        func retire(_ attempt: PlaybackPreparationAttempt) {
+            condition.lock()
+            precondition(active?.attempt == attempt && product == nil)
+            active = nil
+            token = nil
+            phase = .idle
+            let nextCount = retiredCount.addingReportingOverflow(1)
+            retiredCount = nextCount.overflow ? .max : nextCount.partialValue
+            lastRetiredAttempt = attempt
+            condition.broadcast()
+            condition.unlock()
+            notify(.init(attempt: attempt, kind: .retired))
+        }
+    }
+
+    private let core: Core
+
+    /// `workerQueue` is a target only; the owner always creates its own serial worker.
+    /// `initialSerial` permits a bounded overflow test without issuing billions of intents.
+    /// Notifications run synchronously outside the gate (ready/retired on the worker,
+    /// claimed on its caller). Delayed delivery must enqueue only this scalar value;
+    /// observers must not block the worker awaiting its own retirement.
+    init(
+        workerQueue: DispatchQueue? = nil, initialSerial: UInt64 = 0,
+        producer: @escaping @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt, PlaybackPreparationCancellation) -> Product?,
+        notify: @escaping @Sendable (PlaybackPreparationNotification) -> Void = { _ in }
+    ) {
+        core = Core(target: workerQueue, initialSerial: initialSerial, producer: producer, notify: notify)
+    }
+
+    deinit { core.stop(shutdown: true) }
+
+    /// A genuinely new intent, including an equal-key restart, always revokes the old attempt.
+    func offer(_ key: PlaybackPreparationKey) -> PlaybackPreparationAttempt? { core.offer(key) }
+
+    /// Duplicate observation requires the exact ongoing attempt as well as its complete key.
+    func observe(_ attempt: PlaybackPreparationAttempt, key: PlaybackPreparationKey) -> PlaybackPreparationAttempt? {
+        core.observe(attempt, key: key)
+    }
+
+    /// One-shot ownership transfer; cancellation and claim linearize under the same gate.
+    func claim(_ attempt: PlaybackPreparationAttempt, key: PlaybackPreparationKey) -> Product? {
+        core.claim(attempt, key: key)
+    }
+
+    /// Revokes speculative interest; independently admitted products remain caller-owned.
+    func stop() { core.stop(shutdown: false) }
+
+    /// Permanently rejects offers and arranges worker-side disposal without blocking deinit.
+    func shutdown() { core.stop(shutdown: true) }
+
+    /// Waits on worker-owned condition state, never a MainActor notification. Not render-safe.
+    /// Retired means no speculative ownership, including a successful transfer after claim;
+    /// only a retired notification identifies worker-side rejection/disposal specifically.
+    func wait(for attempt: PlaybackPreparationAttempt, timeout: TimeInterval = 5) -> WaitStatus {
+        core.wait(for: attempt, timeout: timeout)
+    }
+
+    var snapshot: Snapshot { core.snapshot }
+}
+
 struct RuntimeAdapterPlanPrewarmRequest: @unchecked Sendable {
     let generation: UInt64
     let song: PlaybackSong

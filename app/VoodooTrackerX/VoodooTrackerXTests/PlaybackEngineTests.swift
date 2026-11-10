@@ -2,6 +2,467 @@ import AppKit
 import AudioToolbox
 import XCTest
 
+extension PlaybackEngineTests {
+    func testPreparationOwnerCoalescesToLatestWhileWorkerPaused() throws {
+        let probe = PreparationOwnerTestProbe(), gate = PreparationOwnerTestGate()
+        let notifications = PreparationOwnerTestNotifications()
+        let owner = makePreparationOwnerForTesting(probe: probe, constructionGate: gate,
+            notifications: notifications)
+        defer { finishPreparationOwnerTest(owner, probe: probe, gates: [gate]) }
+        let keyA = try XCTUnwrap(makePreparationOwnerTestKey())
+        let attemptA = try XCTUnwrap(owner.offer(keyA))
+        XCTAssertTrue(gate.waitUntilEntered())
+        var latest = attemptA
+        // More supersessions than the illustrative B/C/D sequence prove there is no pending list.
+        for revision in 2...64 {
+            latest = try XCTUnwrap(owner.offer(try XCTUnwrap(makePreparationOwnerTestKey(revision: UInt64(revision)))))
+            XCTAssertEqual(owner.snapshot.activeCount, 1)
+            XCTAssertEqual(owner.snapshot.pendingCount, 1)
+            XCTAssertEqual(owner.snapshot.pendingAttempt, latest)
+            XCTAssertEqual(probe.snapshot.liveProducts, 1)
+            XCTAssertEqual(probe.snapshot.liveSources, 1)
+        }
+        XCTAssertEqual(owner.snapshot.phase, .draining)
+        XCTAssertNil(owner.claim(attemptA, key: keyA))
+        gate.release()
+        XCTAssertEqual(owner.wait(for: attemptA), .retired)
+        XCTAssertEqual(owner.wait(for: latest), .ready)
+        // Ready state is claimable before the worker's temporary alias unwinds; this receipt
+        // establishes that unwind before the test measures the claimed product's final release.
+        XCTAssertTrue(notifications.wait(for: latest, kind: .ready))
+        let finalKey = try XCTUnwrap(makePreparationOwnerTestKey(revision: 64))
+        var product = try XCTUnwrap(owner.claim(latest, key: finalKey)) as PreparationOwnerTestProduct?
+        XCTAssertEqual(product?.source.revision, 64)
+        XCTAssertNil(owner.claim(latest, key: finalKey))
+        XCTAssertEqual(probe.snapshot.events.filter { $0.kind == "started" }.map(\.revision), [1, 64])
+        XCTAssertEqual(probe.snapshot.maximumConstructing, 1)
+        XCTAssertEqual(owner.snapshot.activeCount, 0)
+        XCTAssertEqual(owner.snapshot.pendingCount, 0)
+        product = nil
+        XCTAssertEqual(probe.snapshot.liveProducts, 0)
+        XCTAssertEqual(probe.snapshot.liveSources, 0)
+        XCTAssertEqual(probe.snapshot.watchdogFailures, 0)
+    }
+
+    func testPreparationOwnerStopPreventsLateClaim() throws {
+        for cancelBeforeReturn in [true, false] {
+            let probe = PreparationOwnerTestProbe(), gate = PreparationOwnerTestGate()
+            let notifications = PreparationOwnerTestNotifications()
+            let owner = makePreparationOwnerForTesting(probe: probe, constructionGate: gate,
+                notifications: notifications)
+            defer { finishPreparationOwnerTest(owner, probe: probe, gates: [gate]) }
+            let key = try XCTUnwrap(makePreparationOwnerTestKey())
+            let attempt = try XCTUnwrap(owner.offer(key))
+            XCTAssertTrue(gate.waitUntilEntered())
+            if !cancelBeforeReturn {
+                gate.release()
+                XCTAssertEqual(owner.wait(for: attempt), .ready)
+            }
+            owner.stop()
+            XCTAssertNil(owner.claim(attempt, key: key))
+            if cancelBeforeReturn {
+                XCTAssertEqual(owner.snapshot.phase, .draining)
+                XCTAssertEqual(probe.snapshot.liveProducts, 1)
+                gate.release()
+            }
+            XCTAssertEqual(owner.wait(for: attempt), .retired)
+            XCTAssertTrue(notifications.wait(for: attempt, kind: .retired))
+            XCTAssertEqual(probe.snapshot.liveProducts, 0)
+            XCTAssertEqual(probe.snapshot.liveSources, 0)
+            let released = probe.snapshot.events.filter { $0.kind.hasSuffix("released") }
+            XCTAssertEqual(released.count, 2)
+            XCTAssertTrue(released.allSatisfy { $0.onWorker && !$0.onMainThread })
+            XCTAssertEqual(probe.snapshot.watchdogFailures, 0)
+        }
+    }
+
+    func testPreparationOwnerSameKeyNewAttemptRejectsOldCompletion() throws {
+        let probe = PreparationOwnerTestProbe(), gate = PreparationOwnerTestGate()
+        let owner = makePreparationOwnerForTesting(probe: probe, constructionGate: gate)
+        defer { finishPreparationOwnerTest(owner, probe: probe, gates: [gate]) }
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let old = try XCTUnwrap(owner.offer(key))
+        XCTAssertTrue(gate.waitUntilEntered())
+        owner.stop()
+        let restarted = try XCTUnwrap(owner.offer(key))
+        XCTAssertNotEqual(old, restarted)
+        XCTAssertNil(owner.observe(old, key: key))
+        XCTAssertNil(owner.claim(old, key: key))
+        gate.release()
+        XCTAssertEqual(owner.wait(for: old), .retired)
+        XCTAssertEqual(owner.wait(for: restarted), .ready)
+        XCTAssertNotNil(owner.claim(restarted, key: key))
+        XCTAssertNil(owner.claim(old, key: key))
+        XCTAssertEqual(probe.snapshot.maximumConstructing, 1)
+        XCTAssertEqual(probe.snapshot.events.filter { $0.kind == "started" }.count, 2)
+        XCTAssertEqual(probe.snapshot.watchdogFailures, 0)
+    }
+
+    func testPreparationOwnerReadyNotificationHoldsNoProduct() throws {
+        let probe = PreparationOwnerTestProbe()
+        let notifications = PreparationOwnerTestNotifications()
+        let owner = makePreparationOwnerForTesting(probe: probe, notifications: notifications)
+        defer { finishPreparationOwnerTest(owner, probe: probe) }
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let attempt = try XCTUnwrap(owner.offer(key))
+        XCTAssertEqual(owner.wait(for: attempt), .ready)
+        XCTAssertTrue(notifications.wait(for: attempt, kind: .ready))
+        XCTAssertEqual(owner.snapshot.activeCount, 1)
+        XCTAssertTrue(owner.snapshot.hasReadyProduct)
+        owner.stop()
+        XCTAssertEqual(owner.wait(for: attempt), .retired)
+        XCTAssertTrue(notifications.wait(for: attempt, kind: .retired))
+        // The observer still holds the old ready ticket after both speculative roots have died.
+        XCTAssertTrue(notifications.values.contains { $0.attempt == attempt && $0.kind == .ready })
+        XCTAssertEqual(probe.snapshot.liveProducts, 0)
+        XCTAssertEqual(probe.snapshot.liveSources, 0)
+        XCTAssertNil(owner.claim(attempt, key: key))
+        XCTAssertTrue(probe.snapshot.events.filter { $0.kind.hasSuffix("released") }.allSatisfy(\.onWorker))
+    }
+
+    func testPreparationOwnerDelayedReadyCallbackCannotResurrectRevokedProduct() throws {
+        let probe = PreparationOwnerTestProbe(), notificationGate = PreparationOwnerTestGate()
+        let notifications = PreparationOwnerTestNotifications()
+        let owner = PreparationOwnerUnderTest(workerQueue: probe.makeWorkerTarget(), producer: { key, _, _ in
+            probe.record("started", revision: key.revision)
+            defer { probe.record("returned", revision: key.revision) }
+            return PreparationOwnerTestProduct(source: PreparationOwnerTestSource(revision: key.revision, probe: probe),
+                probe: probe)
+        }, notify: { notification in
+            if notification.kind == .ready, !notificationGate.enterAndWait() {
+                probe.record("watchdog-expired", revision: 1)
+            }
+            notifications.append(notification)
+        })
+        defer { finishPreparationOwnerTest(owner, probe: probe, gates: [notificationGate]) }
+        let firstKey = try XCTUnwrap(makePreparationOwnerTestKey())
+        let first = try XCTUnwrap(owner.offer(firstKey))
+        XCTAssertTrue(notificationGate.waitUntilEntered())
+        XCTAssertTrue(notifications.values.isEmpty)
+        owner.stop()
+        let secondKey = try XCTUnwrap(makePreparationOwnerTestKey(revision: 2))
+        let second = try XCTUnwrap(owner.offer(secondKey))
+        XCTAssertEqual(owner.snapshot.phase, .draining)
+        XCTAssertEqual(owner.snapshot.pendingAttempt, second)
+        XCTAssertNil(owner.claim(first, key: firstKey))
+        XCTAssertEqual(probe.snapshot.events.filter { $0.kind == "started" }.map(\.revision), [1])
+        notificationGate.release()
+        XCTAssertTrue(notifications.wait(for: first, kind: .ready))
+        XCTAssertEqual(owner.wait(for: first), .retired)
+        XCTAssertNil(owner.claim(first, key: firstKey))
+        XCTAssertEqual(owner.wait(for: second), .ready)
+        XCTAssertNotNil(owner.claim(second, key: secondKey))
+        let events = probe.snapshot.events
+        let oldRelease = try XCTUnwrap(events.firstIndex { $0.kind == "source-released" && $0.revision == 1 })
+        let nextStart = try XCTUnwrap(events.firstIndex { $0.kind == "started" && $0.revision == 2 })
+        XCTAssertLessThan(oldRelease, nextStart)
+        XCTAssertTrue(events[oldRelease].onWorker)
+    }
+
+    func testPreparationOwnerWaitsForRejectedProductDisposalBeforeNextProducer() throws {
+        let probe = PreparationOwnerTestProbe()
+        let buildGate = PreparationOwnerTestGate(), disposalGate = PreparationOwnerTestGate()
+        let owner = makePreparationOwnerForTesting(probe: probe, constructionGate: buildGate,
+            disposalGate: disposalGate)
+        defer { finishPreparationOwnerTest(owner, probe: probe, gates: [buildGate, disposalGate]) }
+        let oldKey = try XCTUnwrap(makePreparationOwnerTestKey())
+        let old = try XCTUnwrap(owner.offer(oldKey))
+        XCTAssertTrue(buildGate.waitUntilEntered())
+        let nextKey = try XCTUnwrap(makePreparationOwnerTestKey(revision: 2))
+        let next = try XCTUnwrap(owner.offer(nextKey))
+        buildGate.release()
+        XCTAssertTrue(disposalGate.waitUntilEntered())
+        XCTAssertEqual(owner.snapshot.phase, .draining)
+        XCTAssertEqual(owner.snapshot.activeCount, 1)
+        XCTAssertEqual(owner.snapshot.pendingAttempt, next)
+        XCTAssertEqual(probe.snapshot.events.filter { $0.kind == "started" }.map(\.revision), [1])
+        XCTAssertEqual(probe.snapshot.liveSources, 1)
+        XCTAssertNil(owner.claim(old, key: oldKey))
+        disposalGate.release()
+        XCTAssertEqual(owner.wait(for: old), .retired)
+        XCTAssertEqual(owner.wait(for: next), .ready)
+        XCTAssertNotNil(owner.claim(next, key: nextKey))
+        let events = probe.snapshot.events
+        let oldSourceReleased = try XCTUnwrap(events.firstIndex { $0.kind == "source-released" && $0.revision == 1 })
+        let newStarted = try XCTUnwrap(events.firstIndex { $0.kind == "started" && $0.revision == 2 })
+        XCTAssertLessThan(oldSourceReleased, newStarted)
+        XCTAssertTrue(events[oldSourceReleased].onWorker)
+        XCTAssertFalse(events[oldSourceReleased].onMainThread)
+        XCTAssertEqual(probe.snapshot.watchdogFailures, 0)
+    }
+
+    func testPreparationOwnerPreservesCurrentLeaseWhileReplacementCancels() throws {
+        let probe = PreparationOwnerTestProbe(), gate = PreparationOwnerTestGate()
+        let owner = makePreparationOwnerForTesting(probe: probe, constructionGate: gate, pausedRevision: 2)
+        defer { finishPreparationOwnerTest(owner, probe: probe, gates: [gate]) }
+        let currentKey = try XCTUnwrap(makePreparationOwnerTestKey())
+        let currentAttempt = try XCTUnwrap(owner.offer(currentKey))
+        XCTAssertEqual(owner.wait(for: currentAttempt), .ready)
+        var current = try XCTUnwrap(owner.claim(currentAttempt, key: currentKey)) as PreparationOwnerTestProduct?
+        weak var admitted = current
+        XCTAssertEqual(owner.snapshot.activeCount, 0)
+        let replacement = try XCTUnwrap(owner.offer(try XCTUnwrap(makePreparationOwnerTestKey(revision: 2))))
+        XCTAssertTrue(gate.waitUntilEntered())
+        XCTAssertEqual(probe.snapshot.liveProducts, 2)
+        owner.stop()
+        gate.release()
+        XCTAssertEqual(owner.wait(for: replacement), .retired)
+        XCTAssertNotNil(admitted)
+        XCTAssertEqual(current?.source.revision, 1)
+        XCTAssertEqual(probe.snapshot.liveProducts, 1)
+        XCTAssertEqual(probe.snapshot.liveSources, 1)
+        XCTAssertFalse(probe.snapshot.events.contains { $0.kind == "product-released" && $0.revision == 1 })
+        current = nil
+        XCTAssertNil(admitted)
+        XCTAssertEqual(probe.snapshot.liveSources, 0)
+        XCTAssertEqual(probe.snapshot.watchdogFailures, 0)
+    }
+
+    func testPreparationOwnerRateModeRevisionPurposeAndOriginAreDistinct() throws {
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let alternatives: [PlaybackPreparationKey?] = [
+            makePreparationOwnerTestKey(instanceEpoch: UUID()),
+            makePreparationOwnerTestKey(transportEpoch: 2),
+            makePreparationOwnerTestKey(documentID: UUID()),
+            makePreparationOwnerTestKey(revision: 2),
+            makePreparationOwnerTestKey(sourceGeneration: 2),
+            makePreparationOwnerTestKey(sampleRate: Double(48_000).nextUp),
+            makePreparationOwnerTestKey(frequencyMode: .amiga),
+            makePreparationOwnerTestKey(traversalBounds: .init(lowerOrder: 1, upperOrder: 8)),
+            makePreparationOwnerTestKey(traversalBounds: .init(lowerOrder: 0, upperOrder: 9)),
+            makePreparationOwnerTestKey(origin: .cold(order: 3, row: 3)),
+            makePreparationOwnerTestKey(origin: .cold(order: 2, row: 4)),
+            makePreparationOwnerTestKey(origin: .warm(frontier: 1)),
+            makePreparationOwnerTestKey(origin: .warm(frontier: 2)),
+            makePreparationOwnerTestKey(purpose: .resetSeek),
+            makePreparationOwnerTestKey(purpose: .loopRefresh),
+            makePreparationOwnerTestKey(purpose: .editRefresh),
+            makePreparationOwnerTestKey(loopScope: .init(order: 2, pattern: 0)),
+            makePreparationOwnerTestKey(loopScope: .init(order: 2, pattern: 1)),
+            makePreparationOwnerTestKey(loopScope: .init(order: 3, pattern: 0)),
+            makePreparationOwnerTestKey(backendVersion: 2),
+            makePreparationOwnerTestKey(plannerVersion: 2),
+            makePreparationOwnerTestKey(renderProfile: 2)
+        ]
+        for alternative in alternatives { XCTAssertNotEqual(try XCTUnwrap(alternative), key) }
+        XCTAssertNotEqual(try XCTUnwrap(alternatives[16]), try XCTUnwrap(alternatives[17]))
+        XCTAssertNotEqual(try XCTUnwrap(alternatives[16]), try XCTUnwrap(alternatives[18]))
+        XCTAssertNotEqual(try XCTUnwrap(alternatives[11]), try XCTUnwrap(alternatives[12]))
+        XCTAssertEqual(key.sampleRateBits, Double(48_000).bitPattern)
+        XCTAssertEqual(try XCTUnwrap(alternatives[5]).sampleRateBits, Double(48_000).nextUp.bitPattern)
+        for rate in [0.0, -0.0, -1.0, Double.infinity, -Double.infinity, Double.nan] {
+            XCTAssertNil(makePreparationOwnerTestKey(sampleRate: rate))
+        }
+        for bounds in [PlaybackPreparationKey.Bounds(lowerOrder: -1, upperOrder: 8),
+                       .init(lowerOrder: 2, upperOrder: 2), .init(lowerOrder: 3, upperOrder: 2)] {
+            XCTAssertNil(makePreparationOwnerTestKey(traversalBounds: bounds))
+        }
+        XCTAssertNil(makePreparationOwnerTestKey(origin: .cold(order: -1, row: 0)))
+        XCTAssertNil(makePreparationOwnerTestKey(origin: .cold(order: 8, row: 0)))
+        XCTAssertNil(makePreparationOwnerTestKey(origin: .cold(order: 2, row: -1)))
+        XCTAssertNil(makePreparationOwnerTestKey(loopScope: .init(order: 8, pattern: 0)))
+        XCTAssertNil(makePreparationOwnerTestKey(loopScope: .init(order: 2, pattern: -1)))
+        let probe = PreparationOwnerTestProbe()
+        let owner = makePreparationOwnerForTesting(probe: probe)
+        defer { finishPreparationOwnerTest(owner, probe: probe) }
+        let attempt = try XCTUnwrap(owner.offer(key))
+        XCTAssertEqual(owner.wait(for: attempt), .ready)
+        for alternative in alternatives {
+            XCTAssertNil(owner.claim(attempt, key: try XCTUnwrap(alternative)))
+        }
+        XCTAssertNotNil(owner.claim(attempt, key: key))
+        XCTAssertNil(owner.claim(attempt, key: key))
+    }
+
+    func testPreparationOwnerEpochRotationRejectsOldAttempt() throws {
+        let probe = PreparationOwnerTestProbe(), gate = PreparationOwnerTestGate()
+        let owner = makePreparationOwnerForTesting(probe: probe, constructionGate: gate,
+            initialSerial: UInt64.max - 1)
+        defer { finishPreparationOwnerTest(owner, probe: probe, gates: [gate]) }
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let old = try XCTUnwrap(owner.offer(key))
+        XCTAssertTrue(gate.waitUntilEntered())
+        let rotated = try XCTUnwrap(owner.offer(key))
+        XCTAssertNotEqual(old.epoch, rotated.epoch)
+        XCTAssertNotEqual(old, rotated)
+        XCTAssertNil(owner.observe(old, key: key))
+        XCTAssertNil(owner.claim(old, key: key))
+        gate.release()
+        XCTAssertEqual(owner.wait(for: old), .retired)
+        XCTAssertEqual(owner.wait(for: rotated), .ready)
+        XCTAssertNotNil(owner.claim(rotated, key: key))
+        XCTAssertEqual(probe.snapshot.maximumConstructing, 1)
+        XCTAssertEqual(probe.snapshot.watchdogFailures, 0)
+    }
+
+    func testPreparationOwnerDuplicateObservationKeepsAttemptButNewIntentRevokesIt() throws {
+        let probe = PreparationOwnerTestProbe(), gate = PreparationOwnerTestGate()
+        let owner = makePreparationOwnerForTesting(probe: probe, constructionGate: gate)
+        defer { finishPreparationOwnerTest(owner, probe: probe, gates: [gate]) }
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let original = try XCTUnwrap(owner.offer(key))
+        XCTAssertTrue(gate.waitUntilEntered())
+        XCTAssertEqual(owner.observe(original, key: key), original)
+        XCTAssertEqual(owner.snapshot.pendingCount, 0)
+        let replacement = try XCTUnwrap(owner.offer(key))
+        XCTAssertNotEqual(replacement, original)
+        XCTAssertNil(owner.observe(original, key: key))
+        XCTAssertEqual(owner.observe(replacement, key: key), replacement)
+        XCTAssertEqual(owner.snapshot.pendingCount, 1)
+        gate.release()
+        XCTAssertEqual(owner.wait(for: original), .retired)
+        XCTAssertEqual(owner.wait(for: replacement), .ready)
+        XCTAssertEqual(owner.observe(replacement, key: key), replacement)
+        XCTAssertNotNil(owner.claim(replacement, key: key))
+        XCTAssertNil(owner.observe(replacement, key: key))
+        XCTAssertEqual(probe.snapshot.maximumConstructing, 1)
+    }
+
+    @MainActor
+    func testPreparationOwnerBlockingWaitNeedsNoMainActorCompletion() throws {
+        XCTAssertTrue(Thread.isMainThread)
+        let probe = PreparationOwnerTestProbe(), notifications = PreparationOwnerTestNotifications()
+        let owner = PreparationOwnerUnderTest(workerQueue: probe.makeWorkerTarget(), producer: { key, _, _ in
+            probe.record("started", revision: key.revision)
+            defer { probe.record("returned", revision: key.revision) }
+            return PreparationOwnerTestProduct(source: PreparationOwnerTestSource(revision: key.revision, probe: probe),
+                probe: probe)
+        }, notify: { notification in
+            DispatchQueue.main.async { notifications.append(notification) }
+        })
+        defer { finishPreparationOwnerTest(owner, probe: probe) }
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let attempt = try XCTUnwrap(owner.offer(key))
+        // Main is synchronously blocked here; worker readiness cannot require its queued notification.
+        XCTAssertEqual(owner.wait(for: attempt), .ready)
+        XCTAssertTrue(notifications.values.isEmpty)
+        owner.stop()
+        XCTAssertEqual(owner.wait(for: attempt), .retired)
+        XCTAssertTrue(notifications.values.isEmpty)
+        XCTAssertNil(owner.claim(attempt, key: key))
+        XCTAssertEqual(probe.snapshot.liveProducts, 0)
+        XCTAssertEqual(probe.snapshot.liveSources, 0)
+        XCTAssertTrue(probe.snapshot.events.filter { $0.kind == "started" }.allSatisfy { $0.onWorker && !$0.onMainThread })
+        XCTAssertTrue(probe.snapshot.events.filter { $0.kind.hasSuffix("released") }.allSatisfy(\.onWorker))
+    }
+
+    func testPreparationOwnerDeinitCancelsActiveAndPendingWithoutRetainingFacade() throws {
+        let probe = PreparationOwnerTestProbe(), gate = PreparationOwnerTestGate()
+        let notifications = PreparationOwnerTestNotifications()
+        var owner: PreparationOwnerUnderTest? = makePreparationOwnerForTesting(probe: probe,
+            constructionGate: gate, notifications: notifications)
+        defer { gate.release(); owner?.shutdown() }
+        weak var facade = owner
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let active = try XCTUnwrap(owner?.offer(key))
+        XCTAssertTrue(gate.waitUntilEntered())
+        _ = try XCTUnwrap(owner?.offer(try XCTUnwrap(makePreparationOwnerTestKey(revision: 2))))
+        XCTAssertEqual(owner?.snapshot.pendingCount, 1)
+        owner = nil
+        XCTAssertNil(facade)
+        gate.release()
+        XCTAssertTrue(notifications.wait(for: active, kind: .retired))
+        XCTAssertEqual(probe.snapshot.events.filter { $0.kind == "started" }.map(\.revision), [1])
+        XCTAssertEqual(probe.snapshot.liveProducts, 0)
+        XCTAssertEqual(probe.snapshot.liveSources, 0)
+        XCTAssertTrue(probe.snapshot.events.filter { $0.kind.hasSuffix("released") }.allSatisfy(\.onWorker))
+        XCTAssertEqual(probe.snapshot.watchdogFailures, 0)
+    }
+
+    func testPreparationOwnerRejectsAnotherOwnersAttemptAndShutdownOffers() throws {
+        let first = makePreparationOwnerForTesting(probe: PreparationOwnerTestProbe())
+        let second = makePreparationOwnerForTesting(probe: PreparationOwnerTestProbe())
+        defer { first.shutdown(); second.shutdown() }
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let a = try XCTUnwrap(first.offer(key)), b = try XCTUnwrap(second.offer(key))
+        XCTAssertEqual(first.wait(for: a), .ready)
+        XCTAssertEqual(second.wait(for: b), .ready)
+        XCTAssertNil(first.claim(b, key: key))
+        XCTAssertNil(first.observe(b, key: key))
+        XCTAssertNil(second.claim(a, key: key))
+        XCTAssertNotNil(first.claim(a, key: key))
+        second.shutdown()
+        XCTAssertEqual(second.wait(for: b), .retired)
+        XCTAssertNil(second.offer(key))
+        XCTAssertTrue(second.snapshot.isShutdown)
+    }
+
+    func testPreparationOwnerCooperativeConstructorObservesCancellationBeforeRetirement() throws {
+        let probe = PreparationOwnerTestProbe(), gate = PreparationOwnerTestGate()
+        let notifications = PreparationOwnerTestNotifications()
+        let owner = PreparationOwnerUnderTest(workerQueue: probe.makeWorkerTarget(), producer: { key, _, token in
+            probe.record("started", revision: key.revision)
+            defer { probe.record("returned", revision: key.revision) }
+            let source = PreparationOwnerTestSource(revision: key.revision, probe: probe)
+            if !gate.enterAndWait() { probe.record("watchdog-expired", revision: key.revision) }
+            if token.isCancelled {
+                probe.record("cancellation-observed", revision: key.revision)
+                withExtendedLifetime(source) {}
+                return nil
+            }
+            return PreparationOwnerTestProduct(source: source, probe: probe)
+        }, notify: { notifications.append($0) })
+        defer { finishPreparationOwnerTest(owner, probe: probe, gates: [gate]) }
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let attempt = try XCTUnwrap(owner.offer(key))
+        XCTAssertTrue(gate.waitUntilEntered())
+        owner.stop()
+        XCTAssertEqual(owner.snapshot.phase, .draining)
+        XCTAssertEqual(probe.snapshot.liveSources, 1)
+        gate.release()
+        XCTAssertEqual(owner.wait(for: attempt), .retired)
+        XCTAssertTrue(notifications.wait(for: attempt, kind: .retired))
+        XCTAssertTrue(probe.snapshot.events.contains { $0.kind == "cancellation-observed" && $0.onWorker })
+        XCTAssertTrue(probe.snapshot.events.contains { $0.kind == "source-released" && $0.onWorker })
+        XCTAssertFalse(notifications.values.contains { $0.attempt == attempt && $0.kind == .ready })
+        XCTAssertEqual(probe.snapshot.liveSources, 0)
+        XCTAssertEqual(probe.snapshot.liveProducts, 0)
+    }
+
+    func testPreparationOwnerNilResultRetiresAndAllowsNextIntent() throws {
+        let probe = PreparationOwnerTestProbe(), notifications = PreparationOwnerTestNotifications()
+        let owner = PreparationOwnerUnderTest(workerQueue: probe.makeWorkerTarget(), producer: { key, _, _ in
+            probe.record("started", revision: key.revision)
+            defer { probe.record("returned", revision: key.revision) }
+            if key.revision == 1 { return nil }
+            return PreparationOwnerTestProduct(source: PreparationOwnerTestSource(revision: key.revision, probe: probe),
+                probe: probe)
+        }, notify: { notifications.append($0) })
+        defer { finishPreparationOwnerTest(owner, probe: probe) }
+        let firstKey = try XCTUnwrap(makePreparationOwnerTestKey())
+        let first = try XCTUnwrap(owner.offer(firstKey))
+        XCTAssertEqual(owner.wait(for: first), .retired)
+        XCTAssertTrue(notifications.wait(for: first, kind: .retired))
+        XCTAssertEqual(owner.snapshot.phase, .idle)
+        XCTAssertNil(owner.claim(first, key: firstKey))
+        XCTAssertFalse(notifications.values.contains { $0.attempt == first && $0.kind == .ready })
+        let secondKey = try XCTUnwrap(makePreparationOwnerTestKey(revision: 2))
+        let second = try XCTUnwrap(owner.offer(secondKey))
+        XCTAssertEqual(owner.wait(for: second), .ready)
+        XCTAssertNotNil(owner.claim(second, key: secondKey))
+        XCTAssertEqual(probe.snapshot.maximumConstructing, 1)
+    }
+
+    func testPreparationOwnerDeinitRetiresUnclaimedReadyProductOnWorker() throws {
+        let probe = PreparationOwnerTestProbe(), notifications = PreparationOwnerTestNotifications()
+        var owner: PreparationOwnerUnderTest? = makePreparationOwnerForTesting(probe: probe,
+            notifications: notifications)
+        defer { if let owner { finishPreparationOwnerTest(owner, probe: probe) } }
+        weak var facade = owner
+        let key = try XCTUnwrap(makePreparationOwnerTestKey())
+        let attempt = try XCTUnwrap(owner?.offer(key))
+        XCTAssertEqual(owner?.wait(for: attempt), .ready)
+        XCTAssertTrue(notifications.wait(for: attempt, kind: .ready))
+        XCTAssertEqual(probe.snapshot.liveProducts, 1)
+        owner = nil
+        XCTAssertNil(facade)
+        XCTAssertTrue(notifications.wait(for: attempt, kind: .retired))
+        XCTAssertEqual(probe.snapshot.liveProducts, 0)
+        XCTAssertEqual(probe.snapshot.liveSources, 0)
+        XCTAssertTrue(probe.snapshot.events.filter { $0.kind.hasSuffix("released") }.allSatisfy(\.onWorker))
+    }
+}
+
 final class PlaybackEngineTests: XCTestCase {
     func testCanonicalDebugPrewarmHandlesBxBeforeToneOnItsDispatchWorker() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

@@ -1310,3 +1310,245 @@ func readLE32(_ data: Data, offset: Int) -> UInt32 {
 func readLEInt16(_ data: Data, offset: Int) -> Int16 {
     Int16(bitPattern: readLE16(data, offset: offset))
 }
+
+/// Explicit worker/test rendezvous. The deadline is a hang watchdog, never ordering evidence.
+final class PreparationOwnerTestGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var entered = false
+    private var released = false
+
+    func enterAndWait() -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        entered = true
+        condition.broadcast()
+        let deadline = Date().addingTimeInterval(10)
+        while !released {
+            if !condition.wait(until: deadline) { return released }
+        }
+        return true
+    }
+
+    func waitUntilEntered() -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        let deadline = Date().addingTimeInterval(10)
+        while !entered {
+            if !condition.wait(until: deadline) { return entered }
+        }
+        return true
+    }
+
+    func release() {
+        condition.lock()
+        released = true
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+/// Keeps only scalar receipts; source/product lifetime assertions cannot be extended by this probe.
+final class PreparationOwnerTestProbe: @unchecked Sendable {
+    struct Event: Equatable, Sendable {
+        let kind: String
+        let revision: UInt64
+        let onWorker: Bool
+        let onMainThread: Bool
+    }
+
+    struct Snapshot: Sendable {
+        let events: [Event]
+        let maximumConstructing: Int
+        let constructing: Int
+        let liveSources: Int
+        let liveProducts: Int
+        let watchdogFailures: Int
+    }
+
+    private let condition = NSCondition()
+    private let workerKey = DispatchSpecificKey<UInt8>()
+    private var events = [Event]()
+    private var constructing = 0
+    private var maximumConstructing = 0
+    private var liveSources = 0
+    private var liveProducts = 0
+    private var watchdogFailures = 0
+
+    init() { events.reserveCapacity(512) }
+
+    func makeWorkerTarget() -> DispatchQueue {
+        let queue = DispatchQueue(label: "vtx.test.preparation-owner.\(UUID().uuidString)")
+        queue.setSpecific(key: workerKey, value: 1)
+        return queue
+    }
+
+    func record(_ kind: String, revision: UInt64) {
+        let event = Event(kind: kind, revision: revision,
+            onWorker: DispatchQueue.getSpecific(key: workerKey) == 1, onMainThread: Thread.isMainThread)
+        condition.lock()
+        defer { condition.unlock() }
+        precondition(events.count < 512, "A lifecycle test must keep its receipt history bounded")
+        switch kind {
+        case "started": constructing += 1; maximumConstructing = max(maximumConstructing, constructing)
+        case "returned": constructing -= 1
+        case "source-created": liveSources += 1
+        case "source-released": liveSources -= 1
+        case "product-created": liveProducts += 1
+        case "product-released": liveProducts -= 1
+        case "watchdog-expired": watchdogFailures += 1
+        default: break
+        }
+        events.append(event)
+        condition.broadcast()
+    }
+
+    func waitFor(_ kind: String, revision: UInt64) -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        let deadline = Date().addingTimeInterval(10)
+        while !events.contains(where: { $0.kind == kind && $0.revision == revision }) {
+            if !condition.wait(until: deadline) {
+                return events.contains(where: { $0.kind == kind && $0.revision == revision })
+            }
+        }
+        return true
+    }
+
+    var snapshot: Snapshot {
+        condition.lock()
+        defer { condition.unlock() }
+        return Snapshot(events: events, maximumConstructing: maximumConstructing, constructing: constructing,
+            liveSources: liveSources, liveProducts: liveProducts, watchdogFailures: watchdogFailures)
+    }
+}
+
+final class PreparationOwnerTestSource: @unchecked Sendable {
+    let revision: UInt64
+    private let probe: PreparationOwnerTestProbe
+
+    init(revision: UInt64, probe: PreparationOwnerTestProbe) {
+        self.revision = revision
+        self.probe = probe
+        probe.record("source-created", revision: revision)
+    }
+
+    deinit { probe.record("source-released", revision: revision) }
+}
+
+final class PreparationOwnerTestProduct: @unchecked Sendable {
+    let source: PreparationOwnerTestSource
+    private let probe: PreparationOwnerTestProbe
+    private let disposalGate: PreparationOwnerTestGate?
+
+    init(source: PreparationOwnerTestSource, probe: PreparationOwnerTestProbe,
+         disposalGate: PreparationOwnerTestGate? = nil) {
+        self.source = source
+        self.probe = probe
+        self.disposalGate = disposalGate
+        probe.record("product-created", revision: source.revision)
+    }
+
+    deinit {
+        if let disposalGate, !disposalGate.enterAndWait() {
+            probe.record("watchdog-expired", revision: source.revision)
+        }
+        probe.record("product-released", revision: source.revision)
+    }
+}
+
+typealias PreparationOwnerUnderTest = PlaybackPreparationOwner<PreparationOwnerTestProduct>
+
+/// Deliberately delayed observers store only the owner's fixed-size notifications, never products.
+final class PreparationOwnerTestNotifications: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var storage = [PreparationOwnerUnderTest.Notification]()
+
+    func append(_ notification: PreparationOwnerUnderTest.Notification) {
+        condition.lock()
+        defer { condition.unlock() }
+        precondition(storage.count < 512)
+        storage.append(notification)
+        condition.broadcast()
+    }
+
+    var values: [PreparationOwnerUnderTest.Notification] {
+        condition.lock()
+        defer { condition.unlock() }
+        return storage
+    }
+
+    func wait(for attempt: PreparationOwnerUnderTest.Attempt,
+              kind: PreparationOwnerUnderTest.Notification.Kind) -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        let deadline = Date().addingTimeInterval(10)
+        while !storage.contains(where: { $0.attempt == attempt && $0.kind == kind }) {
+            if !condition.wait(until: deadline) {
+                return storage.contains(where: { $0.attempt == attempt && $0.kind == kind })
+            }
+        }
+        return true
+    }
+}
+
+func makePreparationOwnerTestKey(
+    instanceEpoch: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+    transportEpoch: UInt64 = 1,
+    documentID: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+    revision: UInt64 = 1,
+    sourceGeneration: UInt64 = 1,
+    sampleRate: Double = 48_000,
+    frequencyMode: PlaybackPreparationKey.FrequencyMode = .linear,
+    traversalBounds: PlaybackPreparationKey.Bounds = .init(lowerOrder: 0, upperOrder: 8),
+    origin: PlaybackPreparationKey.Origin = .cold(order: 2, row: 3),
+    purpose: PlaybackPreparationKey.Purpose = .normalPlay,
+    loopScope: PlaybackPreparationKey.LoopScope? = nil,
+    backendVersion: UInt64 = 1,
+    plannerVersion: UInt64 = 1,
+    renderProfile: UInt64 = 1
+) -> PlaybackPreparationKey? {
+    PlaybackPreparationKey(instanceEpoch: instanceEpoch, transportEpoch: transportEpoch,
+        documentID: documentID, revision: revision, sourceGeneration: sourceGeneration,
+        sampleRate: sampleRate, frequencyMode: frequencyMode, traversalBounds: traversalBounds,
+        origin: origin, purpose: purpose, loopScope: loopScope, backendVersion: backendVersion,
+        plannerVersion: plannerVersion, renderProfile: renderProfile)
+}
+
+/// Sources are acquired inside the constructor only; pending request metadata cannot pin them.
+func makePreparationOwnerForTesting(
+    probe: PreparationOwnerTestProbe,
+    constructionGate: PreparationOwnerTestGate? = nil,
+    pausedRevision: UInt64 = 1,
+    disposalGate: PreparationOwnerTestGate? = nil,
+    initialSerial: UInt64 = 0,
+    notifications: PreparationOwnerTestNotifications = PreparationOwnerTestNotifications()
+) -> PreparationOwnerUnderTest {
+    PreparationOwnerUnderTest(workerQueue: probe.makeWorkerTarget(), initialSerial: initialSerial,
+        producer: { key, _, _ in
+            probe.record("started", revision: key.revision)
+            defer { probe.record("returned", revision: key.revision) }
+            let product = PreparationOwnerTestProduct(
+                source: PreparationOwnerTestSource(revision: key.revision, probe: probe), probe: probe,
+                disposalGate: key.revision == pausedRevision ? disposalGate : nil)
+            if key.revision == pausedRevision, let constructionGate, !constructionGate.enterAndWait() {
+                probe.record("watchdog-expired", revision: key.revision)
+            }
+            // Intentionally ignore cancellation: revocation must reject a successful late product.
+            return product
+        }, notify: { notifications.append($0) })
+}
+
+/// Every failing-test path revokes pending work, opens all rendezvous and joins actual retirement.
+func finishPreparationOwnerTest(
+    _ owner: PreparationOwnerUnderTest, probe: PreparationOwnerTestProbe,
+    gates: [PreparationOwnerTestGate] = [], file: StaticString = #filePath, line: UInt = #line
+) {
+    owner.shutdown()
+    for gate in gates { gate.release() }
+    if let active = owner.snapshot.activeAttempt {
+        XCTAssertEqual(owner.wait(for: active, timeout: 10), .retired, file: file, line: line)
+    }
+    XCTAssertEqual(owner.snapshot.activeCount, 0, file: file, line: line)
+    XCTAssertEqual(owner.snapshot.pendingCount, 0, file: file, line: line)
+    XCTAssertEqual(probe.snapshot.watchdogFailures, 0, file: file, line: line)
+}

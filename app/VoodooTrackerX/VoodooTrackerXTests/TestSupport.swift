@@ -807,52 +807,72 @@ final class TestRuntimeAdapterAudioOutput: PlaybackAudioOutput, PlaybackAudioBac
     }
 }
 
+/// Compatibility fixture for existing transport assertions; lifetime tests use the real scheduler.
 final class TestRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob, @unchecked Sendable {
     let generation: UInt64
+    let key: PlaybackPreparationKey
+    let attempt: PlaybackPreparationAttempt
+    private let identityOwner: PlaybackPreparationOwner<Int>
+    private var result: RuntimeAdapterPlanPrewarmResult
+    private var cancelled = false
+    private var claimed = false
     var cancelCount = 0
     var waitCount = 0
     var waitResult: RuntimeAdapterPlanPrewarmResult?
+    var unavailableResult = false
 
-    init(generation: UInt64) {
+    init(generation: UInt64, key: PlaybackPreparationKey, result: RuntimeAdapterPlanPrewarmResult) {
         self.generation = generation
+        self.key = key
+        self.result = result
+        let owner = PlaybackPreparationOwner<Int>(producer: { _, _, _ in 1 })
+        identityOwner = owner
+        attempt = owner.offer(key)!
     }
 
     func cancel() {
         cancelCount += 1
+        cancelled = true
+        identityOwner.stop()
+    }
+
+    func waitUntilReady() -> Bool {
+        waitCount += 1
+        return !cancelled && identityOwner.wait(for: attempt, timeout: 10) == .ready
     }
 
     func waitForResult() -> RuntimeAdapterPlanPrewarmResult? {
-        waitCount += 1
-        return waitResult
+        guard !cancelled, !claimed else { return nil }
+        claimed = true
+        if unavailableResult {
+            return RuntimeAdapterPlanPrewarmResult(generation: generation, plan: nil, makeMS: nil,
+                completedAfterCancellation: false, adapterPlanProfileSession: nil, sourceSong: result.sourceSong)
+        }
+        return waitResult ?? result
     }
+
+    func setCompletionResult(_ result: RuntimeAdapterPlanPrewarmResult) { self.result = result }
 }
 
 @MainActor
 final class TestRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling {
     private(set) var requests = [RuntimeAdapterPlanPrewarmRequest]()
     private(set) var jobs = [TestRuntimeAdapterPlanPrewarmJob]()
-    private var completions = [(@Sendable (RuntimeAdapterPlanPrewarmResult) -> Void)]()
+    private var completions = [(@Sendable (PlaybackPreparationNotification) -> Void)]()
     private var defaultResults = [RuntimeAdapterPlanPrewarmResult]()
     var makeMS: Double = 2.0
 
     func schedule(
         request: RuntimeAdapterPlanPrewarmRequest,
-        completion: @escaping @Sendable (RuntimeAdapterPlanPrewarmResult) -> Void
+        completion: @escaping @Sendable (PlaybackPreparationNotification) -> Void
     ) -> RuntimeAdapterPlanPrewarmJob {
-        let job = TestRuntimeAdapterPlanPrewarmJob(generation: request.generation)
         let profileSession = request.adapterPlanProfileRecorder?.beginLifecycle("prewarm")
-        let plan = RuntimeCMixerAdapterEventPlan.make(
-            song: request.song,
-            sampleRate: request.sampleRate,
-            profileSession: profileSession
-        )
-        let result = RuntimeAdapterPlanPrewarmResult(
-            generation: request.generation,
-            plan: plan,
-            makeMS: makeMS,
-            completedAfterCancellation: false,
-            adapterPlanProfileSession: profileSession
-        )
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: request.song,
+            sampleRate: request.sampleRate, profileSession: profileSession)
+        let result = RuntimeAdapterPlanPrewarmResult(generation: request.generation, plan: plan,
+            makeMS: makeMS, completedAfterCancellation: false,
+            adapterPlanProfileSession: profileSession, sourceSong: request.song)
+        let job = TestRuntimeAdapterPlanPrewarmJob(generation: request.generation, key: request.key, result: result)
         requests.append(request)
         jobs.append(job)
         completions.append(completion)
@@ -860,12 +880,11 @@ final class TestRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmSch
         return job
     }
 
-    func defaultResult(at index: Int = 0) -> RuntimeAdapterPlanPrewarmResult {
-        defaultResults[index]
-    }
+    func defaultResult(at index: Int = 0) -> RuntimeAdapterPlanPrewarmResult { defaultResults[index] }
 
     func complete(at index: Int = 0, result: RuntimeAdapterPlanPrewarmResult? = nil) {
-        completions[index](result ?? defaultResults[index])
+        if let result { jobs[index].setCompletionResult(result) }
+        completions[index](.init(attempt: jobs[index].attempt, kind: .ready))
     }
 }
 
@@ -1309,6 +1328,128 @@ func readLE32(_ data: Data, offset: Int) -> UInt32 {
 
 func readLEInt16(_ data: Data, offset: Int) -> Int16 {
     Int16(bitPattern: readLE16(data, offset: offset))
+}
+
+/// Scalar-only receipts from the actual production scheduler. Never retains a source or plan.
+final class ProductionPreparationTestProbe: @unchecked Sendable {
+    struct Event: Sendable {
+        let kind: String
+        let generation: UInt64?
+        let attempt: PlaybackPreparationAttempt?
+        let onMain: Bool
+        let eventStorageID: UInt?
+    }
+    private let condition = NSCondition()
+    private var events = [Event]()
+    private var constructing = 0, sources = 0, results = 0
+    private let label: String
+    init(label: String = #function) { self.label = label }
+
+    deinit {
+        guard let supplied = ProcessInfo.processInfo.environment["VTX_B2_RECEIPTS_ROOT"] else { return }
+        let root = URL(fileURLWithPath: supplied).resolvingSymlinksInPath()
+        precondition(root.path.hasPrefix("/private/tmp/vtx-phase2-perf-origin1b-b2.") ||
+            root.path.hasPrefix("/tmp/vtx-phase2-perf-origin1b-b2."))
+        let rows: [[String: Any]] = events.map {
+            var row: [String: Any] = ["kind": $0.kind, "onMain": $0.onMain]
+            if let generation = $0.generation { row["sourceGeneration"] = generation }
+            if let storage = $0.eventStorageID { row["eventStorageID"] = String(storage, radix: 16) }
+            if let attempt = $0.attempt {
+                row["attemptEpoch"] = attempt.epoch.uuidString; row["attemptSerial"] = attempt.serial
+            }
+            return row
+        }
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let payload: [String: Any] = ["schema": 1, "test": label, "events": rows,
+                "maximumConstructors": maximumConstructing, "maximumSourceWrappers": maximumSources,
+                "maximumResultWrappers": maximumResults, "finalSources": sources, "finalResults": results]
+            let output = root.appendingPathComponent("receipts-\(UUID().uuidString).json")
+            precondition(output.resolvingSymlinksInPath().path.hasPrefix(root.path + "/"))
+            try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+                .write(to: output, options: .withoutOverwriting)
+        } catch { XCTFail("Unable to preserve production worker receipts: \(error)") }
+    }
+    private(set) var maximumConstructing = 0, maximumSources = 0, maximumResults = 0
+
+    func record(_ receipt: RuntimeAdapterPlanPreparationReceipt) {
+        let kind = String(describing: receipt.kind)
+        condition.lock()
+        defer { condition.unlock() }
+        precondition(events.count < 1024)
+        switch kind {
+        case "constructorStarted": constructing += 1; maximumConstructing = max(maximumConstructing, constructing)
+        case "constructorFinished": constructing -= 1
+        case "sourceSupplied": sources += 1; maximumSources = max(maximumSources, sources)
+        case "sourceReleased": sources -= 1
+        case "resultCreated": results += 1; maximumResults = max(maximumResults, results)
+        case "resultReleased": results -= 1
+        default: break
+        }
+        events.append(Event(kind: kind, generation: receipt.key?.sourceGeneration,
+            attempt: receipt.attempt, onMain: receipt.isMainThread, eventStorageID: receipt.eventStorageID))
+        condition.broadcast()
+    }
+
+    var values: [Event] {
+        condition.lock(); defer { condition.unlock() }; return events
+    }
+
+    var maxima: (constructors: Int, sources: Int, results: Int) {
+        condition.lock(); defer { condition.unlock() }
+        return (maximumConstructing, maximumSources, maximumResults)
+    }
+
+    var liveRoots: (sources: Int, results: Int) {
+        condition.lock(); defer { condition.unlock() }; return (sources, results)
+    }
+
+    func wait(_ kind: String, count: Int = 1, generation: UInt64? = nil) -> Bool {
+        condition.lock(); defer { condition.unlock() }
+        let deadline = Date().addingTimeInterval(10)
+        func matches() -> Bool {
+            events.filter { $0.kind == kind && (generation == nil || $0.generation == generation) }.count >= count
+        }
+        while !matches() { if !condition.wait(until: deadline) { return matches() } }
+        return true
+    }
+}
+
+/// A represented backend with exactly one admitted graph and scalar installation history.
+@MainActor
+final class ProductionPreparationTestAudioOutput: PlaybackAudioOutput, PlaybackAudioBackendProviding, RuntimeCMixerAdapterEventConsuming {
+    var audioBufferSampleRate: Double
+    let runtimeAudioBackend: RuntimeAudioBackend = .cMixer
+    private(set) var plan: RuntimeCMixerAdapterEventPlan?
+    private(set) var generatedConfigureCount = 0
+    private(set) var consumedCount = 0
+    init(sampleRate: Double = 100) { audioBufferSampleRate = sampleRate }
+    var hasRuntimeAdapterEventPlan: Bool { plan?.generated ?? false }
+    func trigger(_ request: AudioVoiceRequest) {}
+    func update(channel: Int, controls: AudioChannelControls) {}
+    func stop(channel: Int) {}
+    func stopAll() {}
+    func reset() {}
+    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan,
+        generationMS: Double?, timingSession: PlaybackTimingTraceSession?) {
+        self.plan = plan
+        if plan.generated { generatedConfigureCount += 1 }
+    }
+    func resetRuntimeAdapterEventConsumption() {}
+    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?, patternLoopRange: PlaybackPatternLoopRange?,
+        timingSession: PlaybackTimingTraceSession?) { consumedCount += 1 }
+}
+
+final class ProductionPreparationTestFailureOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = true
+    func take() -> Bool { lock.lock(); defer { lock.unlock() }; let value = pending; pending = false; return value }
+}
+
+/// Only the thread-safe production job crosses the executor boundary in a waiter race.
+final class ProductionPreparationTestJobLease: @unchecked Sendable {
+    let job: RuntimeAdapterPlanPrewarmJob
+    init(_ job: RuntimeAdapterPlanPrewarmJob) { self.job = job }
 }
 
 /// Explicit worker/test rendezvous. The deadline is a hang watchdog, never ordering evidence.

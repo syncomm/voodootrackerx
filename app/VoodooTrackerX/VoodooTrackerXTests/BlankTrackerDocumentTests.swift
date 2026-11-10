@@ -3968,7 +3968,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         prewarmScheduler.complete(at: 1)
         await Task.yield()
 
-        let pendingPlan = try XCTUnwrap(engine.pendingEditablePatternLoopRefreshPlanForTesting)
+        XCTAssertTrue(engine.hasReadyEditablePatternLoopRefreshForTesting)
+        let pendingPlan = try XCTUnwrap(prewarmScheduler.defaultResult(at: prewarmScheduler.requests.count - 1).plan)
         XCTAssertEqual(noteTriggerSources(in: pendingPlan), [
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 1),
@@ -4164,7 +4165,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         prewarmScheduler.complete(at: prewarmScheduler.requests.count - 1)
         await Task.yield()
 
-        let pendingPlan = try XCTUnwrap(engine.pendingEditablePatternLoopRefreshPlanForTesting)
+        XCTAssertTrue(engine.hasReadyEditablePatternLoopRefreshForTesting)
+        let pendingPlan = try XCTUnwrap(prewarmScheduler.defaultResult(at: prewarmScheduler.requests.count - 1).plan)
         XCTAssertEqual(noteTriggerSummaries(in: pendingPlan), [
             NoteTriggerSummary(
                 source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 1),
@@ -4208,7 +4210,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.pattern.rows[1][1].note, 51)
         XCTAssertEqual(document.pattern.rows[1][1].instrument, 2)
 
-        let pendingPlan = try XCTUnwrap(engine.pendingEditablePatternLoopRefreshPlanForTesting)
+        XCTAssertTrue(engine.hasReadyEditablePatternLoopRefreshForTesting)
+        let pendingPlan = try XCTUnwrap(prewarmScheduler.defaultResult(at: prewarmScheduler.requests.count - 1).plan)
         XCTAssertEqual(noteTriggerSummaries(in: pendingPlan), [
             NoteTriggerSummary(
                 source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
@@ -4276,7 +4279,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         prewarmScheduler.complete(at: 1)
         await Task.yield()
 
-        let pendingPlan = try XCTUnwrap(engine.pendingEditablePatternLoopRefreshPlanForTesting)
+        XCTAssertTrue(engine.hasReadyEditablePatternLoopRefreshForTesting)
+        let pendingPlan = try XCTUnwrap(prewarmScheduler.defaultResult(at: prewarmScheduler.requests.count - 1).plan)
         XCTAssertEqual(document.pattern.rows[0][0], .empty)
         XCTAssertEqual(pendingPlan.plannedEventCount, 0)
         XCTAssertTrue(noteTriggerSources(in: pendingPlan).isEmpty)

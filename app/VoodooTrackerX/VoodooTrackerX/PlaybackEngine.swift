@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// Bounded request meaning only: never owns source, checkpoint, event or PCM payloads.
-/// This B1 primitive is deliberately not instantiated by the live playback engine.
+/// B2 supplies this meaning through the engine-local production source broker.
 struct PlaybackPreparationKey: Equatable, Sendable {
     enum FrequencyMode: Equatable, Sendable { case linear, amiga }
     struct Bounds: Equatable, Sendable { let lowerOrder: Int; let upperOrder: Int }
@@ -377,25 +377,65 @@ final class PlaybackPreparationOwner<Product: Sendable>: Sendable {
     var snapshot: Snapshot { core.snapshot }
 }
 
+/// A synchronous control-side source supply; queued requests retain only `key` and attempt.
 struct RuntimeAdapterPlanPrewarmRequest: @unchecked Sendable {
     let generation: UInt64
     let song: PlaybackSong
     let sampleRate: Double
     let adapterPlanProfileRecorder: AdapterPlanProfileRecorder?
+    let key: PlaybackPreparationKey
 }
 
-struct RuntimeAdapterPlanPrewarmResult: @unchecked Sendable {
+/// One observable result root; rejected plan/source aliases are cleared before retirement.
+final class RuntimeAdapterPlanPrewarmResult: @unchecked Sendable {
     let generation: UInt64
-    let plan: RuntimeCMixerAdapterEventPlan?
+    private(set) var plan: RuntimeCMixerAdapterEventPlan?
     let makeMS: Double?
     let completedAfterCancellation: Bool
     let adapterPlanProfileSession: AdapterPlanProfileSession?
+    private(set) var sourceSong: PlaybackSong?
+    private let receipt: (@Sendable (RuntimeAdapterPlanPreparationReceipt) -> Void)?
+    private let key: PlaybackPreparationKey?
+    private let attempt: PlaybackPreparationAttempt?
+    private let eventStorageID: UInt?
+
+    init(generation: UInt64, plan: RuntimeCMixerAdapterEventPlan?, makeMS: Double?,
+         completedAfterCancellation: Bool, adapterPlanProfileSession: AdapterPlanProfileSession?,
+         sourceSong: PlaybackSong? = nil, key: PlaybackPreparationKey? = nil,
+         attempt: PlaybackPreparationAttempt? = nil,
+         receipt: (@Sendable (RuntimeAdapterPlanPreparationReceipt) -> Void)? = nil) {
+        self.generation = generation
+        self.plan = plan
+        self.makeMS = makeMS
+        self.completedAfterCancellation = completedAfterCancellation
+        self.adapterPlanProfileSession = adapterPlanProfileSession
+        self.sourceSong = sourceSong
+        self.key = key
+        self.attempt = attempt
+        self.receipt = receipt
+        eventStorageID = plan.flatMap { $0.events.withUnsafeBufferPointer { $0.baseAddress.map { UInt(bitPattern: $0) } } }
+        receipt?(.init(kind: .resultCreated, key: key, attempt: attempt, isMainThread: Thread.isMainThread, eventStorageID: eventStorageID))
+    }
+
+    deinit {
+        // Admitted backend/cache aliases remain their consumers' responsibility. For a
+        // rejected result, this clears its owned graph/source before B1 acknowledges it.
+        plan = nil
+        sourceSong = nil
+        receipt?(.init(kind: .resultReleased, key: key, attempt: attempt, isMainThread: Thread.isMainThread, eventStorageID: eventStorageID))
+    }
 }
 
-protocol RuntimeAdapterPlanPrewarmJob: AnyObject {
+protocol RuntimeAdapterPlanPrewarmJob: AnyObject, Sendable {
     var generation: UInt64 { get }
+    var key: PlaybackPreparationKey { get }
+    var attempt: PlaybackPreparationAttempt { get }
 
+    /// Cancellation is control-side; it never destroys a worker-owned result on its caller.
     func cancel()
+    /// Joins the worker condition without requiring actor notification progress.
+    func waitUntilReady() -> Bool
+    /// Transfers the ready result once; nil means this attempt was revoked or already claimed.
     func waitForResult() -> RuntimeAdapterPlanPrewarmResult?
 }
 
@@ -403,8 +443,39 @@ protocol RuntimeAdapterPlanPrewarmJob: AnyObject {
 protocol RuntimeAdapterPlanPrewarmScheduling: AnyObject {
     func schedule(
         request: RuntimeAdapterPlanPrewarmRequest,
-        completion: @escaping @Sendable (RuntimeAdapterPlanPrewarmResult) -> Void
+        completion: @escaping @Sendable (PlaybackPreparationNotification) -> Void
     ) -> RuntimeAdapterPlanPrewarmJob
+}
+
+/// Optional scalar probes and worker barriers exercise the actual production arbitration.
+/// The default maker remains the existing whole-song adapter, including its legacy origin.
+struct RuntimeAdapterPlanPreparationHooks: Sendable {
+    var beforeSourceResolution: @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt) -> Void = { _, _ in }
+    var beforeMake: @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt) -> Void = { _, _ in }
+    var afterMake: @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt) -> Void = { _, _ in }
+    var receipt: @Sendable (RuntimeAdapterPlanPreparationReceipt) -> Void = { _ in }
+    var makePlan: @Sendable (PlaybackSong, Double, AdapterPlanProfileSession?) -> RuntimeCMixerAdapterEventPlan? = {
+        RuntimeCMixerAdapterEventPlan.make(song: $0, sampleRate: $1, profileSession: $2)
+    }
+}
+
+struct RuntimeAdapterPlanPreparationReceipt: Sendable {
+    enum Kind: Sendable { case sourceSupplied, sourceAcquired, sourceReleased, resultCreated, resultReleased,
+                               constructorStarted, constructorFinished, ready, retired, claimed, waitStarted }
+    let kind: Kind
+    let key: PlaybackPreparationKey?
+    let attempt: PlaybackPreparationAttempt?
+    let isMainThread: Bool
+    let eventStorageID: UInt?
+
+    init(kind: Kind, key: PlaybackPreparationKey?, attempt: PlaybackPreparationAttempt?,
+         isMainThread: Bool, eventStorageID: UInt? = nil) {
+        self.kind = kind
+        self.key = key
+        self.attempt = attempt
+        self.isMainThread = isMainThread
+        self.eventStorageID = eventStorageID
+    }
 }
 
 private enum RuntimeAdapterPlanCacheSource: String {
@@ -421,15 +492,9 @@ private enum RuntimeAdapterPlanPlayMode: String {
     case unavailable
 }
 
-private struct EditablePatternLoopRefreshSnapshot: @unchecked Sendable {
-    let song: PlaybackSong
-}
-
 private struct PendingEditablePatternLoopRefresh {
     let generation: UInt64
-    let snapshot: EditablePatternLoopRefreshSnapshot
-    let plan: RuntimeCMixerAdapterEventPlan
-    let makeMS: Double?
+    let attempt: PlaybackPreparationAttempt
 }
 
 private struct IsolatedPatternLoopPlaybackContext {
@@ -442,94 +507,213 @@ private struct IsolatedPatternLoopPlaybackRestoreState {
     var runtimeAdapterEventPlan: RuntimeCMixerAdapterEventPlan
     var runtimeAdapterPlanCacheSource: RuntimeAdapterPlanCacheSource
     var runtimeAdapterPlanUseCount: Int
+    var key: PlaybackPreparationKey?
+}
+
+/// One immutable revision lease. The broker and currently executing producer may alias it;
+/// it is never captured by a pending request or a MainActor notification.
+private final class RuntimeAdapterPlanPreparationSource: @unchecked Sendable {
+    let generation: UInt64
+    let key: PlaybackPreparationKey
+    let sampleRate: Double
+    let recorder: AdapterPlanProfileRecorder?
+    private(set) var song: PlaybackSong?
+    private let receipt: @Sendable (RuntimeAdapterPlanPreparationReceipt) -> Void
+
+    init(_ request: RuntimeAdapterPlanPrewarmRequest, hooks: RuntimeAdapterPlanPreparationHooks) {
+        generation = request.generation
+        key = request.key
+        sampleRate = request.sampleRate
+        recorder = request.adapterPlanProfileRecorder
+        song = request.song
+        receipt = hooks.receipt
+        receipt(.init(kind: .sourceSupplied, key: key, attempt: nil, isMainThread: Thread.isMainThread))
+    }
+
+    deinit {
+        // Release this source alias before recording its disappearance; other actual
+        // consumers (document, admitted graph or worker) keep their independent aliases.
+        song = nil
+        receipt(.init(kind: .sourceReleased, key: key, attempt: nil, isMainThread: Thread.isMainThread))
+    }
+}
+
+/// A single authoritative supplied snapshot, separate from the owner's scalar mailbox.
+private final class RuntimeAdapterPlanPreparationBroker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var source: RuntimeAdapterPlanPreparationSource?
+    private var completion: (@Sendable (PlaybackPreparationNotification) -> Void)?
+
+    func supply(_ request: RuntimeAdapterPlanPrewarmRequest, hooks: RuntimeAdapterPlanPreparationHooks,
+                completion: @escaping @Sendable (PlaybackPreparationNotification) -> Void) {
+        lock.lock()
+        var oldSource = source
+        source = nil
+        self.completion = completion
+        lock.unlock()
+        // End obsolete broker ownership before allocating the new wrapper. A producer
+        // already using that snapshot has its own lease; a not-yet-started obsolete
+        // attempt may now resolve nil and retire, independently of MainActor progress.
+        withExtendedLifetime(oldSource) {}
+        oldSource = nil
+        let newSource = RuntimeAdapterPlanPreparationSource(request, hooks: hooks)
+        lock.lock()
+        source = newSource
+        lock.unlock()
+    }
+
+    func resolve(_ key: PlaybackPreparationKey) -> RuntimeAdapterPlanPreparationSource? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard source?.key == key else { return nil }
+        return source
+    }
+
+    func clear(matching key: PlaybackPreparationKey? = nil) {
+        lock.lock()
+        guard key == nil || source?.key == key else { lock.unlock(); return }
+        let oldSource = source
+        source = nil
+        if key == nil { completion = nil }
+        lock.unlock()
+        withExtendedLifetime(oldSource) {}
+    }
+
+    func notify(_ notification: PlaybackPreparationNotification) {
+        lock.lock()
+        let callback = completion
+        lock.unlock()
+        // Production callback only enqueues the scalar; it must never await MainActor.
+        callback?(notification)
+    }
 }
 
 private final class DispatchQueueRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob, @unchecked Sendable {
     let generation: UInt64
+    let key: PlaybackPreparationKey
+    let attempt: PlaybackPreparationAttempt
+    private let owner: PlaybackPreparationOwner<RuntimeAdapterPlanPrewarmResult>
+    private let broker: RuntimeAdapterPlanPreparationBroker
+    private let receipt: @Sendable (RuntimeAdapterPlanPreparationReceipt) -> Void
 
-    private let condition = NSCondition()
-    private var cancelled = false
-    private var result: RuntimeAdapterPlanPrewarmResult?
-
-    init(generation: UInt64) {
+    init(generation: UInt64, key: PlaybackPreparationKey, attempt: PlaybackPreparationAttempt,
+         owner: PlaybackPreparationOwner<RuntimeAdapterPlanPrewarmResult>,
+         broker: RuntimeAdapterPlanPreparationBroker, hooks: RuntimeAdapterPlanPreparationHooks) {
         self.generation = generation
+        self.key = key
+        self.attempt = attempt
+        self.owner = owner
+        self.broker = broker
+        receipt = hooks.receipt
     }
 
     func cancel() {
-        condition.lock()
-        cancelled = true
-        condition.broadcast()
-        condition.unlock()
+        // Offers and cancellation are serialized by the engine's MainActor control side.
+        // An old job must not revoke a successor that has already become authoritative.
+        if owner.observe(attempt, key: key) != nil {
+            owner.stop()
+            broker.clear(matching: key)
+        }
+    }
+
+    func waitUntilReady() -> Bool {
+        receipt(.init(kind: .waitStarted, key: key, attempt: attempt, isMainThread: Thread.isMainThread))
+        while true {
+            switch owner.wait(for: attempt) {
+            case .ready: return true
+            case .timedOut: continue
+            case .retired, .invalid: return false
+            }
+        }
     }
 
     func waitForResult() -> RuntimeAdapterPlanPrewarmResult? {
-        condition.lock()
-        while result == nil, !cancelled {
-            condition.wait()
-        }
-        let completedResult = result
-        condition.unlock()
-        return completedResult
-    }
-
-    var isCancelled: Bool {
-        condition.lock()
-        let value = cancelled
-        condition.unlock()
-        return value
-    }
-
-    func finish(_ result: RuntimeAdapterPlanPrewarmResult) {
-        condition.lock()
-        self.result = result
-        condition.broadcast()
-        condition.unlock()
+        let result = owner.claim(attempt, key: key)
+        if result != nil { broker.clear(matching: key) }
+        return result
     }
 }
 
-private final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling {
-    private let queue = DispatchQueue(
-        label: "com.syncomm.VoodooTrackerX.runtime-adapter-plan-prewarm",
-        qos: .utility
-    )
+/// The single production constructor for prewarm, compatible waits, fallback and refresh.
+/// The fixed producer closes over the broker only, never the engine or an initial song.
+final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling {
+    private let broker: RuntimeAdapterPlanPreparationBroker
+    private let owner: PlaybackPreparationOwner<RuntimeAdapterPlanPrewarmResult>
+    private let hooks: RuntimeAdapterPlanPreparationHooks
+
+    init(workerQueue: DispatchQueue? = nil, hooks: RuntimeAdapterPlanPreparationHooks = .init()) {
+        let broker = RuntimeAdapterPlanPreparationBroker()
+        self.broker = broker
+        self.hooks = hooks
+        owner = PlaybackPreparationOwner(workerQueue: workerQueue, producer: { key, attempt, cancellation in
+            hooks.beforeSourceResolution(key, attempt)
+            guard !cancellation.isCancelled, let source = broker.resolve(key), let song = source.song else { return nil }
+            hooks.receipt(.init(kind: .sourceAcquired, key: key, attempt: attempt, isMainThread: Thread.isMainThread))
+            let isRefresh = key.purpose == .editRefresh || key.purpose == .loopRefresh
+            if isRefresh {
+                // A generated refresh may transfer only after proving its immutable source
+                // has the exact boundary scope. Pattern loop ranges always begin at row 0;
+                // source and key cannot change after this worker-side admission check.
+                guard let scope = key.loopScope,
+                      let anchor = song.position(orderIndex: scope.order, rowIndex: 0),
+                      anchor.patternIndex == scope.pattern,
+                      let range = song.patternLoopRange(containing: anchor),
+                      range.orderIndex == scope.order, range.patternIndex == scope.pattern else {
+                    broker.clear(matching: key)
+                    return nil
+                }
+            }
+            hooks.beforeMake(key, attempt)
+            guard !cancellation.isCancelled else { return nil }
+            let profileSession = source.recorder?.beginLifecycle("prewarm")
+            hooks.receipt(.init(kind: .constructorStarted, key: key, attempt: attempt, isMainThread: Thread.isMainThread))
+            let start = DispatchTime.now().uptimeNanoseconds
+            let plan = hooks.makePlan(song, source.sampleRate, profileSession)
+            let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+            hooks.receipt(.init(kind: .constructorFinished, key: key, attempt: attempt, isMainThread: Thread.isMainThread))
+            hooks.afterMake(key, attempt)
+            if isRefresh, plan?.generated != true {
+                // An unavailable refresh has no boundary consumer. Reject it here so its
+                // plan/source aliases leave this worker scope before B1 acknowledges exit.
+                broker.clear(matching: key)
+                return nil
+            }
+            return RuntimeAdapterPlanPrewarmResult(
+                generation: source.generation, plan: plan, makeMS: elapsedMS,
+                completedAfterCancellation: cancellation.isCancelled,
+                adapterPlanProfileSession: profileSession,
+                sourceSong: isRefresh ? song : nil,
+                key: key, attempt: attempt, receipt: hooks.receipt
+            )
+        }, notify: { notification in
+            let kind: RuntimeAdapterPlanPreparationReceipt.Kind
+            switch notification.kind {
+            case .ready: kind = .ready
+            case .retired: kind = .retired
+            case .claimed: kind = .claimed
+            }
+            hooks.receipt(.init(kind: kind, key: nil, attempt: notification.attempt, isMainThread: Thread.isMainThread))
+            broker.notify(notification)
+        })
+    }
+
+    deinit {
+        owner.shutdown()
+        broker.clear()
+    }
+
+    var snapshot: PlaybackPreparationOwner<RuntimeAdapterPlanPrewarmResult>.Snapshot { owner.snapshot }
 
     func schedule(
         request: RuntimeAdapterPlanPrewarmRequest,
-        completion: @escaping @Sendable (RuntimeAdapterPlanPrewarmResult) -> Void
+        completion: @escaping @Sendable (PlaybackPreparationNotification) -> Void
     ) -> RuntimeAdapterPlanPrewarmJob {
-        let job = DispatchQueueRuntimeAdapterPlanPrewarmJob(generation: request.generation)
-        queue.async {
-            guard !job.isCancelled else {
-                let result = RuntimeAdapterPlanPrewarmResult(
-                    generation: request.generation,
-                    plan: nil,
-                    makeMS: nil,
-                    completedAfterCancellation: true,
-                    adapterPlanProfileSession: nil
-                )
-                job.finish(result)
-                completion(result)
-                return
-            }
-            let profileSession = request.adapterPlanProfileRecorder?.beginLifecycle("prewarm")
-            let start = DispatchTime.now().uptimeNanoseconds
-            let plan = RuntimeCMixerAdapterEventPlan.make(
-                song: request.song,
-                sampleRate: request.sampleRate,
-                profileSession: profileSession
-            )
-            let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
-            let result = RuntimeAdapterPlanPrewarmResult(
-                generation: request.generation,
-                plan: plan,
-                makeMS: elapsedMS,
-                completedAfterCancellation: job.isCancelled,
-                adapterPlanProfileSession: profileSession
-            )
-            job.finish(result)
-            completion(result)
-        }
-        return job
+        broker.supply(request, hooks: hooks, completion: completion)
+        guard let attempt = owner.offer(request.key) else { preconditionFailure("A live scheduler cannot be shut down") }
+        return DispatchQueueRuntimeAdapterPlanPrewarmJob(
+            generation: request.generation, key: request.key, attempt: attempt,
+            owner: owner, broker: broker, hooks: hooks
+        )
     }
 }
 
@@ -562,6 +746,13 @@ final class PlaybackEngine: PlaybackTransport {
     private var pendingPositionCommand: PlaybackPositionCommand?
     private var runtimeAdapterEventPlan = RuntimeCMixerAdapterEventPlan.unavailable()
     private var runtimeAdapterPlanGeneration: UInt64 = 0
+    private let preparationInstanceID = UUID()
+    private var preparationDocumentID = UUID()
+    private var preparationTransportEpoch: UInt64 = 0
+    private var preparationControlIntent: UInt64 = 0
+    private var preparationSourceSerial: UInt64 = 0
+    private var currentSourceGeneration: UInt64 = 0
+    private var runtimeAdapterPlanKey: PlaybackPreparationKey?
     private var runtimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob?
     private var runtimeAdapterPlanPrewarmTimingSession: PlaybackTimingTraceSession?
     private var runtimeAdapterPlanCacheSource = RuntimeAdapterPlanCacheSource.none
@@ -603,8 +794,15 @@ final class PlaybackEngine: PlaybackTransport {
         editablePatternLoopRefreshJob != nil || pendingEditablePatternLoopRefresh != nil
     }
 
-    var pendingEditablePatternLoopRefreshPlanForTesting: RuntimeCMixerAdapterEventPlan? {
-        pendingEditablePatternLoopRefresh?.plan
+    var runtimePreparationJobForTesting: RuntimeAdapterPlanPrewarmJob? { runtimeAdapterPlanPrewarmJob }
+
+    var hasReadyEditablePatternLoopRefreshForTesting: Bool { pendingEditablePatternLoopRefresh != nil }
+
+    var preparationWillAdmitForTesting: ((PlaybackPreparationAttempt) -> Void)?
+
+    func deliverPreparationNotificationForTesting(_ notification: PlaybackPreparationNotification) {
+        completeRuntimeAdapterPlanPrewarm(notification)
+        completeEditablePatternLoopRefresh(notification)
     }
 #endif
 
@@ -642,6 +840,11 @@ final class PlaybackEngine: PlaybackTransport {
                 : .defaultPolicy
     }
 
+    deinit {
+        runtimeAdapterPlanPrewarmJob?.cancel()
+        editablePatternLoopRefreshJob?.cancel()
+    }
+
     func load(song: PlaybackSong?, timingSession: PlaybackTimingTraceSession? = nil) {
         runtimeAdapterPlanGeneration &+= 1
         cancelRuntimeAdapterPlanPrewarm(reason: "load_invalidation")
@@ -656,6 +859,8 @@ final class PlaybackEngine: PlaybackTransport {
         )
         let stateResetStart = timingSession?.beginPhase()
         self.song = song
+        preparationDocumentID = UUID()
+        currentSourceGeneration = mintSourceGeneration()
         timing = song?.initialTiming ?? .xmDefault
         currentPosition = song?.startPosition
         currentPublishedFollowPosition = song?.startPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
@@ -705,25 +910,22 @@ final class PlaybackEngine: PlaybackTransport {
             isolatedPatternLoopPlaybackRestoreState?.runtimeAdapterEventPlan = .unavailable(sampleRate: audioEngine.audioBufferSampleRate)
             isolatedPatternLoopPlaybackRestoreState?.runtimeAdapterPlanCacheSource = .none
             isolatedPatternLoopPlaybackRestoreState?.runtimeAdapterPlanUseCount = 0
+            isolatedPatternLoopPlaybackRestoreState?.key = nil
         } else {
             playbackRefreshSong = refreshedSong
         }
-        editablePatternLoopRefreshGeneration &+= 1
-        editablePatternLoopRefreshJob?.cancel()
-        editablePatternLoopRefreshJob = nil
-        pendingEditablePatternLoopRefresh = nil
-
+        cancelRuntimeAdapterPlanPrewarm(reason: "edit_refresh")
+        cancelEditablePatternLoopRefresh(reason: "superseded_refresh")
         let generation = editablePatternLoopRefreshGeneration
-        let snapshot = EditablePatternLoopRefreshSnapshot(song: playbackRefreshSong)
+        guard let key = preparationKey(for: playbackRefreshSong, sourceGeneration: mintSourceGeneration(), purpose: .editRefresh) else { return }
         let request = RuntimeAdapterPlanPrewarmRequest(
-            generation: generation,
-            song: playbackRefreshSong,
+            generation: generation, song: playbackRefreshSong,
             sampleRate: audioEngine.audioBufferSampleRate,
-            adapterPlanProfileRecorder: nil
+            adapterPlanProfileRecorder: nil, key: key
         )
-        editablePatternLoopRefreshJob = runtimeAdapterPlanPrewarmScheduler.schedule(request: request) { [weak self] result in
+        editablePatternLoopRefreshJob = runtimeAdapterPlanPrewarmScheduler.schedule(request: request) { [weak self] notification in
             Task { @MainActor [weak self] in
-                self?.completeEditablePatternLoopRefresh(result, snapshot: snapshot)
+                self?.completeEditablePatternLoopRefresh(notification)
             }
         }
     }
@@ -788,7 +990,8 @@ final class PlaybackEngine: PlaybackTransport {
             sourceSong: sourceSong,
             runtimeAdapterEventPlan: runtimeAdapterEventPlan,
             runtimeAdapterPlanCacheSource: runtimeAdapterPlanCacheSource,
-            runtimeAdapterPlanUseCount: runtimeAdapterPlanUseCount
+            runtimeAdapterPlanUseCount: runtimeAdapterPlanUseCount,
+            key: runtimeAdapterPlanKey
         )
         isolatedPatternLoopPlaybackContext = IsolatedPatternLoopPlaybackContext(
             patternIndex: loopContext.patternIndex,
@@ -796,6 +999,7 @@ final class PlaybackEngine: PlaybackTransport {
         )
         cancelRuntimeAdapterPlanPrewarm(reason: "play_current_pattern_loop")
         song = isolatedSong
+        currentSourceGeneration = mintSourceGeneration()
         invalidateRuntimeAdapterEventPlan(timingSession: timingSession)
         play(from: loopContext, debugStart: nil, loopEnabled: true, action: .playCurrentPattern, timingSession: timingSession)
         if !state.isPlaying {
@@ -843,7 +1047,12 @@ final class PlaybackEngine: PlaybackTransport {
             )
             return
         }
-        guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession) else {
+        preparationControlIntent += 1
+        let playAdmissionIntent = preparationControlIntent
+        let playAdmissionEpoch = preparationTransportEpoch
+        guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession),
+              preparationTransportEpoch == playAdmissionEpoch,
+              preparationControlIntent == playAdmissionIntent else {
             logger.error("Unable to prepare runtime adapter event plan; playback start aborted")
             return
         }
@@ -886,6 +1095,8 @@ final class PlaybackEngine: PlaybackTransport {
                 reason: "transport_play"
             )
             enter(position: currentPosition, previousPosition: nil, timingSession: timingSession)
+            guard preparationTransportEpoch == playAdmissionEpoch,
+                  preparationControlIntent == playAdmissionIntent else { return }
             applyDebugStartTickIfNeeded(resolvedDebugStart?.actualTickInRow, at: currentPosition)
             timingSession?.recordPhase(
                 "playback_engine_enter_selected_playback_position",
@@ -922,6 +1133,8 @@ final class PlaybackEngine: PlaybackTransport {
               let resolvedStart = resolveDebugStart(request, in: song) else {
             return nil
         }
+        preparationControlIntent += 1
+        let seekAdmissionIntent = preparationControlIntent
         let shouldPlay = autoplay ?? state.isPlaying
         timer?.invalidate()
         timer = nil
@@ -939,7 +1152,11 @@ final class PlaybackEngine: PlaybackTransport {
             : nil
 
         if shouldPlay {
-            guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession) else {
+            let admissionEpoch = preparationTransportEpoch
+            let prepared = prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession)
+            guard preparationTransportEpoch == admissionEpoch,
+                  preparationControlIntent == seekAdmissionIntent else { return resolvedStart.position }
+            guard prepared else {
                 activeDebugStartTraceContext = nil
                 apply(action: .stop, nextState: .stopped)
                 logger.error("Unable to prepare runtime adapter event plan for debug seek; playback start aborted")
@@ -947,6 +1164,8 @@ final class PlaybackEngine: PlaybackTransport {
             }
             let enterStart = timingSession?.beginPhase()
             enter(position: resolvedStart.position, previousPosition: nil, timingSession: timingSession)
+            guard preparationTransportEpoch == admissionEpoch,
+                  preparationControlIntent == seekAdmissionIntent else { return resolvedStart.position }
             applyDebugStartTickIfNeeded(resolvedStart.actualTickInRow, at: resolvedStart.position)
             timingSession?.recordPhase(
                 "playback_engine_enter_selected_playback_position",
@@ -965,6 +1184,7 @@ final class PlaybackEngine: PlaybackTransport {
             scheduleRuntimeCMixerSongEndStopIfNeeded()
         } else {
             publishPlaybackFollowPosition(timerPosition: resolvedStart.position, tickInRow: 0, allowBackendOverride: false)
+            guard preparationControlIntent == seekAdmissionIntent else { return resolvedStart.position }
             apply(action: .stop, nextState: .stopped)
         }
         return resolvedStart.position
@@ -987,6 +1207,12 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     private func stop(notify: Bool, resetAudio: Bool, action: PlaybackTransportAction = .stop, reason: String = "transport_stop_preserve_position") {
+        // Stop revokes speculative work even before first Play; admitted cache stays reusable.
+        preparationTransportEpoch += 1
+        preparationControlIntent += 1
+        let stopAdmissionIntent = preparationControlIntent
+        cancelRuntimeAdapterPlanPrewarm(reason: "transport_stop")
+        cancelEditablePatternLoopRefresh(reason: "transport_stop")
         let wasActive = state.mode != .stopped || timer != nil
         guard wasActive || resetAudio else {
             logger.debug("Ignoring stop request because playback is already stopped")
@@ -1042,6 +1268,7 @@ final class PlaybackEngine: PlaybackTransport {
         traceWriter.flush()
         runtimeCMixerTraceWriter.flush()
         restoreIsolatedPatternLoopSourceIfNeeded(configureAudioPlan: true)
+        guard preparationControlIntent == stopAdmissionIntent else { return }
         currentPublishedFollowPosition = currentPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
         apply(action: action, nextState: .stopped)
         if notify, wasActive {
@@ -1054,6 +1281,7 @@ final class PlaybackEngine: PlaybackTransport {
         guard state.mode == .playing else {
             return
         }
+        preparationControlIntent += 1
         timer?.invalidate()
         timer = nil
         cancelRuntimeCMixerSongEndStop()
@@ -1113,6 +1341,8 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeAdapterEventPlan = restoreState.runtimeAdapterEventPlan
         runtimeAdapterPlanCacheSource = restoreState.runtimeAdapterPlanCacheSource
         runtimeAdapterPlanUseCount = restoreState.runtimeAdapterPlanUseCount
+        runtimeAdapterPlanKey = restoreState.key
+        currentSourceGeneration = restoreState.key?.sourceGeneration ?? mintSourceGeneration()
         isolatedPatternLoopPlaybackRestoreState = nil
         isolatedPatternLoopPlaybackContext = nil
         if configureAudioPlan,
@@ -1149,6 +1379,7 @@ final class PlaybackEngine: PlaybackTransport {
     private func invalidateRuntimeAdapterEventPlan(timingSession: PlaybackTimingTraceSession?) {
         let unavailablePlan = RuntimeCMixerAdapterEventPlan.unavailable(sampleRate: audioEngine.audioBufferSampleRate)
         runtimeAdapterEventPlan = unavailablePlan
+        runtimeAdapterPlanKey = nil
         runtimeAdapterPlanCacheSource = .none
         runtimeAdapterPlanUseCount = 0
         if let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming {
@@ -1167,11 +1398,12 @@ final class PlaybackEngine: PlaybackTransport {
             return
         }
         let generation = runtimeAdapterPlanGeneration
+        guard let key = preparationKey(for: song, sourceGeneration: currentSourceGeneration, purpose: .normalPlay) else { return }
         let request = RuntimeAdapterPlanPrewarmRequest(
             generation: generation,
             song: song,
             sampleRate: audioEngine.audioBufferSampleRate,
-            adapterPlanProfileRecorder: adapterPlanProfileRecorder
+            adapterPlanProfileRecorder: adapterPlanProfileRecorder, key: key
         )
         let fields = runtimeAdapterPlanGenerationFields(generation) +
             PlaybackTimingTraceFields.playbackSong(song) +
@@ -1188,57 +1420,73 @@ final class PlaybackEngine: PlaybackTransport {
             fields: fields
         )
         runtimeAdapterPlanPrewarmTimingSession = prewarmTimingSession
-        runtimeAdapterPlanPrewarmJob = runtimeAdapterPlanPrewarmScheduler.schedule(request: request) { [weak self] result in
+        runtimeAdapterPlanPrewarmJob = runtimeAdapterPlanPrewarmScheduler.schedule(request: request) { [weak self] notification in
             Task { @MainActor [weak self] in
-                self?.completeRuntimeAdapterPlanPrewarm(result)
+                self?.completeRuntimeAdapterPlanPrewarm(notification)
             }
         }
     }
 
-    private func completeRuntimeAdapterPlanPrewarm(_ result: RuntimeAdapterPlanPrewarmResult) {
-        guard result.generation == runtimeAdapterPlanGeneration,
-              runtimeAdapterPlanPrewarmJob?.generation == result.generation else {
-            return
-        }
+    private func completeRuntimeAdapterPlanPrewarm(_ notification: PlaybackPreparationNotification) {
+        guard notification.kind == .ready,
+              let job = runtimeAdapterPlanPrewarmJob, job.attempt == notification.attempt else { return }
+#if DEBUG
+        preparationWillAdmitForTesting?(job.attempt)
+#endif
+        guard isCurrentPrewarm(job), let result = job.waitForResult() else { return }
+        // MainActor claim, cache publication and backend configuration form one synchronous,
+        // non-reentrant transaction. Observers run only after backend admission.
+        let installed = admitPreparation(result, job: job, mode: nil, timingSession: runtimeAdapterPlanPrewarmTimingSession)
+        runtimeAdapterPlanPrewarmJob = nil
         recordRuntimeAdapterPlanPrewarmMake(result)
-        finishRuntimeAdapterPlanPrewarm(
-            result: result,
-            outcome: installRuntimeAdapterPlanPrewarmResult(result) ? "installed" : "unavailable"
-        )
+        finishRuntimeAdapterPlanPrewarm(result: result, outcome: installed ? "installed" : "unavailable")
+        if installed { runtimeAdapterPlanDidUpdate?() }
     }
 
-    private func installRuntimeAdapterPlanPrewarmResult(_ result: RuntimeAdapterPlanPrewarmResult) -> Bool {
-        guard !result.completedAfterCancellation,
-              let plan = result.plan,
-              plan.generated else {
-            runtimeAdapterPlanPrewarmJob = nil
-            return false
-        }
-        let configureStart = runtimeAdapterPlanPrewarmTimingSession?.beginPhase()
+    private func mintSourceGeneration() -> UInt64 {
+        precondition(preparationSourceSerial < .max, "Preparation generation exhausted")
+        preparationSourceSerial += 1
+        return preparationSourceSerial
+    }
+
+    private func preparationKey(for song: PlaybackSong, sourceGeneration: UInt64,
+                                purpose: PlaybackPreparationKey.Purpose) -> PlaybackPreparationKey? {
+        PlaybackPreparationKey(instanceEpoch: preparationInstanceID,
+            transportEpoch: preparationTransportEpoch, documentID: preparationDocumentID,
+            revision: sourceGeneration, sourceGeneration: sourceGeneration,
+            sampleRate: audioEngine.audioBufferSampleRate,
+            frequencyMode: song.usesLinearFrequencyTable ? .linear : .amiga,
+            traversalBounds: .init(lowerOrder: 0, upperOrder: max(1, song.orders.count)),
+            origin: .cold(order: 0, row: 0), purpose: purpose,
+            loopScope: purpose == .editRefresh ? activePatternLoopRange.map {
+                .init(order: $0.orderIndex, pattern: $0.patternIndex)
+            } : nil)
+    }
+
+    private func isCurrentPrewarm(_ job: RuntimeAdapterPlanPrewarmJob) -> Bool {
+        guard let song else { return false }
+        return runtimeAdapterPlanPrewarmJob?.attempt == job.attempt &&
+            job.generation == runtimeAdapterPlanGeneration &&
+            job.key == preparationKey(for: song, sourceGeneration: currentSourceGeneration, purpose: .normalPlay)
+    }
+
+    /// Called only within the synchronous MainActor claim/admission transaction.
+    private func admitPreparation(_ result: RuntimeAdapterPlanPrewarmResult,
+                                  job: RuntimeAdapterPlanPrewarmJob, mode: RuntimeAdapterPlanPlayMode?,
+                                  timingSession: PlaybackTimingTraceSession?) -> Bool {
+        guard isCurrentPrewarm(job), !result.completedAfterCancellation,
+              let plan = result.plan, plan.generated,
+              let consumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else { return false }
         runtimeAdapterEventPlan = plan
-        runtimeAdapterPlanCacheSource = .prewarm
+        runtimeAdapterPlanKey = job.key
+        runtimeAdapterPlanCacheSource = mode == .syncFallback ? .syncFallback : .prewarm
         runtimeAdapterPlanUseCount = 0
-        let profileConfigureStart = result.adapterPlanProfileSession?.beginPhase()
-        (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.configureRuntimeAdapterEventPlan(
-            plan,
-            generationMS: result.makeMS,
-            timingSession: runtimeAdapterPlanPrewarmTimingSession
-        )
-        recordAdapterPlanProfileBackendConfiguration(
-            plan: plan,
-            generation: result.generation,
-            mode: nil,
-            startedAt: profileConfigureStart,
-            profileSession: result.adapterPlanProfileSession
-        )
-        runtimeAdapterPlanPrewarmTimingSession?.recordPhase(
-            "runtime_adapter_event_plan_prewarm_configure",
-            startedAt: configureStart,
-            fields: PlaybackTimingTraceFields.adapterPlan(plan) +
-                runtimeAdapterPlanGenerationFields(result.generation)
-        )
-        runtimeAdapterPlanPrewarmJob = nil
-        runtimeAdapterPlanDidUpdate?()
+        consumer.configureRuntimeAdapterEventPlan(plan, generationMS: result.makeMS, timingSession: timingSession)
+        // Profiling/tracing and arbitrary observer hooks follow the publication winner.
+        recordAdapterPlanProfileBackendConfiguration(plan: plan, generation: result.generation,
+            mode: mode, startedAt: nil, profileSession: result.adapterPlanProfileSession)
+        runtimeAdapterPlanPrewarmTimingSession?.recordPhase("runtime_adapter_event_plan_prewarm_configure",
+            startedAt: nil, fields: PlaybackTimingTraceFields.adapterPlan(plan) + runtimeAdapterPlanGenerationFields(result.generation))
         return true
     }
 
@@ -1261,28 +1509,20 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeAdapterPlanPrewarmTimingSession = nil
     }
 
-    private func completeEditablePatternLoopRefresh(
-        _ result: RuntimeAdapterPlanPrewarmResult,
-        snapshot: EditablePatternLoopRefreshSnapshot
-    ) {
-        guard result.generation == editablePatternLoopRefreshGeneration,
-              editablePatternLoopRefreshJob?.generation == result.generation else {
+    private func completeEditablePatternLoopRefresh(_ notification: PlaybackPreparationNotification) {
+        guard let job = editablePatternLoopRefreshJob,
+              job.attempt == notification.attempt,
+              job.generation == editablePatternLoopRefreshGeneration else { return }
+        if notification.kind == .retired {
+            // Unavailable/invalid refresh source and result aliases have already left
+            // the worker. This acknowledgment carries no graph to the control executor.
+            editablePatternLoopRefreshJob = nil
+            pendingEditablePatternLoopRefresh = nil
             return
         }
-        editablePatternLoopRefreshJob = nil
-        guard state.isPlaying,
-              activePatternLoopRange != nil,
-              !result.completedAfterCancellation,
-              let plan = result.plan,
-              plan.generated else {
-            return
-        }
-        pendingEditablePatternLoopRefresh = PendingEditablePatternLoopRefresh(
-            generation: result.generation,
-            snapshot: snapshot,
-            plan: plan,
-            makeMS: result.makeMS
-        )
+        guard notification.kind == .ready, state.isPlaying, activePatternLoopRange != nil else { return }
+        // The sole owner retains the result until the established boundary, not this task.
+        pendingEditablePatternLoopRefresh = .init(generation: job.generation, attempt: job.attempt)
     }
 
     private func cancelEditablePatternLoopRefresh(reason _: String) {
@@ -1340,154 +1580,68 @@ final class PlaybackEngine: PlaybackTransport {
             runtimeAdapterEventPlan = .unavailable(sampleRate: audioEngine.audioBufferSampleRate)
             runtimeAdapterPlanCacheSource = .none
             runtimeAdapterPlanUseCount = 0
-            timingSession?.recordPhase(
-                "runtime_adapter_event_plan_unavailable",
-                startedAt: nil,
-                fields: [PlaybackTimingTraceField("sample_rate", Int(audioEngine.audioBufferSampleRate.rounded()))]
-            )
             return true
         }
-        if runtimeAdapterEventPlan.generated {
+        // Cache compatibility is content meaning, independently of a revoked request attempt.
+        if runtimeAdapterEventPlan.generated,
+           let key = runtimeAdapterPlanKey,
+           key.sourceGeneration == currentSourceGeneration,
+           key.sampleRateBits == audioEngine.audioBufferSampleRate.bitPattern,
+           key.frequencyMode == (song.usesLinearFrequencyTable ? .linear : .amiga) {
             if !adapterConsumer.hasRuntimeAdapterEventPlan {
                 adapterConsumer.configureRuntimeAdapterEventPlan(runtimeAdapterEventPlan, generationMS: nil, timingSession: timingSession)
             }
-            let mode: RuntimeAdapterPlanPlayMode = runtimeAdapterPlanUseCount == 0 && runtimeAdapterPlanCacheSource == .prewarm
-                ? .prewarmed
-                : .cachedReuse
+            let mode: RuntimeAdapterPlanPlayMode = runtimeAdapterPlanUseCount == 0 && runtimeAdapterPlanCacheSource == .prewarm ? .prewarmed : .cachedReuse
             recordRuntimeAdapterPlanReadyForPlay(mode: mode, timingSession: timingSession)
             runtimeAdapterPlanUseCount += 1
             return true
         }
-        if let result = waitForRuntimeAdapterPlanPrewarmIfNeeded(timingSession: timingSession),
-           result.generation == runtimeAdapterPlanGeneration,
-           !result.completedAfterCancellation,
-           let plan = result.plan,
-           plan.generated {
-            runtimeAdapterPlanPrewarmJob = nil
-            recordRuntimeAdapterPlanPrewarmMake(result)
-            runtimeAdapterEventPlan = plan
-            runtimeAdapterPlanCacheSource = .prewarm
-            runtimeAdapterPlanUseCount = 0
-            let configureStart = timingSession?.beginPhase()
-            let prewarmConfigureStart = runtimeAdapterPlanPrewarmTimingSession?.beginPhase()
-            let profileConfigureStart = result.adapterPlanProfileSession?.beginPhase()
-            adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: result.makeMS, timingSession: timingSession)
-            recordAdapterPlanProfileBackendConfiguration(
-                plan: plan,
-                generation: result.generation,
-                mode: .waited,
-                startedAt: profileConfigureStart,
-                profileSession: result.adapterPlanProfileSession
-            )
-            timingSession?.recordPhase(
-                "runtime_adapter_event_plan_configure",
-                startedAt: configureStart,
-                fields: PlaybackTimingTraceFields.adapterPlan(plan) +
-                    runtimeAdapterPlanGenerationFields(result.generation) +
-                    runtimeAdapterPlanPlayFields(mode: .waited)
-            )
-            runtimeAdapterPlanPrewarmTimingSession?.recordPhase(
-                "runtime_adapter_event_plan_prewarm_configure",
-                startedAt: prewarmConfigureStart,
-                fields: PlaybackTimingTraceFields.adapterPlan(plan) +
-                    runtimeAdapterPlanGenerationFields(result.generation)
-            )
-            finishRuntimeAdapterPlanPrewarm(result: result, outcome: "waited_by_play")
-            recordRuntimeAdapterPlanReadyForPlay(mode: .waited, timingSession: timingSession)
-            runtimeAdapterPlanUseCount += 1
-            runtimeAdapterPlanDidUpdate?()
-            return true
+        if let job = runtimeAdapterPlanPrewarmJob, !isCurrentPrewarm(job) {
+            cancelRuntimeAdapterPlanPrewarm(reason: "incompatible_request")
         }
-        let start = DispatchTime.now().uptimeNanoseconds
-        let planStart = timingSession?.beginPhase()
-        let profileSession = adapterPlanProfileRecorder?.beginLifecycle("play")
-        let plan = RuntimeCMixerAdapterEventPlan.make(
-            song: song,
-            sampleRate: audioEngine.audioBufferSampleRate,
-            profileSession: profileSession
-        )
-        let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
-        timingSession?.recordPhase(
-            "runtime_adapter_event_plan_make",
-            startedAt: planStart,
-            fields: PlaybackTimingTraceFields.adapterPlan(plan) +
-                runtimeAdapterPlanGenerationFields(runtimeAdapterPlanGeneration) +
-                runtimeAdapterPlanPlayFields(mode: .syncFallback)
-        )
-        runtimeAdapterEventPlan = plan
-        runtimeAdapterPlanCacheSource = plan.generated ? .syncFallback : .none
-        runtimeAdapterPlanUseCount = 0
-        guard plan.generated else {
-            let profileConfigureStart = profileSession?.beginPhase()
-            adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS, timingSession: timingSession)
-            recordAdapterPlanProfileBackendConfiguration(
-                plan: plan,
-                generation: runtimeAdapterPlanGeneration,
-                mode: .unavailable,
-                startedAt: profileConfigureStart,
-                profileSession: profileSession
-            )
-            recordRuntimeAdapterPlanReadyForPlay(mode: .unavailable, timingSession: timingSession)
-            return false
+        if runtimeAdapterPlanPrewarmJob == nil {
+            scheduleRuntimeAdapterPlanPrewarmIfNeeded(for: song, timingSession: timingSession)
         }
-        let configureStart = timingSession?.beginPhase()
-        let profileConfigureStart = profileSession?.beginPhase()
-        adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS, timingSession: timingSession)
-        recordAdapterPlanProfileBackendConfiguration(
-            plan: plan,
-            generation: runtimeAdapterPlanGeneration,
-            mode: .syncFallback,
-            startedAt: profileConfigureStart,
-            profileSession: profileSession
-        )
-        timingSession?.recordPhase(
-            "runtime_adapter_event_plan_configure",
-            startedAt: configureStart,
-            fields: PlaybackTimingTraceFields.adapterPlan(plan) +
-                runtimeAdapterPlanGenerationFields(runtimeAdapterPlanGeneration) +
-                runtimeAdapterPlanPlayFields(mode: .syncFallback)
-        )
-        recordRuntimeAdapterPlanReadyForPlay(mode: .syncFallback, timingSession: timingSession)
-        runtimeAdapterPlanUseCount += 1
-        runtimeAdapterPlanDidUpdate?()
-        return true
-    }
-
-    private func waitForRuntimeAdapterPlanPrewarmIfNeeded(
-        timingSession: PlaybackTimingTraceSession?
-    ) -> RuntimeAdapterPlanPrewarmResult? {
-        guard let job = runtimeAdapterPlanPrewarmJob,
-              job.generation == runtimeAdapterPlanGeneration else {
-            return nil
-        }
-        let waitStart = timingSession?.beginPhase()
-        let result = job.waitForResult()
-        var fields = runtimeAdapterPlanGenerationFields(job.generation) +
-            runtimeAdapterPlanPlayFields(mode: .waited) +
-            [PlaybackTimingTraceField("prewarm_result_available", result?.plan != nil)]
-        if let result,
-           let plan = result.plan {
-            fields.append(contentsOf: PlaybackTimingTraceFields.adapterPlan(plan))
-            fields.append(PlaybackTimingTraceField("prewarm_completed_after_cancellation", result.completedAfterCancellation))
-        }
-        timingSession?.recordPhase(
-            "runtime_adapter_event_plan_prewarm_wait",
-            startedAt: waitStart,
-            fields: fields
-        )
-        if result?.plan == nil {
-            runtimeAdapterPlanPrewarmJob = nil
-            if let result {
-                finishRuntimeAdapterPlanPrewarm(result: result, outcome: "cancelled")
-            } else {
-                runtimeAdapterPlanPrewarmTimingSession?.finish(fields: [
-                    PlaybackTimingTraceField("prewarm_outcome", "unavailable"),
-                    PlaybackTimingTraceField("song_generation", job.generation),
-                ])
-                runtimeAdapterPlanPrewarmTimingSession = nil
+        // An unavailable prewarm permits one compatibility retry through the SAME owner.
+        // A revoked wait never means unavailable and never starts an inline constructor.
+        for retry in 0...1 {
+            guard let job = runtimeAdapterPlanPrewarmJob else { return false }
+            let waitStart = timingSession?.beginPhase()
+            let ready = job.waitUntilReady()
+#if DEBUG
+            preparationWillAdmitForTesting?(job.attempt)
+#endif
+            guard ready, isCurrentPrewarm(job), let result = job.waitForResult() else { return false }
+            if result.plan?.generated == true {
+                let mode: RuntimeAdapterPlanPlayMode = retry == 0 ? .waited : .syncFallback
+                guard admitPreparation(result, job: job, mode: mode, timingSession: timingSession) else { return false }
+                runtimeAdapterPlanPrewarmJob = nil
+                timingSession?.recordPhase("runtime_adapter_event_plan_configure", startedAt: nil,
+                    fields: PlaybackTimingTraceFields.adapterPlan(runtimeAdapterEventPlan) +
+                        runtimeAdapterPlanGenerationFields(job.generation) + runtimeAdapterPlanPlayFields(mode: mode))
+                timingSession?.recordPhase("runtime_adapter_event_plan_prewarm_wait", startedAt: waitStart,
+                    fields: runtimeAdapterPlanGenerationFields(job.generation) +
+                        [PlaybackTimingTraceField("prewarm_result_available", result.plan != nil)])
+                if retry == 1, let makeMS = result.makeMS {
+                    timingSession?.recordMeasuredPhase("runtime_adapter_event_plan_make", elapsedMS: makeMS,
+                        fields: PlaybackTimingTraceFields.adapterPlan(runtimeAdapterEventPlan) + runtimeAdapterPlanPlayFields(mode: .syncFallback))
+                }
+                recordRuntimeAdapterPlanPrewarmMake(result)
+                finishRuntimeAdapterPlanPrewarm(result: result, outcome: "waited_by_play")
+                recordRuntimeAdapterPlanReadyForPlay(mode: mode, timingSession: timingSession)
+                runtimeAdapterPlanUseCount += 1
+                runtimeAdapterPlanDidUpdate?()
+                return true
             }
+            runtimeAdapterPlanPrewarmJob = nil
+            finishRuntimeAdapterPlanPrewarm(result: result, outcome: "unavailable")
+            guard retry == 0 else {
+                recordRuntimeAdapterPlanReadyForPlay(mode: .unavailable, timingSession: timingSession)
+                return false
+            }
+            scheduleRuntimeAdapterPlanPrewarmIfNeeded(for: song, timingSession: timingSession)
         }
-        return result
+        return false
     }
 
     private func recordRuntimeAdapterPlanReadyForPlay(
@@ -1562,7 +1716,12 @@ final class PlaybackEngine: PlaybackTransport {
             rowDelayDurationsRemaining -= 1
             return
         }
-        switch nextStep(after: position, in: song) {
+        let admissionEpoch = preparationTransportEpoch
+        let admissionIntent = preparationControlIntent
+        let step = nextStep(after: position, in: song)
+        guard preparationTransportEpoch == admissionEpoch,
+              preparationControlIntent == admissionIntent else { return }
+        switch step {
         case let .advanced(nextPosition):
             currentPosition = nextPosition
             enter(position: nextPosition, previousPosition: position)
@@ -1705,11 +1864,17 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     private func enter(position: PlaybackPosition, previousPosition: PlaybackPosition?, timingSession: PlaybackTimingTraceSession? = nil) {
+        let admissionEpoch = preparationTransportEpoch
+        let admissionIntent = preparationControlIntent
         publishPlaybackFollowPosition(timerPosition: position, tickInRow: tickState.tickInRow, allowBackendOverride: true)
         traceRowTiming(at: position, reason: "row_timing_before_effects")
         recordRuntimeRowTransition(from: previousPosition, to: position, phase: "before_events")
         let usesAdapterPlan = usesRuntimeAdapterEventPlan
         prepareRowPlaybackState(at: position, emitRuntimeControlUpdates: !usesAdapterPlan)
+        // Follow/diagnostic observers can synchronously Stop or load. Their newer intent
+        // wins before this row can admit a native event schedule.
+        guard preparationTransportEpoch == admissionEpoch,
+              preparationControlIntent == admissionIntent else { return }
         if usesAdapterPlan {
             consumeRuntimeAdapterEvents(at: position, tickInRow: 0, timingSession: timingSession)
         } else {
@@ -1767,37 +1932,43 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     private func applyPendingEditablePatternLoopRefreshAtBoundary(fallbackPosition: PlaybackPosition) -> PlaybackPosition {
-        guard let pendingEditablePatternLoopRefresh,
-              pendingEditablePatternLoopRefresh.generation == editablePatternLoopRefreshGeneration,
-              state.isPlaying,
-              let activePatternLoopRange,
-              let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
+        guard let pending = pendingEditablePatternLoopRefresh,
+              pending.generation == editablePatternLoopRefreshGeneration,
+              let job = editablePatternLoopRefreshJob, pending.attempt == job.attempt,
+              state.isPlaying, let activePatternLoopRange,
+              let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else { return fallbackPosition }
+#if DEBUG
+        preparationWillAdmitForTesting?(job.attempt)
+#endif
+        guard editablePatternLoopRefreshJob?.attempt == job.attempt, state.isPlaying,
+              job.key.purpose == .editRefresh,
+              job.key.loopScope == .init(order: activePatternLoopRange.orderIndex, pattern: activePatternLoopRange.patternIndex),
+              job.key.transportEpoch == preparationTransportEpoch,
+              job.key.documentID == preparationDocumentID,
+              job.key.sampleRateBits == audioEngine.audioBufferSampleRate.bitPattern,
+              let result = job.waitForResult(), !result.completedAfterCancellation,
+              let plan = result.plan, plan.generated, let refreshedSong = result.sourceSong,
+              job.key == preparationKey(for: refreshedSong, sourceGeneration: job.key.sourceGeneration, purpose: .editRefresh),
+              let refreshedAnchor = refreshedSong.position(orderIndex: activePatternLoopRange.orderIndex,
+                  rowIndex: activePatternLoopRange.firstPosition.rowIndex),
+              refreshedAnchor.patternIndex == activePatternLoopRange.patternIndex,
+              let refreshedRange = refreshedSong.patternLoopRange(containing: refreshedAnchor),
+              refreshedRange.orderIndex == activePatternLoopRange.orderIndex,
+              refreshedRange.patternIndex == activePatternLoopRange.patternIndex else {
+            cancelEditablePatternLoopRefresh(reason: "unavailable_boundary")
             return fallbackPosition
         }
-        let refreshedSong = pendingEditablePatternLoopRefresh.snapshot.song
-        guard let refreshedAnchor = refreshedSong.position(
-            orderIndex: activePatternLoopRange.orderIndex,
-            rowIndex: activePatternLoopRange.firstPosition.rowIndex
-        ),
-            refreshedAnchor.patternIndex == activePatternLoopRange.patternIndex,
-            let refreshedRange = refreshedSong.patternLoopRange(containing: refreshedAnchor),
-            refreshedRange.orderIndex == activePatternLoopRange.orderIndex,
-            refreshedRange.patternIndex == activePatternLoopRange.patternIndex else {
-            self.pendingEditablePatternLoopRefresh = nil
-            return fallbackPosition
-        }
-
+        // No actor suspension or user callback between claim and actual configuration.
         song = refreshedSong
+        currentSourceGeneration = job.key.sourceGeneration
         self.activePatternLoopRange = refreshedRange
-        runtimeAdapterEventPlan = pendingEditablePatternLoopRefresh.plan
+        runtimeAdapterEventPlan = plan
+        runtimeAdapterPlanKey = job.key
         runtimeAdapterPlanCacheSource = .prewarm
         runtimeAdapterPlanUseCount = 0
-        adapterConsumer.configureRuntimeAdapterEventPlan(
-            pendingEditablePatternLoopRefresh.plan,
-            generationMS: pendingEditablePatternLoopRefresh.makeMS,
-            timingSession: nil
-        )
-        self.pendingEditablePatternLoopRefresh = nil
+        adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: result.makeMS, timingSession: nil)
+        editablePatternLoopRefreshJob = nil
+        pendingEditablePatternLoopRefresh = nil
         runtimeAdapterPlanDidUpdate?()
         return refreshedRange.firstPosition
     }

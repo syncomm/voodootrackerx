@@ -6,6 +6,23 @@ remain intentionally deferred.
 
 ## Purpose
 
+`source/cold-entry-v1.manifest.json` versions the original public ORIGIN1 v2
+controls as one small recipe: unplayed F01/instrument-only prefixes, note-only
+entries and a same-channel E60 anchor. `ColdEntryTests` parses regenerated XM
+and checks both frequency modes/rates; direct planner entry is separate from
+live Play and reset-seek (#516 remains open). Generated binaries stay external:
+
+```bash
+export TMPDIR=/private/tmp TMP=/private/tmp TEMP=/private/tmp
+vtx_fixture_dir="$(mktemp -d /private/tmp/vtx-cold-entry-v1.XXXXXXXX)"
+python3 -B scripts/generate-synthetic-xm-fixtures.py \
+  --manifest tests/reference-xm/source/cold-entry-v1.manifest.json \
+  --output-dir "$vtx_fixture_dir" --validate --write-xm --verify
+```
+
+Version 1 produces 766 bytes, SHA-256
+`cf9255e9280ea6254177dbd4eea9ce66ef6defbb9192c1002226c9a00e9af7cc`.
+
 `panning-slide-semantics.xm` is an original four-channel G33 control with distinct
 mathematical PCM, exact keymaps and empty S03. It covers whole-byte memory,
 column/P order, effective F01/F03/F06, reset/note-only/release and repeated orders.

@@ -16,6 +16,7 @@ from typing import Any
 GENERATOR_NAME = "scripts/generate-synthetic-xm-fixtures.py"
 SOURCE_MANIFEST = "source/basic-instrument-sample.manifest.json"
 WORKLOAD_MANIFEST = "source/planner-dense-vibrato-v1.manifest.json"
+COLD_ENTRY_MANIFEST = "source/cold-entry-v1.manifest.json"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PACK_ROOT = REPO_ROOT / "tests/reference-xm"
 DEFAULT_MANIFEST_PATH = DEFAULT_PACK_ROOT / SOURCE_MANIFEST
@@ -166,6 +167,10 @@ def _validate_manifest_structure(manifest: dict[str, Any]) -> None:
         _require_int(manifest.get("generator_revision"), 1, 1, "workload generator revision")
         if manifest.get("source_manifest") != WORKLOAD_MANIFEST:
             raise ValueError("unsupported workload generator revision or source manifest")
+    elif manifest.get("source_manifest", SOURCE_MANIFEST) not in (SOURCE_MANIFEST, COLD_ENTRY_MANIFEST):
+        raise ValueError("unsupported fixture source manifest")
+    if _source_path(manifest) == COLD_ENTRY_MANIFEST:
+        _require_int(manifest.get("fixture_version"), 1, 1, "cold-entry fixture version")
     if manifest.get("generator") != GENERATOR_NAME:
         raise ValueError(f"generator must be {GENERATOR_NAME}")
     fixtures = manifest.get("fixtures")
@@ -556,15 +561,15 @@ def resolved_child(output_dir: Path, relative_path: str) -> Path:
 
 
 def _source_path(manifest: dict[str, Any]) -> str:
-    return WORKLOAD_MANIFEST if manifest["schema_version"] == 3 else SOURCE_MANIFEST
+    return WORKLOAD_MANIFEST if manifest["schema_version"] == 3 else manifest.get("source_manifest", SOURCE_MANIFEST)
 
 
 def _output_path(output_dir: Path, relative_path: str, manifest: dict[str, Any]) -> Path:
     path = resolved_child(output_dir, relative_path)
-    if manifest["schema_version"] == 3 and sys.platform == "darwin":
-        # Large workload binaries are transient, unlike the approved small pack.
+    if (manifest["schema_version"] == 3 or _source_path(manifest) == COLD_ENTRY_MANIFEST) and sys.platform == "darwin":
+        # Workloads and cold-entry witnesses are regenerated outside the committed pack.
         if not output_dir.resolve().is_relative_to(Path("/private/tmp")):
-            raise ValueError("workload output directory must resolve under /private/tmp")
+            raise ValueError("transient fixture output directory must resolve under /private/tmp")
     return path
 
 

@@ -637,15 +637,21 @@ enum PlaybackSongSyntheticAdapter {
         )
     }
 
+    /// Constructs fresh musical state at `initialPosition`, or at the range's first row.
+    /// The range bounds subsequent traversal independently of entry; use the full song
+    /// range to allow later Bxx/Dxx jumps before entry. Position rows are array indices,
+    /// as in `PlaybackSong.position`; emitted source coordinates retain row labels.
+    /// This direct construction seam does not change live Play or reset-seek behavior.
     static func adapt(
         _ song: PlaybackSong,
         startOrderIndex: Int,
         orderCount: Int,
         sampleRate: Double,
-        profileSession: AdapterPlanProfileSession? = nil
+        profileSession: AdapterPlanProfileSession? = nil,
+        initialPosition: PlaybackPosition? = nil
     ) -> PlaybackSongSyntheticPlan {
         adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
-              profileSession: profileSession, eligibilityOracle: nil)
+              profileSession: profileSession, initialPosition: initialPosition, eligibilityOracle: nil)
     }
 
     #if DEBUG
@@ -670,6 +676,7 @@ enum PlaybackSongSyntheticAdapter {
     private static func adapt(
         _ song: PlaybackSong, startOrderIndex: Int, orderCount: Int, sampleRate: Double,
         profileSession: AdapterPlanProfileSession?,
+        initialPosition: PlaybackPosition? = nil,
         eligibilityOracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?,
         globalVolumeProjectionOracle: ((PlaybackSongFxxTimingPlan, inout AdapterRowContext) -> Void)? = nil
     ) -> PlaybackSongSyntheticPlan {
@@ -678,7 +685,8 @@ enum PlaybackSongSyntheticAdapter {
         let traversalPlan = PlaybackSongTraversalPlanner.plan(
             song,
             startOrderIndex: startOrderIndex,
-            orderCount: orderCount
+            orderCount: orderCount,
+            initialPosition: initialPosition
         )
         profileSession?.recordPhase(
             "order_traversal",

@@ -1,0 +1,101 @@
+{
+  "schema_version": 2,
+  "source_manifest": "source/cold-entry-v1.manifest.json",
+  "generator": "scripts/generate-synthetic-xm-fixtures.py",
+  "fixture_version": 1,
+  "fixtures": [
+    {
+      "id": "cold-entry-v1",
+      "name": "cold-entry-v1.xm",
+      "purpose": "Original public cold-entry controls, adapted from valid ORIGIN1 witness recipe v2; no reference source code.",
+      "source_manifest": "source/cold-entry-v1.manifest.json",
+      "xm_output": "generated/cold-entry-v1.xm",
+      "xm_sha256": "cf9255e9280ea6254177dbd4eea9ce66ef6defbb9192c1002226c9a00e9af7cc",
+      "xm_size_bytes": 766,
+      "significant_rows": [
+        "Order0: E60 ch0, instrument-only1 ch1, F01 ch2.",
+        "Order1 row1: local E60 ch0, instrument-only1 ch1, F01 ch2; row2 E61 ch0.",
+        "Cold row3: notes on ch0 explicit instrument1; ch1 note-only, with no fresh source."
+      ],
+      "intended_tests": [
+        "Cold order/row timing and instrument ownership; E60 structural context; default-origin identity."
+      ],
+      "unsupported_semantics": [
+        "Planner construction only; live Play remains an independent integration contract."
+      ],
+      "module": {
+        "bpm": 125,
+        "channels": 3,
+        "flags": 1,
+        "instruments": [
+          {
+            "name": "BASIC SAMPLE",
+            "samples": [
+              {
+                "encoding": "signed_8_bit_delta_pcm",
+                "finetune": 0,
+                "loop": {
+                  "mode": "forward",
+                  "start_frame": 0,
+                  "length_frames": 64
+                },
+                "name": "SINE64",
+                "panning": 128,
+                "pcm_recipe": {
+                  "amplitude": 48,
+                  "frame_count": 64,
+                  "period_frames": 16,
+                  "waveform": "sine"
+                },
+                "pcm_sha256": "b63bbb990bf1387c29e6a4aded2f83dc546150c1da8504c9e3a6487091d1dc15",
+                "relative_note": 0,
+                "slot": 0,
+                "volume": 64
+              }
+            ],
+            "volume_envelope": {
+              "enabled": false,
+              "points": [],
+              "type_flags": 0
+            }
+          }
+        ],
+        "orders": [
+          0,
+          1
+        ],
+        "patterns": [
+          {
+            "rows": 1,
+            "events": [
+              {"row": 0, "channel": 0, "note": 0, "instrument": 0, "effect_type": 14, "effect_parameter": 96},
+              {"row": 0, "channel": 1, "note": 0, "instrument": 1, "effect_type": 0, "effect_parameter": 0},
+              {"row": 0, "channel": 2, "note": 0, "instrument": 0, "effect_type": 15, "effect_parameter": 1}
+            ]
+          },
+          {
+            "rows": 6,
+            "events": [
+              {"row": 0, "channel": 0, "note": 49, "instrument": 1, "effect_type": 0, "effect_parameter": 0},
+              {"row": 0, "channel": 1, "note": 49, "instrument": 0, "effect_type": 0, "effect_parameter": 0},
+              {"row": 1, "channel": 0, "note": 0, "instrument": 0, "effect_type": 14, "effect_parameter": 96},
+              {"row": 1, "channel": 1, "note": 0, "instrument": 1, "effect_type": 0, "effect_parameter": 0},
+              {"row": 1, "channel": 2, "note": 0, "instrument": 0, "effect_type": 15, "effect_parameter": 1},
+              {"row": 2, "channel": 0, "note": 0, "instrument": 0, "effect_type": 14, "effect_parameter": 97},
+              {"row": 3, "channel": 0, "note": 51, "instrument": 1, "effect_type": 0, "effect_parameter": 0},
+              {"row": 3, "channel": 1, "note": 51, "instrument": 0, "effect_type": 0, "effect_parameter": 0},
+              {"row": 4, "channel": 0, "note": 53, "instrument": 1, "effect_type": 0, "effect_parameter": 0},
+              {"row": 4, "channel": 1, "note": 53, "instrument": 0, "effect_type": 0, "effect_parameter": 0},
+              {"row": 5, "channel": 0, "note": 55, "instrument": 1, "effect_type": 0, "effect_parameter": 0},
+              {"row": 5, "channel": 1, "note": 55, "instrument": 0, "effect_type": 0, "effect_parameter": 0}
+            ]
+          }
+        ],
+        "restart_position": 0,
+        "speed": 6,
+        "title": "VTX COLD ENTRY V1",
+        "tracker_name": "VTX ORIGIN1 V1"
+      }
+    }
+  ]
+}

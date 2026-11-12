@@ -1,8 +1,24 @@
 # VoodooTracker X — Control Panel UI Design Spec
 
-**Branch:** `design/control-panel-redesign`  
+**Original proposal branch:** `design/control-panel-redesign`\
 **Scope:** Main window control panel only (two-row strip below the logo panel).  
-**Status:** Design specification and mockups. No code changes in this PR.
+**Status:** Approved lower-row contract below; earlier design proposal and mockups retained afterward.
+
+## Current lower-row contract
+
+The approved main-tracker row is `PTN ROWS CHN | INST | BPM SPD OCT`.
+PTN retains zero-padded decimal numbering with at least three digits, such as
+`012`, `048`, and `111`, without truncating IDs or changing numeric identity.
+INST lists supported represented one-based identities, including IDs above I20,
+and uses the flexible center width for full instrument names with native elision.
+Sample focus remains available in the Instrument and Sample Editors; the main
+SMP control is removed. BPM and SPD retain the existing initial-value readouts;
+SPD means speed/ticks per row. Timing editing and live timing remain separate work.
+
+This contract supersedes the lower-row order, SMP, 12-character instrument-name
+limit, and timing-label proposals below. The established decimal PTN numbering
+remains in force. Other proposed changes below retain their separate scope;
+they do not authorize additional work in this bounded control-row change.
 
 ---
 

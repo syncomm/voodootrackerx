@@ -58,7 +58,8 @@ struct ControlPanelSlotDisplay: Equatable {
         guard let name = normalizedName else {
             return code
         }
-        return "\(code) \(Self.truncated(name, maximumLength: Self.maximumDisplayNameLength))"
+        // Instruments use the recovered row space; native popup drawing elides at narrow widths.
+        return "\(code) \(code.hasPrefix("I") ? name : Self.truncated(name, maximumLength: Self.maximumDisplayNameLength))"
     }
 
     var tooltip: String {
@@ -90,7 +91,7 @@ struct ControlPanelSlotDisplay: Equatable {
 
 enum ControlPanelDisplayState {
     static func patternDisplayTitle(patternIndex: Int) -> String {
-        String(format: "%03d", max(0, patternIndex))
+        String(format: "%03ld", max(0, patternIndex))
     }
 
     static func songTimeDisplay(durationSeconds: TimeInterval?) -> String {

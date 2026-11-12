@@ -80,7 +80,6 @@ final class ControlPanelView: NSView {
     let patternSelector = ControlPanelView.makePopupButton(width: Sizing.patternSelectorWidth)
     let patternRowCountField = ControlPanelView.makeReadoutField(width: Sizing.rowCountWidth, alignment: .center)
     let instrumentSelector = ControlPanelView.makePopupButton(minimumWidth: Sizing.instrumentSelectorMinimumWidth)
-    let sampleSelector = ControlPanelView.makePopupButton(minimumWidth: Sizing.sampleSelectorMinimumWidth)
     let tempoField = ControlPanelView.makeReadoutField(width: Sizing.tempoWidth, alignment: .center)
     let speedField = ControlPanelView.makeReadoutField(width: Sizing.speedWidth, alignment: .center)
     let octaveSelector = ControlPanelView.makePopupButton(width: Sizing.octaveSelectorWidth)
@@ -112,16 +111,13 @@ final class ControlPanelView: NSView {
         restartPositionField.stringValue = content.restartPosition
         patternRowCountField.stringValue = content.patternRowCount
         channelCountField.stringValue = content.channelCount
-        selectOrReplaceSinglePopupItem(
-            instrumentSelector,
-            title: content.selectedInstrumentDisplay,
-            tooltip: content.selectedInstrumentTooltip
-        )
-        selectOrReplaceSinglePopupItem(
-            sampleSelector,
-            title: content.selectedSampleDisplay,
-            tooltip: content.selectedSampleTooltip
-        )
+        if instrumentSelector.selectedItem?.representedObject is Int {
+            selectOrReplaceSinglePopupItem(
+                instrumentSelector,
+                title: content.selectedInstrumentDisplay,
+                tooltip: content.selectedInstrumentTooltip
+            )
+        }
         tempoField.stringValue = content.tempo
         speedField.stringValue = content.speed
         octaveSelector.selectItem(withTitle: String(content.selectedOctave))
@@ -133,14 +129,34 @@ final class ControlPanelView: NSView {
         songPositionStepper.integerValue = content.songPositionValue
         songPositionStepper.isEnabled = content.isSongPositionEnabled
         patternSelector.isEnabled = content.isPatternControlsEnabled
-        instrumentSelector.isEnabled = content.areInstrumentPlaceholdersEnabled
-        sampleSelector.isEnabled = content.areInstrumentPlaceholdersEnabled
+        instrumentSelector.isEnabled = content.areInstrumentPlaceholdersEnabled &&
+            instrumentSelector.selectedItem?.representedObject is Int
         applyTransportStyles(content)
     }
 
+    /// Presents existing one-based instrument identities without inventing palette slots.
+    func reloadInstruments(palette: [Int: PlaybackInstrument], selection: TrackerEditorSelection) {
+        let slots = palette.keys.filter { (1...255).contains($0) }.sorted()
+        instrumentSelector.removeAllItems()
+        guard !slots.isEmpty else {
+            instrumentSelector.addItem(withTitle: "No Inst")
+            instrumentSelector.toolTip = "No represented instruments"
+            instrumentSelector.isEnabled = false
+            return
+        }
+        for slot in slots {
+            let display = ControlPanelSlotDisplay.instrument(slot: slot, name: palette[slot]?.name)
+            instrumentSelector.addItem(withTitle: display.displayTitle)
+            instrumentSelector.lastItem?.representedObject = slot
+            instrumentSelector.lastItem?.toolTip = display.tooltip
+        }
+        instrumentSelector.selectItem(at: slots.firstIndex(of: selection.selectedInstrument) ?? 0)
+        instrumentSelector.toolTip = instrumentSelector.selectedItem?.toolTip
+    }
+
     private func selectOrReplaceSinglePopupItem(_ popup: NSPopUpButton, title: String, tooltip: String) {
-        popup.toolTip = tooltip
         if let item = popup.item(withTitle: title) {
+            popup.toolTip = tooltip
             item.toolTip = tooltip
             popup.selectItem(withTitle: title)
             return
@@ -148,6 +164,7 @@ final class ControlPanelView: NSView {
 
         if let slot = Self.controlSlot(from: title),
            let itemIndex = popup.itemArray.firstIndex(where: { $0.representedObject as? Int == slot }) {
+            popup.toolTip = tooltip
             let item = popup.itemArray[itemIndex]
             item.title = title
             item.toolTip = tooltip
@@ -155,14 +172,6 @@ final class ControlPanelView: NSView {
             return
         }
 
-        guard popup.numberOfItems <= 1 else {
-            return
-        }
-
-        popup.removeAllItems()
-        popup.addItem(withTitle: title)
-        popup.lastItem?.toolTip = tooltip
-        popup.selectItem(at: 0)
     }
 
     private static func controlSlot(from title: String) -> Int? {
@@ -170,7 +179,7 @@ final class ControlPanelView: NSView {
             return nil
         }
         let code = title.prefix(3)
-        guard code.first == "I" || code.first == "S" else {
+        guard code.first == "I" else {
             return nil
         }
         return Int(code.dropFirst(), radix: 16)
@@ -237,7 +246,6 @@ final class ControlPanelView: NSView {
         octaveSelector.selectItem(withTitle: "4")
         patternSelector.addItem(withTitle: ControlPanelDisplayState.patternDisplayTitle(patternIndex: 0))
         instrumentSelector.addItem(withTitle: "No Inst")
-        sampleSelector.addItem(withTitle: "No Sample")
         tempoField.stringValue = "125"
         speedField.stringValue = "06"
         songTitleField.stringValue = BlankTrackerDocument.defaultTitle
@@ -260,9 +268,13 @@ final class ControlPanelView: NSView {
         patternSelector.toolTip = "Current pattern"
         patternRowCountField.toolTip = "Rows in current pattern"
         instrumentSelector.toolTip = "Current instrument"
-        sampleSelector.toolTip = "Current sample"
-        tempoField.toolTip = "Initial BPM"
-        speedField.toolTip = "Initial ticks per row"
+        instrumentSelector.cell?.lineBreakMode = .byTruncatingTail
+        instrumentSelector.setAccessibilityLabel("Current instrument")
+        patternSelector.setAccessibilityLabel("Current pattern")
+        tempoField.toolTip = "Initial BPM (beats per minute)"
+        tempoField.setAccessibilityLabel("BPM (beats per minute)")
+        speedField.toolTip = "Initial speed (ticks per row)"
+        speedField.setAccessibilityLabel("Speed (ticks per row)")
         octaveSelector.toolTip = "Selected editor octave"
         channelCountField.toolTip = "Tracker channels"
         applyTransportStyles(ControlPanelContent())
@@ -332,12 +344,10 @@ final class ControlPanelView: NSView {
     }
 
     private func makeBottomRow() -> NSView {
-        songTitleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        songTitleField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
         let patternControls = NSStackView(views: [
             makeInlineGroup(label: "PTN", content: patternSelector),
-            makeInlineGroup(label: "ROWS", content: patternRowCountField)
+            makeInlineGroup(label: "ROWS", content: patternRowCountField),
+            makeInlineGroup(label: "CHN", content: channelCountField)
         ])
         patternControls.translatesAutoresizingMaskIntoConstraints = false
         patternControls.orientation = .horizontal
@@ -345,18 +355,17 @@ final class ControlPanelView: NSView {
         patternControls.spacing = Layout.controlStackSpacing
         lockHorizontalSize(patternControls)
 
-        let sourceControls = makeSourceControls()
+        let sourceControls = makeInlineGroup(label: "INST", content: instrumentSelector)
         sourceControls.translatesAutoresizingMaskIntoConstraints = false
         sourceControls.setContentHuggingPriority(.defaultLow, for: .horizontal)
         sourceControls.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         instrumentSelector.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        sampleSelector.setContentHuggingPriority(.defaultLow, for: .horizontal)
         instrumentSelector.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        sampleSelector.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let timingControls = NSStackView(views: [
-            makeInlineGroup(label: "TEMPO", content: tempoField),
-            makeInlineGroup(label: "SPEED", content: speedField)
+            makeInlineGroup(label: "BPM", content: tempoField),
+            makeInlineGroup(label: "SPD", content: speedField),
+            makeInlineGroup(label: "OCT", content: octaveSelector)
         ])
         timingControls.translatesAutoresizingMaskIntoConstraints = false
         timingControls.orientation = .horizontal
@@ -364,82 +373,28 @@ final class ControlPanelView: NSView {
         timingControls.spacing = Layout.controlStackSpacing
         lockHorizontalSize(timingControls)
 
-        let editControls = NSStackView(views: [
-            makeInlineGroup(label: "OCT", content: octaveSelector),
-            makeInlineGroup(label: "CHN", content: channelCountField)
-        ])
-        editControls.translatesAutoresizingMaskIntoConstraints = false
-        editControls.orientation = .horizontal
-        editControls.alignment = .centerY
-        editControls.spacing = Layout.controlStackSpacing
-        lockHorizontalSize(editControls)
-
         let separatorAfterPattern = makeGroupSeparator()
         let timingSeparator = makeGroupSeparator(isTiming: true)
-        let separatorBeforeEdit = makeGroupSeparator()
         let row = NSView()
         row.translatesAutoresizingMaskIntoConstraints = false
-        [
-            patternControls,
-            separatorAfterPattern,
-            sourceControls,
-            timingSeparator,
-            timingControls,
-            separatorBeforeEdit,
-            editControls
-        ].forEach(row.addSubview)
+        [patternControls, separatorAfterPattern, sourceControls, timingSeparator, timingControls].forEach(row.addSubview)
         row.heightAnchor.constraint(equalToConstant: Layout.rowHeight).isActive = true
         NSLayoutConstraint.activate([
             patternControls.leadingAnchor.constraint(equalTo: row.leadingAnchor),
             patternControls.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-
             separatorAfterPattern.leadingAnchor.constraint(equalTo: patternControls.trailingAnchor),
             separatorAfterPattern.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-
             sourceControls.leadingAnchor.constraint(equalTo: separatorAfterPattern.trailingAnchor),
             sourceControls.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-
             timingSeparator.leadingAnchor.constraint(equalTo: sourceControls.trailingAnchor),
             timingSeparator.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-
             timingControls.leadingAnchor.constraint(equalTo: timingSeparator.trailingAnchor),
-            timingControls.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-
-            separatorBeforeEdit.leadingAnchor.constraint(equalTo: timingControls.trailingAnchor),
-            separatorBeforeEdit.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-
-            editControls.leadingAnchor.constraint(equalTo: separatorBeforeEdit.trailingAnchor),
-            editControls.trailingAnchor.constraint(equalTo: row.trailingAnchor),
-            editControls.centerYAnchor.constraint(equalTo: row.centerYAnchor)
+            timingControls.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            timingControls.centerYAnchor.constraint(equalTo: row.centerYAnchor)
         ])
+        patternSelector.nextKeyView = instrumentSelector
+        instrumentSelector.nextKeyView = octaveSelector
         return row
-    }
-
-    private func makeSourceControls() -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.heightAnchor.constraint(equalToConstant: Layout.rowHeight).isActive = true
-        let instrumentLabel = TrackerThemeStyling.makeControlLabel(title: "INST", theme: theme)
-        let sampleLabel = TrackerThemeStyling.makeControlLabel(title: "SMP", theme: theme)
-        [instrumentLabel, instrumentSelector, sampleLabel, sampleSelector].forEach(container.addSubview)
-
-        NSLayoutConstraint.activate([
-            instrumentLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            instrumentLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
-            instrumentSelector.leadingAnchor.constraint(equalTo: instrumentLabel.trailingAnchor, constant: Layout.labelSpacing),
-            instrumentSelector.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
-            sampleLabel.leadingAnchor.constraint(equalTo: instrumentSelector.trailingAnchor, constant: Layout.controlStackSpacing),
-            sampleLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
-            sampleSelector.leadingAnchor.constraint(equalTo: sampleLabel.trailingAnchor, constant: Layout.labelSpacing),
-            sampleSelector.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            sampleSelector.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-
-            instrumentSelector.widthAnchor.constraint(equalTo: sampleSelector.widthAnchor)
-        ])
-        return container
     }
 
     private func makeInlineGroup(label title: String, content: NSView) -> NSStackView {

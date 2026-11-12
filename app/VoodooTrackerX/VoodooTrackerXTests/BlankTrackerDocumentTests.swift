@@ -4625,10 +4625,12 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(content.songTime, "--:--")
     }
 
-    func testControlPanelPatternDisplayUsesZeroPaddedDecimal() {
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 0), "000")
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 12), "012")
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 111), "111")
+    func testControlPanelPatternDisplayUsesZeroPaddedDecimalWithoutTruncation() {
+        for (pattern, label) in [(0, "000"), (9, "009"), (10, "010"), (12, "012"),
+            (15, "015"), (16, "016"), (31, "031"), (32, "032"), (48, "048"),
+            (100, "100"), (111, "111"), (255, "255"), (4096, "4096"), (Int.max, String(Int.max))] {
+            XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: pattern), label)
+        }
     }
 
     func testLoadedModuleControlPanelDisplayStateUsesCurrentEditorInstrumentSelection() {
@@ -4735,7 +4737,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             selectedSampleName: "Kick"
         )
 
-        XCTAssertEqual(content.selectedInstrumentDisplay, "I01 Very Long...")
+        XCTAssertEqual(content.selectedInstrumentDisplay, "I01 Very Long Instrument")
         XCTAssertEqual(content.selectedInstrumentTooltip, "I01 Very Long Instrument")
         XCTAssertEqual(content.selectedSampleDisplay, "S01 Kick")
         XCTAssertEqual(content.selectedSampleTooltip, "S01 Kick")

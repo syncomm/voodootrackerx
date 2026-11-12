@@ -108,10 +108,9 @@ enum TrackerThemeMetrics {
         static let songLengthWidth: CGFloat = 38
         static let songPositionWidth: CGFloat = 38
         static let restartPositionWidth: CGFloat = 38
-        static let patternSelectorWidth: CGFloat = 78
+        static let patternSelectorWidth: CGFloat = 60
         static let rowCountWidth: CGFloat = 46
-        static let instrumentSelectorMinimumWidth: CGFloat = 130
-        static let sampleSelectorMinimumWidth: CGFloat = 134
+        static let instrumentSelectorMinimumWidth: CGFloat = 180
         static let tempoWidth: CGFloat = 44
         static let speedWidth: CGFloat = 38
         static let octaveSelectorWidth: CGFloat = 44

@@ -19,7 +19,6 @@ final class ControlPanelViewTests: XCTestCase {
             view.patternSelector.toolTip,
             view.patternRowCountField.toolTip,
             view.instrumentSelector.toolTip,
-            view.sampleSelector.toolTip,
             view.tempoField.toolTip,
             view.speedField.toolTip,
             view.octaveSelector.toolTip,
@@ -36,6 +35,7 @@ final class ControlPanelViewTests: XCTestCase {
 
     func testApplyMapsLoopEditAndPlaybackControlState() {
         let view = ControlPanelView(frame: .zero)
+        view.reloadInstruments(palette: [1: PlaybackInstrument(index: 1, samples: [])], selection: .default)
         var content = ControlPanelContent()
         content.isLoopEnabled = true
         content.isEditModeEnabled = true
@@ -53,7 +53,6 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertTrue(view.songPositionStepper.isEnabled)
         XCTAssertTrue(view.patternSelector.isEnabled)
         XCTAssertTrue(view.instrumentSelector.isEnabled)
-        XCTAssertTrue(view.sampleSelector.isEnabled)
     }
 
     func testApplyMapsLoopStateWithoutChangingTransportAvailability() {
@@ -90,7 +89,7 @@ final class ControlPanelViewTests: XCTestCase {
         let view = ControlPanelView(frame: .zero)
 
         assertColor(view.topAccentLine.layer?.backgroundColor, matches: TrackerControlPalette.panelTopAccent)
-        XCTAssertEqual(view.groupSeparatorViews.count, 5)
+        XCTAssertEqual(view.groupSeparatorViews.count, 4)
         XCTAssertTrue(view.groupSeparatorViews.allSatisfy { $0.layer?.backgroundColor != nil })
     }
 
@@ -144,8 +143,9 @@ final class ControlPanelViewTests: XCTestCase {
         assertColor(view.editModeButton.layer?.backgroundColor, matches: TrackerControlPalette.toggleActiveBackground)
     }
 
-    func testApplyMapsSelectedInstrumentAndSampleDisplayWithoutAudioState() {
+    func testApplyMapsSelectedInstrumentDisplayWithoutAudioState() {
         let view = ControlPanelView(frame: .zero)
+        view.reloadInstruments(palette: [1: PlaybackInstrument(index: 1, samples: [])], selection: .default)
         var content = ControlPanelContent()
         content.selectedInstrumentDisplay = "I01"
         content.selectedSampleDisplay = "S01"
@@ -155,10 +155,8 @@ final class ControlPanelViewTests: XCTestCase {
         view.apply(content)
 
         XCTAssertEqual(view.instrumentSelector.titleOfSelectedItem, "I01")
-        XCTAssertEqual(view.sampleSelector.titleOfSelectedItem, "S01")
         XCTAssertEqual(view.octaveSelector.titleOfSelectedItem, "4")
         XCTAssertFalse(view.instrumentSelector.isEnabled)
-        XCTAssertFalse(view.sampleSelector.isEnabled)
     }
 
     func testSlotDisplayFallsBackToCodeOnlyWhenNoNameExists() {
@@ -171,11 +169,11 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertEqual(sample.tooltip, "S01")
     }
 
-    func testSlotDisplayIncludesTruncatedNameAndFullTooltipWhenNameExists() {
+    func testInstrumentNameUsesFullTitleWhileSampleNamesRetainTheirDisplayPolicy() {
         let instrument = ControlPanelSlotDisplay.instrument(slot: 1, name: "Very Long Instrument")
         let sample = ControlPanelSlotDisplay.sample(slot: 1, name: "Kick")
 
-        XCTAssertEqual(instrument.displayTitle, "I01 Very Long...")
+        XCTAssertEqual(instrument.displayTitle, "I01 Very Long Instrument")
         XCTAssertEqual(instrument.tooltip, "I01 Very Long Instrument")
         XCTAssertEqual(sample.displayTitle, "S01 Kick")
         XCTAssertEqual(sample.tooltip, "S01 Kick")
@@ -198,8 +196,9 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertNotEqual(unnamed.displayTitle, empty.displayTitle)
     }
 
-    func testApplyMapsInstrumentAndSampleNameTooltips() {
+    func testApplyMapsInstrumentNameTooltip() {
         let view = ControlPanelView(frame: .zero)
+        view.reloadInstruments(palette: [1: PlaybackInstrument(index: 1, samples: [])], selection: .default)
         let instrument = ControlPanelSlotDisplay.instrument(slot: 1, name: "BASIC SAMPLE")
         let sample = ControlPanelSlotDisplay.sample(slot: 1, name: "SINE64")
         var content = ControlPanelContent()
@@ -213,8 +212,6 @@ final class ControlPanelViewTests: XCTestCase {
 
         XCTAssertEqual(view.instrumentSelector.titleOfSelectedItem, "I01 BASIC SAMPLE")
         XCTAssertEqual(view.instrumentSelector.toolTip, "I01 BASIC SAMPLE")
-        XCTAssertEqual(view.sampleSelector.titleOfSelectedItem, "S01 SINE64")
-        XCTAssertEqual(view.sampleSelector.toolTip, "S01 SINE64")
     }
 
     func testApplyPreservesPatternPopupMenuAcrossDisplayRefresh() {
@@ -244,21 +241,16 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertEqual(view.octaveSelector.itemTitles, (0...8).map(String.init))
     }
 
-    func testApplyPreservesInstrumentAndSamplePopupMenusWhenSelectingExistingItems() {
+    func testApplyPreservesInstrumentPopupMenuWhenSelectingExistingItems() {
         let view = ControlPanelView(frame: .zero)
         let actionRecorder = ControlPanelPopupActionRecorder()
+        view.instrumentSelector.target = actionRecorder
+        view.instrumentSelector.action = #selector(ControlPanelPopupActionRecorder.recordAction(_:))
         view.instrumentSelector.removeAllItems()
         view.instrumentSelector.addItem(withTitle: "I01 Piano")
         view.instrumentSelector.lastItem?.representedObject = 1
         view.instrumentSelector.addItem(withTitle: "I02 Lead")
         view.instrumentSelector.lastItem?.representedObject = 2
-        view.sampleSelector.removeAllItems()
-        view.sampleSelector.addItem(withTitle: "S01 Kick")
-        view.sampleSelector.lastItem?.representedObject = 1
-        view.sampleSelector.addItem(withTitle: "S03 Snare")
-        view.sampleSelector.lastItem?.representedObject = 3
-        view.sampleSelector.target = actionRecorder
-        view.sampleSelector.action = #selector(ControlPanelPopupActionRecorder.recordAction(_:))
         var content = ControlPanelContent()
         content.selectedInstrumentDisplay = "I02 Lead"
         content.selectedInstrumentTooltip = "I02 Lead"
@@ -271,12 +263,8 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertEqual(view.instrumentSelector.numberOfItems, 2)
         XCTAssertEqual(view.instrumentSelector.titleOfSelectedItem, "I02 Lead")
         XCTAssertEqual(view.instrumentSelector.selectedItem?.representedObject as? Int, 2)
-        XCTAssertEqual(view.sampleSelector.numberOfItems, 2)
-        XCTAssertEqual(view.sampleSelector.titleOfSelectedItem, "S03 Snare")
-        XCTAssertEqual(view.sampleSelector.selectedItem?.representedObject as? Int, 3)
         XCTAssertEqual(actionRecorder.actionCount, 0)
         XCTAssertTrue(view.instrumentSelector.isEnabled)
-        XCTAssertTrue(view.sampleSelector.isEnabled)
     }
 
     func testPopupCentersHitNativePopupControls() {
@@ -286,11 +274,6 @@ final class ControlPanelViewTests: XCTestCase {
         view.instrumentSelector.lastItem?.representedObject = 1
         view.instrumentSelector.addItem(withTitle: "I02 Lead")
         view.instrumentSelector.lastItem?.representedObject = 2
-        view.sampleSelector.removeAllItems()
-        view.sampleSelector.addItem(withTitle: "S01 Kick")
-        view.sampleSelector.lastItem?.representedObject = 1
-        view.sampleSelector.addItem(withTitle: "S02 Snare")
-        view.sampleSelector.lastItem?.representedObject = 2
         var content = ControlPanelContent()
         content.selectedInstrumentDisplay = "I02 Lead"
         content.selectedInstrumentTooltip = "I02 Lead"
@@ -304,7 +287,6 @@ final class ControlPanelViewTests: XCTestCase {
 
         XCTAssertTrue(view.popupCenterHitsControl(view.patternSelector))
         XCTAssertTrue(view.popupCenterHitsControl(view.instrumentSelector))
-        XCTAssertTrue(view.popupCenterHitsControl(view.sampleSelector))
         XCTAssertTrue(view.popupCenterHitsControl(view.octaveSelector))
     }
 
@@ -327,20 +309,168 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertEqual(view.instrumentSelector.selectedItem?.representedObject as? Int, 2)
     }
 
-    func testApplySelectsExistingSampleSlotControlItem() {
+    func testEmptyPaletteKeepsNoInstrumentWithoutInventingSelectableZero() {
         let view = ControlPanelView(frame: .zero)
-        view.sampleSelector.removeAllItems()
-        view.sampleSelector.addItems(withTitles: ["S01", "S02", "S03"])
+        view.reloadInstruments(palette: [:], selection: .default)
         var content = ControlPanelContent()
-        content.selectedInstrumentDisplay = "I01"
-        content.selectedSampleDisplay = "S03"
         content.areInstrumentPlaceholdersEnabled = true
-
         view.apply(content)
+        XCTAssertEqual(view.instrumentSelector.itemTitles, ["No Inst"])
+        XCTAssertNil(view.instrumentSelector.selectedItem?.representedObject)
+        XCTAssertFalse(view.instrumentSelector.isEnabled)
+    }
 
-        XCTAssertEqual(view.sampleSelector.numberOfItems, 3)
-        XCTAssertEqual(view.sampleSelector.titleOfSelectedItem, "S03")
-        XCTAssertTrue(view.sampleSelector.isEnabled)
+    func testLoadedInstrumentPalettesExposeEveryRepresentedIdentityThrough255() {
+        for count in [0, 1, 32, 33, 56, 255] {
+            let ids = count == 0 ? [] : Array(1...count)
+            let palette = Dictionary(uniqueKeysWithValues: ids.map {
+                ($0, PlaybackInstrument(index: $0, name: "Instrument \($0)", samples: []))
+            })
+            let song = makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 64], instrumentsByIndex: palette)
+            let selection = TrackerEditorSelection(selectedInstrument: max(1, count))
+            let editor = InstrumentEditorDisplayState.loadedModule(playbackSong: song, selection: selection)
+            let view = ControlPanelView(frame: .zero)
+            view.reloadInstruments(palette: song.instrumentsByIndex, selection: selection)
+            XCTAssertEqual(view.instrumentSelector.itemArray.compactMap { $0.representedObject as? Int }, ids)
+            XCTAssertEqual(editor.instrumentSlots.map(\.slot), ids)
+            XCTAssertEqual(view.instrumentSelector.titleOfSelectedItem,
+                           count == 0 ? "No Inst" : String(format: "I%02X Instrument %d", count, count))
+            XCTAssertFalse(view.instrumentSelector.itemTitles.contains("I00"))
+        }
+    }
+
+    func testEditableDenseAndSparsePalettesDoNotInventMissingOrZeroIdentities() {
+        for ids in [Array(1...33), Array(1...56), [1, 0x21, 0x38]] {
+            let palette = Dictionary(uniqueKeysWithValues: ids.map { ($0, PlaybackInstrument(index: $0, samples: [])) })
+            let document = instrumentDocument(palette)
+            let view = ControlPanelView(frame: .zero)
+            view.reloadInstruments(palette: document.instrumentPalette, selection: document.selection)
+            XCTAssertEqual(view.instrumentSelector.itemArray.compactMap { $0.representedObject as? Int }, ids)
+        }
+        let view = ControlPanelView(frame: .zero)
+        view.reloadInstruments(palette: [0: PlaybackInstrument(index: 0, samples: [])], selection: .default)
+        XCTAssertEqual(view.instrumentSelector.itemTitles, ["No Inst"])
+    }
+
+    func testHighInstrumentSelectionSynchronizesBothSurfacesAndKeepsSampleFocusIndependent() throws {
+        let palette = Dictionary(uniqueKeysWithValues: [1, 0x21, 0x38].map { id in
+            (id, PlaybackInstrument(index: id, name: "Long instrument name", samples: [
+                makePlaybackSample(instrumentIndex: id, sampleIndex: 0, pcm: [0.25]),
+                makePlaybackSample(instrumentIndex: id, sampleIndex: 2, pcm: [-0.5])
+            ], noteSampleMap: Array(repeating: 2, count: 96)))
+        })
+        for loaded in [true, false] {
+            var document = instrumentDocument(palette)
+            let before = document
+            let song = makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 64], instrumentsByIndex: palette)
+            let songBefore = song
+            var selection = document.selection
+            var revision = 0
+            let edits = EditableDocumentEditCoordinator(
+                contextProvider: { loaded ? .loadedReadOnly : .editable(document: document, isPlaybackActive: false) },
+                documentApplyHandler: { document = $0; revision += 1 }
+            )
+            let view = ControlPanelView(frame: .zero)
+            var editor: InstrumentEditorWindowController!
+            let state = { loaded ? InstrumentEditorDisplayState.loadedModule(playbackSong: song, selection: selection)
+                : InstrumentEditorDisplayState.editableDocument(document) }
+            let refresh = {
+                view.reloadInstruments(palette: loaded ? song.instrumentsByIndex : document.instrumentPalette, selection: selection)
+                var content = ControlPanelContent()
+                let display = ControlPanelSlotDisplay.instrument(slot: selection.selectedInstrument, name: palette[selection.selectedInstrument]?.name)
+                content.selectedInstrumentDisplay = display.displayTitle
+                content.selectedInstrumentTooltip = display.tooltip
+                content.areInstrumentPlaceholdersEnabled = true
+                view.apply(content)
+                editor?.apply(displayState: state())
+            }
+            let select: (Int) -> Bool = { id in
+                if loaded { selection = selection.withSelectedInstrument(id, availableSampleSlots: [1, 2, 3]) }
+                else { document.selectInstrument(id); selection = document.selection }
+                refresh()
+                return true
+            }
+            editor = InstrumentEditorWindowController(displayState: state(), instrumentSelectionHandler: select)
+            let recorder = ControlPanelPopupActionRecorder()
+            recorder.onSelect = { _ = select($0) }
+            view.instrumentSelector.target = recorder
+            view.instrumentSelector.action = #selector(ControlPanelPopupActionRecorder.recordAction(_:))
+            refresh()
+            for id in [0x21, 0x38] {
+                if id == 0x21 {
+                    view.instrumentSelector.selectItem(at: 1)
+                    XCTAssertTrue(view.instrumentSelector.sendAction(view.instrumentSelector.action, to: recorder))
+                } else {
+                    let editorView = try XCTUnwrap(editor.window?.contentView as? InstrumentEditorView)
+                    let row = try XCTUnwrap(editorView.subviewsRecursively.first {
+                        $0.identifier?.rawValue == InstrumentEditorViewIdentifier.instrumentRowPrefix + "I38"
+                    } as? InstrumentEditorListRowControl)
+                    XCTAssertTrue(row.accessibilityPerformPress())
+                }
+                XCTAssertEqual(view.instrumentSelector.selectedItem?.representedObject as? Int, id)
+                XCTAssertEqual(view.instrumentSelector.titleOfSelectedItem, String(format: "I%02X Long instrument name", id))
+                XCTAssertEqual(view.instrumentSelector.toolTip, view.instrumentSelector.titleOfSelectedItem)
+                let editorView = try XCTUnwrap(editor.window?.contentView as? InstrumentEditorView)
+                XCTAssertEqual(editorView.displayState.selectedInstrumentSlot, id)
+                let request = EditorNoteAuditionRequest(kind: .noteOn(noteValue: 49, selectedOctave: 4),
+                    selection: selection, sampleResolution: .instrumentKeymap,
+                    sourceContext: loaded ? .loadedModule(patternIndex: 0) : .blankDocument)
+                let routed = loaded ? EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song)
+                    : document.noteAuditionAvailability(for: request)
+                let directRequest = EditorNoteAuditionRequest(
+                    kind: request.kind, selection: selection, sampleResolution: .directSelectedSample,
+                    sourceContext: request.sourceContext)
+                let direct = loaded ? EditorNoteAuditionAvailabilityResolver.availability(for: directRequest, loadedPlaybackSong: song)
+                    : document.noteAuditionAvailability(for: directRequest)
+                guard case let .potentiallyAvailable(mapped) = routed, case let .potentiallyAvailable(focused) = direct else {
+                    return XCTFail("Represented mapped and focused samples must remain available")
+                }
+                XCTAssertEqual(mapped.sampleIndex, 2)
+                XCTAssertEqual(focused.sampleIndex, 0)
+                XCTAssertEqual(selection.selectedSample, 1)
+                if !loaded {
+                    var entry = document
+                    XCTAssertTrue(entry.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+                    XCTAssertEqual(entry.pattern.rows[0][0].instrument, UInt8(id))
+                }
+            }
+            XCTAssertEqual(document.instrumentPalette, before.instrumentPalette)
+            XCTAssertEqual(document.patterns, before.patterns)
+            XCTAssertEqual(song, songBefore)
+            XCTAssertEqual(revision, 0)
+            XCTAssertFalse(edits.undoManager.canUndo)
+        }
+    }
+
+    func testLowerRowOrderReadoutsAccessibilityAndFlexibleInstrumentWidth() throws {
+        for width: CGFloat in [912, 1072, 1352] {
+            let view = ControlPanelView(frame: NSRect(x: 0, y: 0, width: width, height: 84))
+            view.layoutSubtreeIfNeeded()
+            let fields = view.controlDescendants.compactMap { $0 as? NSTextField }
+            let labels = fields.filter { ["PTN", "ROWS", "CHN", "INST", "BPM", "SPD", "OCT"].contains($0.stringValue) }
+                .sorted { view.convert($0.bounds, from: $0).minX < view.convert($1.bounds, from: $1).minX }
+            XCTAssertEqual(labels.map(\.stringValue), ["PTN", "ROWS", "CHN", "INST", "BPM", "SPD", "OCT"])
+            XCTAssertFalse(fields.contains { ["SMP", "TEMPO", "SPEED"].contains($0.stringValue) })
+            XCTAssertEqual(view.controlDescendants.compactMap { $0 as? NSPopUpButton }.count, 3)
+            XCTAssertGreaterThan(view.instrumentSelector.frame.width, 250)
+            // Native popup frames include alignment insets outside the constrained width.
+            XCTAssertEqual(view.patternSelector.alignmentRect(forFrame: view.patternSelector.frame).width, 60)
+            XCTAssertEqual(view.tempoField.stringValue, "125")
+            XCTAssertEqual(view.speedField.stringValue, "06")
+            XCTAssertEqual(view.channelCountField.stringValue, "8")
+            XCTAssertFalse(view.tempoField.isEditable)
+            XCTAssertFalse(view.speedField.isEditable)
+            XCTAssertEqual(view.speedField.accessibilityLabel(), "Speed (ticks per row)")
+            XCTAssertTrue(view.patternSelector.nextKeyView === view.instrumentSelector)
+            XCTAssertTrue(view.instrumentSelector.nextKeyView === view.octaveSelector)
+        }
+    }
+
+    private func instrumentDocument(_ palette: [Int: PlaybackInstrument]) -> BlankTrackerDocument {
+        let blank = BlankTrackerDocument.makeDefault()
+        return BlankTrackerDocument(title: blank.title, songLength: blank.songLength, currentPosition: 0,
+            restartPosition: 0, currentPatternIndex: 0, tempo: 125, speed: 6, orderTable: [0],
+            selection: .default, instrumentPalette: palette, patterns: blank.patterns)
     }
 
     private func assertColor(
@@ -366,13 +496,16 @@ final class ControlPanelViewTests: XCTestCase {
 @MainActor
 private final class ControlPanelPopupActionRecorder: NSObject {
     private(set) var actionCount = 0
+    var onSelect: ((Int) -> Void)?
 
     @objc func recordAction(_ sender: NSPopUpButton) {
         actionCount += 1
+        if let id = sender.selectedItem?.representedObject as? Int { onSelect?(id) }
     }
 }
 
 private extension ControlPanelView {
+    var controlDescendants: [NSView] { subviews.flatMap { [$0] + $0.subviewsRecursively } }
     func popupCenterHitsControl(_ popup: NSPopUpButton) -> Bool {
         let center = NSPoint(x: popup.bounds.midX, y: popup.bounds.midY)
         let point = convert(center, from: popup)
@@ -381,4 +514,8 @@ private extension ControlPanelView {
         }
         return hitView === popup || hitView.isDescendant(of: popup)
     }
+}
+
+private extension NSView {
+    var subviewsRecursively: [NSView] { subviews.flatMap { [$0] + $0.subviewsRecursively } }
 }

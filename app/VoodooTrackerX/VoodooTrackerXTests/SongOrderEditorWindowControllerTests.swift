@@ -521,7 +521,7 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(result, SongOrderEditorNavigationResult(selectedOrderPosition: 2, currentPatternIndex: 64))
         XCTAssertEqual(controlPanelContent.songPosition, "02")
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: result.currentPatternIndex), "064")
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: result.currentPatternIndex), "040")
         XCTAssertEqual(state.orderRows.map(\.isSelected), [false, false, true])
         XCTAssertEqual(state.bankIndex, 1)
         XCTAssertEqual(state.bankDisplayLabel, "BANK 2/2")
@@ -995,7 +995,7 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         let currentCell = try XCTUnwrap(state.patternBankCells.first { $0.patternIndex == 64 })
 
         XCTAssertEqual(selectedPatternIndex, 64)
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: selectedPatternIndex), "064")
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: selectedPatternIndex), "040")
         XCTAssertEqual(state.selectedOrderPosition, 0)
         XCTAssertEqual(state.orderRows.map(\.patternIndex), [0, 2])
         XCTAssertEqual(state.orderRows.map(\.isSelected), [true, false])

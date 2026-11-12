@@ -49,3 +49,63 @@ jobs:
         run: swift test --filter ModuleCoreTests
       - name: Run render tool tests
         run: swift test --filter VTXRenderBoundedXMTests
+
+  rowstack1-arm64-asan:
+    name: ROWSTACK1 arm64 ASan default worker
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify native arm64 toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          sw_vers
+          xcodebuild -version
+      - name: Run original default-worker selector with ASan
+        run: >
+          xcodebuild
+          -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj
+          -scheme VoodooTrackerX
+          -configuration Debug
+          -destination 'platform=macOS,arch=arm64'
+          -derivedDataPath build
+          CODE_SIGNING_ALLOWED=NO
+          -enableThreadSanitizer NO
+          -enableAddressSanitizer YES
+          -only-testing:VoodooTrackerXTests/PlaybackEngineTests/testProductionPreparationDefaultOriginEventsAndNativePCMAreExactInBothModesAndRates
+          -resultBundlePath build/rowstack1-arm64-asan.xcresult
+          test
+      - name: Verify exactly one intended arm64 test passed
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import subprocess
+
+          def report(kind):
+              data = json.loads(subprocess.check_output([
+                  "xcrun", "xcresulttool", "get", "test-results", kind,
+                  "--path", "build/rowstack1-arm64-asan.xcresult"], text=True))
+              print(json.dumps(data, indent=2))
+              return data
+
+          summary = report("summary")
+          expected = {"totalTestCount": 1, "passedTests": 1, "failedTests": 0,
+                      "skippedTests": 0, "expectedFailures": 0}
+          if any(summary.get(key) != value for key, value in expected.items()):
+              raise SystemExit("Expected exactly one passed test, with no failures or skips")
+          tests = report("tests")
+          cases = []
+          def visit(node):
+              if node.get("nodeType") == "Test Case":
+                  cases.append((node.get("nodeIdentifier"), node.get("result")))
+              for child in node.get("children", []):
+                  visit(child)
+          for node in tests.get("testNodes", []):
+              visit(node)
+          selector = "PlaybackEngineTests/testProductionPreparationDefaultOriginEventsAndNativePCMAreExactInBothModesAndRates()"
+          if cases != [(selector, "Passed")]:
+              raise SystemExit(f"Unexpected executed tests: {cases}")
+          devices = tests.get("devices", [])
+          if not devices or any(device.get("architecture") != "arm64" for device in devices):
+              raise SystemExit("Expected native arm64 test execution")
+          PY

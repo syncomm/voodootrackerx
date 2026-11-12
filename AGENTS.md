@@ -289,21 +289,25 @@ crashes, data loss, or benchmark interference separately. Private-corpus and
 generated-artifact protections and the canonical repo-root `build/` policy remain
 in force.
 
-- For **all local VTX/Codex tasks**, write generated temporary WAV/M4A/XM,
-  audition clips, traces, captures, JSON, reports, logs, benchmark evidence,
-  diagnostic executables, isolated builds, and scratch worktrees **only under
-  `/private/tmp`** (or `/tmp`, which resolves there on macOS). The canonical
-  repository-root `build/` and intentionally tracked public fixtures are
-  separate, explicitly governed exceptions.
-- Never use macOS's per-user `/var/folders/.../T/` or
-  `/private/var/folders/.../T/` as a VTX artifact destination. Do not trust
-  the default `TMPDIR`, unqualified `mktemp -d`, Python `tempfile`
-  defaults, or a tool's implicit scratch location.
-- Before running local diagnostic subprocesses, export `TMPDIR=/private/tmp`,
-  `TMP=/private/tmp`, and `TEMP=/private/tmp`. Create a unique task directory
-  using an **explicit** `/private/tmp/vtx-<task>.XXXXXXXX` template, pass
-  absolute output paths, and check that each resolved destination stays within
-  `/private/tmp` before writing. If a tool cannot honor this, **stop**.
+- Use the existing canonical checkout or an explicitly authorized stable
+  worktree outside `/tmp` and `/private/tmp` for development and regular tests.
+  Preserve existing user checkout state. Do not create a temporary checkout
+  that invalidates repository-output-confinement tests and then waive failures.
+- Normal Xcode builds/tests use checkout-root `build/` with
+  `-derivedDataPath build`. Genuinely isolated diagnostic builds may use an
+  explicit external destination with verified source/product provenance.
+- Give generated WAV/M4A/XM, clips, traces, captures, JSON, reports, receipts,
+  logs, screenshots, benchmarks and diagnostic executables explicit output paths
+  under a short purpose-named `/private/tmp/vtx-<task>/` directory (or `/tmp`,
+  its macOS alias). Use an explicit template there for unique directories.
+  Intentionally tracked public fixtures retain their separate provenance rules.
+- Use the inherited macOS environment for ordinary reads, Git, compilation,
+  launches and tests. Never blanket-export `TMPDIR`, `TMP`, `TEMP` or
+  `GIT_OPTIONAL_LOCKS`. Scope an optional override to one command with a
+  documented necessity; optional-lock suppression is not general write safety.
+  Do not globally redirect tool-managed scratch, caches or test temporary files.
+  These working-path/environment rules also govern older diagnostic examples;
+  preserve their domain-specific architectural contracts.
 - Every handoff must give directly usable `/private/tmp` paths for reports,
   listening clips, and evidence. If an output lands elsewhere, record the
   violation, recover required artifacts into `/private/tmp` with checksum
@@ -312,16 +316,32 @@ in force.
   without explicit maintainer authorization. Do not depend on a reboot for
   preservation or cleanup. Hosted CI's OS-managed internal scratch files are
   outside this maintainer-local output policy.
+- Preservation archives, including nested `sources/private/tmp/` copies, are
+  read-only recovery storage. Copy only needed evidence into an active handoff
+  and verify checksums; do not use deep archive paths as primary attachments.
+  Back up only when tasked, without automatic giant archival walks.
 
 ## Private corpus and artifact hygiene
 
+- Gregory authorizes task-relevant local discovery, inspection, hashing,
+  profiling and comparison of private XM modules and dynamically supplied maps
+  as supplementary evidence. Public committed tests/CI require deterministic,
+  redistributable fixtures; private inputs must never be their prerequisite.
+- Private names, paths, hashes and corpus metadata in authorized internal Codex
+  tool output or ignored/private local evidence are not by themselves a leak or
+  STOP. Tool output may be processed by the configured model service; do not
+  promise on-device confidentiality.
 - Keep private modules, local corpus label maps, and artifacts derived from them
   outside the repository.
 - Never hardcode a maintainer-local corpus-map path or default. Accept an explicit
   local input and keep the map itself untracked.
-- Do not publish private filenames, module identities, corpus counts, local
-  absolute paths, or machine-specific notes. Use stable anonymized labels when a
-  public-safe example is necessary.
+- Stop and report actual unauthorized tracking, commit, upload or publication.
+  Keep private bytes, identities, filenames, paths, hashes, maps, corpus counts,
+  machine-specific notes and derived local artifacts out of tracked files,
+  GitHub PRs/issues, CI logs and release material. Use stable anonymized labels
+  and appropriately redacted aggregates in manager handoffs and PR evidence.
+  Authorized local tool output
+  alone is not a publication or mandatory stop.
 - Put WAVs, traces, captures, JSON, generated Markdown, screenshots, logs,
   benchmarks, and private reports only under `/private/tmp` (or `/tmp`, its
   macOS alias), following the mandatory local temporary-output policy above.

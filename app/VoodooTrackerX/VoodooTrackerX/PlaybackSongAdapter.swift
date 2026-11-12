@@ -1165,6 +1165,34 @@ enum PlaybackSongSyntheticAdapter {
                 count: row.cells.count - context.selectionTuningProducers.count))
         }
         context.heldPitchObserver.ensureChannels(row.cells.count)
+        appendRowEntryEvents(from: row, source: source, syntheticRow: syntheticRow, song: song,
+            timingConfig: timingConfig, timingPlan: timingPlan, scheduledStartFrame: scheduledStartFrame,
+            nextRow: nextRow, context: &context)
+        appendRowContinuationEvents(from: row, source: source, syntheticRow: syntheticRow, song: song,
+            timingConfig: timingConfig, timingPlan: timingPlan, context: &context)
+        return PlaybackSongSyntheticRowDiagnostic(
+            source: source,
+            syntheticRow: syntheticRow,
+            cellCount: row.cells.count,
+            emittedEventCount: context.events.count - eventStartCount,
+            ignoredCellCount: context.ignoredCells.count - ignoredStartCount
+        )
+    }
+
+    // Keep the sequential row-entry and continuation workspaces out of one live
+    // frame. Both stages borrow the same context and retain their writer order.
+    @inline(never)
+    private static func appendRowEntryEvents(
+        from row: PlaybackRow,
+        source: PlaybackPosition,
+        syntheticRow: Int,
+        song: PlaybackSong,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        scheduledStartFrame: Int,
+        nextRow: PlaybackRow?,
+        context: inout AdapterRowContext
+    ) {
         for channelIndex in row.cells.indices {
             var cell = row.cells[channelIndex]
             let heldPitchRow = context.heldPitchObserver.begin(cell, channel: channelIndex,
@@ -2867,6 +2895,19 @@ enum PlaybackSongSyntheticAdapter {
             }
             context.channelStates[channelIndex] = channelState
         }
+
+    }
+
+    @inline(never)
+    private static func appendRowContinuationEvents(
+        from row: PlaybackRow,
+        source: PlaybackPosition,
+        syntheticRow: Int,
+        song: PlaybackSong,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        context: inout AdapterRowContext
+    ) {
         // Plan ordinary column slides and 6xy/tremolo after all tick-zero writers.
         // A later channel's Gxx must not see a future slide or tremolo value.
         for channelIndex in row.cells.indices {
@@ -3038,13 +3079,6 @@ enum PlaybackSongSyntheticAdapter {
                 }
             }
         }
-        return PlaybackSongSyntheticRowDiagnostic(
-            source: source,
-            syntheticRow: syntheticRow,
-            cellCount: row.cells.count,
-            emittedEventCount: context.events.count - eventStartCount,
-            ignoredCellCount: context.ignoredCells.count - ignoredStartCount
-        )
     }
 
 }

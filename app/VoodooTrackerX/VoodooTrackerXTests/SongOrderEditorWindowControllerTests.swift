@@ -521,7 +521,7 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(result, SongOrderEditorNavigationResult(selectedOrderPosition: 2, currentPatternIndex: 64))
         XCTAssertEqual(controlPanelContent.songPosition, "02")
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: result.currentPatternIndex), "040")
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: result.currentPatternIndex), "064")
         XCTAssertEqual(state.orderRows.map(\.isSelected), [false, false, true])
         XCTAssertEqual(state.bankIndex, 1)
         XCTAssertEqual(state.bankDisplayLabel, "BANK 2/2")
@@ -972,6 +972,54 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(repeatedDocument, isolatedDocument)
     }
 
+    func testMainPTNLabelsStayDecimalForLoadedSparseAndEditableNavigation() throws {
+        let metadata = makeLoadedMetadata(orderTable: [48, 12, 9, 255],
+            patterns: makeContiguousPatterns(through: 255))
+        let loadedBefore = metadata
+        let loaded = ModuleMetadataLoader.buildPatternSelection(
+            orderTable: metadata.orderTable, patternCount: metadata.xmPatterns.count,
+            rowCounts: metadata.xmPatterns.map(\.rowCount), showAllPatterns: false,
+            usedPatternIndices: Set(metadata.orderTable))
+        XCTAssertEqual(loaded.entries.map(\.patternIndex), [9, 12, 48, 255])
+
+        var document = makeBlankDocument(currentPosition: 1, currentPatternIndex: 0,
+            orderTable: [0, 12], patterns: makeContiguousPatterns(through: 12))
+        let editableBefore = document
+        XCTAssertTrue(document.selectPatternForViewing(12))
+        let editable = EditableMainPatternSelectorProjection(document: document)
+        let view = ControlPanelView(frame: .zero)
+        for (entries, labels) in [
+            (loaded.entries, ["009", "012", "048", "255"]),
+            (editable.entries, ["000", "001", "002", "003", "004", "005", "006",
+                                "007", "008", "009", "010", "011", "012"])
+        ] {
+            view.patternSelector.removeAllItems()
+            view.patternSelector.addItems(withTitles: entries.map {
+                ControlPanelDisplayState.patternDisplayTitle(patternIndex: $0.patternIndex)
+            })
+            let selectedIndex = try XCTUnwrap(entries.firstIndex { $0.patternIndex == 12 })
+            view.patternSelector.selectItem(at: selectedIndex)
+            var content = ControlPanelContent()
+            content.isPatternControlsEnabled = true
+            view.apply(content)
+            XCTAssertEqual(view.patternSelector.itemTitles, labels)
+            XCTAssertEqual(view.patternSelector.titleOfSelectedItem, "012")
+            XCTAssertEqual(entries[view.patternSelector.indexOfSelectedItem].patternIndex, 12)
+        }
+        let selected = SongOrderEditorNavigation.loadedModulePatternSelection(
+            selectingPatternIndex: 12, metadata: metadata, currentPatternIndex: 0, isPlaybackActive: false)
+        XCTAssertEqual(selected, 12)
+        let order = try XCTUnwrap(SongOrderEditorNavigation.loadedModuleSelection(
+            selectingOrderPosition: 1, metadata: metadata, currentOrderPosition: 0, isPlaybackActive: false))
+        XCTAssertEqual(order, SongOrderEditorNavigationResult(selectedOrderPosition: 1, currentPatternIndex: 12))
+        XCTAssertEqual(metadata, loadedBefore)
+        XCTAssertEqual(document.currentPosition, editableBefore.currentPosition)
+        XCTAssertEqual(document.currentPatternIndex, 12)
+        XCTAssertEqual(document.orderTable, editableBefore.orderTable)
+        XCTAssertEqual(document.patterns, editableBefore.patterns)
+        XCTAssertEqual(editable.entries[try XCTUnwrap(editable.selectedEntryIndex)].patternIndex, 12)
+    }
+
     func testLoadedModulePatternBankNavigationUpdatesCurrentPatternWithoutOrderMutation() throws {
         let metadata = makeLoadedMetadata(
             orderTable: [0, 2],
@@ -995,7 +1043,7 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         let currentCell = try XCTUnwrap(state.patternBankCells.first { $0.patternIndex == 64 })
 
         XCTAssertEqual(selectedPatternIndex, 64)
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: selectedPatternIndex), "040")
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: selectedPatternIndex), "064")
         XCTAssertEqual(state.selectedOrderPosition, 0)
         XCTAssertEqual(state.orderRows.map(\.patternIndex), [0, 2])
         XCTAssertEqual(state.orderRows.map(\.isSelected), [true, false])

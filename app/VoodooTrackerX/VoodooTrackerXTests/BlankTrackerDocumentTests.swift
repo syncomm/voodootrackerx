@@ -4625,12 +4625,12 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(content.songTime, "--:--")
     }
 
-    func testControlPanelPatternDisplayUsesThreeHexDigitsWithoutTruncation() {
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 0), "000")
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 12), "00C")
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 111), "06F")
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 255), "0FF")
-        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 4096), "1000")
+    func testControlPanelPatternDisplayUsesZeroPaddedDecimalWithoutTruncation() {
+        for (pattern, label) in [(0, "000"), (9, "009"), (10, "010"), (12, "012"),
+            (15, "015"), (16, "016"), (31, "031"), (32, "032"), (48, "048"),
+            (100, "100"), (111, "111"), (255, "255"), (4096, "4096"), (Int.max, String(Int.max))] {
+            XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: pattern), label)
+        }
     }
 
     func testLoadedModuleControlPanelDisplayStateUsesCurrentEditorInstrumentSelection() {

@@ -7,16 +7,18 @@
 ## Current lower-row contract
 
 The approved main-tracker row is `PTN ROWS CHN | INST | BPM SPD OCT`.
-PTN uses at least three zero-padded hexadecimal digits without truncating IDs.
+PTN retains zero-padded decimal numbering with at least three digits, such as
+`012`, `048`, and `111`, without truncating IDs or changing numeric identity.
 INST lists supported represented one-based identities, including IDs above I20,
 and uses the flexible center width for full instrument names with native elision.
 Sample focus remains available in the Instrument and Sample Editors; the main
 SMP control is removed. BPM and SPD retain the existing initial-value readouts;
 SPD means speed/ticks per row. Timing editing and live timing remain separate work.
 
-This contract supersedes the lower-row order, decimal PTN, SMP, 12-character
-instrument-name limit, and timing-label proposals below. The remaining text
-records the earlier design proposal, not authorization for additional changes.
+This contract supersedes the lower-row order, SMP, 12-character instrument-name
+limit, and timing-label proposals below. The established decimal PTN numbering
+remains in force. Other proposed changes below retain their separate scope;
+they do not authorize additional work in this bounded control-row change.
 
 ---
 

@@ -91,7 +91,7 @@ struct ControlPanelSlotDisplay: Equatable {
 
 enum ControlPanelDisplayState {
     static func patternDisplayTitle(patternIndex: Int) -> String {
-        String(format: "%03X", max(0, patternIndex))
+        String(format: "%03ld", max(0, patternIndex))
     }
 
     static func songTimeDisplay(durationSeconds: TimeInterval?) -> String {

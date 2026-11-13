@@ -109,3 +109,226 @@ jobs:
           if not devices or any(device.get("architecture") != "arm64" for device in devices):
               raise SystemExit("Expected native arm64 test execution")
           PY
+
+  r1-arm64-lifetime-release:
+    name: R1 arm64 lifetime ASan and Release
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 551
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+      - name: Verify frozen R1 source and focused native gates
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, platform, re, signal, subprocess, tempfile
+
+          FROZEN = "29de37af864ea92e5721323f570764065dc1d181"
+          LIFETIME = [
+              "RuntimeRowLifetimeTests/testIndependentRuntimeProductReleasesRowsButInspectionAliasPinsThem",
+              "RuntimeRowLifetimeTests/testFinalizedAssemblyPreservesValuesOwnersQueriesAndSharedHistoryBuffers",
+              "RuntimeRowLifetimeTests/testOddOwnerReferencesPreserveOriginalOrdinalsAndNilValues",
+              "RuntimeRowLifetimeTests/testPublicFullPlanReceipt",
+          ]
+          STRIDE = "G23ChildlessPitchInvocationTests/testRunBoundariesStrictBoundsImmutableCopiesAndDiagnosticInvalidation"
+          APP = [
+              "testRuntimeFinalizedRowsPreserveNativePCMAndHeldStateAcrossPartitions",
+              "testProductionPreparationFirstPlayJoinsActualWorkerWithoutMainNotification",
+              "testProductionPreparationSupersessionsRetireRejectedGraphsBeforeNewestConstructor",
+              "testProductionPreparationStopBeforeAdmissionRejectsReadyAttemptAndAllowsFreshIntent",
+              "testProductionPreparationLoadModeAndRateChangesBeforeAdmissionCannotInstallOldResult",
+              "testProductionPreparationDelayedMainNotificationCannotRetainOrInstallOldSource",
+              "testProductionPreparationRefreshStaysOwnedUntilBoundaryAndCoalescesWhileMainBlocked",
+              "testProductionPreparationStopFromPublicationObserversPreventsNativeAdmission",
+              "testProductionPreparationNestedSeekWinsBeforeOuterPlayNativeConsumption",
+              "testProductionPreparationNestedPlayDuringPausedIsolatedRestoreWinsStop",
+              "testProductionPreparationDefaultOriginEventsAndNativePCMAreExactInBothModesAndRates",
+              "testProductionPreparationRefusedRefreshRetiresSourceOnWorkerWithoutClaim",
+              "testProductionPreparationExplicitNilProductRetriesThroughSameOwner",
+              "testProductionPreparationEngineTeardownReleasesRejectedResultAndSourceOnWorker",
+              "testPlaybackEngineSecondPlayAfterStopReusesRuntimeAdapterPlan",
+              "testPlaybackEngineLoadingDifferentSongInvalidatesAndRebuildsRuntimeAdapterPlanOnNextPlay",
+          ]
+          GUARD_SOURCE = """\
+          import Foundation
+          @testable import VoodooTrackerXPlaybackSupport
+
+          @main enum GuardProbe {
+              static func main() throws {
+                  let path = CommandLine.arguments[1], mode = CommandLine.arguments[2]
+                  let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: path), modulePath: path)
+                  var plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000,
+                      rowCaptureRetention: .runtimeFinalized).plan!
+                  switch mode {
+                  case "read": print(plan.xmChannelRows.count)
+                  case "fold": plan.playbackStateEvents = []
+                  case "tail": _ = plan.extendingEnvelopeTail(throughFrame: 0)
+                  case "assemble": _ = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000, preparedPlan: plan)
+                  default: fatalError("Unknown guard test")
+                  }
+                  print("GUARD_WAS_BYPASSED")
+                  exit(86)
+              }
+          }
+          """
+          GUARD_SHA = "16ab0b11cb6bc27ee34a305e6c5492bdb1e0e20636518bf709c150868b8927c1"
+          root = pathlib.Path(tempfile.mkdtemp(prefix="vtx-r1-arm64-", dir="/private/tmp"))
+          stage = "provenance"
+
+          def emit(value):
+              print(json.dumps(value, sort_keys=True), flush=True)
+
+          def sha(path):
+              return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+
+          def output(args):
+              return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT).strip()
+
+          def run(name, args, overrides=None):
+              global stage
+              stage = name
+              env = os.environ.copy()
+              env.update(overrides or {})
+              log = root / (name + ".log")
+              with log.open("x") as handle:
+                  code = subprocess.call(args, env=env, stdout=handle, stderr=subprocess.STDOUT)
+              text = log.read_text(errors="replace")
+              emit({"stage": name, "exitCode": code, "logSHA256": sha(log)})
+              assert code == 0, "Command failed"
+              assert "ERROR: AddressSanitizer" not in text and "SUMMARY: AddressSanitizer" not in text
+              return text
+
+          def image(path, asan):
+              assert output(["xcrun", "lipo", "-archs", str(path)]) == "arm64"
+              linked = "libclang_rt.asan_osx_dynamic.dylib" in output(["xcrun", "otool", "-L", str(path)])
+              assert linked == asan
+              if asan:
+                  assert "__asan_" in output(["xcrun", "nm", "-u", str(path)])
+              return {"SHA256": sha(path), "architecture": "arm64", "asanLinked": linked}
+
+          def package_image(configuration, asan):
+              paths = list(pathlib.Path(".build").glob("*/" + configuration + "/VoodooTrackerXCorePackageTests.xctest/Contents/MacOS/VoodooTrackerXCorePackageTests"))
+              assert len(paths) == 1
+              emit({"stage": configuration + "-package-image", **image(paths[0], asan)})
+              return paths[0]
+
+          def package_cases(text, expected, asan):
+              observed = re.findall(r"Test Case '-\[(?:\w+\.)?(\w+) (test\w+)\]' (passed|failed|skipped)", text)
+              actual = sorted((cls + "/" + name, status) for cls, name, status in observed)
+              assert actual == sorted((name, "passed") for name in expected)
+              assert re.search(r"Executed " + str(len(expected)) + r" tests?, with 0 failures", text)
+              if asan:
+                  assert "AddressSanitizer Init done" in text
+              emit({"stage": stage, "cases": actual, "passed": len(actual), "failed": 0, "skipped": 0, "asanInit": asan})
+
+          def main():
+              global stage
+              assert platform.machine() == "arm64"
+              event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+              head = output(["git", "rev-parse", "HEAD"])
+              assert head == event["pull_request"]["head"]["sha"]
+              assert output(["git", "rev-parse", "HEAD^"]) == FROZEN
+              assert output(["git", "diff", "--name-only", "HEAD^", "HEAD"]) == ".github/workflows/basic-checks.yml"
+              frozen_paths = [
+                  "app/VoodooTrackerX/VoodooTrackerX/PlaybackEngine.swift",
+                  "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter.swift",
+                  "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongDiagnostics.swift",
+                  "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongOfflineRender.swift",
+                  "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongSemanticPitchProjection.swift",
+                  "app/VoodooTrackerX/VoodooTrackerX/PlaybackXMEnvelopeSemantics.swift",
+                  "app/VoodooTrackerX/VoodooTrackerX/RuntimeCMixerAdapterEventPlan.swift",
+                  "app/VoodooTrackerX/VoodooTrackerXTests/PlaybackEngineTests.swift",
+                  "tests/vtx_render_bounded_xm/RuntimeRowLifetimeTests.swift",
+                  "tests/vtx_render_bounded_xm/G23ChildlessPitchInvocationTests.swift",
+              ]
+              assert all(pathlib.Path(p).read_bytes() == subprocess.check_output(["git", "show", FROZEN + ":" + p]) for p in frozen_paths)
+              assert all(("func " + name + "(") in pathlib.Path(frozen_paths[7]).read_text() for name in APP)
+              emit({"stage": stage, "head": head, "frozenSource": FROZEN, "sourceFilesUnchanged": 10,
+                    "architecture": "arm64", "macOS": output(["sw_vers", "-productVersion"]),
+                    "Xcode": output(["xcodebuild", "-version"]), "Swift": output(["swift", "--version"])})
+              help_text = output(["swift", "test", "--help"])
+              assert all(flag in help_text for flag in ["--sanitize", "--skip-build", "--filter"])
+              assert "-enableAddressSanitizer" in output(["xcodebuild", "-help"])
+              options = {"ASAN_OPTIONS": "halt_on_error=1:abort_on_error=1:verbosity=1"}
+              build = run("package-asan-build", ["swift", "build", "--build-tests", "-c", "debug", "--sanitize", "address", "--disable-code-coverage", "-v"])
+              assert "-sanitize=address" in build and "-fsanitize=address" in build and "-Onone" in build
+              executable = package_image("debug", True)
+              before = sha(executable)
+              text = run("package-asan-tests", ["swift", "test", "--skip-build", "-c", "debug", "--sanitize", "address", "--filter", "RuntimeRowLifetimeTests"], options)
+              package_cases(text, LIFETIME, True)
+              assert sha(executable) == before
+              result = root / "production-asan.xcresult"
+              command = ["xcodebuild", "-project", "app/VoodooTrackerX/VoodooTrackerX.xcodeproj", "-scheme", "VoodooTrackerX",
+                         "-configuration", "Debug", "-destination", "platform=macOS,arch=arm64", "-derivedDataPath", "build",
+                         "CODE_SIGNING_ALLOWED=NO", "-enableThreadSanitizer", "NO", "-enableAddressSanitizer", "YES"]
+              command += ["-only-testing:VoodooTrackerXTests/PlaybackEngineTests/" + name for name in APP]
+              command += ["-resultBundlePath", str(result), "test"]
+              xenv = {**options, "TEST_RUNNER_ASAN_OPTIONS": options["ASAN_OPTIONS"],
+                      "VTX_ROW_LIFETIME_EVIDENCE_ROOT": str(root), "TEST_RUNNER_VTX_ROW_LIFETIME_EVIDENCE_ROOT": str(root)}
+              text = run("production-asan-tests", command, xenv)
+              assert "AddressSanitizer Init done" in text
+              product = pathlib.Path("build/Build/Products/Debug/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests")
+              emit({"stage": "production-asan-image", **image(product, True)})
+              def report(kind):
+                  return json.loads(output(["xcrun", "xcresulttool", "get", "test-results", kind, "--path", str(result)]))
+              summary = report("summary")
+              expected = {"totalTestCount": len(APP), "passedTests": len(APP), "failedTests": 0, "skippedTests": 0, "expectedFailures": 0}
+              assert all(summary.get(key) == value for key, value in expected.items())
+              tests = report("tests")
+              cases = []
+              def visit(node):
+                  if node.get("nodeType") == "Test Case":
+                      cases.append((node.get("nodeIdentifier"), node.get("result")))
+                  for child in node.get("children", []):
+                      visit(child)
+              for node in tests.get("testNodes", []):
+                  visit(node)
+              assert sorted(cases) == sorted(("PlaybackEngineTests/" + name + "()", "Passed") for name in APP)
+              devices = tests.get("devices", [])
+              assert devices and all(device.get("architecture") == "arm64" for device in devices)
+              emit({"stage": "production-asan-results", **expected, "architecture": "arm64", "asanInit": True, "cases": cases})
+              build = run("package-release-build", ["swift", "build", "--build-tests", "-c", "release", "--disable-code-coverage", "-v"])
+              compiler = next(line for line in build.splitlines() if "swiftc -module-name VoodooTrackerXPlaybackSupport" in line)
+              assert " -O " in compiler and "-DDEBUG" not in compiler and "-sanitize" not in compiler
+              emit({"stage": "release-compiler", "optimization": "-O", "DEBUG": False, "asan": False, "testability": "-enable-testing" in compiler})
+              executable = package_image("release", False)
+              before = sha(executable)
+              text = run("package-release-tests", ["swift", "test", "--skip-build", "-c", "release", "--filter", "RuntimeRowLifetimeTests|" + STRIDE])
+              package_cases(text, LIFETIME + [STRIDE], False)
+              assert sha(executable) == before
+              assert hashlib.sha256(GUARD_SOURCE.encode()).hexdigest() == GUARD_SHA
+              source = root / "GuardProbe.swift"
+              source.write_text(GUARD_SOURCE)
+              directory = executable.parents[3]
+              objects = sorted([*directory.glob("VoodooTrackerXPlaybackSupport.build/*.swift.o"),
+                                *directory.glob("ModuleCore.build/**/*.o"), *directory.glob("MixerCore.build/**/*.o")])
+              assert objects and any("VoodooTrackerXPlaybackSupport.build" in str(p) for p in objects)
+              assert any("ModuleCore.build" in str(p) for p in objects) and any("MixerCore.build" in str(p) for p in objects)
+              probe = root / "guard-probe"
+              command = ["xcrun", "swiftc", "-O", "-g", "-parse-as-library", "-target", "arm64-apple-macosx15.0"]
+              for component in ["Modules", "ModuleCore.build", "MixerCore.build"]:
+                  command += ["-I", str(directory / component)]
+              run("release-guard-build", command + [str(source), *map(str, objects), "-o", str(probe)])
+              emit({"stage": "release-guard-image", **image(probe, False), "sourceSHA256": GUARD_SHA})
+              fixture = pathlib.Path("tests/reference-xm/generated/basic-instrument-sample.xm")
+              for mode in ["read", "fold", "tail", "assemble"]:
+                  stage = "release-guard-" + mode
+                  child = subprocess.run([str(probe), str(fixture), mode], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                  (root / (stage + ".log")).write_bytes(child.stdout)
+                  assert child.returncode == -signal.SIGTRAP and b"GUARD_WAS_BYPASSED" not in child.stdout
+                  assert b"AddressSanitizer" not in child.stdout
+                  emit({"stage": stage, "expectedSignal": "SIGTRAP", "exitCode": child.returncode, "passed": True})
+              assert all(pathlib.Path(p).read_bytes() == subprocess.check_output(["git", "show", FROZEN + ":" + p]) for p in frozen_paths)
+              assert output(["git", "status", "--porcelain=v1", "-uall"]) == ""
+              emit({"status": "R1_ARM64_TARGETED_PASS", "head": head, "ASanPackagePassed": 4, "ASanAppPassed": 16,
+                    "optimizedReleasePassed": 5, "intentionalReleaseTraps": 4, "failed": 0, "skipped": 0,
+                    "rawReceiptHashParity": "Not asserted across allocator conditions; S7 raw mismatch preserved and separately attributed."})
+
+          try:
+              main()
+          except Exception as error:
+              (root / "failure.txt").write_text(repr(error))
+              emit({"status": "R1_ARM64_TARGETED_HOLD", "stage": stage, "errorType": type(error).__name__})
+              raise SystemExit(1)
+          PY

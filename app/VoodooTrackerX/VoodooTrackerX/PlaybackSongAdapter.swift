@@ -71,6 +71,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
     var coldReleasedEventIndices: Set<Int> = []
     var playbackStateEvents: [PlaybackVoiceStateEvent] = [] {
         didSet {
+            precondition($xmChannelRows.isFullCapture, "Playback-state folding requires full row captures")
             var timeline = xmEnvelopeTimeline
             timeline?.rebuild(plan: self)
             xmEnvelopeTimeline = timeline
@@ -80,7 +81,7 @@ struct PlaybackSongSyntheticPlan: Equatable {
         didSet { xmAudibleTimeline = xmEnvelopeTimeline == nil ? nil : PlaybackXMAudibleTimeline(plan: self) }
     }
     var xmAudibleTimeline: PlaybackXMAudibleTimeline? = nil
-    var xmChannelRows: [PlaybackXMChannelRow] = []
+    @PlaybackXMRowCaptureStorage var xmChannelRows: [PlaybackXMChannelRow] = []
     var xmEmptyRoutes: [PlaybackXMEmptyRoute] = []
     var xmInstrumentSelections: [PlaybackXMInstrumentSelection] = []
     // A cold effective-zero trigger starts PCM, then holds it before its first frame.

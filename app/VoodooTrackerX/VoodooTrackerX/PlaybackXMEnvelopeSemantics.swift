@@ -1,5 +1,50 @@
 import Foundation
 
+/// Full inspection captures or ordinal-stable runtime owners, never an empty stand-in.
+@propertyWrapper
+struct PlaybackXMRowCaptureStorage: Equatable {
+    enum Retention { case full, runtimeFinalized }
+    struct Owner: Equatable {
+        let semanticInstrument: Int?, semanticSample: Int?, carriedInstrument: Int?
+        init(_ row: PlaybackXMChannelRow) {
+            semanticInstrument = row.controls.semanticInstrumentIndex
+            semanticSample = row.controls.semanticSampleIndex
+            carriedInstrument = row.controls.carriedInstrumentIndex
+        }
+    }
+    private enum Storage: Equatable { case full([PlaybackXMChannelRow]), runtimeFinalized([Owner]) }
+    private var storage: Storage
+
+    init(wrappedValue: [PlaybackXMChannelRow]) { storage = .full(wrappedValue) }
+    var projectedValue: Self { get { self } set { self = newValue } }
+    var isFullCapture: Bool { if case .full = storage { return true }; return false }
+    var count: Int {
+        switch storage { case let .full(rows): return rows.count; case let .runtimeFinalized(owners): return owners.count }
+    }
+    var runtimeOwnerCapacity: Int { if case let .runtimeFinalized(owners) = storage { return owners.capacity }; return 0 }
+    var wrappedValue: [PlaybackXMChannelRow] {
+        get {
+            guard case let .full(rows) = storage else { preconditionFailure("Runtime-finalized rows have no full captures") }
+            return rows
+        }
+        set {
+            precondition(isFullCapture, "Cannot mutate runtime-finalized row captures")
+            storage = .full(newValue)
+        }
+    }
+    func owner(at ordinal: Int) -> Owner? {
+        switch storage {
+        case let .full(rows): return rows.indices.contains(ordinal) ? Owner(rows[ordinal]) : nil
+        case let .runtimeFinalized(owners): return owners.indices.contains(ordinal) ? owners[ordinal] : nil
+        }
+    }
+    /// Called off the render callback, only after all event assembly has finished.
+    mutating func finalizeForRuntime() {
+        guard case let .full(rows) = storage else { return }
+        storage = .runtimeFinalized(rows.map(Owner.init))
+    }
+}
+
 /// One immutable, value-captured snapshot shared by row grouping and history views.
 /// Channel controls survive source absence; no cursor or PCM is stored here.
 final class PlaybackXMChannelRow: Equatable, Sendable {
@@ -354,6 +399,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
 
     /// Re-fold explicit reset history while retaining the canonical tick frames.
     mutating func rebuild(plan: PlaybackSongSyntheticPlan) {
+        precondition(plan.$xmChannelRows.isFullCapture, "Envelope rebuild requires full row captures")
         updates = []
         updatesByEvent = [:]
         channelUpdates = []
@@ -687,6 +733,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
     /// Bounded offline tails use the timing plan's existing final-tempo extrapolation.
     /// Tail coordinates retain the last source row; no additional song rows or Fxx commands are invented.
     mutating func extend(throughFrame frame: Int, plan: PlaybackSongSyntheticPlan) {
+        precondition(plan.$xmChannelRows.isFullCapture, "Envelope extension requires full row captures")
         guard frame > endFrame else { return }
         endFrame = frame
         rebuild(plan: plan)
@@ -725,6 +772,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
 
 extension PlaybackSongSyntheticPlan {
     func extendingEnvelopeTail(throughFrame frame: Int) -> PlaybackSongSyntheticPlan {
+        precondition($xmChannelRows.isFullCapture, "Envelope tail extension requires full row captures")
         var plan = self
         var timeline = xmEnvelopeTimeline
         timeline?.extend(throughFrame: frame, plan: self)

@@ -455,7 +455,8 @@ struct RuntimeAdapterPlanPreparationHooks: Sendable {
     var afterMake: @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt) -> Void = { _, _ in }
     var receipt: @Sendable (RuntimeAdapterPlanPreparationReceipt) -> Void = { _ in }
     var makePlan: @Sendable (PlaybackSong, Double, AdapterPlanProfileSession?) -> RuntimeCMixerAdapterEventPlan? = {
-        RuntimeCMixerAdapterEventPlan.make(song: $0, sampleRate: $1, profileSession: $2)
+        RuntimeCMixerAdapterEventPlan.make(song: $0, sampleRate: $1, profileSession: $2,
+            rowCaptureRetention: .runtimeFinalized)
     }
 }
 

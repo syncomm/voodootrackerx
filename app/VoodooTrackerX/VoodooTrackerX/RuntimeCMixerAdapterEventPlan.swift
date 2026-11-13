@@ -433,7 +433,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         song: PlaybackSong?,
         sampleRate: Double,
         profileSession: AdapterPlanProfileSession? = nil,
-        preparedPlan: PlaybackSongSyntheticPlan? = nil
+        preparedPlan: PlaybackSongSyntheticPlan? = nil,
+        rowCaptureRetention: PlaybackXMRowCaptureStorage.Retention = .full
     ) -> RuntimeCMixerAdapterEventPlan {
         let makeStart = profileSession?.beginPhase()
         guard let song else {
@@ -452,7 +453,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             sampleRate: sampleRate,
             profileSession: profileSession
         )
-        return assemble(song: song, adaptedPlan: adaptedPlan, sampleRate: sampleRate,
+        precondition(adaptedPlan.$xmChannelRows.isFullCapture, "Event assembly requires full row captures")
+        return assemble(song: song, adaptedPlan: adaptedPlan, sampleRate: sampleRate, rowCaptureRetention: rowCaptureRetention,
             profileSession: profileSession, makeStart: makeStart)
     }
 
@@ -463,6 +465,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         song: PlaybackSong,
         adaptedPlan: PlaybackSongSyntheticPlan,
         sampleRate: Double,
+        rowCaptureRetention: PlaybackXMRowCaptureStorage.Retention,
         profileSession: AdapterPlanProfileSession?,
         makeStart: UInt64?
     ) -> RuntimeCMixerAdapterEventPlan {
@@ -1141,6 +1144,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         let plannedSongEndFrame = adaptedPlan.diagnostics.rowTiming
             .map { max($0.rowStartFrame, $0.rowStartFrame + max(0, $0.rowDurationFrames)) }
             .max()
+        var retainedPlan = adaptedPlan
+        if rowCaptureRetention == .runtimeFinalized { retainedPlan.$xmChannelRows.finalizeForRuntime() }
         let plan = RuntimeCMixerAdapterEventPlan(
             generated: true,
             sampleRate: sampleRate,
@@ -1148,7 +1153,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             plannedEventCount: assembly.events.count,
             events: assembly.events,
             categories: assembly.categories,
-            plan: adaptedPlan,
+            plan: retainedPlan,
             runtimeOrderingEntries: assembly.runtimeOrderingEntries,
             profileSession: profileSession
         )

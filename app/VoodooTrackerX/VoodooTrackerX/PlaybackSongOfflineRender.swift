@@ -1454,7 +1454,7 @@ final class PlaybackSongOfflineRenderer {
         let events = plan.pattern.events.enumerated().map { eventIndex, event in
             includedEventIndices.contains(eventIndex) ? event : event.withGainPan(gain: 0)
         }
-        return PlaybackSongSyntheticPlan(
+        var result = PlaybackSongSyntheticPlan(
             timingConfig: plan.timingConfig,
             pattern: SyntheticPattern(rowCount: plan.pattern.rowCount, events: events),
             diagnostics: plan.diagnostics,
@@ -1474,9 +1474,11 @@ final class PlaybackSongOfflineRenderer {
             playbackStateEvents: plan.playbackStateEvents,
             xmEnvelopeTimeline: plan.xmEnvelopeTimeline,
             xmAudibleTimeline: plan.xmAudibleTimeline,
-            xmChannelRows: plan.xmChannelRows, xmEmptyRoutes: plan.xmEmptyRoutes, xmInstrumentSelections: plan.xmInstrumentSelections,
+            xmEmptyRoutes: plan.xmEmptyRoutes, xmInstrumentSelections: plan.xmInstrumentSelections,
             initialHeldPitchEventIndices: plan.initialHeldPitchEventIndices
         )
+        result.$xmChannelRows = plan.$xmChannelRows
+        return result
     }
 
     private static func includesEvent(

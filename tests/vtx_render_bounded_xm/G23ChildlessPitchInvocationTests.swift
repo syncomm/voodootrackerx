@@ -288,7 +288,9 @@ final class G23ChildlessPitchInvocationTests: XCTestCase {
         // Automatic requests and introduced-hold provenance add two storage references.
         // G05's physical-ID reservation adds one inline identity-provenance Int.
         // G35 adds one inline timing Int to distinguish held duration from effective speed.
-        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 1112)
+        // The full/runtimeFinalized storage tag and alignment add 8 inline bytes.
+        // Compact owners are opt-in for the production runtime path.
+        XCTAssertEqual(MemoryLayout<PlaybackSongSyntheticPlan>.stride, 1120)
     }
 
     private func observations(_ plan: PlaybackSongSyntheticPlan) throws -> [E.Observation] {

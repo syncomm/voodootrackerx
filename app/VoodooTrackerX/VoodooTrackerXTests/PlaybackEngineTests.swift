@@ -469,9 +469,10 @@ final class PlaybackEngineTests: XCTestCase {
         let probe = ProductionPreparationTestProbe(), gate = PreparationOwnerTestGate()
         var hooks = RuntimeAdapterPlanPreparationHooks()
         hooks.receipt = { probe.record($0) }
+        let productionMake = hooks.makePlan
         hooks.makePlan = { song, rate, profile in
             XCTAssertTrue(gate.enterAndWait())
-            return RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, profileSession: profile)
+            return productionMake(song, rate, profile)
         }
         let scheduler = DispatchQueueRuntimeAdapterPlanPrewarmScheduler(hooks: hooks)
         let output = ProductionPreparationTestAudioOutput()
@@ -488,7 +489,9 @@ final class PlaybackEngineTests: XCTestCase {
         // MainActor cannot run its queued ready notification until this synchronous Play returns.
         engine.play(from: nil)
         XCTAssertEqual(output.generatedConfigureCount, 1)
-        XCTAssertEqual(output.plan, RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100))
+        XCTAssertEqual(output.plan, RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100,
+            rowCaptureRetention: .runtimeFinalized))
+        XCTAssertFalse(try XCTUnwrap(output.plan?.plan).$xmChannelRows.isFullCapture)
         XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 1)
         XCTAssertEqual(probe.maxima.constructors, 1)
         XCTAssertFalse(probe.values.contains { $0.kind == "constructorStarted" && $0.onMain })
@@ -525,7 +528,8 @@ final class PlaybackEngineTests: XCTestCase {
         gate.release()
         engine.play(from: nil)
         wait(for: [waiter], timeout: 10)
-        XCTAssertEqual(output.plan, RuntimeCMixerAdapterEventPlan.make(song: newest, sampleRate: 100))
+        XCTAssertEqual(output.plan, RuntimeCMixerAdapterEventPlan.make(song: newest, sampleRate: 100,
+            rowCaptureRetention: .runtimeFinalized))
         let events = probe.values
         XCTAssertEqual(events.filter { $0.kind == "constructorStarted" }.count, 2)
         XCTAssertEqual(events.filter { $0.kind == "sourceAcquired" }.count, 2)
@@ -596,7 +600,8 @@ final class PlaybackEngineTests: XCTestCase {
             XCTAssertEqual(output.plan?.sampleRate, changeRate ? 200 : 100)
             if !changeRate {
                 XCTAssertEqual(output.plan, RuntimeCMixerAdapterEventPlan.make(
-                    song: makeRuntimeAdapterPlaybackSong(patternIndex: 7, usesLinearFrequencyTable: false), sampleRate: 100))
+                    song: makeRuntimeAdapterPlaybackSong(patternIndex: 7, usesLinearFrequencyTable: false), sampleRate: 100,
+                    rowCaptureRetention: .runtimeFinalized))
             }
         }
     }
@@ -659,6 +664,7 @@ final class PlaybackEngineTests: XCTestCase {
         advanceRows(1, engine: engine, timing: initial.initialTiming)
         XCTAssertEqual(output.generatedConfigureCount, 2)
         XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(output.plan)), [49, 51, 53])
+        XCTAssertFalse(try XCTUnwrap(output.plan?.plan).$xmChannelRows.isFullCapture)
         XCTAssertEqual(engine.song, latest)
         XCTAssertFalse(scheduler.snapshot.hasReadyProduct)
         XCTAssertEqual(probe.maxima.constructors, 1)
@@ -742,6 +748,7 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(engine.state.isPlaying)
         XCTAssertEqual(engine.song, song)
         XCTAssertEqual(output.consumedCount, consumedBeforeStop + 1)
+        XCTAssertFalse(try XCTUnwrap(output.plan?.plan).$xmChannelRows.isFullCapture)
         XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 2)
     }
 
@@ -765,8 +772,10 @@ final class PlaybackEngineTests: XCTestCase {
             engine.load(song: song)
             // B2 intentionally keeps the full default-origin plan even for a selected-order Play.
             engine.play(from: .init(moduleTitle: "public-control", songPosition: 1, patternIndex: 1, row: 0))
-            let direct = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+            let direct = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate,
+                rowCaptureRetention: .runtimeFinalized)
             XCTAssertEqual(output.plan, direct)
+            XCTAssertFalse(try XCTUnwrap(output.plan?.plan).$xmChannelRows.isFullCapture)
             XCTAssertEqual(output.plan?.plan?.diagnostics.rowMappings.first?.source.orderIndex, 0)
             engine.stop()
             engine.load(song: nil)
@@ -851,9 +860,10 @@ final class PlaybackEngineTests: XCTestCase {
         let probe = ProductionPreparationTestProbe()
         let failure = ProductionPreparationTestFailureOnce()
         var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
+        let productionMake = hooks.makePlan
         hooks.makePlan = { song, rate, profile in
             if failure.take() { return nil }
-            return RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, profileSession: profile)
+            return productionMake(song, rate, profile)
         }
         let scheduler = DispatchQueueRuntimeAdapterPlanPrewarmScheduler(hooks: hooks)
         let output = ProductionPreparationTestAudioOutput()
@@ -864,6 +874,7 @@ final class PlaybackEngineTests: XCTestCase {
         engine.play(from: nil)
         XCTAssertTrue(engine.state.isPlaying)
         XCTAssertEqual(output.generatedConfigureCount, 1)
+        XCTAssertFalse(try XCTUnwrap(output.plan?.plan).$xmChannelRows.isFullCapture)
         XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 2)
         XCTAssertEqual(probe.maxima.constructors, 1)
         XCTAssertFalse(probe.values.contains { $0.kind == "constructorStarted" && $0.onMain })
@@ -903,11 +914,12 @@ final class PlaybackEngineTests: XCTestCase {
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             return XCTFail("Build the canonical Debug app before running its prewarm regression")
         }
-        let directory = FileManager.default.temporaryDirectory
+        let evidenceRoot = ProcessInfo.processInfo.environment["VTX_ROW_LIFETIME_EVIDENCE_ROOT"].map { URL(fileURLWithPath: $0) }
+        let directory = (evidenceRoot ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("vtx-prewarm-stack-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var succeeded = false
-        defer { if succeeded { try? FileManager.default.removeItem(at: directory) } }
+        defer { if succeeded && evidenceRoot == nil { try? FileManager.default.removeItem(at: directory) } }
         let cases: [(Bool, Int, Bool, Bool)] = [
             (true, 44_100, true, true), (true, 48_000, true, true),
             (false, 44_100, true, true), (false, 48_000, true, true),
@@ -3602,4 +3614,57 @@ private func makeDurationPlaybackSong(patternIndex: Int, rowCount: Int = 74) -> 
         instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
         initialTiming: PlaybackTiming(speed: 1, bpm: 1)
     )
+}
+
+extension PlaybackEngineTests {
+    func testRuntimeFinalizedRowsPreserveNativePCMAndHeldStateAcrossPartitions() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tests/reference-xm/generated")
+        for name in ["fxx-timing", "instrument-autovibrato-composition-linear"] {
+            let path = directory.appendingPathComponent(name + ".xm").path
+            let original = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: path), modulePath: path)
+            for linear in [true, false] { for rate in [44_100.0, 48_000] {
+                let song = PlaybackSong(title: original.title, orders: original.orders,
+                    patternsByIndex: original.patternsByIndex, instrumentsByIndex: original.instrumentsByIndex,
+                    restartOrderIndex: original.restartOrderIndex, endBehavior: original.endBehavior,
+                    initialTiming: original.initialTiming, usesLinearFrequencyTable: linear,
+                    xmSampleSlotProvenanceByInstrument: original.xmSampleSlotProvenanceByInstrument)
+                let source = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 0,
+                    orderCount: song.orders.count, sampleRate: rate)
+                let full = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, preparedPlan: source)
+                let finalized = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate,
+                    preparedPlan: source, rowCaptureRetention: .runtimeFinalized)
+                let config = MixerRenderConfig(sampleRate: rate, channelCount: 1)
+                let cores = [full, finalized].map { plan in
+                    let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 512,
+                        outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                    _ = core.configureAdapterEventSchedule(plan.eventStorage, runtimeFrameOffset: 0)
+                    return core
+                }
+                var frame = 0, partition = 0
+                let end = min(72_000, full.plannedSongEndFrame ?? 72_000)
+                while frame < end {
+                    let count = min([1, 64, 127, 256, 511][partition % 5], end - frame)
+                    let pcm = cores.map { core in
+                        var samples = [Float](repeating: 0, count: count)
+                        XCTAssertTrue(samples.withUnsafeMutableBufferPointer { core.render(into: $0, frameCount: count) })
+                        return samples
+                    }
+                    XCTAssertEqual(pcm[0], pcm[1])
+                    let applied = cores.map { $0.drainAppliedAdapterEventDiagnostics() }
+                    XCTAssertEqual(applied[0].map(\.event), applied[1].map(\.event))
+                    XCTAssertEqual(applied[0].map(\.appliedFrame), applied[1].map(\.appliedFrame))
+                    for event in source.pattern.events.indices {
+                        XCTAssertEqual(cores[0].adapterVoiceDiagnosticForTesting(eventIndex: event),
+                            cores[1].adapterVoiceDiagnosticForTesting(eventIndex: event))
+                    }
+                    for channel in 0..<2 {
+                        XCTAssertEqual(cores[0].channelSemanticStateForTesting(channel), cores[1].channelSemanticStateForTesting(channel))
+                    }
+                    frame += count; partition += 1
+                }
+            } }
+        }
+    }
 }

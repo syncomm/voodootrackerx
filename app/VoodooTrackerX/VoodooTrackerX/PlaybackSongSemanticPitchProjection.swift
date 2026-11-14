@@ -397,7 +397,14 @@ extension PlaybackSongSyntheticPlan {
         }
         let reset = low == 0 ? nil : resets[low - 1]
         let rowReset = reset?.rowReset ?? -1, delayedReset = reset?.delayedReset ?? -1
-        let owner = PlaybackSongSemanticPitchProjection.owner(record.selection, facts: selectionDispatchFacts.facts, rows: xmChannelRows, routes: xmEmptyRoutes)
+        let owner: (Int?, Int?, Int?)
+        if record.selection < -1 && record.selection % 2 != 0 {
+            let rowOwner = $xmChannelRows.owner(at: (-2 - record.selection) / 2)
+            owner = (rowOwner?.semanticInstrument, rowOwner?.semanticSample, rowOwner?.carriedInstrument)
+        } else {
+            owner = PlaybackSongSemanticPitchProjection.owner(record.selection,
+                facts: selectionDispatchFacts.facts, rows: [], routes: xmEmptyRoutes)
+        }
         let ownerOrdinal = record.selection < -1 ? (-2 - record.selection) / 2 : nil
         return .init(base: projection.pitch(record.base, plan: self), output: projection.pitch(record.output, plan: self),
             incoming: projection.pitch(record.incoming, plan: self), baseProducer: record.base.producer,

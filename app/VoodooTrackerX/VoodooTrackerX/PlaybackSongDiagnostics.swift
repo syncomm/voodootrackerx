@@ -288,7 +288,7 @@ extension PlaybackSongSyntheticDiagnostics {
 
 extension PlaybackSongSyntheticPlan {
     func replacingEventCoverage(_ eventCoverage: PlaybackSongSyntheticEventCoverageSummary) -> PlaybackSongSyntheticPlan {
-        PlaybackSongSyntheticPlan(
+        var result = PlaybackSongSyntheticPlan(
             timingConfig: timingConfig,
             pattern: pattern,
             diagnostics: diagnostics.replacingEventCoverage(eventCoverage),
@@ -308,9 +308,11 @@ extension PlaybackSongSyntheticPlan {
             playbackStateEvents: playbackStateEvents,
             xmEnvelopeTimeline: xmEnvelopeTimeline,
             xmAudibleTimeline: xmAudibleTimeline,
-            xmChannelRows: xmChannelRows, xmEmptyRoutes: xmEmptyRoutes, xmInstrumentSelections: xmInstrumentSelections,
+            xmEmptyRoutes: xmEmptyRoutes, xmInstrumentSelections: xmInstrumentSelections,
             initialHeldPitchEventIndices: initialHeldPitchEventIndices
         )
+        result.$xmChannelRows = $xmChannelRows
+        return result
     }
 }
 

@@ -118,11 +118,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 3
+          fetch-depth: 4
       - name: Verify frozen R1 source and focused native gates
         run: |
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, platform, re, signal, subprocess, tempfile
+          import hashlib, json, os, pathlib, platform, re, signal, subprocess, tempfile, ctypes, struct, time, stat
 
           FROZEN = "29de37af864ea92e5721323f570764065dc1d181"
           LIFETIME = [
@@ -246,6 +246,168 @@ jobs:
                       "asanErrorMarkers": errors, "appPIDMetadataItems": app_pid_metadata,
                       "executedAppPIDCorrelated": bool(init_pids & test_pids) if app_pid_metadata else None}
 
+
+          def kernel_identity(pid):
+              lib = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True)
+              lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+              buffer = ctypes.create_string_buffer(4096)
+              count = lib.proc_pidpath(int(pid), buffer, len(buffer))
+              if count <= 0:
+                  return None
+              executable = os.fsdecode(buffer.value)
+              class BSDInfo(ctypes.Structure):
+                  _fields_ = [(name, ctypes.c_uint32) for name in ['flags', 'status', 'xstatus', 'pid', 'ppid', 'uid', 'gid', 'ruid', 'rgid', 'svuid', 'svgid', 'reserved']] + [
+                      ('comm', ctypes.c_char * 16), ('name', ctypes.c_char * 32)] + [
+                      (name, ctypes.c_uint32) for name in ['nfiles', 'pgid', 'pjobc', 'tdev', 'tpgid', 'nice']] + [
+                      ('start_sec', ctypes.c_uint64), ('start_usec', ctypes.c_uint64)]
+              info = BSDInfo()
+              lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+              if lib.proc_pidinfo(int(pid), 3, 0, ctypes.byref(info), ctypes.sizeof(info)) != ctypes.sizeof(info):
+                  return None
+              base = {'pid': pid, 'executable': executable, 'uid': info.uid, 'start': [info.start_sec, info.start_usec]}
+              libc = ctypes.CDLL(None, use_errno=True)
+              libc.sysctl.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_uint, ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t]
+              mib = (ctypes.c_int * 3)(1, 49, int(pid))  # CTL_KERN, KERN_PROCARGS2
+              size = ctypes.c_size_t()
+              if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0 or not 0 < size.value < 1024 * 1024:
+                  return {**base, 'options': None}
+              data = ctypes.create_string_buffer(size.value)
+              if libc.sysctl(mib, 3, data, ctypes.byref(size), None, 0) != 0:
+                  return {**base, 'options': None}
+              raw = data.raw[:size.value]
+              argc = struct.unpack_from('i', raw)[0]
+              if not 0 < argc < 4096:
+                  return {**base, 'options': None}
+              try:
+                  offset = raw.index(b'\0', 4) + 1
+                  while offset < len(raw) and raw[offset] == 0:
+                      offset += 1
+                  for _ in range(argc):
+                      offset = raw.index(b'\0', offset) + 1
+              except ValueError:
+                  return {**base, 'options': None}
+              # Inspect only the proof option; do not retain or publish any other environment value.
+              options = next((os.fsdecode(x[len(b'ASAN_OPTIONS='):]) for x in raw[offset:].split(b'\0') if x.startswith(b'ASAN_OPTIONS=')), None)
+              return {**base, 'options': options}
+
+          def mapped_text_files(pid):
+              try:
+                  child = subprocess.run(['/usr/sbin/lsof', '-a', '-p', str(pid), '-d', 'txt', '-Fn'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2)
+              except subprocess.TimeoutExpired:
+                  return []
+              return [os.fsdecode(line[1:]) for line in child.stdout.splitlines() if line.startswith(b'n')]
+
+          # Runtime files are evidence only after independent XCTest-case and live-kernel attribution.
+          APP_RUNTIME = {}
+
+          def runner_pids():
+              child = subprocess.run(['pgrep', '-x', 'xctest'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+              return {int(x) for x in child.stdout.split() if x.isdigit()}
+
+          def observe_app_command(args, env, handle):
+              context = APP_RUNTIME
+              context['started'] = time.time()
+              context['observations'] = {}
+              context['baselinePIDs'] = sorted(runner_pids())
+              process = subprocess.Popen(args, env=env, stdout=handle, stderr=subprocess.STDOUT)
+              while process.poll() is None:
+                  if context['bundleImage'].is_file():
+                      for pid in runner_pids() - set(context['baselinePIDs']):
+                          if len(context['observations']) >= 16 and pid not in context['observations']:
+                              context['overflow'] = True
+                              continue
+                          identity = kernel_identity(pid)
+                          if not identity:
+                              continue
+                          executable = str(pathlib.Path(identity['executable']).resolve())
+                          if executable not in context['runners']:
+                              continue
+                          prior = context['observations'].get(pid)
+                          if prior and prior['start'] != identity['start']:
+                              context['reusedPID'] = True
+                          if prior and prior.get('bundleMatched'):
+                              continue
+                          mapped = mapped_text_files(pid)
+                          candidates = [pathlib.Path(p) for p in mapped if p.endswith('/Contents/MacOS/' + context['bundleImage'].name)]
+                          bundle_sha = sha(context['bundleImage'])
+                          matched = any(path.is_file() and sha(path) == bundle_sha for path in candidates)
+                          options = dict(part.split('=', 1) for part in (identity['options'] or '').split(':') if '=' in part)
+                          identity.update({'executable': executable, 'bundleMatched': matched, 'bundleSHA256': bundle_sha if matched else None,
+                                           'optionsMatched': all(options.get(key) == value for key, value in context['flags'].items()),
+                                           'observed': time.time()})
+                          context['observations'][pid] = identity
+                  time.sleep(.03)
+              context['ended'] = time.time()
+              private = {key: value for key, value in context.items() if key != 'bundleImage'}
+              (root / 'app-process-observations.json').write_text(json.dumps(private, indent=2))
+              return process.wait()
+
+          def runtime_verdict(expected_methods, mapping, observations, logs, context):
+              def fail(reason):
+                  return {'proven': False, 'reason': reason}
+              if len(mapping) != len(expected_methods) or sorted(name for name, pid in mapping) != sorted(expected_methods):
+                  return fail('incomplete-or-duplicate-test-process-map')
+              pids = {pid for name, pid in mapping}
+              if not 0 < len(pids) <= 16 or context.get('overflow') or context.get('reusedPID'):
+                  return fail('process-bound-or-reused-pid')
+              if not logs:
+                  return fail('missing-runtime-log')
+              if len(logs) > 32 or any(not item['safeFile'] for item in logs):
+                  return fail('runtime-log-file-identity-or-bounds')
+              if any(item['sanitizerErrors'] for item in logs):
+                  return fail('sanitizer-finding-in-runtime-stream')
+              for pid in pids:
+                  observation = observations.get(pid)
+                  if not observation:
+                      return fail('missing-live-process-identity')
+                  if observation['executable'] not in context['runners'] or observation['uid'] != os.getuid():
+                      return fail('unrelated-executable-or-owner')
+                  started = observation['start'][0] + observation['start'][1] / 1000000
+                  if pid in context['baselinePIDs'] or started < context['started'] or observation['observed'] > context['ended']:
+                      return fail('process-run-identity-mismatch')
+                  if not observation['bundleMatched'] or observation['bundleSHA256'] != context['bundleSHA256']:
+                      return fail('unrelated-test-bundle')
+                  if not observation['optionsMatched']:
+                      return fail('runtime-options-not-attested-in-process')
+                  own = [item for item in logs if item['pid'] == pid]
+                  if len(own) != 1:
+                      return fail('missing-or-ambiguous-log-for-executed-pid')
+                  if own[0]['initPIDs'] != [pid]:
+                      return fail('runtime-initialization-missing-or-wrong-pid')
+              return {'proven': True, 'reason': 'all-executed-case-pids-correlated', 'caseCount': len(mapping), 'processCount': len(pids),
+                      'relevantLogCount': len(pids), 'otherLogsScanned': len(logs) - len(pids),
+                      'mappingSHA256': hashlib.sha256(json.dumps(sorted(mapping)).encode()).hexdigest(),
+                      'runtimeLogSHA256': sorted(item['SHA256'] for item in logs if item['pid'] in pids),
+                      'kernelExecutableBundleAndOptions': True, 'sanitizerErrors': 0}
+
+          def app_runtime_proof(text, product):
+              context = APP_RUNTIME
+              context['bundleSHA256'] = sha(product)
+              mapping = [(name, int(pid)) for name, pid in re.findall(r"'PlaybackEngineTests\.(test\w+)\(\)' passed on '[^'\n]*\((\d+)\)'", text) if name in APP]
+              logs = []
+              for path in pathlib.Path(context['directory']).iterdir():
+                  match = re.fullmatch(r'asan\.(\d+)', path.name)
+                  safe, content, digest = False, '', None
+                  try:
+                      metadata = path.lstat()
+                      safe = bool(match and stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1 and metadata.st_uid == os.getuid()
+                                  and not metadata.st_mode & 0o022 and 0 < metadata.st_size <= 8 * 1024 * 1024
+                                  and context['started'] <= metadata.st_mtime <= context['ended'] + 1)
+                      if safe:
+                          content = path.read_text()
+                          digest = sha(path)
+                  except (OSError, UnicodeError):
+                      safe = False
+                  logs.append({'pid': int(match[1]) if match else None, 'safeFile': safe,
+                               'initPIDs': sorted({int(pid) for pid in re.findall(r'==(\d+)==AddressSanitizer Init done', content)}),
+                               'sanitizerErrors': content.count('ERROR: AddressSanitizer') + content.count('SUMMARY: AddressSanitizer'),
+                               'SHA256': digest})
+              verdict = runtime_verdict(APP, mapping, context['observations'], logs, context)
+              (root / 'app-runtime-private-verification.json').write_text(json.dumps({'mapping': mapping, 'logs': logs, 'verdict': verdict}, indent=2))
+              require('app.asan-runtime-in-executed-test-process', verdict['proven'],
+                      missing=verdict['reason'].startswith('missing-') or verdict['reason'].startswith('incomplete-'), evidence=verdict)
+              return verdict
+
           def qualify_app(text, product, result):
               global stage
               stage = "app-postconditions"
@@ -276,7 +438,13 @@ jobs:
                           summary = data
                       else:
                           tests = data
-                  console = read_probe("app.console-readable", ["xcrun", "xcresulttool", "get", "log", "--type", "console", "--path", str(result)], True)
+                  availability = read_probe("app.content-availability", ["xcrun", "xcresulttool", "get", "content-availability", "--path", str(result)], True)
+                  has_console = isinstance(availability, dict) and "console" in availability.get("logs", [])
+                  observe("app.console-content-available", has_console, missing=not has_console)
+                  if has_console:
+                      console = read_probe("app.console-readable", ["xcrun", "xcresulttool", "get", "log", "--type", "console", "--path", str(result)], True)
+                  else:
+                      observe("app.console-readable", None, reason="console-not-advertised-by-result", diagnosticOnly=True)
               counts = {key: summary.get(key) for key in ["totalTestCount", "passedTests", "failedTests", "skippedTests", "expectedFailures"]} if isinstance(summary, dict) else None
               expected = {"totalTestCount": len(APP), "passedTests": len(APP), "failedTests": 0, "skippedTests": 0, "expectedFailures": 0}
               counts_exact = None if counts is None else counts == expected
@@ -307,17 +475,17 @@ jobs:
                       location="xcresult-console", evidence=child, diagnosticOnly=True)
               if child is not None:
                   require("app.console-sanitizer-scan", child["asanErrorMarkers"] == 0, markerCount=child["asanErrorMarkers"])
-              # Retain the original required initialization predicate. Console observations never replace it.
-              require("app.init-in-xcode-log", initialized, missing=not initialized, location="captured-xcode-log")
+              # The wrapper marker remains an honest observation; S7C requires stronger executed-process proof.
               require("app.image-present", present, missing=not present)
               for identifier, condition in [("app.image-native-arm64", native_image), ("app.image-asan-linked", linked), ("app.image-asan-symbols", symbols),
                                             ("app.xcresult-present", bundle_present), ("app.xcresult-summary-readable", isinstance(summary, dict)),
                                             ("app.xcresult-tests-readable", isinstance(tests, dict)), ("app.exact-summary-counts", counts_exact),
                                             ("app.exact-unique-selectors", cases_exact), ("app.native-result-devices", native_devices)]:
                   require(identifier, condition)
+              proof = app_runtime_proof(text, product)
               stage = "app.image-final-record"
               emit({"stage": "production-asan-image", "SHA256": sha(product), "architecture": "arm64", "asanLinked": True})
-              emit({"stage": "production-asan-results", **expected, "architecture": "arm64", "asanInit": True, "cases": cases})
+              emit({"stage": "production-asan-results", **expected, "architecture": "arm64", "asanInit": True, "runtimeProof": "case-pids+live-kernel+per-process-log", "wrapperInitObserved": initialized, "cases": cases})
 
           def sha(path):
               return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
@@ -332,7 +500,7 @@ jobs:
               env.update(overrides or {})
               log = root / (name + ".log")
               with log.open("x") as handle:
-                  code = subprocess.call(args, env=env, stdout=handle, stderr=subprocess.STDOUT)
+                  code = observe_app_command(args, env, handle) if name == "production-asan-tests" else subprocess.call(args, env=env, stdout=handle, stderr=subprocess.STDOUT)
               text = log.read_text(errors="replace")
               emit({"stage": name, "exitCode": code, "logSHA256": sha(log)})
               require(name + ".exit", code == 0, exitCode=code)
@@ -369,8 +537,9 @@ jobs:
               event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
               head = output(["git", "rev-parse", "HEAD"])
               assert head == event["pull_request"]["head"]["sha"]
-              require("provenance.parent", output(["git", "rev-parse", "HEAD^"]) == "c955b7f8d3e165e85c8a839a28afba0a51338a78")
-              require("provenance.grandparent", output(["git", "rev-parse", "HEAD^^"]) == FROZEN)
+              require("provenance.parent", output(["git", "rev-parse", "HEAD^"]) == "b53da9ab5a5c1f6b3242b4a04fa5f443b98b1ac0")
+              require("provenance.grandparent", output(["git", "rev-parse", "HEAD^^"]) == "c955b7f8d3e165e85c8a839a28afba0a51338a78")
+              require("provenance.great-grandparent", output(["git", "rev-parse", "HEAD^^^"]) == FROZEN)
               require("provenance.immediate-workflow-only", output(["git", "diff", "--name-only", "HEAD^", "HEAD"]) == ".github/workflows/basic-checks.yml")
               require("provenance.cumulative-workflow-only", output(["git", "diff", "--name-only", FROZEN, "HEAD"]) == ".github/workflows/basic-checks.yml")
               frozen_paths = [
@@ -407,17 +576,28 @@ jobs:
                          "CODE_SIGNING_ALLOWED=NO", "-enableThreadSanitizer", "NO", "-enableAddressSanitizer", "YES"]
               command += ["-only-testing:VoodooTrackerXTests/PlaybackEngineTests/" + name for name in APP]
               command += ["-resultBundlePath", str(result), "test"]
-              xenv = {**options, "TEST_RUNNER_ASAN_OPTIONS": options["ASAN_OPTIONS"],
+              runtime_dir = pathlib.Path(tempfile.mkdtemp(prefix="executed-app-asan-", dir=str(root)))
+              prefix = str(runtime_dir / "asan")
+              flags = {"halt_on_error": "1", "abort_on_error": "1", "verbosity": "1", "log_path": prefix, "log_exe_name": "0"}
+              app_options = ":".join(key + "=" + value for key, value in flags.items())
+              developer = pathlib.Path(output(["xcode-select", "-p"]))
+              runners = {str(pathlib.Path(output(["xcrun", "--find", "xctest"])).resolve()),
+                         str((developer / "Platforms/MacOSX.platform/Developer/Library/Xcode/Agents/xctest").resolve())}
+              APP_RUNTIME.update({"directory": str(runtime_dir), "prefix": prefix, "flags": flags, "runners": sorted(runners),
+                                  "bundleImage": pathlib.Path("build/Build/Products/Debug/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests").resolve()})
+              xenv = {"ASAN_OPTIONS": app_options, "TEST_RUNNER_ASAN_OPTIONS": app_options,
                       "VTX_ROW_LIFETIME_EVIDENCE_ROOT": str(root), "TEST_RUNNER_VTX_ROW_LIFETIME_EVIDENCE_ROOT": str(root)}
               for identifier in ["production-asan-tests.exit", "production-asan-tests.sanitizer-scan", "app.init-in-xcode-log", "app.image-present",
                                  "app.image-architecture-readable", "app.image-linkage-readable", "app.image-symbols-readable",
                                  "app.image-native-arm64", "app.image-asan-linked", "app.image-asan-symbols", "app.xcresult-present",
                                  "app.xcresult-summary-readable", "app.xcresult-tests-readable", "app.exact-summary-counts", "app.exact-unique-selectors",
-                                 "app.native-result-devices", "app.console-readable", "app.console-init-observed", "app.console-sanitizer-scan"]:
+                                 "app.native-result-devices", "app.console-readable", "app.console-init-observed", "app.console-sanitizer-scan",
+                                 "app.asan-runtime-in-executed-test-process"]:
                   observe(identifier)
               text = run("production-asan-tests", command, xenv)
               product = pathlib.Path("build/Build/Products/Debug/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests")
               qualify_app(text, product, result)
+              require("release.no-inherited-asan-options", "ASAN_OPTIONS" not in os.environ and "TEST_RUNNER_ASAN_OPTIONS" not in os.environ)
               build = run("package-release-build", ["swift", "build", "--build-tests", "-c", "release", "--disable-code-coverage", "-v"])
               compiler = next(line for line in build.splitlines() if "swiftc -module-name VoodooTrackerXPlaybackSupport" in line)
               assert " -O " in compiler and "-DDEBUG" not in compiler and "-sanitize" not in compiler
@@ -446,6 +626,8 @@ jobs:
                   stage = "release-guard-" + mode
                   child = subprocess.run([str(probe), str(fixture), mode], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                   (root / (stage + ".log")).write_bytes(child.stdout)
+                  emit({"stage": stage, "observedExitCode": child.returncode, "expectedSignal": "SIGTRAP",
+                        "guardBypassed": b"GUARD_WAS_BYPASSED" in child.stdout, "sanitizerText": b"AddressSanitizer" in child.stdout})
                   assert child.returncode == -signal.SIGTRAP and b"GUARD_WAS_BYPASSED" not in child.stdout
                   assert b"AddressSanitizer" not in child.stdout
                   emit({"stage": stage, "expectedSignal": "SIGTRAP", "exitCode": child.returncode, "passed": True})

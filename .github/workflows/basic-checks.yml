@@ -118,7 +118,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 4
+          fetch-depth: 5
       - name: Verify frozen R1 source and focused native gates
         run: |
           python3 - <<'PY'
@@ -493,16 +493,100 @@ jobs:
           def output(args):
               return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT).strip()
 
+          # Emit reconstructed reasons and allowlisted locations, never a raw compiler line.
+          DIAG_TOOLCHAIN = {}
+          DIAG_REASONS = [
+              (r"cannot find .* in scope", "cannot find declaration in scope"),
+              (r"(?:value of type|type) .* has no member", "type has no member"),
+              (r"no such module", "no such module"),
+              (r"not compiled for testing", "module was not compiled for testing"),
+              (r"inaccessible due to .* protection level", "declaration is inaccessible due to protection level"),
+              (r"cannot convert (?:value|return expression)", "cannot convert value or return expression to required type"),
+              (r"(?:extra|missing) argument", "extra or missing argument in call"),
+              (r"ambiguous use", "ambiguous use of declaration"),
+              (r"(?:is unavailable|has been explicitly marked unavailable)", "declaration is unavailable in this context"),
+              (r"cannot infer|unable to type-check", "compiler cannot infer type or type-check expression"),
+              (r"(?:does not conform|conformance .* protocol)", "type does not conform to required protocol"),
+              (r"undefined symbols|symbols? .* not found", "undefined linker symbols"),
+              (r"library not found|framework not found|cannot find -l", "linker library or framework not found"),
+              (r"duplicate symbol", "duplicate linker symbol"),
+              (r"linker command failed", "linker command failed"),
+              (r"no space left on device", "resource exhaustion: no space left on device"),
+              (r"cannot allocate memory|out of memory", "resource exhaustion: cannot allocate memory"),
+              (r"(?:compile command failed due to signal|killed by signal)", "compiler command terminated by signal"),
+              (r"internal compiler error|LLVM ERROR|please submit a bug report|stack dump", "compiler internal error or crash"),
+              (r"XCTAssert\w* failed|failed .*XCTAssert", "XCTest assertion failed"),
+              (r"(?:cannot open|unable to open|no such file|file not found)", "required file cannot be opened or found"),
+          ]
+
+          def sanitized_release_lines(raw, public_paths, checkout):
+              text = raw.decode('utf-8')  # Invalid bytes fail closed; do not print replacement-decoded output.
+              targets = ['VoodooTrackerXCore', 'ModuleCore', 'MixerCore', 'mc_dump', 'vtx_render_bounded_xm',
+                         'VoodooTrackerXPlaybackSupport', 'ModuleCoreTests', 'VTXRenderBoundedXMTests']
+              lines, used = [], 0
+              for original in text.splitlines():
+                  if len(original) > 8192:
+                      continue
+                  original = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', original)
+                  location = re.match(r'^(.*?):(\d{1,7})(?::(\d{1,7}))?:\s*(.*)$', original)
+                  body = location[4] if location else original.lstrip()
+                  if not re.match(r'(?:fatal error|error|ld|clang(?:: error)?|LLVM ERROR):|Undefined symbols for architecture|Stack dump:', body, re.I):
+                      continue
+                  reason = next((safe for pattern, safe in DIAG_REASONS if re.search(pattern, body, re.I)), None)
+                  if reason is None:
+                      continue
+                  killed = re.search(r'(?:due to|killed by) signal (\d{1,2})\b', body, re.I)
+                  if killed and 0 < int(killed[1]) < 32:
+                      reason += ' (signal ' + str(int(killed[1])) + ')'
+                  prefix = ''
+                  if location:
+                      path = location[1].removeprefix(checkout.rstrip('/') + '/')
+                      if path in public_paths and re.fullmatch(r'[A-Za-z0-9_./-]+', path) and not path.startswith('/'):
+                          prefix = path + ':' + location[2] + (':' + location[3] if location[3] else '') + ': '
+                  named = [name for name in targets if re.search(r'\b' + re.escape(name) + r'\b', body)]
+                  line = (prefix + 'error: ' + reason + ('; public target: ' + ','.join(named) if named else ''))[:280]
+                  if line in lines:
+                      continue
+                  if len(lines) == 20 or used + len(line.encode()) > 5600:
+                      break
+                  lines.append(line); used += len(line.encode())
+              return lines
+
+          def release_failure(name, code, log, elapsed):
+              receipt = {'stage': name, 'kind': 'bounded-release-failure', 'exitCode': code,
+                         'signal': -code if code < 0 else None, 'elapsedSeconds': round(elapsed, 3),
+                         'toolchain': DIAG_TOOLCHAIN.copy()}
+              try:
+                  raw = log.read_bytes()
+                  receipt.update({'outputSHA256': hashlib.sha256(raw).hexdigest(), 'outputBytes': len(raw)})
+                  paths = set(output(['git', 'ls-files', '-z']).split('\0'))
+                  lines = sanitized_release_lines(raw, paths, str(pathlib.Path.cwd().resolve()))
+                  receipt['diagnosticLines'] = lines
+                  if not lines:
+                      receipt['diagnosticUnavailable'] = 'no-recognized-safe-diagnostic'
+              except Exception:
+                  receipt['diagnosticUnavailable'] = 'formatter-or-capture-unavailable'
+              emit(receipt)
+
           def run(name, args, overrides=None):
               global stage
               stage = name
               env = os.environ.copy()
               env.update(overrides or {})
               log = root / (name + ".log")
+              started = time.monotonic()
               with log.open("x") as handle:
                   code = observe_app_command(args, env, handle) if name == "production-asan-tests" else subprocess.call(args, env=env, stdout=handle, stderr=subprocess.STDOUT)
               text = log.read_text(errors="replace")
               emit({"stage": name, "exitCode": code, "logSHA256": sha(log)})
+              if code != 0 and name in ["package-release-build", "package-release-tests", "release-guard-build"]:
+                  try:
+                      release_failure(name, code, log, time.monotonic() - started)
+                  except Exception:
+                      try:
+                          emit({"stage": name, "kind": "bounded-release-failure", "exitCode": code, "diagnosticUnavailable": "reporter-unavailable"})
+                      except Exception:
+                          pass
               require(name + ".exit", code == 0, exitCode=code)
               require(name + ".sanitizer-scan", "ERROR: AddressSanitizer" not in text and "SUMMARY: AddressSanitizer" not in text,
                       errorMarkers=text.count("ERROR: AddressSanitizer"), summaryMarkers=text.count("SUMMARY: AddressSanitizer"))
@@ -537,9 +621,10 @@ jobs:
               event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
               head = output(["git", "rev-parse", "HEAD"])
               assert head == event["pull_request"]["head"]["sha"]
-              require("provenance.parent", output(["git", "rev-parse", "HEAD^"]) == "b53da9ab5a5c1f6b3242b4a04fa5f443b98b1ac0")
-              require("provenance.grandparent", output(["git", "rev-parse", "HEAD^^"]) == "c955b7f8d3e165e85c8a839a28afba0a51338a78")
-              require("provenance.great-grandparent", output(["git", "rev-parse", "HEAD^^^"]) == FROZEN)
+              require("provenance.parent", output(["git", "rev-parse", "HEAD^"]) == "779f3811da72bf286485bbdb327d1bc217e4de44")
+              require("provenance.grandparent", output(["git", "rev-parse", "HEAD^^"]) == "b53da9ab5a5c1f6b3242b4a04fa5f443b98b1ac0")
+              require("provenance.great-grandparent", output(["git", "rev-parse", "HEAD^^^"]) == "c955b7f8d3e165e85c8a839a28afba0a51338a78")
+              require("provenance.great-great-grandparent", output(["git", "rev-parse", "HEAD^^^^"]) == FROZEN)
               require("provenance.immediate-workflow-only", output(["git", "diff", "--name-only", "HEAD^", "HEAD"]) == ".github/workflows/basic-checks.yml")
               require("provenance.cumulative-workflow-only", output(["git", "diff", "--name-only", FROZEN, "HEAD"]) == ".github/workflows/basic-checks.yml")
               frozen_paths = [
@@ -556,9 +641,11 @@ jobs:
               ]
               assert all(pathlib.Path(p).read_bytes() == subprocess.check_output(["git", "show", FROZEN + ":" + p]) for p in frozen_paths)
               assert all(("func " + name + "(") in pathlib.Path(frozen_paths[7]).read_text() for name in APP)
-              emit({"stage": stage, "head": head, "frozenSource": FROZEN, "sourceFilesUnchanged": 10,
+              provenance = {"stage": stage, "head": head, "frozenSource": FROZEN, "sourceFilesUnchanged": 10,
                     "architecture": "arm64", "macOS": output(["sw_vers", "-productVersion"]),
-                    "Xcode": output(["xcodebuild", "-version"]), "Swift": output(["swift", "--version"])})
+                    "Xcode": output(["xcodebuild", "-version"]), "Swift": output(["swift", "--version"])}
+              DIAG_TOOLCHAIN.update({key: provenance[key] for key in ["architecture", "macOS", "Xcode", "Swift"]})
+              emit(provenance)
               help_text = output(["swift", "test", "--help"])
               assert all(flag in help_text for flag in ["--sanitize", "--skip-build", "--filter"])
               assert "-enableAddressSanitizer" in output(["xcodebuild", "-help"])

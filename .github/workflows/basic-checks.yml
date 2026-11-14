@@ -118,7 +118,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 5
+          fetch-depth: 6
       - name: Verify frozen R1 source and focused native gates
         run: |
           python3 - <<'PY'
@@ -621,10 +621,11 @@ jobs:
               event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
               head = output(["git", "rev-parse", "HEAD"])
               assert head == event["pull_request"]["head"]["sha"]
-              require("provenance.parent", output(["git", "rev-parse", "HEAD^"]) == "779f3811da72bf286485bbdb327d1bc217e4de44")
-              require("provenance.grandparent", output(["git", "rev-parse", "HEAD^^"]) == "b53da9ab5a5c1f6b3242b4a04fa5f443b98b1ac0")
-              require("provenance.great-grandparent", output(["git", "rev-parse", "HEAD^^^"]) == "c955b7f8d3e165e85c8a839a28afba0a51338a78")
-              require("provenance.great-great-grandparent", output(["git", "rev-parse", "HEAD^^^^"]) == FROZEN)
+              require("provenance.parent", output(["git", "rev-parse", "HEAD^"]) == "189d7c5b330515391f3b7b35798f6a96951e745b")
+              require("provenance.grandparent", output(["git", "rev-parse", "HEAD^^"]) == "779f3811da72bf286485bbdb327d1bc217e4de44")
+              require("provenance.great-grandparent", output(["git", "rev-parse", "HEAD^^^"]) == "b53da9ab5a5c1f6b3242b4a04fa5f443b98b1ac0")
+              require("provenance.great-great-grandparent", output(["git", "rev-parse", "HEAD^^^^"]) == "c955b7f8d3e165e85c8a839a28afba0a51338a78")
+              require("provenance.frozen-fifth-ancestor", output(["git", "rev-parse", "HEAD^^^^^"]) == FROZEN)
               require("provenance.immediate-workflow-only", output(["git", "diff", "--name-only", "HEAD^", "HEAD"]) == ".github/workflows/basic-checks.yml")
               require("provenance.cumulative-workflow-only", output(["git", "diff", "--name-only", FROZEN, "HEAD"]) == ".github/workflows/basic-checks.yml")
               frozen_paths = [
@@ -685,9 +686,9 @@ jobs:
               product = pathlib.Path("build/Build/Products/Debug/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests")
               qualify_app(text, product, result)
               require("release.no-inherited-asan-options", "ASAN_OPTIONS" not in os.environ and "TEST_RUNNER_ASAN_OPTIONS" not in os.environ)
-              build = run("package-release-build", ["swift", "build", "--build-tests", "-c", "release", "--disable-code-coverage", "-v"])
+              build = run("package-release-build", ["swift", "build", "--build-tests", "-c", "release", "--disable-code-coverage", "-v", "-Xswiftc", "-enable-testing"])
               compiler = next(line for line in build.splitlines() if "swiftc -module-name VoodooTrackerXPlaybackSupport" in line)
-              assert " -O " in compiler and "-DDEBUG" not in compiler and "-sanitize" not in compiler
+              assert " -O " in compiler and "-DDEBUG" not in compiler and "-sanitize" not in compiler and not re.search(r"-D\s*DEBUG\b", compiler) and "-enable-testing" in compiler
               emit({"stage": "release-compiler", "optimization": "-O", "DEBUG": False, "asan": False, "testability": "-enable-testing" in compiler})
               executable = package_image("release", False)
               before = sha(executable)

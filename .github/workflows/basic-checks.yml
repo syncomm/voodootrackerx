@@ -118,7 +118,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
       - name: Verify frozen R1 source and focused native gates
         run: |
           python3 - <<'PY'
@@ -179,6 +179,146 @@ jobs:
           def emit(value):
               print(json.dumps(value, sort_keys=True), flush=True)
 
+          # Inserted only into the existing CI job; no product or test source changes.
+          checks = {}
+
+          def observe(identifier, condition=None, missing=False, **details):
+              status = "not_checked" if condition is None else ("true" if condition else "missing" if missing else "false")
+              checks[identifier] = {"check": identifier, "state": status, **details}
+              emit({"stage": "app-postconditions", **checks[identifier]})
+
+          def require(identifier, condition, missing=False, **details):
+              global stage
+              observe(identifier, condition, missing, **details)
+              if condition is not True:
+                  stage = identifier
+                  raise AssertionError(identifier)
+
+          def read_probe(identifier, args, as_json=False):
+              global stage
+              stage = identifier
+              child = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+              (root / (identifier + ".log")).write_bytes(child.stdout)
+              if child.returncode != 0:
+                  observe(identifier, False, exitCode=child.returncode)
+                  return None
+              try:
+                  value = json.loads(child.stdout) if as_json else child.stdout.decode(errors="replace")
+              except (ValueError, UnicodeError):
+                  observe(identifier, False, parseable=False)
+                  return None
+              observe(identifier, True, parseable=True if as_json else None)
+              return value
+
+          def console_facts(data):
+              items = []
+              def visit(node):
+                  if isinstance(node, dict):
+                      if isinstance(node.get("content"), str) and "timestamp" in node:
+                          items.append(node)
+                      for value in node.values():
+                          visit(value)
+                  elif isinstance(node, list):
+                      for value in node:
+                          visit(value)
+              visit(data)
+              init_pids, test_pids = set(), set()
+              app_pid_metadata = 0
+              markers = target_markers = errors = 0
+              for item in items:
+                  content = item["content"]
+                  errors += content.count("ERROR: AddressSanitizer") + content.count("SUMMARY: AddressSanitizer")
+                  initialized = "AddressSanitizer Init done" in content
+                  markers += int(initialized)
+                  target = item.get("adaptorType") == "target"
+                  target_markers += int(target and initialized)
+                  metadata = item.get("logData", {})
+                  metadata = metadata if isinstance(metadata, dict) else {}
+                  pid = metadata.get("pid")
+                  app = metadata.get("processName") in ["VoodooTrackerX", "VoodooTrackerXTests"]
+                  if target and app and isinstance(pid, int):
+                      app_pid_metadata += 1
+                      if str(pid) in re.findall(r"==(\d+)==AddressSanitizer Init done", content):
+                          init_pids.add(pid)
+                      if "Test Case" in content and any(name in content for name in APP):
+                          test_pids.add(pid)
+              return {"items": len(items), "initMarkers": markers, "targetAdaptorInitMarkers": target_markers,
+                      "asanErrorMarkers": errors, "appPIDMetadataItems": app_pid_metadata,
+                      "executedAppPIDCorrelated": bool(init_pids & test_pids) if app_pid_metadata else None}
+
+          def qualify_app(text, product, result):
+              global stage
+              stage = "app-postconditions"
+              initialized = "AddressSanitizer Init done" in text
+              observe("app.init-in-xcode-log", initialized, missing=not initialized, location="captured-xcode-log")
+              present = product.is_file()
+              observe("app.image-present", present, missing=not present)
+              architecture = linked = symbols = None
+              if present:
+                  emit({"stage": "app-image-hash", "SHA256": sha(product)})
+                  architecture = read_probe("app.image-architecture-readable", ["xcrun", "lipo", "-archs", str(product)])
+                  linkage = read_probe("app.image-linkage-readable", ["xcrun", "otool", "-L", str(product)])
+                  undefined = read_probe("app.image-symbols-readable", ["xcrun", "nm", "-u", str(product)])
+                  linked = None if linkage is None else "libclang_rt.asan_osx_dynamic.dylib" in linkage
+                  symbols = None if undefined is None else "__asan_" in undefined
+              native_image = None if architecture is None else architecture.strip() == "arm64"
+              observe("app.image-native-arm64", native_image)
+              observe("app.image-asan-linked", linked)
+              observe("app.image-asan-symbols", symbols)
+              bundle_present = result.is_dir()
+              observe("app.xcresult-present", bundle_present, missing=not bundle_present)
+              summary = tests = console = None
+              if bundle_present:
+                  for kind in ["summary", "tests"]:
+                      data = read_probe("app.xcresult-" + kind + "-readable",
+                          ["xcrun", "xcresulttool", "get", "test-results", kind, "--path", str(result)], True)
+                      if kind == "summary":
+                          summary = data
+                      else:
+                          tests = data
+                  console = read_probe("app.console-readable", ["xcrun", "xcresulttool", "get", "log", "--type", "console", "--path", str(result)], True)
+              counts = {key: summary.get(key) for key in ["totalTestCount", "passedTests", "failedTests", "skippedTests", "expectedFailures"]} if isinstance(summary, dict) else None
+              expected = {"totalTestCount": len(APP), "passedTests": len(APP), "failedTests": 0, "skippedTests": 0, "expectedFailures": 0}
+              counts_exact = None if counts is None else counts == expected
+              observe("app.exact-summary-counts", counts_exact, expected=expected, actual=counts)
+              cases = []
+              def visit(node):
+                  if node.get("nodeType") == "Test Case":
+                      cases.append((node.get("nodeIdentifier"), node.get("result")))
+                  for child in node.get("children", []):
+                      visit(child)
+              if isinstance(tests, dict):
+                  for node in tests.get("testNodes", []):
+                      visit(node)
+              wanted = [("PlaybackEngineTests/" + name + "()", "Passed") for name in APP]
+              identities = {name: {"occurrences": sum(case == name for case, status in cases),
+                                  "passed": sum(case == name and status == "Passed" for case, status in cases)} for name, _ in wanted}
+              valid_cases = all(isinstance(name, str) and isinstance(status, str) for name, status in cases)
+              cases_exact = None if not isinstance(tests, dict) else valid_cases and sorted(cases) == sorted(wanted)
+              observe("app.exact-unique-selectors", cases_exact, expectedCount=len(APP), actualCount=len(cases) if tests is not None else None,
+                      expectedIdentities=identities if tests is not None else None,
+                      unexpectedCount=sum(not isinstance(case, str) or case not in identities for case, status in cases) if tests is not None else None)
+              devices = tests.get("devices", []) if isinstance(tests, dict) else []
+              native_devices = None if tests is None else bool(devices) and all(isinstance(device, dict) and device.get("architecture") == "arm64" for device in devices)
+              observe("app.native-result-devices", native_devices, deviceCount=len(devices) if tests is not None else None,
+                      arm64Count=sum(isinstance(device, dict) and device.get("architecture") == "arm64" for device in devices) if tests is not None else None)
+              child = console_facts(console) if console is not None else None
+              observe("app.console-init-observed", None if child is None else child["initMarkers"] > 0,
+                      location="xcresult-console", evidence=child, diagnosticOnly=True)
+              if child is not None:
+                  require("app.console-sanitizer-scan", child["asanErrorMarkers"] == 0, markerCount=child["asanErrorMarkers"])
+              # Retain the original required initialization predicate. Console observations never replace it.
+              require("app.init-in-xcode-log", initialized, missing=not initialized, location="captured-xcode-log")
+              require("app.image-present", present, missing=not present)
+              for identifier, condition in [("app.image-native-arm64", native_image), ("app.image-asan-linked", linked), ("app.image-asan-symbols", symbols),
+                                            ("app.xcresult-present", bundle_present), ("app.xcresult-summary-readable", isinstance(summary, dict)),
+                                            ("app.xcresult-tests-readable", isinstance(tests, dict)), ("app.exact-summary-counts", counts_exact),
+                                            ("app.exact-unique-selectors", cases_exact), ("app.native-result-devices", native_devices)]:
+                  require(identifier, condition)
+              stage = "app.image-final-record"
+              emit({"stage": "production-asan-image", "SHA256": sha(product), "architecture": "arm64", "asanLinked": True})
+              emit({"stage": "production-asan-results", **expected, "architecture": "arm64", "asanInit": True, "cases": cases})
+
           def sha(path):
               return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
 
@@ -195,8 +335,9 @@ jobs:
                   code = subprocess.call(args, env=env, stdout=handle, stderr=subprocess.STDOUT)
               text = log.read_text(errors="replace")
               emit({"stage": name, "exitCode": code, "logSHA256": sha(log)})
-              assert code == 0, "Command failed"
-              assert "ERROR: AddressSanitizer" not in text and "SUMMARY: AddressSanitizer" not in text
+              require(name + ".exit", code == 0, exitCode=code)
+              require(name + ".sanitizer-scan", "ERROR: AddressSanitizer" not in text and "SUMMARY: AddressSanitizer" not in text,
+                      errorMarkers=text.count("ERROR: AddressSanitizer"), summaryMarkers=text.count("SUMMARY: AddressSanitizer"))
               return text
 
           def image(path, asan):
@@ -228,8 +369,10 @@ jobs:
               event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
               head = output(["git", "rev-parse", "HEAD"])
               assert head == event["pull_request"]["head"]["sha"]
-              assert output(["git", "rev-parse", "HEAD^"]) == FROZEN
-              assert output(["git", "diff", "--name-only", "HEAD^", "HEAD"]) == ".github/workflows/basic-checks.yml"
+              require("provenance.parent", output(["git", "rev-parse", "HEAD^"]) == "c955b7f8d3e165e85c8a839a28afba0a51338a78")
+              require("provenance.grandparent", output(["git", "rev-parse", "HEAD^^"]) == FROZEN)
+              require("provenance.immediate-workflow-only", output(["git", "diff", "--name-only", "HEAD^", "HEAD"]) == ".github/workflows/basic-checks.yml")
+              require("provenance.cumulative-workflow-only", output(["git", "diff", "--name-only", FROZEN, "HEAD"]) == ".github/workflows/basic-checks.yml")
               frozen_paths = [
                   "app/VoodooTrackerX/VoodooTrackerX/PlaybackEngine.swift",
                   "app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter.swift",
@@ -266,28 +409,15 @@ jobs:
               command += ["-resultBundlePath", str(result), "test"]
               xenv = {**options, "TEST_RUNNER_ASAN_OPTIONS": options["ASAN_OPTIONS"],
                       "VTX_ROW_LIFETIME_EVIDENCE_ROOT": str(root), "TEST_RUNNER_VTX_ROW_LIFETIME_EVIDENCE_ROOT": str(root)}
+              for identifier in ["production-asan-tests.exit", "production-asan-tests.sanitizer-scan", "app.init-in-xcode-log", "app.image-present",
+                                 "app.image-architecture-readable", "app.image-linkage-readable", "app.image-symbols-readable",
+                                 "app.image-native-arm64", "app.image-asan-linked", "app.image-asan-symbols", "app.xcresult-present",
+                                 "app.xcresult-summary-readable", "app.xcresult-tests-readable", "app.exact-summary-counts", "app.exact-unique-selectors",
+                                 "app.native-result-devices", "app.console-readable", "app.console-init-observed", "app.console-sanitizer-scan"]:
+                  observe(identifier)
               text = run("production-asan-tests", command, xenv)
-              assert "AddressSanitizer Init done" in text
               product = pathlib.Path("build/Build/Products/Debug/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests")
-              emit({"stage": "production-asan-image", **image(product, True)})
-              def report(kind):
-                  return json.loads(output(["xcrun", "xcresulttool", "get", "test-results", kind, "--path", str(result)]))
-              summary = report("summary")
-              expected = {"totalTestCount": len(APP), "passedTests": len(APP), "failedTests": 0, "skippedTests": 0, "expectedFailures": 0}
-              assert all(summary.get(key) == value for key, value in expected.items())
-              tests = report("tests")
-              cases = []
-              def visit(node):
-                  if node.get("nodeType") == "Test Case":
-                      cases.append((node.get("nodeIdentifier"), node.get("result")))
-                  for child in node.get("children", []):
-                      visit(child)
-              for node in tests.get("testNodes", []):
-                  visit(node)
-              assert sorted(cases) == sorted(("PlaybackEngineTests/" + name + "()", "Passed") for name in APP)
-              devices = tests.get("devices", [])
-              assert devices and all(device.get("architecture") == "arm64" for device in devices)
-              emit({"stage": "production-asan-results", **expected, "architecture": "arm64", "asanInit": True, "cases": cases})
+              qualify_app(text, product, result)
               build = run("package-release-build", ["swift", "build", "--build-tests", "-c", "release", "--disable-code-coverage", "-v"])
               compiler = next(line for line in build.splitlines() if "swiftc -module-name VoodooTrackerXPlaybackSupport" in line)
               assert " -O " in compiler and "-DDEBUG" not in compiler and "-sanitize" not in compiler
@@ -329,6 +459,6 @@ jobs:
               main()
           except Exception as error:
               (root / "failure.txt").write_text(repr(error))
-              emit({"status": "R1_ARM64_TARGETED_HOLD", "stage": stage, "errorType": type(error).__name__})
+              emit({"status": "R1_ARM64_TARGETED_HOLD", "stage": stage, "errorType": type(error).__name__, "failedCheck": stage})
               raise SystemExit(1)
           PY

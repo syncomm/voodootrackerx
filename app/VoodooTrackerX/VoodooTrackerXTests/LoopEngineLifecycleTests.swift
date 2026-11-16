@@ -479,6 +479,7 @@ final class LoopEngineLifecycleTests: XCTestCase {
             engine.load(song: initial, startContext: context, loopEnabled: true)
             engine.play(from: context, loopEnabled: true, timingSession: nil)
             XCTAssertTrue(output.hasRuntimeUserLoop)
+            let progressAtStart = output.hostProgressForTesting()
             engine.requestEditablePatternLoopRefresh(song: obsolete)
             engine.requestEditablePatternLoopRefresh(song: desired)
             // Delivery and the same serial producer must admit without a MainActor tick.
@@ -487,12 +488,30 @@ final class LoopEngineLifecycleTests: XCTestCase {
                 if let position = output.runtimeUserLoopPosition(), position.nativeFrame > UInt64(rate) { break }
                 Thread.sleep(forTimeInterval: 0.001)
             }
+            let progressAtDeadline = output.hostProgressForTesting()
             XCTAssertNil(output.consumeRuntimeUserLoopFailure())
             engine.advanceOneTick()
             XCTAssertEqual(engine.song, desired)
             XCTAssertTrue(engine.state.isPlaying)
             XCTAssertTrue(faults.isEmpty)
             let before = try XCTUnwrap(output.runtimeUserLoopPosition()).nativeFrame
+            if before <= UInt64(rate) {
+                // Preserve the primary failure's live observations first. A full
+                // snapshot is safe only after host stop; normal assertions and
+                // existing deferred engine cleanup still run below.
+                let quiescent = output.quiescedSnapshotForTesting()
+                let diagnostic = """
+                sampleRate=\(rate)
+                start=\(progressAtStart)
+                deadline=\(progressAtDeadline)
+                afterHostStop=\(output.hostProgressForTesting())
+                quiescent=\(String(reflecting: quiescent))
+                """
+                let attachment = XCTAttachment(string: diagnostic)
+                attachment.name = "native-host-progress-\(Int(rate))"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
             XCTAssertGreaterThan(before, UInt64(rate), "Native playback did not advance through one second within the bounded wait")
             let selected = engine.seek(to: .init(orderIndex: 0, rowIndex: 1, tickInRow: 0), autoplay: true)
             XCTAssertEqual(selected?.rowIndex, 1)

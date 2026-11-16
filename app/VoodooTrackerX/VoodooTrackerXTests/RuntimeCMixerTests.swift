@@ -5696,6 +5696,30 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(third.tickInRow, 0)
     }
 
+#if DEBUG
+    @MainActor
+    func testRuntimeBackendKeepsSampleTimeResolverAcrossStopsAndRebuildsForNewPlan() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowCounts: [2: 2, 3: 1],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let backend = RuntimeCMixerAudioEngine(sampleRate: 100, startsOutputHostOnDemand: false)
+        let first = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        backend.configureRuntimeAdapterEventPlan(first, generationMS: nil, timingSession: nil)
+        XCTAssertEqual(backend.sampleTimePositionResolverBuildCountForTesting, 1)
+
+        backend.stopAll()
+        backend.resetRuntimeAdapterEventConsumption()
+        XCTAssertEqual(backend.sampleTimePositionResolverBuildCountForTesting, 1)
+
+        let laterOrigin = try XCTUnwrap(song.position(orderIndex: 1, rowIndex: 0))
+        let second = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100, initialPosition: laterOrigin)
+        backend.configureRuntimeAdapterEventPlan(second, generationMS: nil, timingSession: nil)
+        XCTAssertEqual(backend.sampleTimePositionResolverBuildCountForTesting, 2)
+    }
+#endif
+
     func testSampleTimePositionResolverUsesSelectedRuntimeSampleRate() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],

@@ -551,7 +551,7 @@ def main():
         '-resultBundlePath', str(result), 'test'])
     release_compiler(text, 'VoodooTrackerX', True)
     image('build/Build/Products/Release/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests', False)
-    result_cases(result, 1872)
+    result_cases(result, 1874)
     build = run('package-release-build', ['swift', 'build', '--build-tests', '-c', 'release',
         '--disable-code-coverage', '-v', '-Xswiftc', '-enable-testing'])
     release_compiler(build, 'VoodooTrackerXPlaybackSupport', False)
@@ -590,7 +590,7 @@ def main():
     require(output(['git', 'rev-parse', 'HEAD']) == head and
             output(['git', 'status', '--porcelain=v1', '-uall']) == '', 'source changed during qualification')
     emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 70, 'packageASan': 57,
-          'optimizedAppRelease': 1872, 'optimizedPackageRelease': 961, 'expectedReleaseTraps': 4,
+          'optimizedAppRelease': 1874, 'optimizedPackageRelease': 961, 'expectedReleaseTraps': 4,
           'failed': 0, 'skipped': 0})
 
 

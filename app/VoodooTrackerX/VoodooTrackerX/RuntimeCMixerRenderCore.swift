@@ -4329,6 +4329,26 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
     }
 
 #if DEBUG
+    /// Off-audio observation of existing atomics; never takes the running render lock.
+    /// Fields are independent observations, not one coherent musical-head capsule.
+    func callbackProgressForTesting() -> [String: UInt64] {
+        [
+            "observedUptimeNanos": DispatchTime.now().uptimeNanoseconds,
+            "runtimeFrame": realtimeCurrentFrameCounter.load(ordering: .relaxed),
+            "callbackLockAttempts": callbackLockAttemptCounter.load(ordering: .relaxed),
+            "callbackLockFailures": callbackLockFailureCounter.load(ordering: .relaxed),
+            "activeCallbackDepth": callbackActiveRenderDepth.load(ordering: .relaxed),
+            "lastCallbackOutputFrames": lastCallbackOutputFrameCountAtomic.load(ordering: .relaxed),
+            "maximumLoopCallbackFrames": nativeLoopMaximumCallbackFrames.load(ordering: .relaxed),
+            "nativeLoopInstalled": nativeLoopInstalled.load(ordering: .acquiring) ? 1 : 0,
+            "nativeLoopHostFaulted": nativeLoopHostFaulted.load(ordering: .acquiring) ? 1 : 0,
+            "staleOutputCallbacks": callbackRenderedFromStaleSnapshotCounter.load(ordering: .relaxed),
+            "unavailableStateSilenceCallbacks": callbackRenderedSilenceDueToUnavailableStateCounter.load(ordering: .relaxed),
+            "lifecycleChangesWhileRendering": lifecycleChangeWhileRenderingCounter.load(ordering: .relaxed),
+            "audioUnitLifecycleCallsWhileCallbackActive": audioUnitLifecycleCallWhileCallbackActiveCounter.load(ordering: .relaxed)
+        ]
+    }
+
     func channelSemanticStateForTesting(_ channel: Int) -> PlaybackXMChannelUpdate? {
         lock.lock()
         defer { lock.unlock() }

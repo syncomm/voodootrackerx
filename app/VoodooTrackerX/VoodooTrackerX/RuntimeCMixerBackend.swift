@@ -425,6 +425,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private var consumedAdapterEventCategories = Set<String>()
     private var plannedRuntimeFrameOffset: Int?
     private var sampleTimePositionResolver: PlaybackSongSampleTimePositionResolver?
+#if DEBUG
+    private(set) var sampleTimePositionResolverBuildCountForTesting = 0
+#endif
     private var adapterEventLoopRange: RuntimeCMixerAdapterEventLoopRange?
     private var adapterEventScheduleConfigured = false
     private var pendingTransition: RuntimeCMixerPendingTransition?
@@ -521,6 +524,20 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         renderCore.snapshot()
     }
 
+    /// Records requested host lifecycle and live callback atomics without OS queries
+    /// or a running render-lock holder. Lifecycle flags do not prove device progress.
+    func hostProgressForTesting() -> [String: String] {
+        var fields = renderCore.callbackProgressForTesting().mapValues { String($0) }
+        fields["hostPrepared"] = String(coreAudioOutputHost.isPrepared)
+        fields["hostRunning"] = String(coreAudioOutputHost.isRunning)
+        fields["lastPrepareStatus"] = String(describing: coreAudioOutputHost.lastPrepareStatus)
+        fields["lastInitializeStatus"] = String(describing: coreAudioOutputHost.lastInitializeStatus)
+        fields["lastStartStatus"] = String(describing: coreAudioOutputHost.lastStartStatus)
+        fields["lastStopStatus"] = String(describing: coreAudioOutputHost.lastStopStatus)
+        fields["lastErrorStatus"] = String(describing: coreAudioOutputHost.lastErrorStatus)
+        return fields
+    }
+
     /// Quiesces delivery before inspecting Loop diagnostics, avoiding a diagnostic
     /// lock holder on its running host. The test must subsequently Stop the engine.
     func quiescedSnapshotForTesting() -> RuntimeCMixerRenderSnapshot {
@@ -551,6 +568,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         previous?.cancelAndWait()
         nativeLoopSession = nil
         adapterEventPlan = .unavailable(sampleRate: format.sampleRate)
+        sampleTimePositionResolver = nil
         resetRuntimeAdapterEventConsumption()
         nativeLoopSession = session
         nativeLoopControlFault = nil
@@ -654,6 +672,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?, timingSession _: PlaybackTimingTraceSession?) {
         adapterEventPlan = plan
         sampleTimePositionResolver = plan.plan.map(PlaybackSongSampleTimePositionResolver.init(plan:))
+#if DEBUG
+        if plan.plan != nil { sampleTimePositionResolverBuildCountForTesting += 1 }
+#endif
         adapterEventLoopRange = nil
         resetRuntimeAdapterEventConsumption()
         recordRuntimeEvent(
@@ -675,7 +696,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         eventCounters.skippedUnmatchedPlannedEventCount = 0
         eventCounters.fallbackToSimpleRuntimeEventCount = 0
         plannedRuntimeFrameOffset = nil
-        sampleTimePositionResolver = adapterEventPlan.plan.map(PlaybackSongSampleTimePositionResolver.init(plan:))
+        // The plan is immutable. Transport resets must keep its already sorted
+        // timeline; rebuilding it here makes every Stop scale with song length.
         adapterEventLoopRange = nil
         adapterEventScheduleConfigured = false
         pendingTransition = nil

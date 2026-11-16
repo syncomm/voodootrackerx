@@ -1679,6 +1679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         _ document: BlankTrackerDocument,
         application: EditableDocumentNavigationApplication
     ) {
+        let previousRevision = editableDocumentRevision
         switch application {
         case .userSelection:
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
@@ -1686,6 +1687,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             cursor.row = rowIndex
         }
         applyEditableDocumentSnapshot(document)
+        retainPreparedEditablePlaybackSnapshot(afterNonContentChangeFrom: previousRevision)
+    }
+
+    private func retainPreparedEditablePlaybackSnapshot(afterNonContentChangeFrom previousRevision: UInt64) {
+        preparedEditablePlaybackRevision = EditablePlaybackSnapshotRevisionPolicy.afterNonContentChange(
+            preparedIdentity: preparedEditablePlaybackIdentity,
+            preparedRevision: preparedEditablePlaybackRevision,
+            documentIdentity: editableDocumentIdentity,
+            previousRevision: previousRevision,
+            currentRevision: editableDocumentRevision
+        )
     }
 
     private func refreshEditableDocumentPresentation(_ document: BlankTrackerDocument) {
@@ -2067,7 +2079,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             document.selectInstrument(selectedInstrument)
             guard document.selection != previousSelection else { return false }
             cancelPreviewForSelectionChange()
+            let previousRevision = editableDocumentRevision
             blankDocument = document
+            retainPreparedEditablePlaybackSnapshot(afterNonContentChangeFrom: previousRevision)
             syncControlPanelView()
             return true
         }
@@ -2096,7 +2110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             document.selectSample(selectedSample)
             guard document.selection != previousSelection else { return false }
             cancelPreviewForSelectionChange()
+            let previousRevision = editableDocumentRevision
             blankDocument = document
+            retainPreparedEditablePlaybackSnapshot(afterNonContentChangeFrom: previousRevision)
             syncControlPanelView()
             return true
         }

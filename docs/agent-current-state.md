@@ -42,8 +42,10 @@ host.
   version 2 scoped diagnostic IDs; full-plan/offline IDs and source births remain
   unchanged. This bounded repair is CLOSED on the PR branch after local control
   and ordinary Debug/Release workflow qualification. Acceptance requires green
-  final submitted-head CI and Gregory's physical review/merge. Finite playback can
-  show the existing unknown SONG TIME placeholder; exact rows/ticks still use C.
+  final submitted-head CI and Gregory's physical review/merge. SONG TIME uses an
+  independent asynchronous timing-only traversal after Open and editable timing
+  changes; finite totals do not depend on Play or a mixer plan. Cyclic, malformed,
+  guarded or absent content remains unknown. Exact live rows/ticks still use C.
 - Explicit user-pattern Loop interprets the cold selected-row suffix and later
   iterations through the existing row interpreter and semantic folds. Bounded
   terminal state and original source-birth bindings continue across immutable

@@ -321,3 +321,62 @@ enum PlaybackSongFxxTimingPlanner {
         sampleRate * 2.5 / Double(max(1, bpm)) * Double(max(1, speed))
     }
 }
+
+/// A timing-only total for one finite song traversal, independent of mixer planning.
+enum PlaybackSongDuration {
+    /// Returns the exact pre-tail duration for a finite, playable song.
+    /// Cycles, guard limits, missing content, cancellation, and frame overflow
+    /// remain unknown. An outgoing B/D beyond the final order is a finite stop.
+    static func seconds(for song: PlaybackSong, isCancelled: () -> Bool = { false }) -> TimeInterval? {
+        guard song.endBehavior == .stopAtEnd, !song.orders.isEmpty else { return nil }
+        let sampleRate = 48_000.0 // Matches the legacy UI plan's ordinary output rate.
+        var firstPosition: PlaybackPosition?
+        for orderIndex in song.orders.indices {
+            if isCancelled() { return nil }
+            guard let pattern = song.pattern(for: orderIndex) else { return nil }
+            if !pattern.rows.isEmpty {
+                firstPosition = .init(orderIndex: orderIndex, patternIndex: pattern.index, rowIndex: 0)
+                break
+            }
+        }
+        guard let firstPosition,
+              var traversal = PlaybackSongTraversalPlanner.makeFiniteSongState(song,
+                  initialPosition: firstPosition) else { return nil }
+        let config = SyntheticTrackerTimingConfig(speed: song.initialTiming.speed,
+            bpm: song.initialTiming.bpm, sampleRate: sampleRate)
+        var timing = PlaybackSongFxxTimingPlanner.State(speed: config.speed, bpm: config.bpm,
+            nextExactFrame: 0)
+        var timingChanges = [PlaybackSongSyntheticTimingChangeDiagnostic]()
+        var executedRows = 0
+        var finalFrame: Int?
+        var acceptedOutgoingEnd = false
+        while traversal.terminalStopReason == nil {
+            if isCancelled() { return nil }
+            guard let step = PlaybackSongTraversalPlanner.nextUserLoopRow(song,
+                state: &traversal, syntheticRow: executedRows) else { return nil }
+            if let row = step.row {
+                let rowTiming = PlaybackSongFxxTimingPlanner.advance(row: row.row,
+                    source: row.source, syntheticRow: executedRows, sampleRate: sampleRate,
+                    state: &timing, timingChanges: &timingChanges)
+                guard timing.nextExactFrame.isFinite,
+                      timing.nextExactFrame < Double(Int.max) else { return nil }
+                finalFrame = rowTiming.rowEndFrame
+                executedRows += 1
+                timingChanges.removeAll(keepingCapacity: true)
+            }
+            if traversal.terminalStopReason == .outOfRange {
+                acceptedOutgoingEnd = step.diagnostics.contains {
+                    ($0.kind == .bxxPositionJump || $0.kind == .dxxPatternBreak) &&
+                        ($0.targetOrderIndex ?? -1) >= song.orders.count
+                }
+            }
+        }
+        guard !isCancelled(), let finalFrame, finalFrame > 0,
+              let stopReason = traversal.terminalStopReason else { return nil }
+        switch stopReason {
+        case .songEnd: return Double(finalFrame) / sampleRate
+        case .outOfRange where acceptedOutgoingEnd: return Double(finalFrame) / sampleRate
+        default: return nil
+        }
+    }
+}

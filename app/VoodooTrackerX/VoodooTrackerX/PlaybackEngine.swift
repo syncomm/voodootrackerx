@@ -79,7 +79,8 @@ final class PlaybackPreparationCancellation: @unchecked Sendable {
         return cancelled
     }
 
-    fileprivate func cancel() {
+    /// Cancels an off-Main preparation or timing-only metadata traversal.
+    func cancel() {
         lock.lock()
         cancelled = true
         lock.unlock()

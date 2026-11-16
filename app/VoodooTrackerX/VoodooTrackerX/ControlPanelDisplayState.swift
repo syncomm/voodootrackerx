@@ -5,6 +5,7 @@ struct ControlPanelContent: Equatable {
 
     var songTitle = BlankTrackerDocument.defaultTitle
     var songTime = ControlPanelContent.unavailableSongTime
+    var songTimeTooltip = "Total song duration"
     var songLength = "01"
     var songPosition = "00"
     var restartPosition = "00"
@@ -26,6 +27,97 @@ struct ControlPanelContent: Equatable {
     var isSongPositionEnabled = false
     var isPatternControlsEnabled = false
     var areInstrumentPlaceholdersEnabled = false
+}
+
+/// Document metadata only: never prepares audio or observes the transport clock.
+@MainActor
+final class SongDurationDisplayModel {
+    typealias Calculation = @Sendable (PlaybackSong, @Sendable () -> Bool) -> TimeInterval?
+
+    var didChange: (() -> Void)?
+    private(set) var durationSeconds: TimeInterval?
+    private(set) var isPending = false
+    private(set) var generation: UInt64 = 0
+    private var identity: UUID?
+    private var editableInput: BlankTrackerDocument?
+    private var cancellation: PlaybackPreparationCancellation?
+    private let queue = DispatchQueue(label: "com.syncomm.VoodooTrackerX.song-duration", qos: .utility)
+    private let calculate: Calculation
+
+    init(calculate: @escaping Calculation = { PlaybackSongDuration.seconds(for: $0, isCancelled: $1) }) {
+        self.calculate = calculate
+    }
+
+    deinit { cancellation?.cancel() }
+
+    var tooltip: String {
+        if isPending { return "Calculating total song duration" }
+        return durationSeconds == nil
+            ? "Total duration unavailable: no playable song, invalid traversal, or cyclic/guarded flow"
+            : "Total song duration from the beginning, excluding the playback tail"
+    }
+
+    /// Replaces the document immediately, dropping its old value before asynchronous work.
+    func load(song: PlaybackSong?, identity: UUID?) {
+        self.identity = identity
+        editableInput = nil
+        guard let song else { schedule(nil); return }
+        // Retain timing/flow cells, never sample payloads or a mixer event graph.
+        let input = PlaybackSong(title: "", orders: song.orders, patternsByIndex: song.patternsByIndex,
+            instrumentsByIndex: [:], restartOrderIndex: 0, endBehavior: song.endBehavior,
+            initialTiming: song.initialTiming, usesLinearFrequencyTable: song.usesLinearFrequencyTable)
+        schedule { input }
+    }
+
+    /// CoW timing values ignore focus, navigation, sample content and one-pass restart metadata.
+    /// The shared editable builder converts cells on the worker, not on Main.
+    func update(document: BlankTrackerDocument?, identity: UUID?) {
+        guard let document else { load(song: nil, identity: nil); return }
+        let input = BlankTrackerDocument(title: "", songLength: document.songLength,
+            currentPosition: 0, restartPosition: 0,
+            currentPatternIndex: document.orderTable.first ?? BlankTrackerDocument.defaultPatternIndex,
+            tempo: document.tempo, speed: document.speed, orderTable: document.orderTable,
+            selection: .default, instrumentPalette: [:], patterns: document.patterns)
+        guard self.identity != identity || editableInput != input else { return }
+        self.identity = identity
+        editableInput = input
+        schedule {
+            let orders = input.orderTable.prefix(max(0, input.songLength))
+            let patterns = Set(input.patterns.map(\.index))
+            guard !orders.isEmpty, orders.count == input.songLength,
+                  orders.allSatisfy({ patterns.contains($0) }) else { return nil }
+            return EditablePlaybackSongBuilder.build(from: input)
+        }
+    }
+
+    private func schedule(_ build: (@Sendable () -> PlaybackSong?)?) {
+        cancellation?.cancel()
+        let token = PlaybackPreparationCancellation()
+        cancellation = token
+        generation &+= 1
+        durationSeconds = nil
+        isPending = build != nil
+        // Document setters may still be updating selection/playback ownership.
+        // Publish after that transaction, and never revive a superseded value.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.cancellation === token, !token.isCancelled else { return }
+            self.didChange?()
+        }
+        guard let build else { return }
+        let calculate = calculate
+        queue.async { [weak self] in
+            guard !token.isCancelled else { return }
+            let song = build()
+            guard !token.isCancelled else { return }
+            let seconds = song.flatMap { calculate($0, { token.isCancelled }) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.cancellation === token, !token.isCancelled else { return }
+                self.durationSeconds = seconds
+                self.isPending = false
+                self.didChange?()
+            }
+        }
+    }
 }
 
 struct ControlPanelSlotDisplay: Equatable {

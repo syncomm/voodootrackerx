@@ -151,8 +151,10 @@ bounded contracts; they do not establish full command or audible parity.
   CLOSED on the PR branch after local control and ordinary Debug/Release workflow
   qualification, including actual C-host output and Main dispatch observations.
   Acceptance still requires final submitted-head normal/native CI (Codex) and
-  Gregory's physical composition/listening review and merge, including the known
-  SONG TIME placeholder when future duration has not been planned. Existing
+  Gregory's physical composition/listening review and merge. SONG TIME restoration
+  requires a useful finite total after Open and timing edits, independently of
+  Play/full planning, with ordinary Debug/Release responsiveness and honest unknown
+  handling for cyclic, malformed or guarded content. Existing
   planning and broader release gates remain unchanged.
 - The same bounded contract uses the native C head for normal/Loop live position,
   Stop/Pause capture and resume context. End timers wait for the actual mapped

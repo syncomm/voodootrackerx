@@ -106,6 +106,7 @@ final class ControlPanelView: NSView {
     func apply(_ content: ControlPanelContent) {
         songTitleField.stringValue = content.songTitle
         songTimeField.stringValue = content.songTime
+        songTimeField.toolTip = content.songTimeTooltip
         songLengthField.stringValue = content.songLength
         songPositionField.stringValue = content.songPosition
         restartPositionField.stringValue = content.restartPosition

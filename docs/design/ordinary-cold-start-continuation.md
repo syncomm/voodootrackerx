@@ -18,13 +18,17 @@ same-pattern structural E60 seam. Reusing unplayed history to force a cache hit
 is not permitted. Navigation and editor focus preserve an unchanged editable
 snapshot's identity; a real content edit leaves the snapshot stale.
 
-Total-duration presentation remains limited: `runtimeAdapterPlanDurationSeconds`
-still comes from the full plan, so changed-origin finite continuation can show
-the existing `--:--` SONG TIME placeholder. The bounded path does not invent a
-future duration or perform an extra full traversal for display metadata. Current
-rows and ticks still come from the exact C playback head. This visible limitation
-requires Gregory's manual review; it is not an accepted human UX outcome. No
-duration-metadata subsystem is added, and all qualification gates remain in force.
+SONG TIME is document metadata, separate from the selected-origin mixer plan.
+Open and editable timing changes schedule the shared traversal/Fxx reducers on a
+metadata worker, retaining scalar timing state and no sample payloads or mixer
+events. A brief pending `--:--` is replaced by the exact whole-song, pre-tail total
+for finite traversal; ordinary playback Loop does not change that total. The
+48 kHz row-end floor matches the legacy duration arithmetic. No estimate is
+presented as exact. Missing/no-playable content, cycles, traversal guards and
+overflow remain unknown; an explicit B/D exit beyond the final order is finite.
+Navigation, focus, sample-only changes and transport controls retain the value.
+Timing changes, Undo/Redo and document replacement reject stale worker results.
+Current rows and ticks continue to come only from the C playback head.
 
 ## Preparation and admission
 
@@ -123,7 +127,8 @@ first actual C-host output timing, finite automatic tail Stop after a real edit,
 and absence of native delivery faults. The unchanged Release workflow includes
 at least ten cached replays. Codex owns final submitted-head native arm64
 ASan/optimized Release with protected expected traps and normal CI; Gregory owns
-physical composition/listening acceptance, including the duration-placeholder UX. Existing 972 / 1,000 / 2,333 ms planning and First Play
+physical composition/listening acceptance, including Open-time duration and edit
+refresh. Existing 972 / 1,000 / 2,333 ms planning and First Play
 API p50 gates remain unchanged; API return is not audible output or a DAC clock.
 Component ownership bounds do not establish an absolute whole-app memory budget
 or erase the provisionally disclosed mixed resource profile.

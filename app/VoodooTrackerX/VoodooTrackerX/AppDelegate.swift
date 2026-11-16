@@ -16,8 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var editableDocumentRevision: UInt64 = 0
     private var preparedEditablePlaybackIdentity: UUID?
     private var preparedEditablePlaybackRevision: UInt64?
+    private let songDuration = SongDurationDisplayModel()
     private var blankDocument: BlankTrackerDocument? {
-        didSet { editableDocumentRevision &+= 1 }
+        didSet {
+            editableDocumentRevision &+= 1
+            songDuration.update(document: blankDocument, identity: editableDocumentIdentity)
+        }
     }
     private var loadedMetadata: ParsedModuleMetadata?
     private lazy var documentReplacementCoordinator = DocumentReplacementCoordinator(
@@ -390,6 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         playbackEngine.runtimeAdapterPlanDidUpdate = { [weak self] in
             self?.syncControlPanelView()
         }
+        songDuration.didChange = { [weak self] in self?.syncControlPanelView() }
         playbackEngine.playbackPreparationDidChange = { [weak self] in
             self?.syncControlPanelView()
         }
@@ -1929,6 +1934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let playbackSongBuildStart = timingSession?.beginPhase()
             let playbackSong = try? PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
             timingPlaybackSong = playbackSong
+            songDuration.load(song: playbackSong, identity: loadedModuleIdentity)
             timingSession?.recordPhase(
                 "playback_song_builder_build",
                 startedAt: playbackSongBuildStart,
@@ -3434,6 +3440,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 isPlaybackActive: playbackEngine.state.isPlaying
             )
             content.isPlaybackPreparing = playbackEngine.isPreparingPlayback
+            content.songTime = ControlPanelDisplayState.songTimeDisplay(durationSeconds: songDuration.durationSeconds)
+            content.songTimeTooltip = songDuration.tooltip
             controlPanelView?.apply(content)
             return
         }
@@ -3453,11 +3461,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 isEditModeEnabled: isEditModeEnabled,
                 isPlaybackActive: playbackEngine.state.isPlaying,
                 songTime: ControlPanelDisplayState.songTimeDisplay(
-                    durationSeconds: playbackEngine.runtimeAdapterPlanDurationSeconds
+                    durationSeconds: songDuration.durationSeconds
                 ),
                 selectedInstrumentName: selectedInstrument?.name
             )
             content.isPlaybackPreparing = playbackEngine.isPreparingPlayback
+            content.songTimeTooltip = songDuration.tooltip
             controlPanelView?.apply(content)
         } else {
             if shouldReloadInstrumentControls {

@@ -111,6 +111,13 @@ APP = [
     'RuntimeLoopSessionRapidDeadlineTests/testInitialPreparationCallbackPublishesCancellationOnceBeforeWarmup',
     'RuntimeLoopSessionRapidDeadlineTests/testInitialPreparationCallbackPublishesValidationFailureOnce',
     'RuntimeLoopSessionRapidDeadlineTests/testFiniteSongSingleTerminalWarmupPublishesReadyWithoutSuccessor',
+    'SongDurationTests/testFiniteControlFlowDurationMatchesManualSecondsAndTimingOnlyOracle',
+    'SongDurationTests/testOddRowsEmptyInputsAndOutgoingFiniteEndsKeepExecutedCommandRow',
+    'SongDurationTests/testMissingCyclicAndCancelledDurationNeverPublishesExactPrefix',
+    'SongDurationTests/testLoadPublishesDurationBeforePlayWithoutEngineOrSamplePayload',
+    'SongDurationTests/testEditableTimingEditUndoAndRedoRefreshDurationThroughCanonicalCoordinator',
+    'SongDurationTests/testNavigationFocusTitleSampleAndRestartChangesPreserveDurationGeneration',
+    'SongDurationTests/testReplacementIdentityRejectsBlockedStaleResultAndFileNewClearsDuration',
 ]
 PACKAGE_ASAN = [
     'CatalogPCMLeaseTests/testRevokedCandidatesReuseOnePayloadForPreviouslyUnplayedCatalogSample',
@@ -568,7 +575,7 @@ def main():
             'inherited sanitizer options')
     emit({'head': head, 'architecture': 'arm64', 'Xcode': output(['xcodebuild', '-version']),
           'Swift': output(['swift', '--version']), 'evidenceRoot': str(root)})
-    require(len(APP) == len(set(APP)) == 94 and len(PACKAGE_ASAN) == len(set(PACKAGE_ASAN)) == 64,
+    require(len(APP) == len(set(APP)) == 101 and len(PACKAGE_ASAN) == len(set(PACKAGE_ASAN)) == 64,
             'selector manifest counts')
     base = ['xcodebuild', '-project', 'app/VoodooTrackerX/VoodooTrackerX.xcodeproj', '-scheme',
             'VoodooTrackerX', '-destination', 'platform=macOS,arch=arm64', '-derivedDataPath', 'build',
@@ -585,7 +592,7 @@ def main():
         ['-only-testing:VoodooTrackerXTests/' + selector for selector in APP] + ['test'], options, True,
         separate_stderr=True)
     image(product, True)
-    result_cases(result, 94, APP)
+    result_cases(result, 101, APP)
     attribution, removed = app_case_attribution_text(text, result)
     attribution_log = root / 'app-asan-case-attribution.log'
     attribution_log.write_text(attribution)
@@ -635,7 +642,7 @@ def main():
         '-resultBundlePath', str(result), 'test'])
     release_compiler(text, 'VoodooTrackerX', True)
     image('build/Build/Products/Release/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests', False)
-    result_cases(result, 1899)
+    result_cases(result, 1906)
     build = run('package-release-build', ['swift', 'build', '--build-tests', '-c', 'release',
         '--disable-code-coverage', '-v', '-Xswiftc', '-enable-testing'])
     release_compiler(build, 'VoodooTrackerXPlaybackSupport', False)
@@ -673,8 +680,8 @@ def main():
     image('build/Build/Products/Release/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX', False)
     require(output(['git', 'rev-parse', 'HEAD']) == head and
             output(['git', 'status', '--porcelain=v1', '-uall']) == '', 'source changed during qualification')
-    emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 94, 'packageASan': 64,
-          'optimizedAppRelease': 1899, 'optimizedPackageRelease': 970, 'expectedReleaseTraps': 4,
+    emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 101, 'packageASan': 64,
+          'optimizedAppRelease': 1906, 'optimizedPackageRelease': 970, 'expectedReleaseTraps': 4,
           'failed': 0, 'skipped': 0})
 
 

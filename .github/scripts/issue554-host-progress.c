@@ -108,6 +108,10 @@ int main(int argc, char **argv) {
     AudioUnit guard_unit = NULL;
     AudioDeviceID guard_device = 0;
     uint64_t previous_guard_frames = 0;
+    // Repeated primers retain one initialized unit and callback owner, as in the
+    // original failure. Every measured target still owns a fresh unit/counter.
+    Progress observations[80] = {0};
+    AudioUnit primer_unit = NULL;
     printf("pid=%d timebaseNumer=%u timebaseDenom=%u iterations=20 requiredFrames=48000 deadlineSeconds=10 rapidRestart=%d idleRestart=%d primers=%u guarded=%d\n",
            getpid(), timebase.numer, timebase.denom, rapid, idle, primers, guarded);
     if (guarded) {
@@ -140,10 +144,11 @@ int main(int argc, char **argv) {
     for (unsigned cycle = 1; cycle <= 20 * span; ++cycle) {
         const unsigned iteration = (cycle - 1) / span + 1;
         const int prelude = (cycle - 1) % span < primers;
-        Progress progress = {0};
-        if (!atomic_is_lock_free(&progress.frames) || !atomic_is_lock_free(&progress.active)) _Exit(1);
-        OSStatus status;
-        AudioUnit unit = prepare(component, &progress, &status);
+        Progress *progress = &observations[idle && prelude ? (iteration - 1) * span : cycle - 1];
+        if (!atomic_is_lock_free(&progress->frames) || !atomic_is_lock_free(&progress->active)) _Exit(1);
+        OSStatus status = noErr;
+        AudioUnit unit = idle && prelude && primer_unit ? primer_unit : prepare(component, progress, &status);
+        if (idle && prelude) primer_unit = unit;
         UInt32 capacity = 0, size = sizeof(capacity);
         if (status == noErr) status = AudioUnitGetProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice,
             kAudioUnitScope_Global, 0, &capacity, &size);
@@ -171,6 +176,9 @@ int main(int argc, char **argv) {
                iteration, prelude, device_running, (int)running_status);
         if (device_status != noErr || running_status != noErr || device_running != (UInt32)guarded ||
             (guarded && device != guard_device)) incomplete = 1;
+        const uint64_t initial_frames = atomic_load(&progress->frames);
+        const uint64_t initial_entries = atomic_load(&progress->entries);
+        const uint64_t initial_callbacks = atomic_load(&progress->callbacks);
         const uint64_t start = mach_absolute_time(), deadline = start + 10 * second;
         if (status == noErr) status = AudioOutputUnitStart(unit);
         const uint64_t start_returned = mach_absolute_time();
@@ -188,20 +196,23 @@ int main(int argc, char **argv) {
             } else if (device != prelude_device) incomplete = 1;
             const uint64_t minimum = idle ? second / 100 : second / 20;
             while (mach_absolute_time() - start_returned < minimum ||
-                   (atomic_load(&progress.frames) == 0 && mach_absolute_time() - start_returned < second / 20))
+                   (atomic_load(&progress->frames) == initial_frames && mach_absolute_time() - start_returned < second / 20))
                 usleep(1000);
             status = AudioOutputUnitStop(unit);
             prelude_stopped = mach_absolute_time();
             printf("iteration=%u prelude=1 start=%llu startReturned=%llu stopped=%llu stopStatus=%d frames=%llu entries=%llu callbacks=%llu active=%u\n",
                    iteration, (unsigned long long)start, (unsigned long long)start_returned,
                    (unsigned long long)prelude_stopped,
-                   (int)status, (unsigned long long)atomic_load(&progress.frames),
-                   (unsigned long long)atomic_load(&progress.entries),
-                   (unsigned long long)atomic_load(&progress.callbacks), atomic_load(&progress.active));
-            if (atomic_load(&progress.frames) == 0 || atomic_load(&progress.active) != 0 ||
-                atomic_load(&progress.entries) != atomic_load(&progress.callbacks)) incomplete = 1;
-            if (status != noErr || AudioUnitUninitialize(unit) != noErr ||
-                AudioComponentInstanceDispose(unit) != noErr) _Exit(1);
+                   (int)status, (unsigned long long)(atomic_load(&progress->frames) - initial_frames),
+                   (unsigned long long)(atomic_load(&progress->entries) - initial_entries),
+                   (unsigned long long)(atomic_load(&progress->callbacks) - initial_callbacks), atomic_load(&progress->active));
+            if (atomic_load(&progress->frames) == initial_frames || atomic_load(&progress->active) != 0 ||
+                atomic_load(&progress->entries) != atomic_load(&progress->callbacks)) incomplete = 1;
+            if (status != noErr) _Exit(1);
+            if (!idle || cycle % span == primers) {
+                if (AudioUnitUninitialize(unit) != noErr || AudioComponentInstanceDispose(unit) != noErr) _Exit(1);
+                primer_unit = NULL;
+            }
             if (idle && cycle % span == primers) {
                 // Historical failure followed several short sessions and an idle gap.
                 // Let pending first timers fire against the stopped device before restarting.
@@ -224,21 +235,21 @@ int main(int argc, char **argv) {
                 incomplete = 1; // An unexercised interleaving is not a passing witness.
         }
         uint64_t next_observation = start;
-        while (mach_absolute_time() < deadline && atomic_load_explicit(&progress.reached_goal_at, memory_order_acquire) == 0) {
+        while (mach_absolute_time() < deadline && atomic_load_explicit(&progress->reached_goal_at, memory_order_acquire) == 0) {
             if (mach_absolute_time() >= next_observation) {
-                observe(iteration, "live", &progress, unit);
+                observe(iteration, "live", progress, unit);
                 next_observation = mach_absolute_time() + second;
             }
             usleep(1000); // Deliberately no Main run-loop servicing, matching the failing case.
         }
         // Freeze before any OS query/logging can delay and accidentally admit late frames.
-        const uint64_t reached = atomic_load_explicit(&progress.reached_goal_at, memory_order_acquire);
+        const uint64_t reached = atomic_load_explicit(&progress->reached_goal_at, memory_order_acquire);
         const int completed = reached != 0 && reached <= deadline;
         if (!completed) failed = 1;
         printf("iteration=%u completedWithinDeadline=%d start=%llu deadline=%llu reached=%llu\n",
                iteration, completed, (unsigned long long)start,
                (unsigned long long)deadline, (unsigned long long)reached);
-        observe(iteration, "deadline-or-completion", &progress, unit);
+        observe(iteration, "deadline-or-completion", progress, unit);
         status = AudioOutputUnitStop(unit);
         printf("iteration=%u stopStatus=%d\n", iteration, (int)status);
         if (status != noErr) _Exit(1);
@@ -246,8 +257,8 @@ int main(int argc, char **argv) {
         if (status != noErr) _Exit(1);
         status = AudioComponentInstanceDispose(unit);
         if (status != noErr) _Exit(1);
-        if (atomic_load(&progress.active) != 0 ||
-            atomic_load(&progress.entries) != atomic_load(&progress.callbacks)) failed = 1;
+        if (atomic_load(&progress->active) != 0 ||
+            atomic_load(&progress->entries) != atomic_load(&progress->callbacks)) failed = 1;
         if (guarded) {
             // Observe off the target's measured interval; guard frames never credit a target.
             const uint64_t frames = atomic_load(&guard_progress.frames);

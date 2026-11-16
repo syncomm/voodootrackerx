@@ -5,6 +5,95 @@ import Foundation
 import MixerCore
 #endif
 
+/// Immutable native birth inputs. Pointer lifetimes belong to the off-audio batch/generation owners.
+struct CSoftwareMixerPreparedLoopBirth: @unchecked Sendable {
+    let payload: OpaquePointer
+    let loopMode: VTXCMixerLoopMode
+    let loopStartFrame: UInt32
+    let loopEndFrame: UInt32
+    let initialSourceFrame: UInt32
+    let gain: Float
+    let pan: Float
+    let playbackStep: Double
+    let volumeEnvelope: UnsafePointer<VTXCMixerEnvelope>?
+    let panEnvelope: UnsafePointer<VTXCMixerEnvelope>?
+    let absoluteKeyOffFrame: UInt64?
+    let fadeoutFrameDecrement: Float
+    let sourceOnsetElapsedFrames: UInt32
+}
+
+/// Holds copied envelope points until their batch is acknowledged; C copies them at real birth.
+private final class CSoftwareMixerPreparedLoopEnvelope {
+    let pointer: UnsafePointer<VTXCMixerEnvelope>?
+    private let native: UnsafeMutablePointer<VTXCMixerEnvelope>?
+    private let points: UnsafeMutablePointer<VTXCMixerEnvelopePoint>?
+    private let count: Int
+
+    init(_ envelope: MixerEnvelope?) {
+        guard let envelope, envelope.points.count <= Int(VTX_C_MIXER_MAX_ENVELOPE_POINTS) else {
+            pointer = nil; native = nil; points = nil; count = 0
+            return // Preserve existing nil/oversize-envelope disabling behavior.
+        }
+        count = envelope.points.count
+        let allocated = count == 0 ? nil : UnsafeMutablePointer<VTXCMixerEnvelopePoint>.allocate(capacity: count)
+        for (index, point) in envelope.points.enumerated() {
+            allocated!.advanced(by: index).initialize(to: .init(
+                position_frame: UInt32(clamping: point.positionFrame), value: point.value))
+        }
+        points = allocated
+        let value = UnsafeMutablePointer<VTXCMixerEnvelope>.allocate(capacity: 1)
+        value.initialize(to: .init(points: allocated.map { UnsafePointer($0) }, point_count: UInt32(count),
+            sustain_enabled: envelope.sustainFrame == nil ? 0 : 1,
+            sustain_frame: UInt32(clamping: envelope.sustainFrame ?? 0),
+            loop_enabled: envelope.loopStartFrame == nil || envelope.loopEndFrame == nil ? 0 : 1,
+            loop_start_frame: UInt32(clamping: envelope.loopStartFrame ?? 0),
+            loop_end_frame: UInt32(clamping: envelope.loopEndFrame ?? 0)))
+        native = value
+        pointer = UnsafePointer(value)
+    }
+
+    deinit { // Only an off-audio owner may destroy this storage.
+        if let native { native.deinitialize(count: 1); native.deallocate() }
+        if let points { points.deinitialize(count: count); points.deallocate() }
+    }
+}
+
+/// Prepares shared PCM and native envelope storage off audio using the existing C payload API.
+/// The caller also retains cache for the entire Loop generation, through host quiescence and
+/// native voice-pool reset. Batch acknowledgment alone does not end PCM voice/tail ownership.
+final class CSoftwareMixerPreparedLoopBirthStorage: @unchecked Sendable {
+    let birth: CSoftwareMixerPreparedLoopBirth
+    private let cache: CSoftwareMixerSharedSamplePayloadCache
+    private let volumeEnvelope: CSoftwareMixerPreparedLoopEnvelope
+    private let panEnvelope: CSoftwareMixerPreparedLoopEnvelope
+
+    init?(cache: CSoftwareMixerSharedSamplePayloadCache, sample: MixerSampleBuffer,
+          gain: Float = 1, pan: Float = 0, playbackStep: Double = 1,
+          loop: MixerSampleLoop = .none, initialSourceFrame: Int = 0,
+          volumeEnvelope: MixerEnvelope? = nil, panEnvelope: MixerEnvelope? = nil,
+          absoluteKeyOffFrame: Int? = nil, fadeoutFrameDecrement: Float = 0) {
+        guard sample.frameCount > 0, sample.frameCount <= Int(UInt32.max),
+              initialSourceFrame >= 0, initialSourceFrame < sample.frameCount,
+              absoluteKeyOffFrame.map({ $0 >= 0 }) ?? true,
+              let acquired = cache.acquirePayload(for: sample) else { return nil }
+        let selectedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
+        let preparedVolume = CSoftwareMixerPreparedLoopEnvelope(volumeEnvelope)
+        let preparedPan = CSoftwareMixerPreparedLoopEnvelope(panEnvelope)
+        self.cache = cache
+        self.volumeEnvelope = preparedVolume
+        self.panEnvelope = preparedPan
+        birth = .init(payload: acquired.payload,
+            loopMode: selectedLoop.mode == .forward ? VTX_C_MIXER_LOOP_FORWARD :
+                (selectedLoop.mode == .pingPong ? VTX_C_MIXER_LOOP_PING_PONG : VTX_C_MIXER_LOOP_NONE),
+            loopStartFrame: UInt32(selectedLoop.startFrame), loopEndFrame: UInt32(selectedLoop.endFrame),
+            initialSourceFrame: UInt32(initialSourceFrame), gain: gain, pan: pan, playbackStep: playbackStep,
+            volumeEnvelope: preparedVolume.pointer, panEnvelope: preparedPan.pointer,
+            absoluteKeyOffFrame: absoluteKeyOffFrame.map { UInt64($0) },
+            fadeoutFrameDecrement: fadeoutFrameDecrement.isFinite ? fadeoutFrameDecrement : 0,
+            sourceOnsetElapsedFrames: 0)
+    }
+}
+
 /// One synthetic frame-based envelope point for the C-backed offline mixer.
 struct MixerEnvelopePoint: Equatable {
     let positionFrame: Int
@@ -631,6 +720,27 @@ final class CSoftwareMixer {
             setKeyOffFrame(keyOffFrame, fadeoutFrameDecrement: fadeoutFrameDecrement, forVoiceAt: Int(voiceIndex))
         }
         return CSoftwareMixerVoiceAdmissionResult(nativeStatus: status, voiceIndex: voiceIndex)
+    }
+
+    /// Adds one prevalidated Loop birth without PCM copy, cache lookup or envelope preparation.
+    /// All pointer owners stay pinned; old native sources/cursors are unaffected by this call.
+    @discardableResult
+    func addPreparedLoopVoice(_ birth: CSoftwareMixerPreparedLoopBirth) -> CSoftwareMixerVoiceAdmissionResult {
+        var voiceIndex = UInt32(0)
+        let status = vtx_c_mixer_add_scheduled_shared_sample_voice_with_step_at_source_frame(
+            state, birth.payload, birth.playbackStep, birth.initialSourceFrame, birth.gain, birth.pan,
+            birth.loopMode, birth.loopStartFrame, birth.loopEndFrame, currentFrame, &voiceIndex)
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return .init(nativeStatus: status, voiceIndex: voiceIndex)
+        }
+        Self.requireOK(vtx_c_mixer_set_voice_source_onset(state, voiceIndex, birth.sourceOnsetElapsedFrames))
+        Self.requireOK(vtx_c_mixer_set_voice_volume_envelope(state, voiceIndex, birth.volumeEnvelope))
+        Self.requireOK(vtx_c_mixer_set_voice_pan_envelope(state, voiceIndex, birth.panEnvelope))
+        if let keyOff = birth.absoluteKeyOffFrame {
+            Self.requireOK(vtx_c_mixer_set_voice_key_off_frame(state, voiceIndex, keyOff, birth.fadeoutFrameDecrement))
+        }
+        // Existing normal/offline upload modes and their diagnostics remain unchanged.
+        return .init(nativeStatus: status, voiceIndex: voiceIndex)
     }
 
     /// Adds one synthetic sample voice scheduled at an absolute output frame in the C mixer timeline.

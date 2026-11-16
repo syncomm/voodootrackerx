@@ -470,9 +470,9 @@ final class PlaybackEngineTests: XCTestCase {
         var hooks = RuntimeAdapterPlanPreparationHooks()
         hooks.receipt = { probe.record($0) }
         let productionMake = hooks.makePlan
-        hooks.makePlan = { song, rate, profile in
+        hooks.makePlan = { song, rate, profile, key, cancellation in
             XCTAssertTrue(gate.enterAndWait())
-            return productionMake(song, rate, profile)
+            return productionMake(song, rate, profile, key, cancellation)
         }
         let scheduler = DispatchQueueRuntimeAdapterPlanPrewarmScheduler(hooks: hooks)
         let output = ProductionPreparationTestAudioOutput()
@@ -715,11 +715,11 @@ final class PlaybackEngineTests: XCTestCase {
             _ = engine.seek(to: .init(orderIndex: 0, rowIndex: 1), autoplay: true)
         }
         engine.play(from: nil)
-        XCTAssertEqual(output.generatedConfigureCount, 1)
+        XCTAssertEqual(output.generatedConfigureCount, 2)
         XCTAssertEqual(output.consumedCount, 1)
         XCTAssertEqual(engine.currentPosition?.rowIndex, 1)
         XCTAssertTrue(engine.state.isPlaying)
-        XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 1)
+        XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 2)
     }
 
     @MainActor
@@ -749,7 +749,7 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(engine.song, song)
         XCTAssertEqual(output.consumedCount, consumedBeforeStop + 1)
         XCTAssertFalse(try XCTUnwrap(output.plan?.plan).$xmChannelRows.isFullCapture)
-        XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 2)
+        XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 3)
     }
 
     @MainActor
@@ -770,13 +770,13 @@ final class PlaybackEngineTests: XCTestCase {
             let engine = PlaybackEngine(audioEngine: output, startsRealtimeTimer: false,
                 runtimeAdapterPlanPrewarmScheduler: scheduler)
             engine.load(song: song)
-            // B2 intentionally keeps the full default-origin plan even for a selected-order Play.
+            // Selected Play must construct its own cold history within full traversal bounds.
             engine.play(from: .init(moduleTitle: "public-control", songPosition: 1, patternIndex: 1, row: 0))
             let direct = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate,
-                rowCaptureRetention: .runtimeFinalized)
+                rowCaptureRetention: .runtimeFinalized, initialPosition: song.position(orderIndex: 1, rowIndex: 0))
             XCTAssertEqual(output.plan, direct)
             XCTAssertFalse(try XCTUnwrap(output.plan?.plan).$xmChannelRows.isFullCapture)
-            XCTAssertEqual(output.plan?.plan?.diagnostics.rowMappings.first?.source.orderIndex, 0)
+            XCTAssertEqual(output.plan?.plan?.diagnostics.rowMappings.first?.source.orderIndex, 1)
             engine.stop()
             engine.load(song: nil)
 
@@ -809,7 +809,7 @@ final class PlaybackEngineTests: XCTestCase {
         for invalidAnchor in [true, false] {
             let probe = ProductionPreparationTestProbe()
             var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
-            hooks.makePlan = { song, rate, profile in
+            hooks.makePlan = { song, rate, profile, key, cancellation in
                 if !invalidAnchor && probe.values.filter({ $0.kind == "constructorStarted" }).count == 2 { return nil }
                 return RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, profileSession: profile)
             }
@@ -861,9 +861,9 @@ final class PlaybackEngineTests: XCTestCase {
         let failure = ProductionPreparationTestFailureOnce()
         var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
         let productionMake = hooks.makePlan
-        hooks.makePlan = { song, rate, profile in
+        hooks.makePlan = { song, rate, profile, key, cancellation in
             if failure.take() { return nil }
-            return productionMake(song, rate, profile)
+            return productionMake(song, rate, profile, key, cancellation)
         }
         let scheduler = DispatchQueueRuntimeAdapterPlanPrewarmScheduler(hooks: hooks)
         let output = ProductionPreparationTestAudioOutput()
@@ -915,11 +915,9 @@ final class PlaybackEngineTests: XCTestCase {
             return XCTFail("Build the canonical Debug app before running its prewarm regression")
         }
         let evidenceRoot = ProcessInfo.processInfo.environment["VTX_ROW_LIFETIME_EVIDENCE_ROOT"].map { URL(fileURLWithPath: $0) }
-        let directory = (evidenceRoot ?? FileManager.default.temporaryDirectory)
+        let directory = (evidenceRoot ?? URL(fileURLWithPath: "/private/tmp"))
             .appendingPathComponent("vtx-prewarm-stack-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        var succeeded = false
-        defer { if succeeded && evidenceRoot == nil { try? FileManager.default.removeItem(at: directory) } }
         let cases: [(Bool, Int, Bool, Bool)] = [
             (true, 44_100, true, true), (true, 48_000, true, true),
             (false, 44_100, true, true), (false, 48_000, true, true),
@@ -966,7 +964,6 @@ final class PlaybackEngineTests: XCTestCase {
                 return
             }
         }
-        succeeded = true
     }
 
     @MainActor
@@ -1985,7 +1982,7 @@ final class PlaybackEngineTests: XCTestCase {
 
         XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 7, rowIndex: 0))
         XCTAssertNil(audioOutput.consumedPatternLoopRanges.last ?? nil)
-        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [49, 51])
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [51])
     }
 
     @MainActor
@@ -3665,6 +3662,663 @@ extension PlaybackEngineTests {
                     frame += count; partition += 1
                 }
             } }
+        }
+    }
+}
+
+/// The real engine and native consumer must never import unplayed prefix state.
+final class SelectedOriginConsumerTests: XCTestCase {
+    @MainActor
+    func testColdSelectedFamiliesMatchIndependentSongAndExactNativeVisits() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            // E6, Fxx, slide, volume, pan and delayed/retriggered generations.
+            let families: [(UInt8, UInt8, UInt8)] = [(14, 0x60, 0x61), (15, 3, 0),
+                (1, 0x12, 0), (2, 0x23, 0), (10, 0x02, 0), (25, 0x20, 0),
+                (14, 0xD1, 0xD1), (27, 0x11, 0x10)]
+            for (effect, prefixParameter, selectedParameter) in families {
+                let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125, -0.125], baseSampleRate: 8363,
+                    loopStart: 0, loopLength: 4, loopType: 1)
+                let selected = (0..<4).map { row in makePlaybackRow(index: row,
+                    note: UInt8(56 + row), instrument: 1, effectType: row == 2 ? effect : 0,
+                    effectParam: row == 2 ? selectedParameter : 0) }
+                let instruments = [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
+                let song = makePlaybackSong(orderPatternIndices: [0, 1], patternRowsByIndex: [
+                    0: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: effect, effectParam: prefixParameter)],
+                    1: selected], instrumentsByIndex: instruments, initialTiming: .init(speed: 6, bpm: 125),
+                    usesLinearFrequencyTable: linear)
+                let isolated = makePlaybackSong(orderPatternIndices: [1], patternRowsByIndex: [1: selected],
+                    instrumentsByIndex: instruments, initialTiming: song.initialTiming, usesLinearFrequencyTable: linear)
+                let writer = TestRuntimeCMixerTraceWriter()
+                let native = RuntimeCMixerAudioEngine(sampleRate: rate, channelCount: 1,
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]),
+                    startsOutputHostOnDemand: false, traceWriter: writer)
+                let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false)
+                let context = PlaybackStartContext(moduleTitle: song.title, songPosition: 1, patternIndex: 1, row: 0)
+                engine.load(song: song, startContext: context)
+                engine.play(from: context)
+                let reference = RuntimeCMixerAdapterEventPlan.make(song: isolated, sampleRate: rate)
+                let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1),
+                    outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                _ = core.configureAdapterEventSchedule(reference.eventStorage, runtimeFrameOffset: 0)
+                let expectedRows = effect == 14 && selectedParameter == 0x61 ? [0, 1, 2, 0, 1, 2, 3] : [0, 1, 2, 3]
+                let end = try XCTUnwrap(reference.plannedSongEndFrame)
+                var actual = [Float](), expected = [Float]()
+                while actual.count < end {
+                    let frames = min(257, end - actual.count)
+                    actual += native.renderForTesting(frameCount: frames)
+                    expected += renderRuntimePCM(core, frames: frames)
+                }
+                XCTAssertNil(zip(actual, expected).first { $0 != $1 }, "effect=\(effect) linear=\(linear) rate=\(rate)")
+                let births = writer.events.filter { $0.runtimeAction == "c_mixer_add_voice" }
+                let expectedBirthRows = effect == 27 ? [0, 1, 2, 2, 2, 2, 2, 2, 3] : expectedRows
+                XCTAssertEqual(births.map(\.plannedSourceRowIndex), expectedBirthRows.map(Optional.some))
+                XCTAssertTrue(births.allSatisfy { $0.plannedSourceOrderIndex == 1 })
+                let referenceBirths = reference.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+                XCTAssertEqual(births.map(\.plannedEventID), referenceBirths.map { Optional($0.id) })
+                XCTAssertEqual(births.map(\.eventAppliedFrame), referenceBirths.map { Optional(UInt64($0.scheduledFrame)) })
+                XCTAssertTrue(births.allSatisfy { $0.plannedVsAppliedDelta == 0 })
+                engine.stop()
+                engine.play(from: context)
+                XCTAssertTrue(engine.state.isPlaying)
+                engine.stop(); engine.load(song: nil)
+            }
+        } }
+    }
+
+    @MainActor
+    func testStoppedSelectionInvalidatesObsoletePlanBeforeReplacementAndReusesMatchingOrigin() throws {
+        let scheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let output = ProductionPreparationTestAudioOutput()
+        let engine = PlaybackEngine(audioEngine: output, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        let song = makePlaybackSong(orderPatternIndices: [0, 1], patternRowsByIndex: [
+            0: [makePlaybackRow(index: 0)], 1: [makePlaybackRow(index: 0)]])
+        engine.load(song: song)
+        let context = PlaybackStartContext(moduleTitle: song.title, songPosition: 1, patternIndex: 1, row: 0)
+        engine.prepare(from: context)
+        XCTAssertEqual(scheduler.jobs[0].cancelCount, 1)
+        scheduler.complete(at: 0)
+        XCTAssertEqual(output.generatedConfigureCount, 0)
+        engine.play(from: context)
+        XCTAssertEqual(output.plan?.plan?.diagnostics.rowMappings.first?.source.orderIndex, 1)
+        engine.stop(); engine.play(from: context)
+        XCTAssertEqual(scheduler.requests.count, 2)
+        engine.stop(); engine.load(song: nil)
+    }
+
+    func testCancellationAbortsWithinRowsWithoutPublishingPartialPlan() {
+        let rows = (0..<256).map { makePlaybackRow(index: $0, note: 49, instrument: 1) }
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: rows])
+        for cancelAt in [1, 2, 4, 8] {
+            var polls = 0
+            let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000,
+                isCancelled: { polls += 1; return polls == cancelAt })
+            XCTAssertFalse(plan.generated)
+            XCTAssertEqual(polls, cancelAt)
+        }
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    func testFreshRuntimeConstructionRetiresFullRowsBeforeAssembly() {
+        struct WeakRow { weak var value: PlaybackXMChannelRow? }
+        var rows = [WeakRow](), observedAssembly = false
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 8])
+        let probe = RuntimeCMixerAdapterPlanLifetimeProbe(captureRows: { captured in
+            rows = captured.map { WeakRow(value: $0) }
+            XCTAssertEqual(rows.count, 8)
+            XCTAssertTrue(rows.allSatisfy { $0.value != nil })
+        }, beforeAssembly: {
+            observedAssembly = true
+            XCTAssertFalse(rows.isEmpty)
+            XCTAssertTrue(rows.allSatisfy { $0.value == nil })
+        })
+        let result = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000,
+            rowCaptureRetention: .runtimeFinalized, lifetimeProbe: probe)
+        XCTAssertTrue(result.generated)
+        XCTAssertTrue(observedAssembly)
+        XCTAssertEqual(result.plan!.$xmChannelRows.count, 8)
+    }
+
+    func testAssemblyNeedsNoFullRowObjectsAfterSemanticConstruction() {
+        struct WeakRow { weak var value: PlaybackXMChannelRow? }
+        let sample = makePlaybackSample(pcm: [0.25, -0.25], loopStart: 0, loopLength: 2, loopType: 1)
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 8],
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample])], note: 49, instrument: 1)
+        var source = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 0, orderCount: 1, sampleRate: 48_000)
+        let weakRows = source.xmChannelRows.map { WeakRow(value: $0) }
+        let expected = { () -> RuntimeCMixerAdapterEventStorage in
+            RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000, preparedPlan: source).eventStorage
+        }()
+        source.$xmChannelRows.finalizeForRuntime()
+        XCTAssertTrue(weakRows.allSatisfy { $0.value == nil })
+        let result = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000,
+            preparedPlan: source, rowCaptureRetention: .runtimeFinalized)
+        XCTAssertEqual(result.events, expected.events)
+        XCTAssertEqual(result.eventStorage.ordering, expected.ordering)
+        XCTAssertFalse(result.plan!.$xmChannelRows.isFullCapture)
+        XCTAssertEqual(result.plan!.$xmChannelRows.count, weakRows.count)
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    @MainActor
+    func testActualCoreAudioNormalSelectedPlayDeliversColdLoopAndExactPCM() async throws {
+        let directory = URL(fileURLWithPath: "/private/tmp/vtx-selected-host-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("selected.wav")
+        let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 256), baseSampleRate: 8363,
+            loopStart: 0, loopLength: 256, loopType: 1)
+        let selected = (0..<4).map { makePlaybackRow(index: $0, note: UInt8(56 + $0), instrument: 1,
+            effectType: $0 == 2 ? 14 : 0, effectParam: $0 == 2 ? 0x61 : 0) }
+        let song = makePlaybackSong(orderPatternIndices: [0, 1], patternRowsByIndex: [
+            0: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 14, effectParam: 0x60)],
+            1: selected], instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))])
+        let trace = TestRuntimeCMixerTraceWriter()
+        let native = RuntimeCMixerAudioEngine(sampleRate: 48_000,
+            outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]),
+            captureConfiguration: .init(url: url, pathName: "selected.wav", seconds: 1,
+                secondsPolicy: "test_explicit", configurationWarning: nil),
+            callbackDiagnostics: .init(minimalCallbackMode: false, outputBufferVerificationEnabled: true), traceWriter: trace)
+        let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false)
+        defer { engine.stop(); engine.load(song: nil) }
+        let context = PlaybackStartContext(moduleTitle: song.title, songPosition: 1, patternIndex: 1, row: 0)
+        engine.load(song: song, startContext: context)
+        let gestureStart = DispatchTime.now().uptimeNanoseconds
+        engine.play(from: context)
+        let apiReturn = DispatchTime.now().uptimeNanoseconds
+        let start = try XCTUnwrap(trace.events.last { $0.runtimeAction == "backend_start" })
+        XCTAssertEqual(start.runtimeOutputHostStartStatus, 0)
+        var lastSilentObservation = gestureStart
+        var firstCopiedNonzeroObservation: UInt64?
+        let outputDeadline = Date().addingTimeInterval(5)
+        while Date() < outputDeadline {
+            let observationStart = DispatchTime.now().uptimeNanoseconds
+            let observed = native.snapshotForTesting()
+            let observationEnd = DispatchTime.now().uptimeNanoseconds
+            if observed.capture.outputPeak > 0 && observed.outputBufferCopyScratchOutputHashMatches == true {
+                firstCopiedNonzeroObservation = observationEnd
+                break
+            }
+            if observed.capture.outputPeak == 0 { lastSilentObservation = observationStart }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        let firstOutput = try XCTUnwrap(firstCopiedNonzeroObservation)
+        let frames = 7 * 6 * 960
+        let deadline = Date().addingTimeInterval(5)
+        while native.snapshotForTesting().capture.capturedFrameCount < frames && Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            native.consumeRuntimeAdapterEvents(context: .init(orderIndex: 1, patternIndex: 1, rowIndex: 0, tickInRow: 0),
+                patternLoopRange: nil, timingSession: nil)
+        }
+        let snapshot = native.snapshotForTesting()
+        XCTAssertGreaterThanOrEqual(snapshot.capture.capturedFrameCount, frames)
+        XCTAssertEqual(snapshot.outputBufferCopyFailureCount, 0)
+        XCTAssertEqual(snapshot.outputBufferCopyScratchOutputHashMatches, true)
+        engine.stop()
+        let captured = try parsePCM16WAV(Data(contentsOf: url))
+        let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000,
+            initialPosition: song.position(orderIndex: 1, rowIndex: 0))
+        let offline = PlaybackSongOfflineRenderer(preparedPlan: runtime.plan)
+            .render(.init(song: song, config: .init(sampleRate: 48_000), frames: frames))
+        let expected = try parsePCM16WAV(MixerWAVExporter.pcm16WAVData(from: offline.block))
+        XCTAssertEqual(Array(captured.samples.prefix(expected.samples.count)), expected.samples)
+        let firstNonzeroFrame = captured.samples.firstIndex(where: { $0 != 0 }).map { $0 / 2 }
+        XCTAssertEqual(firstNonzeroFrame, 1)
+        let births = trace.events.filter { $0.runtimeAction == "c_mixer_add_voice" }
+        XCTAssertEqual(births.map(\.plannedSourceRowIndex), [0, 1, 2, 0, 1, 2, 3].map(Optional.some))
+        XCTAssertTrue(births.allSatisfy { $0.plannedVsAppliedDelta == 0 && $0.plannedSourceOrderIndex == 1 })
+        if let path = ProcessInfo.processInfo.environment["VTX_PLANNING_EVIDENCE_ROOT"] {
+            let root = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+            guard root.path.hasPrefix("/private/tmp/vtx-") || root.path.hasPrefix("/tmp/vtx-") else {
+                XCTFail("Planning evidence must use the designated temporary evidence root")
+                return
+            }
+            let report: [String: Any] = ["fixture": "public-selected-e6-v1", "sample_rate": 48_000,
+                "first_play_api_ms": Double(apiReturn - gestureStart) / 1_000_000,
+                "first_nonzero_host_buffer_lower_ms": Double(lastSilentObservation - gestureStart) / 1_000_000,
+                "first_nonzero_host_buffer_upper_ms": Double(firstOutput - gestureStart) / 1_000_000,
+                "first_pcm16_nonzero_frame": firstNonzeroFrame as Any,
+                "output_copy_hash_matches": true,
+                "endpoint": "polling interval containing first nonzero CoreAudio buffer copy; excludes DAC presentation"]
+            try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                .write(to: root.appendingPathComponent("host-onset-\(UUID().uuidString).json"), options: .withoutOverwriting)
+        }
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    func testOneShotCancellationInsideLongEnvelopeFoldCannotPublishPartialHistory() {
+        let sample = makePlaybackSample(pcm: [0.25, -0.25], loopStart: 0, loopLength: 2, loopType: 1)
+        let envelope = PlaybackVolumeEnvelope(enabled: true, points: [.init(tick: 0, value: 64), .init(tick: 12, value: 32)],
+            sustainPointIndex: nil, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: 1, fadeout: 0)
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: (0..<256).map {
+            makePlaybackRow(index: $0, note: $0 == 0 ? 49 : 0, instrument: $0 == 0 ? 1 : 0)
+        }], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: envelope)])
+        for cancelAt in [12, 20, 30] {
+            var polls = 0
+            let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000,
+                isCancelled: { polls += 1; return polls == cancelAt })
+            XCTAssertFalse(plan.generated)
+            XCTAssertEqual(polls, cancelAt)
+        }
+    }
+
+    @MainActor
+    func testAdapterOnlyOutputPreservesLegacyLoopTemplateAPI() throws {
+        let probe = ProductionPreparationTestProbe()
+        var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
+        let output = ProductionPreparationTestAudioOutput()
+        let engine = PlaybackEngine(audioEngine: output, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: DispatchQueueRuntimeAdapterPlanPrewarmScheduler(hooks: hooks))
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 4])
+        let context = PlaybackStartContext(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 2)
+        engine.load(song: song, startContext: context, loopEnabled: true)
+        engine.play(from: context, loopEnabled: true, timingSession: nil)
+        XCTAssertEqual(engine.currentPosition?.rowIndex, 2)
+        XCTAssertEqual(output.plan?.plan?.diagnostics.rowMappings.first?.source.rowIndex, 0)
+        XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 1)
+        engine.stop(); engine.load(song: nil)
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    /// Delivery feasibility only: a complete oracle supplies commands; this does not
+    /// establish bounded semantic checkpoint extraction or production loop admission.
+    func testPreparedSuccessorDeliveryKeepsNativeSourceCursorAndExactPCM() throws {
+        let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125, -0.125], baseSampleRate: 8363,
+            loopStart: 0, loopLength: 4, loopType: 1)
+        let rows = (0..<10).map { row in makePlaybackRow(index: row,
+            note: row % 4 == 0 ? 49 : 0, instrument: row % 4 == 0 ? 1 : 0,
+            effectType: row % 4 == 2 ? 1 : 0, effectParam: row % 4 == 2 ? 1 : 0) }
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: rows],
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 3, bpm: 125))
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        let cores = (0..<2).map { _ in RuntimeCMixerRenderCore(config: .init(sampleRate: 48_000, channelCount: 1)) }
+        _ = cores[0].configureAdapterEventSchedule(plan.eventStorage, runtimeFrameOffset: 0)
+        var delivered = [Int](), firstDifference: Int?
+        for range in [0..<5_760, 5_760..<17_280, 17_280..<28_800] {
+            let events = plan.events.filter { range.contains($0.scheduledFrame) }
+            _ = cores[1].configureAdapterEventSchedule(.init(events: events), runtimeFrameOffset: 0)
+            var frame = range.lowerBound
+            while frame < range.upperBound {
+                let count = min(257, range.upperBound - frame)
+                let expected = renderRuntimePCM(cores[0], frames: count)
+                let actual = renderRuntimePCM(cores[1], frames: count)
+                if firstDifference == nil, let index = zip(actual, expected).enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset {
+                    firstDifference = frame + index
+                }
+                frame += count
+            }
+            let applied = cores[1].drainAppliedAdapterEventDiagnostics()
+            delivered += applied.map { $0.event.id }
+            XCTAssertTrue(applied.allSatisfy { $0.eventFrameDelta == 0 })
+        }
+        XCTAssertNil(firstDifference)
+        XCTAssertEqual(delivered, cores[0].drainAppliedAdapterEventDiagnostics().map { $0.event.id })
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    @MainActor
+    func testStopRevokesActualConstructionAndRetiresAllProducerRoots() throws {
+        let sample = makePlaybackSample(pcm: [0.25, -0.25], loopStart: 0, loopLength: 2, loopType: 1)
+        let cell = PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 4, effectParam: 0x47)
+        let rows = (0..<64).map { PlaybackRow(index: $0, cells: Array(repeating: cell, count: 8)) }
+        let song = makePlaybackSong(orderPatternIndices: Array(repeating: 0, count: 64), patternRowsByIndex: [0: rows],
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample])])
+        let probe = ProductionPreparationTestProbe()
+        var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
+        let output = ProductionPreparationTestAudioOutput()
+        let engine = PlaybackEngine(audioEngine: output, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: DispatchQueueRuntimeAdapterPlanPrewarmScheduler(hooks: hooks))
+        engine.load(song: song)
+        XCTAssertTrue(probe.wait("constructorStarted"))
+        Thread.sleep(forTimeInterval: 0.01)
+        engine.stop()
+        XCTAssertTrue(probe.wait("retired"))
+        XCTAssertEqual(output.generatedConfigureCount, 0)
+        XCTAssertEqual(probe.liveRoots.sources, 0)
+        XCTAssertEqual(probe.liveRoots.results, 0)
+        XCTAssertFalse(engine.state.isPlaying)
+        engine.load(song: nil)
+    }
+
+    func testMalformedExplicitProducerOriginCannotFallBackToOrderZero() throws {
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 4])
+        let key = try XCTUnwrap(PlaybackPreparationKey(instanceEpoch: UUID(), documentID: UUID(),
+            sampleRate: 48_000, origin: .cold(order: 0, row: 999)))
+        XCTAssertNil(RuntimeAdapterPlanPreparationHooks().makePlan(song, 48_000, nil, key, .init()))
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    /// Bounded semantic PoC for ordinary 1xx/2xx only. Envelope/modulation/traversal
+    /// checkpointing and production batch identity remain separate unqualified gates.
+    func testCompactPitchContinuationReusesInterpreterAcrossOneThousandLoops() throws {
+        typealias Adapter = PlaybackSongSyntheticAdapter
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for effect: UInt8 in [1, 2] {
+        for carriesSourceAcrossIterations in [false, true] {
+            let sample = makePlaybackSample(pcm: [0.25, -0.25], baseSampleRate: 8363,
+                loopStart: 0, loopLength: 2, loopType: 1)
+            let pattern = [makePlaybackRow(index: 0, effectType: effect, effectParam: 1),
+                makePlaybackRow(index: 1), makePlaybackRow(index: 2, note: 49, instrument: 1), makePlaybackRow(index: 3)]
+            let visits = [2, 3] + (0..<1000).flatMap { _ in [0, 1, 2, 3] }
+            let executedRows = visits.enumerated().map { ordinal, row in
+                carriesSourceAcrossIterations && ordinal > 0 && row == 2
+                    ? makePlaybackRow(index: row) : pattern[row]
+            }
+            let expandedRows = executedRows.enumerated().map { PlaybackRow(index: $0.offset, cells: $0.element.cells) }
+            let instruments = [1: PlaybackInstrument(index: 1, samples: [sample])]
+            let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: pattern],
+                instrumentsByIndex: instruments, initialTiming: .init(speed: 3, bpm: 125), usesLinearFrequencyTable: linear)
+            let expanded = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: expandedRows],
+                instrumentsByIndex: instruments, initialTiming: song.initialTiming, usesLinearFrequencyTable: linear)
+            let oracle = Adapter.adapt(expanded, startOrderIndex: 0, orderCount: 1, sampleRate: rate)
+            let expectedSlides = Dictionary(uniqueKeysWithValues: oracle.diagnostics.portamentoSlideEffects.map { ($0.syntheticRow, $0) })
+            var state = Adapter.ChannelState(), retainedEvent: SyntheticTrackerEvent?
+            var retainedMapping: PlaybackSongSyntheticEventMapping?
+            var buffers = [Adapter.MixerSampleBufferCacheKey: MixerSampleBuffer]()
+            var sourceBirth = -1, maximumScratchSources = 0
+            let rowFrames = 3 * Int(rate / 50)
+            for (ordinal, row) in visits.enumerated() {
+                var scratch = Adapter.AdapterRowContext()
+                scratch.channelStates = [state]; scratch.mixerSampleBuffers = buffers
+                if let retainedEvent, let mapping = retainedMapping {
+                    scratch.events = [retainedEvent]
+                    // Import a lookup record into scratch slot 0 without emitting a birth.
+                    scratch.eventMappings = [Adapter.retriggeredEventMapping(from: mapping,
+                        source: mapping.source, channelIndex: mapping.channelIndex, syntheticRow: mapping.syntheticRow,
+                        syntheticTick: mapping.syntheticTick, eventIndex: 0, effectType: mapping.effectType,
+                        effectParam: mapping.effectParam, volumeColumn: mapping.volumeColumn,
+                        effectiveVolumeValue: mapping.effectiveVolumeValue,
+                        effectiveGlobalVolumeValue: mapping.effectiveGlobalVolumeValue,
+                        effectiveGlobalVolumeMultiplier: mapping.effectiveGlobalVolumeMultiplier, effectivePan: mapping.effectivePan)]
+                }
+                let imported = scratch.events.count, frame = ordinal * rowFrames
+                let source = PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: row)
+                let timing = PlaybackSongFxxTimingPlan(sampleRate: rate, initialSpeed: 3, initialBPM: 125,
+                    rowTimings: [.init(source: source, syntheticRow: 0, rowStartExactFrame: Double(frame),
+                        rowEndExactFrame: Double(frame + rowFrames), effectiveSpeed: 3, effectiveBPM: 125)],
+                    timingChanges: [], finalSpeed: 3, finalBPM: 125, endExactFrame: Double(frame + rowFrames))
+                _ = Adapter.appendEvents(from: executedRows[ordinal], source: source, syntheticRow: 0, song: song,
+                    timingConfig: .init(speed: 3, bpm: 125, sampleRate: rate), timingPlan: timing,
+                    scheduledStartFrame: frame, context: &scratch)
+                if scratch.events.count > imported {
+                    sourceBirth += 1
+                    XCTAssertEqual(scratch.events.count - imported, 1)
+                    XCTAssertEqual(scratch.events.last?.playbackStep, oracle.pattern.events[sourceBirth].playbackStep)
+                }
+                if let expected = expectedSlides[ordinal] {
+                    let actual = try XCTUnwrap(scratch.portamentoSlideEffects.last)
+                    XCTAssertEqual(actual.stepUpdates, expected.stepUpdates)
+                    XCTAssertEqual(actual.currentPlaybackStepBefore, expected.currentPlaybackStepBefore)
+                    XCTAssertEqual(actual.currentPlaybackStepAfter, expected.currentPlaybackStepAfter)
+                    XCTAssertEqual(sourceBirth, expected.activeEventIndex)
+                }
+                state = scratch.channelStates[0]
+                if let index = state.activeEventIndex { retainedEvent = scratch.events[index] }
+                if let index = state.activeEventMappingIndex { retainedMapping = scratch.eventMappings[index] }
+                state.activeEventIndex = retainedEvent == nil ? nil : 0
+                state.activeEventMappingIndex = retainedMapping == nil ? nil : 0
+                buffers = scratch.mixerSampleBuffers
+                maximumScratchSources = max(maximumScratchSources, scratch.events.count)
+                XCTAssertLessThanOrEqual(scratch.events.count, 2)
+                XCTAssertLessThanOrEqual(scratch.eventMappings.count, 2)
+                XCTAssertLessThanOrEqual(scratch.xmChannelRows.count, 1)
+                XCTAssertLessThanOrEqual(scratch.portamentoSlideEffects.count, 1)
+                XCTAssertLessThanOrEqual(buffers.count, 1)
+            }
+            XCTAssertEqual(sourceBirth + 1, oracle.pattern.events.count)
+            XCTAssertEqual(sourceBirth + 1, carriesSourceAcrossIterations ? 1 : 1001)
+            XCTAssertEqual(maximumScratchSources, carriesSourceAcrossIterations ? 1 : 2)
+        } } } }
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    @MainActor
+    func testEditableAudioValueReusePreservesGenerationButNeverCrossesDocumentOrEdit() {
+        let scheduler = TestRuntimeAdapterPlanPrewarmScheduler(), output = ProductionPreparationTestAudioOutput()
+        let engine = PlaybackEngine(audioEngine: output, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        let identity = UUID(), nextIdentity = UUID(), song = makeRuntimeAdapterPlaybackSong(patternIndex: 0)
+        engine.loadEditableSnapshot(song: song, identity: identity, startContext: nil, loopEnabled: false, timingSession: nil)
+        engine.play(from: nil); engine.stop()
+        let firstGeneration = scheduler.requests[0].key.sourceGeneration
+        engine.loadEditableSnapshot(song: song, identity: identity, startContext: nil, loopEnabled: false, timingSession: nil)
+        engine.play(from: nil); engine.stop()
+        XCTAssertEqual(scheduler.requests.count, 1)
+        engine.loadEditableSnapshot(song: song, identity: nextIdentity, startContext: nil, loopEnabled: false, timingSession: nil)
+        engine.play(from: nil); engine.stop()
+        XCTAssertEqual(scheduler.requests.count, 2)
+        XCTAssertNotEqual(scheduler.requests[1].key.sourceGeneration, firstGeneration)
+        let edited = makeRuntimeAdapterPlaybackSong(patternIndex: 7)
+        engine.loadEditableSnapshot(song: edited, identity: nextIdentity, startContext: nil, loopEnabled: false, timingSession: nil)
+        engine.play(from: nil); engine.stop()
+        XCTAssertEqual(scheduler.requests.count, 3)
+        XCTAssertNotEqual(scheduler.requests[2].key.sourceGeneration, scheduler.requests[1].key.sourceGeneration)
+        engine.load(song: nil)
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    @MainActor
+    func testActualCoreAudioExecutedUserLoopContinuesWhileMainActorIsDelayed() throws {
+        for rate in [44_100.0, 48_000] {
+            let directory = URL(fileURLWithPath: "/private/tmp/vtx-general-loop-host-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appendingPathComponent("loop.wav")
+            let rows = [makePlaybackRow(index: 0, effectType: 1, effectParam: 1), makePlaybackRow(index: 1),
+                makePlaybackRow(index: 2, note: 49, instrument: 1), makePlaybackRow(index: 3)]
+            let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125, -0.125], baseSampleRate: 8363,
+                loopStart: 0, loopLength: 4, loopType: 1)
+            let instrument = PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))
+            let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: rows],
+                instrumentsByIndex: [1: instrument], initialTiming: .init(speed: 3, bpm: 125))
+            let trace = TestRuntimeCMixerTraceWriter()
+            let output = RuntimeCMixerAudioEngine(sampleRate: rate, channelCount: 1,
+                outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]),
+                captureConfiguration: .init(url: url, pathName: "loop.wav", seconds: 2,
+                    secondsPolicy: "test_explicit", configurationWarning: nil),
+                callbackDiagnostics: .init(minimalCallbackMode: false, outputBufferVerificationEnabled: true), traceWriter: trace)
+            let engine = PlaybackEngine(audioEngine: output, startsRealtimeTimer: false)
+            defer { engine.stop(); engine.load(song: nil) }
+            let context = PlaybackStartContext(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 2)
+            engine.load(song: song, startContext: context, loopEnabled: true)
+            engine.play(from: context, loopEnabled: true, timingSession: nil)
+            XCTAssertTrue(engine.isPatternLoopPlaybackActive)
+            XCTAssertTrue(output.hasRuntimeUserLoop)
+            XCTAssertEqual(trace.events.last { $0.runtimeAction == "backend_start" }?.runtimeOutputHostStartStatus, 0)
+            // No MainActor tick/notification can refill or acknowledge during this delay.
+            Thread.sleep(forTimeInterval: 1.2)
+            let follow = try XCTUnwrap(output.runtimeUserLoopPosition())
+            XCTAssertGreaterThan(follow.nativeFrame, UInt64(rate))
+            XCTAssertNil(output.consumeRuntimeUserLoopFailure())
+            engine.advanceOneTick()
+            let snapshot = output.quiescedSnapshotForTesting()
+            XCTAssertEqual(snapshot.callbackLockFailureCount, 0)
+            XCTAssertEqual(snapshot.failedRenderCount, 0)
+            XCTAssertEqual(snapshot.outputBufferCopyFailureCount, 0)
+            XCTAssertEqual(snapshot.outputBufferCopyScratchOutputHashMatches, true)
+            XCTAssertGreaterThan(snapshot.outputBufferCopyAttemptCount, 0)
+            engine.stop()
+            let captured = try parsePCM16WAV(Data(contentsOf: url))
+            let visits = [2, 3] + (0..<3).flatMap { _ in [0, 1, 2, 3] }
+            let expanded = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: visits.enumerated().map {
+                PlaybackRow(index: $0.offset, cells: rows[$0.element].cells)
+            }], instrumentsByIndex: [1: instrument], initialTiming: .init(speed: 3, bpm: 125))
+            let oracle = RuntimeCMixerAdapterEventPlan.make(song: expanded, sampleRate: rate)
+            let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1),
+                outputPolicy: .resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+            _ = core.configureAdapterEventSchedule(oracle.eventStorage, runtimeFrameOffset: 0)
+            let total = try XCTUnwrap(oracle.plannedSongEndFrame)
+            var pcm = [Float]()
+            while pcm.count < total { pcm += renderRuntimePCM(core, frames: min(997, total - pcm.count)) }
+            let expected = try parsePCM16WAV(MixerWAVExporter.pcm16WAVData(from:
+                .init(config: .init(sampleRate: rate, channelCount: 1), frameCount: pcm.count, interleavedPCM: pcm)))
+            XCTAssertEqual(Array(captured.samples.prefix(expected.samples.count)), expected.samples)
+        }
+    }
+
+    /// Negative control: the rejected frozen iteration has a reproducible stale
+    /// source target. This pins the design gap; it does not qualify user Loop.
+    func testFrozenIterationCounterexampleRetainsFrame18241Witness() throws {
+        let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125, -0.125], baseSampleRate: 8363,
+            loopStart: 0, loopLength: 4, loopType: 1)
+        let pattern = [makePlaybackRow(index: 0, effectType: 1, effectParam: 1), makePlaybackRow(index: 1),
+            makePlaybackRow(index: 2, note: 49, instrument: 1), makePlaybackRow(index: 3)]
+        func song(_ visits: [Int]) -> PlaybackSong {
+            makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: visits.enumerated().map {
+                PlaybackRow(index: $0.offset, cells: pattern[$0.element].cells)
+            }], instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 3, bpm: 125))
+        }
+        let templateSong = song([2, 3, 0, 1, 2, 3])
+        let template = RuntimeCMixerAdapterEventPlan.make(song: templateSong, sampleRate: 48_000)
+        let oracle = RuntimeCMixerAdapterEventPlan.make(song: song([2, 3, 0, 1, 2, 3, 0, 1, 2, 3]), sampleRate: 48_000)
+        let cores = (0..<2).map { _ in RuntimeCMixerRenderCore(config: .init(sampleRate: 48_000, channelCount: 1)) }
+        let loop = RuntimeCMixerAdapterEventLoopRange(
+            playbackRange: try XCTUnwrap(templateSong.patternLoopRange(containing: templateSong.startPosition!)),
+            plannedStartFrame: 5_760, plannedEndFrame: 17_280,
+            events: template.events.filter { $0.scheduledFrame >= 5_760 })
+        _ = cores[0].configureAdapterEventSchedule(template.eventStorage, runtimeFrameOffset: 0, loopRange: loop)
+        _ = cores[1].configureAdapterEventSchedule(oracle.eventStorage, runtimeFrameOffset: 0)
+        var firstDifference: Int?
+        for row in 0..<10 {
+            let actual = renderRuntimePCM(cores[0], frames: 2_880), expected = renderRuntimePCM(cores[1], frames: 2_880)
+            if firstDifference == nil, let index = zip(actual, expected).enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset {
+                firstDifference = row * 2_880 + index
+            }
+        }
+        XCTAssertEqual(firstDifference, 18_241)
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    func testImmutableSemanticOwnerPreservesValueEqualityCoWAndFinalAliasRetirement() throws {
+        let song = makeRuntimeAdapterPlaybackSong(patternIndex: 0)
+        var runtime: RuntimeCMixerAdapterEventPlan? = .make(song: song, sampleRate: 48_000)
+        let independentlyEqual = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        XCTAssertEqual(runtime, independentlyEqual)
+        var alias = runtime
+        weak var owner = runtime?.semanticPlanOwnerForTesting
+        XCTAssertNotNil(owner)
+        var extracted = runtime?.plan
+        extracted?.noteOnlyEventIndices.insert(999)
+        var different: RuntimeCMixerAdapterEventPlan? = .init(generated: true, sampleRate: 48_000,
+            plannedSongEndFrame: runtime?.plannedSongEndFrame, plannedEventCount: runtime!.plannedEventCount,
+            events: runtime!.events, categories: runtime!.categories, plan: extracted)
+        XCTAssertNotEqual(runtime, different)
+        XCTAssertFalse(runtime!.plan!.noteOnlyEventIndices.contains(999))
+        XCTAssertFalse(alias!.plan!.noteOnlyEventIndices.contains(999))
+        different = nil; extracted = nil
+        runtime = nil
+        XCTAssertNotNil(owner)
+        alias = nil
+        XCTAssertNil(owner)
+    }
+
+    @MainActor
+    func testKnownSelectedLaunchOriginUsesOneActualConstructor() throws {
+        let song = makePlaybackSong(orderPatternIndices: [0, 1], patternRowCounts: [0: 4, 1: 4])
+        let output = ProductionPreparationTestAudioOutput(), probe = ProductionPreparationTestProbe()
+        var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
+        let engine = PlaybackEngine(audioEngine: output, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: DispatchQueueRuntimeAdapterPlanPrewarmScheduler(hooks: hooks))
+        let request = PlaybackDebugStartRequest(orderIndex: 1, rowIndex: 2)
+        let context = try XCTUnwrap(engine.startContext(for: request, in: song))
+        engine.load(song: song, startContext: context)
+        engine.seek(to: request, autoplay: true)
+        XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 1)
+        XCTAssertEqual(output.plan?.plan?.diagnostics.rowMappings.first?.source, .init(orderIndex: 1, patternIndex: 1, rowIndex: 2))
+        engine.stop(); engine.load(song: nil)
+    }
+}
+
+extension SelectedOriginConsumerTests {
+    @MainActor
+    func testPublicCompositionEditsReuseAndRebuildThroughNativeConsumer() throws {
+        let base = BlankTrackerDocument.makeDefault(), identity = UUID()
+        let sample = makePlaybackSample(pcm: [0.25, -0.25], baseSampleRate: 8363,
+            loopStart: 0, loopLength: 2, loopType: 1)
+        let cells = (0..<64).map { _ in (0..<4).map { _ in
+            XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 4, effectParam: 0x47)
+        } }
+        var document = BlankTrackerDocument(title: "Public composition workflow v1", songLength: 16,
+            currentPosition: 0, restartPosition: 0, currentPatternIndex: 0, tempo: 125, speed: 6,
+            orderTable: Array(0..<16), selection: base.selection,
+            instrumentPalette: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+            patterns: (0..<16).map { .init(index: $0, rowCount: 64, channels: 4, rows: cells) })
+        let native = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1, startsOutputHostOnDemand: false)
+        let probe = ProductionPreparationTestProbe()
+        var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
+        let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: DispatchQueueRuntimeAdapterPlanPrewarmScheduler(hooks: hooks))
+        let editor = EditableDocumentEditCoordinator(contextProvider: {
+            .editable(document: document, isPlaybackActive: engine.state.isPlaying)
+        }, documentApplyHandler: { document = $0 })
+        var measurements = [[String: Any]]()
+        func run(_ name: String, order: Int = 0, expectedConstructors: Int, edit: () -> Void = {}) {
+            let before = probe.values.filter { $0.kind == "constructorStarted" }.count
+            let start = DispatchTime.now().uptimeNanoseconds
+            edit()
+            let song = EditablePlaybackSongBuilder.build(from: document)
+            let context = PlaybackStartContext(moduleTitle: song.title, songPosition: order, patternIndex: order, row: 0)
+            engine.loadEditableSnapshot(song: song, identity: identity, startContext: context,
+                loopEnabled: false, timingSession: nil)
+            engine.play(from: context)
+            let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+            XCTAssertTrue(engine.state.isPlaying)
+            XCTAssertEqual(engine.currentPosition?.orderIndex, order)
+            XCTAssertTrue(native.renderForTesting(frameCount: 64).contains { $0 != 0 })
+            engine.stop()
+            let constructors = probe.values.filter { $0.kind == "constructorStarted" }.count - before
+            XCTAssertEqual(constructors, expectedConstructors)
+            measurements.append(["scenario": name, "edit_build_load_play_api_ms": elapsed,
+                "constructors": constructors, "start_order": order])
+        }
+        run("initial", expectedConstructors: 1)
+        for iteration in 0..<5 {
+            run("unchanged_replay", expectedConstructors: 0)
+            run("early_edit_to_early_play", expectedConstructors: 1) {
+                var updated = document
+                XCTAssertTrue(updated.enterNote(trackerKey: iteration % 2 == 0 ? "w" : "e", octave: 4,
+                    row: 0, channel: 0, patternIndex: 0))
+                XCTAssertTrue(editor.applyEdit(label: "Enter Note", updatedDocument: updated))
+            }
+            run("late_edit_to_early_play", expectedConstructors: 1) {
+                var updated = document
+                XCTAssertTrue(updated.enterNote(trackerKey: iteration % 2 == 0 ? "w" : "e", octave: 4,
+                    row: 63, channel: 0, patternIndex: 15))
+                XCTAssertTrue(editor.applyEdit(label: "Enter Note", updatedDocument: updated))
+            }
+            run("sample_volume_to_selected_late_play", order: 15, expectedConstructors: 1) {
+                XCTAssertTrue(editor.setSampleVolume(instrumentAt: 0, sampleAt: 0, volume: UInt8(40 + iteration)))
+            }
+            run("selected_late_replay", order: 15, expectedConstructors: 0)
+            // Three document edits coalesce into one source preparation at next Play.
+            run("rapid_edits_to_early_play", expectedConstructors: 1) {
+                for row in 1...3 {
+                    var updated = document
+                    XCTAssertTrue(updated.enterNote(trackerKey: iteration % 2 == 0 ? "w" : "e", octave: 4,
+                        row: row, channel: 0, patternIndex: 0))
+                    XCTAssertTrue(editor.applyEdit(label: "Enter Note", updatedDocument: updated))
+                }
+            }
+        }
+        XCTAssertFalse(editor.applyEdit(label: "No-op", updatedDocument: document))
+        engine.load(song: nil)
+        if let path = ProcessInfo.processInfo.environment["VTX_PLANNING_EVIDENCE_ROOT"] {
+            let root = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+            guard root.path.hasPrefix("/private/tmp/vtx-") || root.path.hasPrefix("/tmp/vtx-") else {
+                XCTFail("Planning evidence must use the designated temporary evidence root")
+                return
+            }
+            let report: [String: Any] = ["fixture": "public-composition-workflow-v1", "orders": 16,
+                "rows_per_pattern": 64, "channels": 4, "rate": 48_000, "actual_host": false,
+                "endpoint": "synchronous edit + builder + load + Play API; native test consumer", "measurements": measurements]
+            try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                .write(to: root.appendingPathComponent("workflow-\(UUID().uuidString).json"), options: .withoutOverwriting)
         }
     }
 }

@@ -1169,10 +1169,48 @@ extension PlaybackSongSyntheticAdapter {
         }
     }
 
+    /// Terminal projection values, keyed by batch-local source lookup indices.
+    /// Export remaps only retained source bindings; no row snapshot/history survives.
+    struct GlobalVolumeProjectionCheckpoint {
+        var active = [Int: Int]()
+        var heldGains = [Int: Float]()
+        var affected = Set<Int>()
+        var released = Set<Int>()
+        var gxxAffected = Set<Int>()
+        var visibleGlobal = GlobalVolumeState.defaultValue
+
+        func remappedSources(_ lookup: [Int: Int]) -> Self {
+            var result = Self()
+            result.active = active.reduce(into: [:]) { values, pair in
+                if let index = lookup[pair.value] { values[pair.key] = index }
+            }
+            result.heldGains = heldGains.reduce(into: [:]) { values, pair in
+                if let index = lookup[pair.key] { values[index] = pair.value }
+            }
+            result.affected = Set(affected.compactMap { lookup[$0] })
+            result.released = Set(released.compactMap { lookup[$0] })
+            result.gxxAffected = Set(gxxAffected.compactMap { lookup[$0] })
+            result.visibleGlobal = visibleGlobal
+            return result
+        }
+    }
+
+    /// Reuses canonical channel order; noncanonical and duplicate captures retain the prior stable sort.
+    static func orderedGlobalVolumeRows(_ captured: [PlaybackXMChannelRow]) -> [PlaybackXMChannelRow] {
+        if captured.count > 1 {
+            for index in 1..<captured.count where captured[index - 1].channelIndex >= captured[index].channelIndex {
+                return captured.sorted { $0.channelIndex < $1.channelIndex }
+            }
+        }
+        return captured
+    }
+
     /// Projects Gxx/Hxy canonical transitions into existing immutable gain publications.
     /// Held values are output targets by trigger identity, never channel-local global-volume state.
     static func planGlobalVolumeChannelTargets(timingPlan: PlaybackSongFxxTimingPlan, context: inout AdapterRowContext,
-                                               profileSession: AdapterPlanProfileSession? = nil) {
+        profileSession: AdapterPlanProfileSession? = nil,
+        initialState: GlobalVolumeProjectionCheckpoint? = nil, includeTerminalTail: Bool = true,
+        terminalCheckpoint: ((GlobalVolumeProjectionCheckpoint) -> Void)? = nil) {
         let start = profileSession?.beginPhase()
         var records = 0, channelTurns = 0, targetStates = 0, peakRecords = 0
         defer {
@@ -1186,11 +1224,15 @@ extension PlaybackSongSyntheticAdapter {
             ])
         }
         let original = context.voiceStateUpdates
-        guard let firstRow = original.first(where: { $0.effectType == 0x10 || ($0.effectType == 0x11 && $0.syntheticTick > 0) })?.syntheticRow else { return }
+        let firstWriter = original.first(where: { $0.effectType == 0x10 || ($0.effectType == 0x11 && $0.syntheticTick > 0) })?.syntheticRow
+        guard let firstRow = initialState == nil && terminalCheckpoint == nil ? firstWriter : 0 else { return }
         let updatesByRow = Dictionary(grouping: original.indices, by: { original[$0].syntheticRow })
         let controlsByRow = Dictionary(grouping: context.xmChannelRows, by: \.syntheticRow)
         struct Route { let frame: Int; let channel: Int; let event: Int? }
-        var routes = context.eventMappings.map { mapping in
+        // Imported lookups include carried/retiring sources, not new channel routes.
+        // The continuation checkpoint already supplies the exact active route.
+        let firstRoute = initialState == nil ? 0 : context.importedSourceCount
+        var routes = context.eventMappings.dropFirst(firstRoute).map { mapping in
             let event = context.events[mapping.eventIndex]
             return Route(frame: event.scheduledStartFrame ?? timingPlan.frameFor(row: event.row, tick: event.tick),
                   channel: mapping.channelIndex, event: mapping.eventIndex)
@@ -1200,17 +1242,18 @@ extension PlaybackSongSyntheticAdapter {
         let sampleVolumes = Dictionary(uniqueKeysWithValues: context.eventMappings.map { ($0.eventIndex, $0.sampleVolume) })
         let resets = Dictionary(grouping: context.playbackStateEvents, by: \.scheduledFrame)
         let releases = Dictionary(grouping: context.keyOffEvents.filter(\.applied), by: { $0.scheduledFrame ?? -1 })
-        var active = [Int: Int](), heldGains = [Int: Float](), affected = Set<Int>(), released = Set<Int>()
-        var gxxAffected = Set<Int>()
+        var active = initialState?.active ?? [:], heldGains = initialState?.heldGains ?? [:]
+        var affected = initialState?.affected ?? [], released = initialState?.released ?? []
+        var gxxAffected = initialState?.gxxAffected ?? []
         var routeCursor = 0
         // This is a read-only projection of canonical mutations, not a second arithmetic authority.
-        var visibleGlobal = GlobalVolumeState.defaultValue
+        var visibleGlobal = initialState?.visibleGlobal ?? GlobalVolumeState.defaultValue
         var result = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         result.reserveCapacity(original.count)
         var lastControls = [GlobalVolumeChannelProjection]()
         for timing in timingPlan.rowTimings {
             let row = timing.syntheticRow
-            let rowControls = (controlsByRow[row] ?? []).sorted { $0.channelIndex < $1.channelIndex }
+            let rowControls = orderedGlobalVolumeRows(controlsByRow[row] ?? [])
             let byTick = Dictionary(grouping: updatesByRow[row] ?? [], by: { original[$0].syntheticTick })
             let rowHasH = (updatesByRow[row] ?? []).contains { original[$0].effectType == 0x11 && original[$0].syntheticTick > 0 }
             var controls = rowControls.map(GlobalVolumeChannelProjection.init)
@@ -1223,7 +1266,9 @@ extension PlaybackSongSyntheticAdapter {
                 while routeCursor < routes.count && routes[routeCursor].frame <= frame {
                     let route = routes[routeCursor]
                     active[route.channel] = route.event
-                    if let event = route.event { heldGains[event] = context.events[event].gain }
+                    if let event = route.event, initialState == nil || heldGains[event] == nil {
+                        heldGains[event] = context.events[event].gain
+                    }
                     routeCursor += 1
                 }
                 for reset in resets[frame] ?? [] {
@@ -1291,7 +1336,7 @@ extension PlaybackSongSyntheticAdapter {
         }
         // A forced envelope/release publication at the first tail tick observes the final
         // canonical state. Plain voices retain their held target until another writer.
-        if let last = timingPlan.rowTimings.last {
+        if includeTerminalTail, let last = timingPlan.rowTimings.last {
             let row = last.syntheticRow + 1
             // Row projections already have ascending, unique channel identities.
             for projection in lastControls {
@@ -1308,6 +1353,8 @@ extension PlaybackSongSyntheticAdapter {
             }
         }
         context.voiceStateUpdates = result
+        terminalCheckpoint?(.init(active: active, heldGains: heldGains, affected: affected,
+            released: released, gxxAffected: gxxAffected, visibleGlobal: visibleGlobal))
     }
 
     private static func isVolumePublicationWriter(_ command: PlaybackSongSyntheticVoiceStateUpdateCommand) -> Bool {

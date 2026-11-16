@@ -2445,6 +2445,47 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
+    // Only scalar execution facts cross the frequency boundary; optional channel
+    // snapshots and the other frequency branch do not occupy the nested Bx stack.
+    private struct TonePortamentoExecutionFacts {
+        let source: PlaybackPosition
+        let channelIndex: Int
+        let syntheticRow: Int
+        let timingConfig: SyntheticTrackerTimingConfig
+        let cell: PlaybackCell
+        let commandSource: PlaybackSongSyntheticTonePortamentoCommandSource
+        let rawVolumeColumn: UInt8?
+        let hasActiveVoice: Bool
+        let sameCellNote: Bool
+        let instrumentStateUpdated: Bool
+        let instrumentDefaultVolumeApplied: Bool
+        let hasTargetPitchSample: Bool
+        let targetExistsBefore: Bool
+        let targetExistsAfter: Bool
+        let instrumentIndexBefore: Int?
+        let instrumentIndexAfter: Int?
+        let sampleSelectedBefore: Int?
+        let sampleSelectedAfter: Int?
+        let channelVolumeBefore: Int?
+        let channelVolumeAfter: Int?
+        let gainBefore: Float?
+        let gainAfter: Float?
+        let noteTargetBefore: UInt8?
+        let targetLinearPeriod: Double?
+        let targetAmigaPeriod: Double?
+        let currentLinearPeriodBefore: Double?
+        let currentAmigaPeriodBefore: Double?
+        let currentPlaybackStepBefore: Double?
+        let targetPlaybackStep: Double
+        let currentPlaybackStep: Double
+        let baseSampleRate: Double
+        let speed: Int
+        let directionBefore: PlaybackSongSyntheticTonePortamentoDirection
+        let directionAtExecution: PlaybackSongSyntheticTonePortamentoDirection?
+        let glissandoFinetune: Int8?
+        let executionTicks: Range<Int>?
+    }
+
     static func handleTonePortamento(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -2464,6 +2505,42 @@ extension PlaybackSongSyntheticAdapter {
         executionTicks: Range<Int>? = nil,
         beforeTick: ((Int, inout ChannelState) -> Void)? = nil
     ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
+        switch prepareTonePortamento(from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan, usesLinearFrequencyTable: usesLinearFrequencyTable, channelState: &channelState, instrumentStateBefore: instrumentStateBefore, instrumentStateAfter: instrumentStateAfter, instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied, sampleSelectedBefore: sampleSelectedBefore, sampleSelectedAfter: sampleSelectedAfter, targetPitchSample: targetPitchSample, volumeColumn: volumeColumn, executionTicks: executionTicks, beforeTick: beforeTick) {
+        case let .completed(diagnostic): return diagnostic
+        case let .execute(facts, usesAmiga):
+            if usesAmiga {
+                return executeAmigaTonePortamento(facts: facts, timingPlan: timingPlan, channelState: &channelState, beforeTick: beforeTick)
+            }
+            return executeLinearTonePortamento(facts: facts, timingPlan: timingPlan, channelState: &channelState, beforeTick: beforeTick)
+        }
+    }
+
+    // Preparation and tick callbacks use disjoint frames on the default worker.
+    private enum TonePortamentoPreparation {
+        case completed(PlaybackSongSyntheticTonePortamentoDiagnostic)
+        case execute(TonePortamentoExecutionFacts, usesAmiga: Bool)
+    }
+
+    @inline(never)
+    private static func prepareTonePortamento(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        usesLinearFrequencyTable: Bool,
+        channelState: inout ChannelState,
+        instrumentStateBefore: ChannelState? = nil,
+        instrumentStateAfter: ChannelState? = nil,
+        instrumentDefaultVolumeApplied: Bool = false,
+        sampleSelectedBefore: Int? = nil,
+        sampleSelectedAfter: Int? = nil,
+        targetPitchSample: PlaybackSample? = nil,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil,
+        executionTicks: Range<Int>? = nil,
+        beforeTick: ((Int, inout ChannelState) -> Void)? = nil
+    ) -> TonePortamentoPreparation {
         let volumeColumnTonePortamentoAmount: Int?
         if case let .tonePortamento(amount) = volumeColumn?.command {
             volumeColumnTonePortamentoAmount = amount
@@ -2473,7 +2550,7 @@ extension PlaybackSongSyntheticAdapter {
         let commandSource: PlaybackSongSyntheticTonePortamentoCommandSource =
             volumeColumnTonePortamentoAmount == nil ? .effectColumn : .volumeColumn
         let directionBefore = channelState.tonePortamentoDirection
-        var directionAtExecution: PlaybackSongSyntheticTonePortamentoDirection?
+        let directionAtExecution: PlaybackSongSyntheticTonePortamentoDirection? = nil
         let hasActiveVoice = channelState.activeEventIndex != nil
         let activeUsesAmigaFrequencyTable = !(channelState.activeUsesLinearFrequencyTable ?? usesLinearFrequencyTable)
         let activeFrequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus =
@@ -2536,7 +2613,7 @@ extension PlaybackSongSyntheticAdapter {
                         currentPeriod: channelState.activeAmigaPeriod ?? 0, targetPeriod: target.amigaPeriod)
                 }
             }
-            return tonePortamentoDiagnostic(
+            return .completed(tonePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
@@ -2576,7 +2653,7 @@ extension PlaybackSongSyntheticAdapter {
                 policy: instrumentStateUpdated
                     ? "same_cell_tone_portamento_cold_initialization_no_source"
                     : "no_active_voice_no_retrigger"
-            )
+            ))
         }
 
         if let targetNote = targetNoteFromCell,
@@ -2586,7 +2663,7 @@ extension PlaybackSongSyntheticAdapter {
             guard let baseSampleRate = targetPitchSample?.baseSampleRate ?? channelState.activeSampleBaseSampleRate,
                   let relativeNote = targetPitchSample?.relativeNote ?? channelState.activeSampleRelativeNote,
                   let finetune = targetPitchSample?.finetune ?? channelState.activeSampleFinetune else {
-                return tonePortamentoDiagnostic(
+                return .completed(tonePortamentoDiagnostic(
                     source: source,
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
@@ -2617,7 +2694,7 @@ extension PlaybackSongSyntheticAdapter {
                     directionAfter: channelState.tonePortamentoDirection,
                     stepUpdates: [],
                     policy: "missing_active_pitch_sample_state"
-                )
+                ))
             }
 
             if channelState.activeUsesLinearFrequencyTable == true {
@@ -2628,7 +2705,7 @@ extension PlaybackSongSyntheticAdapter {
                     baseSampleRate: baseSampleRate,
                     outputSampleRate: timingConfig.sampleRate
                 ) else {
-                    return tonePortamentoDiagnostic(
+                    return .completed(tonePortamentoDiagnostic(
                         source: source,
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
@@ -2659,7 +2736,7 @@ extension PlaybackSongSyntheticAdapter {
                         directionAfter: channelState.tonePortamentoDirection,
                         stepUpdates: [],
                         policy: "target_pitch_out_of_range"
-                    )
+                    ))
                 }
                 channelState.tonePortamentoTargetNote = targetNote
                 channelState.tonePortamentoTargetLinearPeriod = target.linearPeriod
@@ -2675,7 +2752,7 @@ extension PlaybackSongSyntheticAdapter {
                     baseSampleRate: baseSampleRate,
                     outputSampleRate: timingConfig.sampleRate
                 ) else {
-                    return tonePortamentoDiagnostic(
+                    return .completed(tonePortamentoDiagnostic(
                         source: source,
                         channelIndex: channelIndex,
                         syntheticRow: syntheticRow,
@@ -2706,7 +2783,7 @@ extension PlaybackSongSyntheticAdapter {
                         directionAfter: channelState.tonePortamentoDirection,
                         stepUpdates: [],
                         policy: "amiga_target_pitch_out_of_range"
-                    )
+                    ))
                 }
                 channelState.tonePortamentoTargetNote = targetNote
                 channelState.tonePortamentoTargetLinearPeriod = nil
@@ -2715,7 +2792,7 @@ extension PlaybackSongSyntheticAdapter {
                 channelState.tonePortamentoDirection = .init(
                     currentPeriod: channelState.activeAmigaPeriod ?? 0, targetPeriod: target.amigaPeriod)
             } else {
-                return tonePortamentoDiagnostic(
+                return .completed(tonePortamentoDiagnostic(
                     source: source,
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
@@ -2746,7 +2823,7 @@ extension PlaybackSongSyntheticAdapter {
                     directionAfter: channelState.tonePortamentoDirection,
                     stepUpdates: [],
                     policy: "missing_active_pitch_mode"
-                )
+                ))
             }
         }
 
@@ -2756,7 +2833,7 @@ extension PlaybackSongSyntheticAdapter {
                 : channelState.tonePortamentoTargetLinearPeriod != nil)
         guard targetExistsAfter,
               let targetPlaybackStep = channelState.tonePortamentoTargetPlaybackStep else {
-            return tonePortamentoDiagnostic(
+            return .completed(tonePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
@@ -2791,7 +2868,7 @@ extension PlaybackSongSyntheticAdapter {
                     : cell.effectType == 0x05
                         ? "5xy_no_existing_tone_portamento_target"
                         : "no_existing_target"
-            )
+            ))
         }
         let targetLinearPeriod = channelState.tonePortamentoTargetLinearPeriod
         let targetAmigaPeriod = channelState.tonePortamentoTargetAmigaPeriod
@@ -2806,7 +2883,7 @@ extension PlaybackSongSyntheticAdapter {
                     direction: channelState.tonePortamentoDirection, linear: !activeUsesAmigaFrequencyTable) == target
         } } ?? false
         guard speed > 0 || speed == 0 && zeroSpeedClamp || beforeTick != nil else {
-            return tonePortamentoDiagnostic(
+            return .completed(tonePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
@@ -2850,11 +2927,11 @@ extension PlaybackSongSyntheticAdapter {
                     : cell.effectType == 0x05
                         ? "5xy_no_existing_3xx_speed_memory"
                         : "no_3xx_speed_memory"
-            )
+            ))
         }
-        guard var currentPlaybackStep = channelState.activePlaybackStep,
+        guard let currentPlaybackStep = channelState.activePlaybackStep,
               let baseSampleRate = channelState.activeSampleBaseSampleRate else {
-            return tonePortamentoDiagnostic(
+            return .completed(tonePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
@@ -2885,125 +2962,97 @@ extension PlaybackSongSyntheticAdapter {
                 directionAfter: channelState.tonePortamentoDirection,
                 stepUpdates: [],
                 policy: "missing_active_pitch_state"
-            )
+            ))
         }
 
         let glissandoFinetune = channelState.glissandoEnabled
             ? Int8(clamping: channelState.activeSampleFinetune ?? 0) : nil
+
+        let facts = TonePortamentoExecutionFacts(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            commandSource: commandSource,
+            rawVolumeColumn: volumeColumn?.rawValue,
+            hasActiveVoice: hasActiveVoice,
+            sameCellNote: sameCellNote,
+            instrumentStateUpdated: instrumentStateUpdated,
+            instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
+            hasTargetPitchSample: targetPitchSample != nil,
+            targetExistsBefore: targetExistsBefore,
+            targetExistsAfter: targetExistsAfter,
+            instrumentIndexBefore: instrumentStateBefore?.activeInstrumentIndex,
+            instrumentIndexAfter: instrumentStateAfter?.activeInstrumentIndex,
+            sampleSelectedBefore: sampleSelectedBefore,
+            sampleSelectedAfter: sampleSelectedAfter,
+            channelVolumeBefore: channelVolumeBefore,
+            channelVolumeAfter: channelVolumeAfter,
+            gainBefore: gainBefore,
+            gainAfter: gainAfter,
+            noteTargetBefore: noteTargetBefore,
+            targetLinearPeriod: targetLinearPeriod,
+            targetAmigaPeriod: targetAmigaPeriod,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentAmigaPeriodBefore: currentAmigaPeriodBefore,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            targetPlaybackStep: targetPlaybackStep,
+            currentPlaybackStep: currentPlaybackStep,
+            baseSampleRate: baseSampleRate,
+            speed: speed,
+            directionBefore: directionBefore,
+            directionAtExecution: directionAtExecution,
+            glissandoFinetune: glissandoFinetune,
+            executionTicks: executionTicks)
+        return .execute(facts, usesAmiga: activeUsesAmigaFrequencyTable)
+    }
+
+    @inline(never)
+    private static func executeAmigaTonePortamento(facts: borrowing TonePortamentoExecutionFacts,
+        timingPlan: borrowing PlaybackSongFxxTimingPlan, channelState: inout ChannelState,
+        beforeTick: ((Int, inout ChannelState) -> Void)?) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
+        let source = facts.source
+        let channelIndex = facts.channelIndex
+        let syntheticRow = facts.syntheticRow
+        let timingConfig = facts.timingConfig
+        let cell = facts.cell
+        let commandSource = facts.commandSource
+        let rawVolumeColumn = facts.rawVolumeColumn
+        let hasActiveVoice = facts.hasActiveVoice
+        let sameCellNote = facts.sameCellNote
+        let instrumentStateUpdated = facts.instrumentStateUpdated
+        let instrumentDefaultVolumeApplied = facts.instrumentDefaultVolumeApplied
+        let hasTargetPitchSample = facts.hasTargetPitchSample
+        let targetExistsBefore = facts.targetExistsBefore
+        let targetExistsAfter = facts.targetExistsAfter
+        let instrumentIndexBefore = facts.instrumentIndexBefore
+        let instrumentIndexAfter = facts.instrumentIndexAfter
+        let sampleSelectedBefore = facts.sampleSelectedBefore
+        let sampleSelectedAfter = facts.sampleSelectedAfter
+        let channelVolumeBefore = facts.channelVolumeBefore
+        let channelVolumeAfter = facts.channelVolumeAfter
+        let gainBefore = facts.gainBefore
+        let gainAfter = facts.gainAfter
+        let noteTargetBefore = facts.noteTargetBefore
+        let targetAmigaPeriod = facts.targetAmigaPeriod
+        let currentLinearPeriodBefore = facts.currentLinearPeriodBefore
+        let currentAmigaPeriodBefore = facts.currentAmigaPeriodBefore
+        let currentPlaybackStepBefore = facts.currentPlaybackStepBefore
+        let targetPlaybackStep = facts.targetPlaybackStep
+        var currentPlaybackStep = facts.currentPlaybackStep
+        let baseSampleRate = facts.baseSampleRate
+        let speed = facts.speed
+        let directionBefore = facts.directionBefore
+        var directionAtExecution = facts.directionAtExecution
+        let glissandoFinetune = facts.glissandoFinetune
+        let executionTicks = facts.executionTicks
         func audiblePeriod(_ period: Double, linear: Bool) -> Double {
             guard let glissandoFinetune else { return period }
             return arpeggioPeriod(period, finetune: Int(glissandoFinetune), offset: 0, linear: linear)
         }
-
-        if activeUsesAmigaFrequencyTable {
-            guard var currentAmigaPeriod = channelState.activeAmigaPeriod,
-                  let targetAmigaPeriod else {
-                return tonePortamentoDiagnostic(
-                    source: source,
-                    channelIndex: channelIndex,
-                    syntheticRow: syntheticRow,
-                    timingConfig: timingConfig,
-                    cell: cell,
-                    commandSource: commandSource,
-                    rawVolumeColumn: volumeColumn?.rawValue,
-                    status: .unsupportedFrequencyTable,
-                    activeVoiceFound: hasActiveVoice,
-                    activeEventIndex: channelState.activeEventIndex,
-                    activeEventMappingIndex: channelState.activeEventMappingIndex,
-                    targetExistsBefore: targetExistsBefore,
-                    targetExistsAfter: targetExistsAfter,
-                    frequencyTableStatus: .amigaApplied,
-                    targetNote: channelState.tonePortamentoTargetNote,
-                    targetLinearPeriod: nil,
-                    targetAmigaPeriod: targetAmigaPeriod,
-                    targetPlaybackStep: targetPlaybackStep,
-                    currentLinearPeriodBefore: currentLinearPeriodBefore,
-                    currentLinearPeriodAfter: channelState.activeLinearPeriod,
-                    currentAmigaPeriodBefore: currentAmigaPeriodBefore,
-                    currentAmigaPeriodAfter: channelState.activeAmigaPeriod,
-                    currentPlaybackStepBefore: currentPlaybackStepBefore,
-                    currentPlaybackStepAfter: channelState.activePlaybackStep,
-                    portamentoSpeed: speed,
-                    directionBefore: directionBefore,
-                    directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
-                    directionAfter: channelState.tonePortamentoDirection,
-                    stepUpdates: [],
-                    policy: "missing_active_amiga_pitch_state"
-                )
-            }
-
-            var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
-            directionAtExecution = channelState.tonePortamentoDirection
-            for tick in executionTicks ?? ((timingConfig.patternDelayCycles > 0 && cell.effectType == 14 && cell.effectParam == 0xD0)
-                ? (1..<timingConfig.speed) : timingConfig.nonzeroDispatchTicks) {
-                if let beforeTick {
-                    channelState.activeAmigaPeriod = currentAmigaPeriod
-                    channelState.activePlaybackStep = currentPlaybackStep
-                    beforeTick(tick, &channelState)
-                    currentPlaybackStep = channelState.activePlaybackStep ?? currentPlaybackStep
-                }
-                guard channelState.tonePortamentoDirection != .none else {
-                    if beforeTick != nil { continue }
-                    break
-                }
-                if abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001 {
-                    channelState.tonePortamentoDirection = .towardHigherPeriod
-                    if glissandoFinetune != nil || beforeTick != nil,
-                       let heldStep = finePitchStep(audiblePeriod(targetAmigaPeriod, linear: false), linear: false,
-                           baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate) {
-                        stepUpdates.append(.init(syntheticTick: tick,
-                            scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
-                            linearPeriodBefore: currentAmigaPeriod, linearPeriodAfter: targetAmigaPeriod,
-                            amigaPeriodBefore: currentAmigaPeriod, amigaPeriodAfter: targetAmigaPeriod,
-                            playbackStepBefore: currentPlaybackStep, playbackStepAfter: heldStep,
-                            reachedTarget: true, glissandoFinetune: glissandoFinetune))
-                        currentPlaybackStep = heldStep
-                        if beforeTick != nil { channelState.vibratoOutputAmigaPeriod = audiblePeriod(targetAmigaPeriod, linear: false) }
-                        continue
-                    }
-                    currentAmigaPeriod = targetAmigaPeriod
-                    currentPlaybackStep = targetPlaybackStep
-                    break
-                }
-                let beforePeriod = currentAmigaPeriod
-                let beforeStep = currentPlaybackStep
-                currentAmigaPeriod = amigaTonePeriod(currentAmigaPeriod, target: targetAmigaPeriod,
-                    nativeSpeed: speed * 4, direction: channelState.tonePortamentoDirection)
-                guard let nextStep = playbackStep(
-                    amigaPeriod: audiblePeriod(currentAmigaPeriod, linear: false),
-                    baseSampleRate: baseSampleRate,
-                    outputSampleRate: timingConfig.sampleRate
-                ) else {
-                    break
-                }
-                currentPlaybackStep = nextStep
-                if beforeTick != nil { channelState.vibratoOutputAmigaPeriod = audiblePeriod(currentAmigaPeriod, linear: false) }
-                let reachedTarget = abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001
-                stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
-                    syntheticTick: tick,
-                    scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
-                    linearPeriodBefore: beforePeriod,
-                    linearPeriodAfter: currentAmigaPeriod,
-                    amigaPeriodBefore: beforePeriod,
-                    amigaPeriodAfter: currentAmigaPeriod,
-                    playbackStepBefore: beforeStep,
-                    playbackStepAfter: currentPlaybackStep,
-                    reachedTarget: reachedTarget,
-                    glissandoFinetune: glissandoFinetune
-                ))
-                if reachedTarget {
-                    // FT2 leaves the higher-period direction latched after either clamp.
-                    channelState.tonePortamentoDirection = .towardHigherPeriod
-                    currentAmigaPeriod = targetAmigaPeriod
-                    if glissandoFinetune == nil && beforeTick == nil {
-                        currentPlaybackStep = targetPlaybackStep
-                        break
-                    }
-                }
-            }
-            channelState.activeAmigaPeriod = currentAmigaPeriod
-            channelState.activePlaybackStep = currentPlaybackStep
-
+        guard var currentAmigaPeriod = channelState.activeAmigaPeriod,
+              let targetAmigaPeriod else {
             return tonePortamentoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -3011,33 +3060,11 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 commandSource: commandSource,
-                rawVolumeColumn: volumeColumn?.rawValue,
-                status: .applied,
+                rawVolumeColumn: rawVolumeColumn,
+                status: .unsupportedFrequencyTable,
                 activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
-                sameCellNote: sameCellNote,
-                noteTriggerEventCreated: false,
-                voiceReplacement: false,
-                samplePositionReset: false,
-                instrumentStateUpdated: instrumentStateUpdated,
-                instrumentIndexBefore: instrumentStateBefore?.activeInstrumentIndex,
-                instrumentIndexAfter: instrumentStateAfter?.activeInstrumentIndex,
-                sampleSelectedBefore: sampleSelectedBefore,
-                sampleSelectedAfter: sampleSelectedAfter,
-                instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
-                envelopeReset: targetPitchSample != nil,
-                envelopeResetModeled: targetPitchSample != nil,
-                channelVolumeBefore: channelVolumeBefore,
-                channelVolumeAfter: channelVolumeAfter,
-                gainBefore: gainBefore,
-                gainAfter: gainAfter,
-                noteTargetBefore: noteTargetBefore,
-                noteTargetAfter: channelState.tonePortamentoTargetNote,
-                audibleTransientExpected: instrumentDefaultVolumeApplied &&
-                    ((gainBefore ?? 0) < (gainAfter ?? 0)),
-                cMixerReceivesNewVoice: false,
-                cMixerReceivesOnlyStateUpdates: sameCellNote,
                 targetExistsBefore: targetExistsBefore,
                 targetExistsAfter: targetExistsAfter,
                 frequencyTableStatus: .amigaApplied,
@@ -3045,8 +3072,8 @@ extension PlaybackSongSyntheticAdapter {
                 targetLinearPeriod: nil,
                 targetAmigaPeriod: targetAmigaPeriod,
                 targetPlaybackStep: targetPlaybackStep,
-                currentLinearPeriodBefore: nil,
-                currentLinearPeriodAfter: nil,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
                 currentAmigaPeriodBefore: currentAmigaPeriodBefore,
                 currentAmigaPeriodAfter: channelState.activeAmigaPeriod,
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
@@ -3055,12 +3082,183 @@ extension PlaybackSongSyntheticAdapter {
                 directionBefore: directionBefore,
                 directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
                 directionAfter: channelState.tonePortamentoDirection,
-                stepUpdates: stepUpdates,
-                policy: targetPitchSample != nil ? "same_cell_tone_portamento_retained_source_reset" :
-                    "amiga_period_units_per_tick_row_level_first_pass"
+                stepUpdates: [],
+                policy: "missing_active_amiga_pitch_state"
             )
         }
 
+        var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
+        directionAtExecution = channelState.tonePortamentoDirection
+        for tick in executionTicks ?? ((timingConfig.patternDelayCycles > 0 && cell.effectType == 14 && cell.effectParam == 0xD0)
+            ? (1..<timingConfig.speed) : timingConfig.nonzeroDispatchTicks) {
+            if let beforeTick {
+                channelState.activeAmigaPeriod = currentAmigaPeriod
+                channelState.activePlaybackStep = currentPlaybackStep
+                beforeTick(tick, &channelState)
+                currentPlaybackStep = channelState.activePlaybackStep ?? currentPlaybackStep
+            }
+            guard channelState.tonePortamentoDirection != .none else {
+                if beforeTick != nil { continue }
+                break
+            }
+            if abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001 {
+                channelState.tonePortamentoDirection = .towardHigherPeriod
+                if glissandoFinetune != nil || beforeTick != nil,
+                   let heldStep = finePitchStep(audiblePeriod(targetAmigaPeriod, linear: false), linear: false,
+                       baseSampleRate: baseSampleRate, outputSampleRate: timingConfig.sampleRate) {
+                    stepUpdates.append(.init(syntheticTick: tick,
+                        scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                        linearPeriodBefore: currentAmigaPeriod, linearPeriodAfter: targetAmigaPeriod,
+                        amigaPeriodBefore: currentAmigaPeriod, amigaPeriodAfter: targetAmigaPeriod,
+                        playbackStepBefore: currentPlaybackStep, playbackStepAfter: heldStep,
+                        reachedTarget: true, glissandoFinetune: glissandoFinetune))
+                    currentPlaybackStep = heldStep
+                    if beforeTick != nil { channelState.vibratoOutputAmigaPeriod = audiblePeriod(targetAmigaPeriod, linear: false) }
+                    continue
+                }
+                currentAmigaPeriod = targetAmigaPeriod
+                currentPlaybackStep = targetPlaybackStep
+                break
+            }
+            let beforePeriod = currentAmigaPeriod
+            let beforeStep = currentPlaybackStep
+            currentAmigaPeriod = amigaTonePeriod(currentAmigaPeriod, target: targetAmigaPeriod,
+                nativeSpeed: speed * 4, direction: channelState.tonePortamentoDirection)
+            guard let nextStep = playbackStep(
+                amigaPeriod: audiblePeriod(currentAmigaPeriod, linear: false),
+                baseSampleRate: baseSampleRate,
+                outputSampleRate: timingConfig.sampleRate
+            ) else {
+                break
+            }
+            currentPlaybackStep = nextStep
+            if beforeTick != nil { channelState.vibratoOutputAmigaPeriod = audiblePeriod(currentAmigaPeriod, linear: false) }
+            let reachedTarget = abs(currentAmigaPeriod - targetAmigaPeriod) <= 0.000000001
+            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                syntheticTick: tick,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                linearPeriodBefore: beforePeriod,
+                linearPeriodAfter: currentAmigaPeriod,
+                amigaPeriodBefore: beforePeriod,
+                amigaPeriodAfter: currentAmigaPeriod,
+                playbackStepBefore: beforeStep,
+                playbackStepAfter: currentPlaybackStep,
+                reachedTarget: reachedTarget,
+                glissandoFinetune: glissandoFinetune
+            ))
+            if reachedTarget {
+                // FT2 leaves the higher-period direction latched after either clamp.
+                channelState.tonePortamentoDirection = .towardHigherPeriod
+                currentAmigaPeriod = targetAmigaPeriod
+                if glissandoFinetune == nil && beforeTick == nil {
+                    currentPlaybackStep = targetPlaybackStep
+                    break
+                }
+            }
+        }
+        channelState.activeAmigaPeriod = currentAmigaPeriod
+        channelState.activePlaybackStep = currentPlaybackStep
+
+        return tonePortamentoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            commandSource: commandSource,
+            rawVolumeColumn: rawVolumeColumn,
+            status: .applied,
+            activeVoiceFound: hasActiveVoice,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            sameCellNote: sameCellNote,
+            noteTriggerEventCreated: false,
+            voiceReplacement: false,
+            samplePositionReset: false,
+            instrumentStateUpdated: instrumentStateUpdated,
+            instrumentIndexBefore: instrumentIndexBefore,
+            instrumentIndexAfter: instrumentIndexAfter,
+            sampleSelectedBefore: sampleSelectedBefore,
+            sampleSelectedAfter: sampleSelectedAfter,
+            instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
+            envelopeReset: hasTargetPitchSample,
+            envelopeResetModeled: hasTargetPitchSample,
+            channelVolumeBefore: channelVolumeBefore,
+            channelVolumeAfter: channelVolumeAfter,
+            gainBefore: gainBefore,
+            gainAfter: gainAfter,
+            noteTargetBefore: noteTargetBefore,
+            noteTargetAfter: channelState.tonePortamentoTargetNote,
+            audibleTransientExpected: instrumentDefaultVolumeApplied &&
+                ((gainBefore ?? 0) < (gainAfter ?? 0)),
+            cMixerReceivesNewVoice: false,
+            cMixerReceivesOnlyStateUpdates: sameCellNote,
+            targetExistsBefore: targetExistsBefore,
+            targetExistsAfter: targetExistsAfter,
+            frequencyTableStatus: .amigaApplied,
+            targetNote: channelState.tonePortamentoTargetNote,
+            targetLinearPeriod: nil,
+            targetAmigaPeriod: targetAmigaPeriod,
+            targetPlaybackStep: targetPlaybackStep,
+            currentLinearPeriodBefore: nil,
+            currentLinearPeriodAfter: nil,
+            currentAmigaPeriodBefore: currentAmigaPeriodBefore,
+            currentAmigaPeriodAfter: channelState.activeAmigaPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: channelState.activePlaybackStep,
+            portamentoSpeed: speed,
+            directionBefore: directionBefore,
+            directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
+            directionAfter: channelState.tonePortamentoDirection,
+            stepUpdates: stepUpdates,
+            policy: hasTargetPitchSample ? "same_cell_tone_portamento_retained_source_reset" :
+                "amiga_period_units_per_tick_row_level_first_pass"
+        )
+    }
+
+    @inline(never)
+    private static func executeLinearTonePortamento(facts: borrowing TonePortamentoExecutionFacts,
+        timingPlan: borrowing PlaybackSongFxxTimingPlan, channelState: inout ChannelState,
+        beforeTick: ((Int, inout ChannelState) -> Void)?) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
+        let source = facts.source
+        let channelIndex = facts.channelIndex
+        let syntheticRow = facts.syntheticRow
+        let timingConfig = facts.timingConfig
+        let cell = facts.cell
+        let commandSource = facts.commandSource
+        let rawVolumeColumn = facts.rawVolumeColumn
+        let hasActiveVoice = facts.hasActiveVoice
+        let sameCellNote = facts.sameCellNote
+        let instrumentStateUpdated = facts.instrumentStateUpdated
+        let instrumentDefaultVolumeApplied = facts.instrumentDefaultVolumeApplied
+        let hasTargetPitchSample = facts.hasTargetPitchSample
+        let targetExistsBefore = facts.targetExistsBefore
+        let targetExistsAfter = facts.targetExistsAfter
+        let instrumentIndexBefore = facts.instrumentIndexBefore
+        let instrumentIndexAfter = facts.instrumentIndexAfter
+        let sampleSelectedBefore = facts.sampleSelectedBefore
+        let sampleSelectedAfter = facts.sampleSelectedAfter
+        let channelVolumeBefore = facts.channelVolumeBefore
+        let channelVolumeAfter = facts.channelVolumeAfter
+        let gainBefore = facts.gainBefore
+        let gainAfter = facts.gainAfter
+        let noteTargetBefore = facts.noteTargetBefore
+        let targetLinearPeriod = facts.targetLinearPeriod
+        let currentLinearPeriodBefore = facts.currentLinearPeriodBefore
+        let currentAmigaPeriodBefore = facts.currentAmigaPeriodBefore
+        let currentPlaybackStepBefore = facts.currentPlaybackStepBefore
+        let targetPlaybackStep = facts.targetPlaybackStep
+        var currentPlaybackStep = facts.currentPlaybackStep
+        let baseSampleRate = facts.baseSampleRate
+        let speed = facts.speed
+        let directionBefore = facts.directionBefore
+        var directionAtExecution = facts.directionAtExecution
+        let glissandoFinetune = facts.glissandoFinetune
+        let executionTicks = facts.executionTicks
+        func audiblePeriod(_ period: Double, linear: Bool) -> Double {
+            guard let glissandoFinetune else { return period }
+            return arpeggioPeriod(period, finetune: Int(glissandoFinetune), offset: 0, linear: linear)
+        }
         guard var currentLinearPeriod = channelState.activeLinearPeriod,
               let targetLinearPeriod else {
             return tonePortamentoDiagnostic(
@@ -3070,7 +3268,7 @@ extension PlaybackSongSyntheticAdapter {
                 timingConfig: timingConfig,
                 cell: cell,
                 commandSource: commandSource,
-                rawVolumeColumn: volumeColumn?.rawValue,
+                rawVolumeColumn: rawVolumeColumn,
                 status: .unsupportedFrequencyTable,
                 activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
@@ -3173,7 +3371,7 @@ extension PlaybackSongSyntheticAdapter {
             timingConfig: timingConfig,
             cell: cell,
             commandSource: commandSource,
-            rawVolumeColumn: volumeColumn?.rawValue,
+            rawVolumeColumn: rawVolumeColumn,
             status: .applied,
             activeVoiceFound: hasActiveVoice,
             activeEventIndex: channelState.activeEventIndex,
@@ -3183,13 +3381,13 @@ extension PlaybackSongSyntheticAdapter {
             voiceReplacement: false,
             samplePositionReset: false,
             instrumentStateUpdated: instrumentStateUpdated,
-            instrumentIndexBefore: instrumentStateBefore?.activeInstrumentIndex,
-            instrumentIndexAfter: instrumentStateAfter?.activeInstrumentIndex,
+            instrumentIndexBefore: instrumentIndexBefore,
+            instrumentIndexAfter: instrumentIndexAfter,
             sampleSelectedBefore: sampleSelectedBefore,
             sampleSelectedAfter: sampleSelectedAfter,
             instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
-            envelopeReset: targetPitchSample != nil,
-            envelopeResetModeled: targetPitchSample != nil,
+            envelopeReset: hasTargetPitchSample,
+            envelopeResetModeled: hasTargetPitchSample,
             channelVolumeBefore: channelVolumeBefore,
             channelVolumeAfter: channelVolumeAfter,
             gainBefore: gainBefore,
@@ -3218,13 +3416,15 @@ extension PlaybackSongSyntheticAdapter {
             directionAtExecution: directionAtExecution ?? channelState.tonePortamentoDirection,
             directionAfter: channelState.tonePortamentoDirection,
             stepUpdates: stepUpdates,
-            policy: targetPitchSample != nil ? "same_cell_tone_portamento_retained_source_reset" : commandSource == .volumeColumn
+            policy: hasTargetPitchSample ? "same_cell_tone_portamento_retained_source_reset" : commandSource == .volumeColumn
                 ? "volume_column_tone_portamento_reuses_3xx_target_and_sample_step_path_first_pass"
                 : cell.effectType == 0x05
                     ? "5xy_reuses_existing_3xx_tone_portamento_target_and_speed_plus_axy_volume_slide"
                     : "linear_period_units_per_tick_row_level_first_pass"
         )
     }
+
+
 
     static func tonePortamentoDiagnostic(
         source: PlaybackPosition,

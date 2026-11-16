@@ -5,6 +5,114 @@ import XCTest
 final class GlobalVolumeProjectionTests: XCTestCase {
     typealias Adapter = PlaybackSongSyntheticAdapter
 
+    func testGlobalRowOrderFastPathMatchesStableSortForCanonicalAndFallbackInputs() throws {
+        let module = song([[c(16, 32, note: 49, instrument: 1), c(note: 49, instrument: 1), c()]], speed: 3)
+        let plan = Adapter.adapt(module, startOrderIndex: 0, orderCount: 1, sampleRate: 48_000)
+        let canonical = plan.xmChannelRows.filter { $0.syntheticRow == 0 }
+        guard canonical.count == 3 else { return XCTFail("Expected three captured channels") }
+        XCTAssertEqual(canonical.map(\.channelIndex), [0, 1, 2])
+        let duplicate = PlaybackXMChannelRow(source: .init(orderIndex: 0, patternIndex: 0, rowIndex: 99),
+            channelIndex: canonical[1].channelIndex, syntheticRow: 0, scheduledFrame: 0,
+            controls: canonical[1].controls, instrumentOnlyReset: canonical[1].instrumentOnlyReset)
+        let variants: [[PlaybackXMChannelRow]] = [[], [canonical[0]], canonical,
+            Array(canonical.reversed()), [duplicate, canonical[2], canonical[1], canonical[0]]]
+        for input in variants {
+            XCTAssertEqual(Adapter.orderedGlobalVolumeRows(input), input.sorted { $0.channelIndex < $1.channelIndex })
+        }
+        let ordered = Adapter.orderedGlobalVolumeRows(canonical)
+        canonical.withUnsafeBufferPointer { before in
+            ordered.withUnsafeBufferPointer { after in XCTAssertEqual(before.baseAddress, after.baseAddress) }
+        }
+        XCTAssertEqual(Adapter.orderedGlobalVolumeRows(variants.last!).map { $0.source.rowIndex }, [0, 99, 0, 0])
+    }
+
+    func testContinuationKeepsHeldGlobalTargetsWithoutANewGlobalWriter() throws {
+        for rate in [44_100.0, 48_000] {
+            let module = song([[c(16, 32, note: 49, instrument: 1), c(17, 1, note: 49, instrument: 1)],
+                [c(), c()], [c(), c()], [c(), c()]], speed: 3, envelope: true)
+            let traversal = PlaybackSongTraversalPlanner.plan(module, startOrderIndex: 0, orderCount: 1)
+            let timing = PlaybackSongFxxTimingPlanner.plan(module, traversalPlan: traversal, sampleRate: rate)
+            var raw = Adapter.AdapterRowContext()
+            for visit in traversal.rows {
+                let config = timing.timingConfig(forSyntheticRow: visit.syntheticRow)
+                _ = Adapter.appendEvents(from: visit.row, source: visit.source, syntheticRow: visit.syntheticRow,
+                    song: module, timingConfig: config, timingPlan: timing,
+                    scheduledStartFrame: timing.frameFor(row: visit.syntheticRow), context: &raw)
+            }
+            var whole = raw
+            Adapter.planGlobalVolumeChannelTargets(timingPlan: timing, context: &whole, includeTerminalTail: false)
+            var checkpoint = Adapter.GlobalVolumeProjectionCheckpoint()
+            var resumed = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
+            for index in timing.rowTimings.indices {
+                let original = timing.rowTimings[index]
+                let row = PlaybackSongFxxRowTiming(source: original.source, syntheticRow: 0,
+                    rowStartExactFrame: original.rowStartExactFrame, rowEndExactFrame: original.rowEndExactFrame,
+                    effectiveSpeed: original.effectiveSpeed, effectiveBPM: original.effectiveBPM,
+                    patternDelayCycles: original.patternDelayCycles)
+                let local = PlaybackSongFxxTimingPlan(sampleRate: rate, initialSpeed: original.effectiveSpeed,
+                    initialBPM: original.effectiveBPM, rowTimings: [row], timingChanges: [],
+                    finalSpeed: original.effectiveSpeed, finalBPM: original.effectiveBPM,
+                    endExactFrame: original.rowEndExactFrame)
+                var batch = raw
+                batch.importedSourceCount = index == 0 ? 0 : raw.events.count
+                batch.voiceStateUpdates = index == 0 ? raw.voiceStateUpdates : []
+                batch.xmChannelRows = raw.xmChannelRows.filter { $0.syntheticRow == index }.map {
+                    PlaybackXMChannelRow(source: $0.source, channelIndex: $0.channelIndex, syntheticRow: 0,
+                        scheduledFrame: $0.scheduledFrame, controls: $0.controls, instrumentOnlyReset: $0.instrumentOnlyReset)
+                }
+                Adapter.planGlobalVolumeChannelTargets(timingPlan: local, context: &batch,
+                    initialState: checkpoint, includeTerminalTail: false, terminalCheckpoint: { checkpoint = $0 })
+                resumed.append(contentsOf: batch.voiceStateUpdates)
+            }
+            XCTAssertEqual(resumed.count, whole.voiceStateUpdates.count)
+            for (actual, expected) in zip(resumed, whole.voiceStateUpdates) {
+                XCTAssertEqual(actual.scheduledFrame, expected.scheduledFrame)
+                XCTAssertEqual(actual.channelIndex, expected.channelIndex)
+                XCTAssertEqual(actual.activeEventIndex, expected.activeEventIndex)
+                XCTAssertEqual(actual.command, expected.command)
+                XCTAssertEqual(actual.gainBefore, expected.gainBefore)
+                XCTAssertEqual(actual.gainAfter, expected.gainAfter)
+                XCTAssertEqual(actual.globalVolumeAfter, expected.globalVolumeAfter)
+            }
+            XCTAssertFalse(resumed.filter { $0.source.rowIndex == 1 }.isEmpty)
+            let retained = checkpoint.remappedSources([1: 0])
+            XCTAssertEqual(retained.active, [1: 0])
+            XCTAssertEqual(Set(retained.heldGains.keys), [0])
+            XCTAssertTrue(retained.affected.isSubset(of: [0]))
+            XCTAssertTrue(retained.gxxAffected.isSubset(of: [0]))
+        }
+    }
+
+    func testImportedRetiringLookupsCannotRestoreASourceFreeGlobalRoute() {
+        let module = song([[c(16, 32, note: 49, instrument: 1)], [c()], [c()], [c()]],
+            speed: 3, envelope: true)
+        let traversal = PlaybackSongTraversalPlanner.plan(module, startOrderIndex: 0, orderCount: 1)
+        let timing = PlaybackSongFxxTimingPlanner.plan(module, traversalPlan: traversal, sampleRate: 48_000)
+        var context = Adapter.AdapterRowContext()
+        for visit in traversal.rows {
+            _ = Adapter.appendEvents(from: visit.row, source: visit.source, syntheticRow: visit.syntheticRow,
+                song: module, timingConfig: timing.timingConfig(forSyntheticRow: visit.syntheticRow),
+                timingPlan: timing, scheduledStartFrame: timing.frameFor(row: visit.syntheticRow), context: &context)
+        }
+        context.importedSourceCount = context.events.count
+        context.voiceStateUpdates = []
+        context.xmChannelRows = context.xmChannelRows.map { row in
+            var state = row.controls
+            state.activeEventIndex = nil; state.activeEventMappingIndex = nil
+            return PlaybackXMChannelRow(source: row.source, channelIndex: row.channelIndex,
+                syntheticRow: row.syntheticRow, scheduledFrame: row.scheduledFrame,
+                controls: state, instrumentOnlyReset: row.instrumentOnlyReset)
+        }
+        var checkpoint = Adapter.GlobalVolumeProjectionCheckpoint()
+        checkpoint.visibleGlobal = 32
+        checkpoint.affected = Set(context.events.indices)
+        checkpoint.gxxAffected = checkpoint.affected
+        Adapter.planGlobalVolumeChannelTargets(timingPlan: timing, context: &context,
+            initialState: checkpoint, includeTerminalTail: false, terminalCheckpoint: { checkpoint = $0 })
+        XCTAssertTrue(checkpoint.active.isEmpty)
+        XCTAssertTrue(context.voiceStateUpdates.isEmpty)
+    }
+
     func testLateWriterCopiesFullControlsOnlyForPublishedTargets() throws {
         for count in [16, 32, 64] {
             for channels in [2, 4] {

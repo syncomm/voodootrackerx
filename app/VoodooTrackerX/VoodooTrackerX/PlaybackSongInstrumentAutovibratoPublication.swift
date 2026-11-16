@@ -44,6 +44,33 @@ struct PlaybackSongInstrumentAutovibratoPublication {
         var speed = 0, channelCount = 0, rowStartFrame = 0
         var requestGrowthCount = 0, boundsGrowthCount = 0
         var rewrittenArrayCount = 0, rewrittenChildCapacityBytes = 0
+        struct ContinuationSeed {
+            let enabled: Bool
+            let sources: [Source]
+            let bounds: [Int: K.Bounds]
+        }
+
+        /// Keeps only per-channel current publication state and retained bounds.
+        func exportContinuation() -> ContinuationSeed {
+            let retained = Set(sources.map(\.generation).filter { $0 >= 0 })
+            return .init(enabled: enabled, sources: sources,
+                bounds: bounds.filter { retained.contains($0.key) })
+        }
+
+        /// Rebinds scratch indices explicitly. A publication cache whose source
+        /// is no longer semantically retained is retired, never redirected.
+        mutating func restoreContinuation(_ seed: ContinuationSeed, sourceMap: [Int: Int]) {
+            var restored = Self(); restored.enabled = seed.enabled
+            restored.sources = seed.sources.map { input in
+                guard input.generation >= 0, let generation = sourceMap[input.generation] else { return Source() }
+                var value = input; value.generation = generation; return value
+            }
+            for (old, value) in seed.bounds {
+                if let generation = sourceMap[old] { restored.bounds[generation] = value }
+            }
+            self = restored
+        }
+
         /// Capacity and changed-array proxies, not malloc counts or resident memory.
         var workspaceCapacityBytes: Int {
             sources.capacity * MemoryLayout<Source>.stride +
@@ -169,6 +196,7 @@ struct PlaybackSongInstrumentAutovibratoPublication {
 
         mutating func foldBirths(row: Int, context: inout Context) {
             for generation in context.events.indices.reversed() {
+                if generation < context.importedSourceCount { break }
                 let event = context.events[generation]
                 if event.row < row { break }
                 let mapping = context.eventMappings[generation], channel = mapping.channelIndex, tick = mapping.syntheticTick

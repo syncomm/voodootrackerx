@@ -28,6 +28,44 @@ host.
   diagnostic reason; retired AVAudio runtime paths are not supported.
 - Swift playback/adapter code plans module events. The C mixer renders runtime
   playback and bounded offline work.
+- Normal Play with Loop off and reset-seek resolve the cold order/row before
+  preparation. Reuse requires the same origin, source generation, rate and mode;
+  full traversal bounds preserve later backward jumps. Stopped loaded navigation
+  updates speculative intent. Unchanged editable revisions reuse their snapshot.
+- Explicit user-pattern Loop interprets the cold selected-row suffix and later
+  iterations through the existing row interpreter and semantic folds. Bounded
+  terminal state and original source-birth bindings continue across immutable
+  native batches; wrap preserves native cursors, envelopes and effect clocks.
+  One active batch and at most one preparing/ready successor share the existing
+  preparation worker. Numeric event/source IDs retain their existing meanings.
+  The [bounded continuation contract](design/user-pattern-loop-continuation.md)
+  is CLOSED on this PR branch; implementation and local suite qualification are
+  complete. The mixed resource profile is provisionally authorized for PR/native
+  CI only. Acceptance requires green final submitted-head native arm64
+  ASan/Release CI (Codex) and Gregory's Loop-on composition/listening review and
+  merge. Low-end-memory qualification and Phase 2 release gates remain OPEN.
+  ADR 015 remains PROPOSED; ordinary song playback retains full-song planning.
+- Compatible editable Loop revisions coalesce and enter at the first safe
+  eligible natural boundary under measured readiness/fallback guards, retaining
+  actual executed state. Native acknowledgement owns the admitted revision;
+  stale candidates cannot
+  install. Incompatible changes stop explicitly and require cold reload/retry.
+- A real missing successor seals admission at its exact native boundary, completes
+  the existing C-owned 5 ms retirement, then silences and reports planning-underrun
+  Stop asynchronously. Late work is rejected. Qualified ordinary workloads have
+  zero unintended underruns; this fault policy grants no dropout allowance.
+- Normal full-plan and explicit user-Loop playback use one C sample-head
+  observation for transport position, effective timing and follow presentation.
+  UI timers poll that observation; they do not advance a second musical clock.
+  Stop/Pause quiesce the host and capture before Core reset. Pause retains the
+  captured resume row; Stop uses the existing stopped-navigation reconciliation.
+  Automatic normal song-end Stop waits for the mapped native frame to reach the
+  existing song-end/tail deadline. This adds no AUv3 host or audio backend.
+- Runtime full row captures retire after semantic construction and before event
+  materialization/sorting; ordinal ownership survives. Inspection callers can
+  deliberately retain full captures. Construction polls cancellation within row,
+  envelope and event work; traversal, some derived projections and sorting still
+  have uninterrupted segments, so no absolute cancellation bound is claimed.
 - Release semantics are decided once at their execution frame. Current
   whole-song backward trigger/mapping/diagnostic release annotations are an
   immediate mechanical projection of that immutable result.
@@ -338,8 +376,9 @@ host.
   free capacity before an atomic 256-source group; a concurrent 257-source group
   fails visibly. The 256/4096 native limits and 8 MiB selector budget remain.
   High variable process RSS remains unresolved despite measured reusable VM
-  pages, owned by the post-G41 planning/memory audit; selected-order blocker
-  [#516](https://github.com/syncomm/voodootrackerx/issues/516) remains open.
+  pages, owned by the post-G41 planning/memory audit. The bounded #516 live-entry
+  contract has completed local qualification; submitted-head native CI and
+  Gregory's Loop-on review/merge remain required.
 - G35 ordinary EEx is CLOSED for the bounded post-merge contract: last-channel
   delay (including EE0 cancellation) holds `(x+1)*S` actual ticks at effective
   same-row Fxx speed/BPM. Cells and fine/reset entry execute once; later elapsed
@@ -363,8 +402,9 @@ host.
   output stay distinct through G32 composition. Both-rate reference and host/offline
   qualification preserves no-E3x controls and existing native capacity. Direct
   cold selected-range plans ignore earlier controls. Product live selected-order
-  starts can inherit eager order-0 E3 state; #516 owns that OPEN integration.
-  Full G37, G40/G41 and the post-G41 integrated audit remain OPEN.
+  starts resolve their selected cold origin before preparation under the
+  [#516 contract](design/user-pattern-loop-continuation.md).
+  Broader G40/G41 integration and the post-G41 integrated audit remain OPEN.
 - G38A is CLOSED for bounded channel-ordered B/D/local-E6 pending-row writes,
   per-channel local loop counters, short-pattern D00...D63 reset, and EE-held
   pending-position skips without another timing/planning owner. Both-mode/rate
@@ -378,10 +418,12 @@ host.
   extended decimal D64...D99 and one-pass song-end behavior retain their safe
   documented scope; long patterns remain supported. See
   [the boundary policy](xm-effect-support.md#bounded-g38b-pattern-local-loop-and-traversal-policy).
-  Full G37 remains PARTIAL: direct cold adapter results do not close live
-  start-aware planning under [#516](https://github.com/syncomm/voodootrackerx/issues/516).
-  G40 and G41 precede #516 and the integrated planning/memory/performance,
-  CI, offline/runtime-safety and cross-family release audits before backend freeze.
+  G37 cold live entry is CLOSED on this PR branch for the bounded
+  [#516 contract](design/user-pattern-loop-continuation.md), preserving G38B's
+  current-pattern anchor/counters and implicit row 0. Acceptance still requires
+  submitted-head native arm64 CI (Codex) and Gregory's Loop-on review/merge. The integrated planning,
+  memory/performance, CI, offline/runtime-safety and cross-family release audits
+  remain OPEN before backend freeze.
 - G39A is CLOSED for the qualified bounded post-merge ramp-tremolo phase
   contract: every invocation consumes canonical vibrato phase, including Bx
   history, ordered Bx/4xy/6xy and within-row Bx/7xy crossings through EEx.
@@ -424,8 +466,9 @@ host.
   sub-second operation is claimed. The bounded G39 in-song contract is CLOSED
   after merged-source acceptance and successful native arm64 CI, including the
   actual canonical Debug prewarm regression. Post-song host/offline
-  tail parity and live nonzero-order cold start under #516 remain separately OPEN;
-  G41 integration retains its separate qualification boundary.
+  tail parity remains OPEN; bounded live cold entry and explicit user Loop are
+  locally qualified under #516, with submitted-head native CI and maintainer acceptance required. G41 integration retains
+  its own boundary.
 - G40's bounded opt-in FT2 static pan law is CLOSED through merged
   [PR #533](https://github.com/syncomm/voodootrackerx/pull/533). FT2 final evaluation recovers all 256
   header/8xx bytes and the 16 Cx positions for the C-owned immutable Q16 table,

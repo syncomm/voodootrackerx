@@ -1,0 +1,24 @@
+name: issue516-loop-native
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  continuation:
+    name: Loop continuation arm64 ASan and Release
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Qualify submitted native workload and optimized guards
+        run: python3 .github/scripts/issue516-loop-native-ci.py
+      - name: Preserve public synthetic CI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue516-native-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /private/tmp/vtx-loop-native-ci-*
+          if-no-files-found: warn

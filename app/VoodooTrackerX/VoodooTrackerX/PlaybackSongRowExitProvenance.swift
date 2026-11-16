@@ -72,14 +72,25 @@ struct PlaybackSongRowExitProvenance: Equatable {
         var lookupStorageGrowthCount = 0
         private var domain: PlaybackSongSelectionDispatchFacts.Domain?
         private var currentRow = -1
+        private var hasImportedPreviousRow = false
         private var currentFirstDiagnosticIndex = 0
         private var previousFirstDiagnosticIndex = 0
         private var currentSpanIndices = [Int]()
         private var previousSpanIndices = [Int]()
 
+        /// Seeds only the bounded prior-row span lookup for local row-zero coalescence.
+        /// Imported diagnostics must be contiguous from firstDiagnosticIndex.
+        mutating func seedPreviousRow(firstDiagnosticIndex: Int, spanIndices: [Int]) {
+            precondition(currentRow == -1 && references.isEmpty && exceptionalScalars.isEmpty)
+            currentFirstDiagnosticIndex = firstDiagnosticIndex
+            currentSpanIndices = spanIndices
+            hasImportedPreviousRow = true
+        }
+
         mutating func beginRow(_ row: Int, firstVibratoDiagnosticIndex: Int,
             domain: PlaybackSongSelectionDispatchFacts.Domain) {
             precondition(row >= 0 && (currentRow < 0 || row > currentRow))
+            if currentRow >= 0 { hasImportedPreviousRow = false }
             swap(&currentSpanIndices, &previousSpanIndices)
             currentSpanIndices.removeAll(keepingCapacity: true)
             previousFirstDiagnosticIndex = currentFirstDiagnosticIndex
@@ -108,8 +119,8 @@ struct PlaybackSongRowExitProvenance: Equatable {
             incoming: IncomingFamily, incomingIndex: Int,
             spans: borrowing [PlaybackSongNativePitchWriterSpans.Span]) {
             // The established coalescence searches exactly the previous synthetic row.
-            precondition(currentRow > 0 && outgoingRow == currentRow - 1 &&
-                outgoing >= previousFirstDiagnosticIndex)
+            precondition((currentRow > 0 || currentRow == 0 && hasImportedPreviousRow) &&
+                outgoingRow == currentRow - 1 && outgoing >= previousFirstDiagnosticIndex)
             let ordinal = outgoing - previousFirstDiagnosticIndex
             precondition(previousSpanIndices.indices.contains(ordinal))
             let spanIndex = previousSpanIndices[ordinal]

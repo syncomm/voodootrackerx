@@ -1138,54 +1138,43 @@ timeline:
 - `playbackEngineToPublishedPlaybackFollowFrameDelta` and
   `playbackEngineToPublishedPlaybackFollowRowDelta`
 
-These fields compare the `PlaybackEngine` timer/order-row-tick clock with the
-C mixer sample-time clock at the same trace point. For the runtime C mixer
-backend, the published playback-follow position uses the sample-time-derived C
-mixer position when the planned adapter timeline is available. This does not
-change tracker viewport math, static highlight-row behavior, audio event
-timing, or offline rendering.
+These fields retain their existing frame arithmetic. During actual C planned
+playback, Engine order/row/tick and published follow come from one C-head
+observation; the main-run-loop timer controls service cadence. Non-C/mock outputs
+retain their timer-driven traversal. Tracker viewport geometry, audio event timing
+and offline rendering are unchanged by follow publication.
 
-The expected interpretation is:
+Where the full-plan coordinates resolve, `playbackEngine...` row/tick is mapped
+to that tick's planned start frame. `cMixerSampleTimeFrame` and
+`publishedPlaybackFollowSampleTimeFrame` retain the precise observed frame within
+the tick. Consequently, head frame 25 inside the tick starting at frame 20 gives
+`playbackEngineToCMixerFrameDelta == 5` and
+`playbackEngineToPublishedPlaybackFollowFrameDelta == 5` even when row/tick agree.
+At the same captured head, `publishedPlaybackFollowToCMixerFrameDelta` is zero.
+This intra-tick remainder does not establish drift or a second musical clock.
 
-- `PlaybackEngine` order/row/tick is advanced by the app-side playback timer.
-  Generic non-C-mixer test outputs publish this timer position to UI/follow
-  code.
-- That timer is a `Foundation.Timer(timeInterval: timing.tickDuration,
-  repeats: true)` scheduled on `RunLoop.main` in `.common` mode. It is a
-  main-run-loop wall-clock timer, not an audio-device sample clock.
-- Each timer fire calls `advanceOneTick()`, advances `PlaybackTickState`,
-  applies tick effects until the row boundary, then advances `currentPosition`
-  and publishes row changes through `positionDidChange`. With a C mixer
-  backend, that published value is selected from the
-  C mixer sample-time resolver when possible while the timer position remains
-  separately traced as `playbackEngine...`.
-- C mixer sample-time position is resolved from the runtime C mixer's rendered
-  frame cursor, the backend sample rate, and the planned adapter row/tick
-  timeline.
-- For the runtime C mixer, the rendered-frame cursor comes from the selected
-  runtime host callback via the narrow Swift `CSoftwareMixer` wrapper. Planned
-  adapter events are queued by runtime frame, applied at exact in-callback
-  sample offsets when possible, and the same adapter timeline resolves a
-  sample-time frame back to order/pattern/row/tick.
-- A nonzero `playbackEngineToCMixerFrameDelta` means those clocks are not at
-  the same planned adapter frame when the trace row was recorded. Positive
-  deltas indicate the C mixer render cursor is ahead of the `PlaybackEngine`
-  timer position; negative deltas indicate it is behind.
-- A nonzero `publishedPlaybackFollowToCMixerFrameDelta` means the position
-  published to tracker follow differs from the C mixer sample-time position.
-  In the C mixer backend this should normally be much closer to
-  zero than `playbackEngineToCMixerFrameDelta`.
+Positive Engine-to-C deltas mean the C head is ahead of the mapped tick start;
+negative deltas mean it is behind. Compare source, status, row/tick and observation
+frames before interpreting a delta as drift. A later diagnostic observation may
+also be ahead of a previously published head. Planned commands retain their
+scheduled/applied-frame comparison independently of these position fields.
+Native Loop uses the scoped occurrence and follow observations below; unavailable
+legacy full-plan coordinates are not fabricated.
 
 Runtime snapshots also include cumulative `appliedPlannedEventCount`,
 `exactFrameAppliedEventCount`, `callbackBoundaryAppliedEventCount`,
 `latePlannedEventCount`, and `maxPlannedVsAppliedDelta`. Late events are traced
 and applied at the start of the current callback rather than silently dropped.
 
-Row transitions are traced with a before-event `row_transition` breadcrumb and
-an after-event `row_transition_after_events` breadcrumb. These rows may include
-previous and next order/pattern/row fields, `transitionRuntimeFrame`,
-active/loaded voice counts before and after the row-entry work, and per-row
-`transitionReplacementRampCount` / `transitionUpdateCount` deltas.
+Row-entry scheduling is traced with a before-event `row_transition` breadcrumb
+and an after-event `row_transition_after_events` breadcrumb. These rows may include
+previous/next coordinates, `transitionRuntimeFrame`, voice snapshots and
+`transitionReplacementRampCount` / `transitionUpdateCount` deltas. For actual C
+planned playback these surround initial row scheduling. Subsequent execution is
+observed through actual applied commands and native/follow positions; UI polling
+does not invent intervening row-entry events. Non-C/mock timer traversal retains
+its existing row-entry breadcrumbs. A row with no command is still represented
+by the native follow position.
 Summary diagnostics keep transport stop/reset cursor jumps separate from
 in-playback drift. Exact in-callback planned-event timestamps may appear after
 a callback-end breadcrumb in JSONL order; the summary reports that ordering
@@ -1240,6 +1229,58 @@ coordinates under the render summary. They also include
 source coordinates, target order/pattern/row, stop reason, guard hits, applied
 counts, invalid/out-of-range targets, missing loop starts, and loop-limit hits.
 It does not change runtime playback or offline rendering behavior.
+
+### Scoped native user-Loop observations
+
+Explicit user Loop emits optional `loopOccurrence` capsules after host stop,
+before its native generation resets. Use the capsule's full scope, batch
+sequence, original event ordinal and `eventID` as occurrence identity. Its
+`localSourceIndex` is a plan-local lookup; `targetBirth`, `sourceBefore` and
+`sourceAfter` retain exact source-generation/transport/birth-sequence/index
+identity within the document scope, including legitimate carried older births.
+Never join those raw numbers directly to an unscoped whole-song plan.
+
+The summary's additive `user_loop_native` section separates scoped observations
+from legacy application counts and reports fixed-ring drops and scalar totals.
+A dropped or incomplete trace is partial evidence. `consumedPlannedEventCount`
+keeps its raw-unique-ID meaning; it is not an occurrence count. Live values are
+retired-batch acknowledgements, while final Stop includes partial active work.
+
+`correlate-window` preserves scoped keys for audio/frame inspection and rejects
+`--offline-diagnostics-json` for these traces until an explicitly scoped
+execution oracle is supplied by a qualified workflow. Normal trace rows omit
+the new objects, and existing full-song event fields and JSON remain unchanged.
+
+### Native playback head and transport follow
+
+Normal full-plan and explicit user-Loop service publishes one coherent C-head
+observation for Engine position, timing and UI follow. Stop/Pause capture after
+host quiescence and before Core reset; Pause saves the captured resume context.
+Timers determine service cadence. They do not advance a second musical clock,
+and a normal song-end timer cannot stop before the actual mapped frame reaches
+the existing song-end/tail deadline.
+
+Each coherent observation updates the exact tick/frame state and diagnostics.
+The row-only UI observer suppresses repeated order/pattern/row coordinates,
+including elapsed ticks within that row; explicit startup publications remain
+forced. `duplicateSuppressed` describes this UI notification decision.
+
+The raw runtime coordinate is the next unrendered C sample, not a CoreAudio
+device or audible-clock observation. Normal sample-time
+follow still uses its mapped planned coordinate; do not substitute raw frame for
+that field. Row boundaries are right-open. Playback-follow status `terminal`
+means musical row/tick is clamped during fault retirement/silence. C advances
+through retirement, then further silence buffers do not advance its frame.
+`capture_unavailable` preserves an explicitly last-known coordinate when capture
+fails. Neither status is ordinary exact `in_range` evidence. See the
+[compatibility note](format-changes.md#native-c-playback-head-diagnostics).
+
+Full runtime JSON trace export remains Debug-only. The supported Release
+`VTX_RUNTIME_MIXER_METRICS_TRACE=1` path emits `vtx_runtime_mixer_metrics` records:
+`user_loop_native_summary` has attempted/applied/suppressed/failed/recorded/dropped
+`*_occurrences` fields, and `stop_summary` reports `stop_reason`, render counts
+and host delivery. Scalar totals remain distinct from full scoped occurrence
+coverage; missing JSON or dropped capsules do not become complete trace proof.
 
 When a full or near-full runtime live-output capture is compared with a full
 offline C mixer WAV, use the window correlation helper to connect whole-song

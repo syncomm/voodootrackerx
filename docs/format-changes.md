@@ -3,6 +3,55 @@
 This log records intentional changes to VTX's supported persistence or module
 compatibility boundary. It is not a claim of arbitrary XM round-trip support.
 
+## Native C playback-head diagnostics
+
+Normal full-plan and explicit user-Loop transport follow now uses one C-head
+observation. The raw runtime frame is the next unrendered C sample, not the
+CoreAudio device or audible clock; exact row boundaries select the next interval
+without subtracting a frame. Normal
+sample-time follow retains its existing mapped planned-frame meaning separately
+from the raw C frame. Existing event/source numeric IDs are not redefined.
+
+Playback-follow diagnostics add `terminal` and `capture_unavailable` status
+values. `terminal` explicitly clamps the last musical row/tick during fault
+retirement or silence while retaining the observed raw head. C reaches the
+retirement end, then further silence buffers do not advance its frame. The
+control-side result distinguishes captured, notRendered and unavailable.
+`capture_unavailable` means a last-known coordinate could not be refreshed when
+host quiescence or head capture fails; its stored frame is not a claim of current
+audio position. Pause retains that tagged row as its fallback resume context.
+Consumers must retain these
+statuses rather than treating either as ordinary `in_range` evidence. Before any
+rendered head exists, the selected cold context remains the navigation intent.
+
+This changes diagnostic interpretation and corrects live/Stop/Pause position
+values. Trace field shapes and event/source identity meanings remain compatible;
+MOD/XM bytes, parsing, editable persistence and WAV encoding do not change. No
+stored-document migration is required.
+
+## Native user-Loop runtime trace scope
+
+Runtime trace `schemaVersion: 1` gains optional `loopOccurrence` and
+`loopOccurrenceSummary` objects for explicit user Loop. Normal trace rows omit
+both objects; existing event/source ID meanings and full-plan control fixtures
+are unchanged.
+The new occurrence key is exact document/source/transport/rate/mode/loop scope
+plus batch sequence, original event ordinal and numeric event ID. A local source
+lookup index remains separate from its full birth-generation/sequence/index
+binding; wrap does not fabricate a source or renumber an event.
+
+Capsules are drained after host stop and before Core reset. They are deferred
+observations from a fixed ring, whose dropped-capsule total is explicit. The
+existing consumed counter retains its raw-unique-ID meaning: live values cover
+acknowledged retired batches; final Stop also includes active partial execution.
+Occurrence attempted/applied/suppressed/failed totals are separate.
+
+Trace readers preserve these scopes and exclude native capsules from legacy
+full-plan application counts. Window correlation rejects an unscoped offline
+identity/effect oracle for a scoped Loop trace; audio/frame-only inspection
+remains available. MOD/XM bytes, parsing and editable persistence are unchanged;
+no stored-document migration is required.
+
 ## XM pattern-local looping (G38B)
 
 The approved composition policy gives every pattern its own executed E60 anchor

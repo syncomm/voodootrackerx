@@ -41,6 +41,70 @@ protocol RuntimeCMixerAdapterEventConsuming: AnyObject {
     )
 }
 
+enum RuntimeUserLoopPlaybackFailure {
+    case planning(RuntimeLoopNativeDeliveryFault, RuntimeLoopPlanningSession.Failure?)
+    case host(RuntimeLoopNativeHostFault)
+    case refresh(RuntimeLoopNativeScope, RuntimeLoopPlanningSession.RefreshRefusal)
+
+    var scope: RuntimeLoopNativeScope {
+        switch self { case let .planning(fault, _): return fault.scope; case let .host(fault): return fault.scope; case let .refresh(scope, _): return scope }
+    }
+
+    var stopReason: String {
+        switch self {
+        case .planning(let fault, _):
+            switch fault.reason {
+            case .missingSuccessor: return "loop_planning_underrun"
+            case .invalidBoundary: return "loop_invalid_boundary"
+            case .invalidSuccessor: return "loop_invalid_successor"
+            case .invalidCommand: return "loop_invalid_command"
+            case .nativeRenderFailure: return "loop_native_render_failure"
+            case .nativeCommandFailure: return "loop_native_command_failure"
+            }
+        case .host: return "loop_host_state_unavailable"
+        case .refresh: return "loop_refresh_requires_restart"
+        }
+    }
+}
+
+@MainActor
+protocol RuntimeCMixerUserLoopConsuming: AnyObject {
+    var hasRuntimeUserLoop: Bool { get }
+    /// Prepares the existing quiescent host and reads its declared callback capacity.
+    func prepareRuntimeUserLoopCallbackCapacity() -> Int?
+    /// Installs a ready generation while the host is quiescent; no normal full-plan fallback.
+    func configureRuntimeUserLoop(_ session: RuntimeLoopPlanningSession,
+                                  preparation: RuntimeLoopPlanningSession.Preparation) -> Bool
+    /// Missing-boundary faults become visible only after native source retirement.
+    func consumeRuntimeUserLoopFailure() -> RuntimeUserLoopPlaybackFailure?
+    /// Sample-time follow is a fixed atomic capsule and takes no render lock.
+    func runtimeUserLoopPosition() -> RuntimeLoopNativeFollowSnapshot?
+}
+
+/// One clock observation. Normal sampleTimeFrame retains its mapped plan meaning;
+/// runtimeFrame is the raw next-unrendered C frame in both playback modes.
+struct RuntimeCMixerPlaybackHead {
+    let runtimeFrame: UInt64
+    let follow: PlaybackFollowPosition
+    let timing: PlaybackTiming
+    let actualTickCount: Int
+}
+
+enum RuntimeCMixerPlaybackHeadCapture {
+    case captured(RuntimeCMixerPlaybackHead)
+    case notRendered
+    case unavailable(String)
+}
+
+/// Actual C playback supplies position; a UI timer only chooses when to publish it.
+@MainActor
+protocol RuntimeCMixerPlaybackHeadProviding: AnyObject {
+    var hasRuntimePlaybackHead: Bool { get }
+    func runtimePlaybackHead() -> RuntimeCMixerPlaybackHead?
+    /// Stops host delivery and captures before Core reset destroys its coordinate map.
+    func quiesceAndCaptureRuntimePlaybackHead() -> RuntimeCMixerPlaybackHeadCapture
+}
+
 private struct RuntimeCMixerEventCounters: Equatable {
     var cMixerAddVoiceCount: UInt64 = 0
     var gainPanUpdateCount: UInt64 = 0
@@ -259,6 +323,15 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
         return noErr
     }
 
+    func prepareCallbackCapacity() -> Int? {
+        guard !isRunning, prepare() == noErr, let unit = outputUnit else { return nil }
+        var frames: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioUnitGetProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice,
+            kAudioUnitScope_Global, 0, &frames, &size)
+        return status == noErr && frames > 0 ? Int(frames) : nil
+    }
+
     @discardableResult
     func start() -> OSStatus {
         if isRunning {
@@ -317,7 +390,7 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
 }
 
 @MainActor
-final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerAdapterEventConsuming, RuntimeCMixerAdmissionFailureConsuming {
+final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerAdapterEventConsuming, RuntimeCMixerAdmissionFailureConsuming, RuntimeCMixerUserLoopConsuming, RuntimeCMixerPlaybackHeadProviding {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Audio")
     private let backend: RuntimeAudioBackend
     private let format: AVAudioFormat
@@ -346,6 +419,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private var playbackFollowLastResolverFailureReason: String?
     private var eventCounters = RuntimeCMixerEventCounters()
     private var adapterEventPlan = RuntimeCMixerAdapterEventPlan.unavailable()
+    private var nativeLoopSession: RuntimeLoopPlanningSession?
+    private var nativeLoopControlFault: RuntimeLoopNativeHostFault?
     private var consumedAdapterEventIDs = Set<Int>()
     private var consumedAdapterEventCategories = Set<String>()
     private var plannedRuntimeFrameOffset: Int?
@@ -445,10 +520,105 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     func snapshotForTesting() -> RuntimeCMixerRenderSnapshot {
         renderCore.snapshot()
     }
+
+    /// Quiesces delivery before inspecting Loop diagnostics, avoiding a diagnostic
+    /// lock holder on its running host. The test must subsequently Stop the engine.
+    func quiescedSnapshotForTesting() -> RuntimeCMixerRenderSnapshot {
+        coreAudioOutputHost.stop()
+        return renderCore.snapshot()
+    }
 #endif
 
     var hasRuntimeAdapterEventPlan: Bool {
-        adapterEventPlan.generated
+        nativeLoopSession != nil || adapterEventPlan.generated
+    }
+
+    var hasRuntimeUserLoop: Bool { nativeLoopSession != nil }
+
+    func prepareRuntimeUserLoopCallbackCapacity() -> Int? {
+        coreAudioOutputHost.prepareCallbackCapacity()
+    }
+
+    func configureRuntimeUserLoop(_ session: RuntimeLoopPlanningSession,
+                                  preparation: RuntimeLoopPlanningSession.Preparation) -> Bool {
+        guard preparation.channel === session.channel, preparation.scope == session.scope,
+              preparation.scope.sampleRateBits == format.sampleRate.bitPattern, !session.isCancelled else { return false }
+        let previous = nativeLoopSession
+        previous?.cancel()
+        coreAudioOutputHost.stop()
+        drainNativeLoopOccurrencesAfterHostStop(reason: "loop_session_replacement")
+        renderCore.stopAll()
+        previous?.cancelAndWait()
+        nativeLoopSession = nil
+        adapterEventPlan = .unavailable(sampleRate: format.sampleRate)
+        resetRuntimeAdapterEventConsumption()
+        nativeLoopSession = session
+        nativeLoopControlFault = nil
+        renderCore.configureNativeLoopDelivery(channel: session.channel, scope: session.scope,
+            trackerChannelCount: preparation.trackerChannelCount, keepingAlive: session,
+            recordsOccurrences: traceWriter.isEnabled || runtimeMixerMetricsTraceWriter.isEnabled)
+        adapterEventScheduleConfigured = true
+        prepareIfNeeded()
+        return true
+    }
+
+    func consumeRuntimeUserLoopFailure() -> RuntimeUserLoopPlaybackFailure? {
+        if let fault = nativeLoopControlFault { nativeLoopControlFault = nil; return .host(fault) }
+        if let fault = renderCore.consumeNativeLoopHostFault() { return .host(fault) }
+        if let fault = renderCore.consumeNativeLoopPlanningFailure() {
+            return .planning(fault, nativeLoopSession?.latestProductionFailure())
+        }
+        return nil
+    }
+
+    func runtimeUserLoopPosition() -> RuntimeLoopNativeFollowSnapshot? { renderCore.nativeLoopFollowPosition() }
+
+    var hasRuntimePlaybackHead: Bool {
+        nativeLoopSession != nil || (adapterEventPlan.generated && adapterEventScheduleConfigured)
+    }
+
+    func runtimePlaybackHead() -> RuntimeCMixerPlaybackHead? {
+        if nativeLoopSession != nil {
+            // All native geometry/timing comes from one coherent publication.
+            return renderCore.nativeLoopFollowPosition().map(nativePlaybackHead)
+        }
+        return normalPlaybackHead(at: renderCore.realtimeCurrentFrame)
+    }
+
+    func quiesceAndCaptureRuntimePlaybackHead() -> RuntimeCMixerPlaybackHeadCapture {
+        guard hasRuntimePlaybackHead else { return .notRendered }
+        guard coreAudioOutputHost.stop() == noErr, !coreAudioOutputHost.isRunning else {
+            return .unavailable("output_host_did_not_quiesce")
+        }
+        let captured = renderCore.quiescentPlaybackHead()
+        let head: RuntimeCMixerPlaybackHead?
+        if nativeLoopSession != nil {
+            // The active metadata remains pinned until the subsequent C reset/join.
+            head = captured.nativeFollow.map(nativePlaybackHead)
+        } else { head = normalPlaybackHead(at: captured.frame) }
+        if let head { return .captured(head) }
+        return captured.frame == 0 ? .notRendered : .unavailable("native_head_unresolved_after_quiescence")
+    }
+
+    private func nativePlaybackHead(_ position: RuntimeLoopNativeFollowSnapshot) -> RuntimeCMixerPlaybackHead {
+        .init(runtimeFrame: position.nativeFrame,
+            follow: .init(position: position.source, tickInRow: position.tickInRow, source: .cMixerSampleTime,
+                sampleTimeFrame: Int(clamping: position.nativeFrame),
+                sampleTimeStatus: position.isTerminal ? "terminal" : "in_range", syntheticRow: position.syntheticRow),
+            timing: .init(speed: position.effectiveSpeed, bpm: position.effectiveBPM),
+            actualTickCount: position.actualTickCount)
+    }
+
+    private func normalPlaybackHead(at runtimeFrame: UInt64) -> RuntimeCMixerPlaybackHead? {
+        guard adapterEventPlan.generated, adapterEventScheduleConfigured,
+              let offset = plannedRuntimeFrameOffset,
+              let frame = plannedFrame(runtimeFrame: runtimeFrame, runtimeFrameOffset: offset),
+              let position = sampleTimePositionResolver?.position(atFrame: frame) else { return nil }
+        return .init(runtimeFrame: runtimeFrame,
+            follow: .init(position: position.source, tickInRow: position.tickInRow, source: .cMixerSampleTime,
+                sampleTimeFrame: position.frame, sampleTimeStatus: position.status, syntheticRow: position.syntheticRow),
+            timing: .init(speed: position.effectiveSpeed, bpm: position.effectiveBPM),
+            actualTickCount: position.actualTickCount)
     }
 
     /// Consumes only the notification; the render core remains silent until stopped and reset.
@@ -463,6 +633,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     func playbackFollowPosition(timerPosition: PlaybackPosition, timerTickInRow: Int) -> PlaybackFollowPosition? {
+        if hasRuntimePlaybackHead { return runtimePlaybackHead()?.follow }
         guard adapterEventPlan.generated,
              let cMixerPosition = resolvedSampleTimePosition(
                  context: traceContext(position: timerPosition, tickInRow: timerTickInRow),
@@ -524,6 +695,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         patternLoopRange: PlaybackPatternLoopRange?,
         timingSession: PlaybackTimingTraceSession?
     ) {
+        if let session = nativeLoopSession {
+            // Refill and admission have no MainActor dependency. Main only starts
+            // the established output host after both initial slots are prepared.
+            let core = renderCore
+            session.startProduction(nativeFrame: { [weak core] in core?.realtimeCurrentFrame },
+                nativeQuantum: { [weak core] in core?.nativeLoopObservedCallbackFrames })
+            if startsOutputHostOnDemand, !startEngineIfNeeded() {
+                nativeLoopControlFault = .init(scope: session.scope, lastPublishedNativeFrame: renderCore.realtimeCurrentFrame)
+                session.cancel()
+            }
+            return
+        }
         let consumptionStart = timingSession?.beginPhase()
         drainAppliedRuntimeAdapterEvents()
         guard adapterEventPlan.generated else {
@@ -1113,6 +1296,52 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         return lhs.isFinite && rhs.isFinite ? abs(lhs - rhs) > 0.000_001 : lhs != rhs
     }
 
+    /// Reads fixed native capsules only after host stop, before Core reset destroys
+    /// their ring. This never changes the legacy raw-unique-ID counter or source IDs.
+    private func drainNativeLoopOccurrencesAfterHostStop(reason: String) {
+        guard nativeLoopSession != nil, !coreAudioOutputHost.isRunning,
+              traceWriter.isEnabled || runtimeMixerMetricsTraceWriter.isEnabled else { return }
+        let drained = renderCore.drainNativeLoopOccurrences()
+        guard drained.attempts > 0 || drained.drops > 0 || !drained.events.isEmpty else { return }
+        if traceWriter.isEnabled {
+            for occurrence in drained.events {
+                let delta = occurrence.appliedFrame >= occurrence.plannedFrame
+                    ? Int(clamping: occurrence.appliedFrame - occurrence.plannedFrame)
+                    : -Int(clamping: occurrence.plannedFrame - occurrence.appliedFrame)
+                traceWriter.record(.init(runtimeAction: "user_loop_native_occurrence",
+                    runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
+                    runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
+                    runtimeEventCategory: "user_loop_native_occurrence", plannedEventID: occurrence.eventID,
+                    loopOccurrence: .init(occurrence),
+                    plannedSourceOrderIndex: occurrence.source.orderIndex,
+                    plannedSourcePatternIndex: occurrence.source.patternIndex,
+                    plannedSourceRowIndex: occurrence.source.rowIndex, plannedSourceTickInRow: occurrence.tick,
+                    plannedSourceChannelIndex: occurrence.channel,
+                    plannedRuntimeFrame: Int(clamping: occurrence.plannedFrame),
+                    runtimeApplicationFrame: occurrence.appliedFrame, eventFrameDelta: delta,
+                    eventApplicationTiming: delta == 0 ? "exact_frame" : delta > 0 ? "late" : "early",
+                    eventAppliedFrame: occurrence.appliedFrame, plannedVsAppliedDelta: delta,
+                    adapterActiveEventIndex: occurrence.localSourceIndex >= 0 ? occurrence.localSourceIndex : nil,
+                    cMixerCallSucceeded: occurrence.disposition == 0 ? true : occurrence.disposition == 3 ? false : nil,
+                    reason: "runtime_user_loop_stopped_occurrence_drain"))
+            }
+            let summary = RuntimeLoopNativeTraceSummary(attemptedOccurrences: drained.attempts,
+                appliedOccurrences: drained.applied, suppressedOccurrences: drained.suppressed,
+                failedOccurrences: drained.failures, recordedOccurrences: drained.events.count,
+                droppedOccurrences: drained.drops)
+            traceWriter.record(.init(runtimeAction: "user_loop_native_summary",
+                runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
+                loopOccurrenceSummary: summary, reason: reason))
+        }
+        if runtimeMixerMetricsTraceWriter.isEnabled {
+            runtimeMixerMetricsTraceWriter.record(.init(phase: "user_loop_native_summary", fields: [
+                .init("attempted_occurrences", drained.attempts), .init("applied_occurrences", drained.applied),
+                .init("suppressed_occurrences", drained.suppressed), .init("failed_occurrences", drained.failures),
+                .init("recorded_occurrences", drained.events.count), .init("dropped_occurrences", drained.drops)
+            ]))
+        }
+    }
+
     private func drainAppliedRuntimeAdapterEvents(drainAllAvailable: Bool = false) {
         guard !coreAudioOutputHost.isRunning else {
             return
@@ -1472,9 +1701,20 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     func stopAll(context: AudioRuntimeTraceContext?, reason: String) {
+        let loopSession = nativeLoopSession
+        loopSession?.cancel()
         coreAudioOutputHost.stop()
         drainAppliedRuntimeAdapterEvents(drainAllAvailable: true)
+        drainNativeLoopOccurrencesAfterHostStop(reason: reason)
         let result = renderCore.stopAllWithDiagnostics(reason: reason)
+        // C sources and tails no longer reference the generation's shared PCM.
+        // Join its serial producer before dropping the final native buffer owners.
+        loopSession?.cancelAndWait()
+        if let loopSession {
+            consumedAdapterEventIDs.formUnion(loopSession.consumedRawEventIDsAfterShutdown())
+            eventCounters.consumedPlannedEventCount = UInt64(consumedAdapterEventIDs.count)
+        }
+        nativeLoopSession = nil
         eventCounters.clearAllCount &+= 1
         recordRuntimeEvent(
             action: "c_mixer_clear_all",
@@ -1696,11 +1936,17 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         guard !coreAudioOutputHost.isRunning else {
             return true
         }
+        // Loop's first callback must never contend with a post-start diagnostic snapshot.
+        let loopStartupSnapshot = nativeLoopSession == nil ? nil : renderCore.snapshot()
         let status = coreAudioOutputHost.start()
         guard status == noErr else {
             logger.error(
                 "CoreAudio C mixer output unit start succeeded=false status=\(status, privacy: .public)"
             )
+            if nativeLoopSession != nil {
+                coreAudioOutputHost.stop()
+                drainNativeLoopOccurrencesAfterHostStop(reason: "output_host_start_failed")
+            }
             renderCore.stopAll()
             recordRuntimeEvent(
                 action: "backend_start_failed",
@@ -1721,7 +1967,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             action: "backend_start",
             context: nil,
             targetScope: "none",
-            snapshot: renderCore.snapshot(),
+            snapshot: loopStartupSnapshot ?? renderCore.snapshot(),
             succeeded: true,
             reason: "runtime_c_mixer_coreaudio_output_unit_started"
         )
@@ -1918,7 +2164,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
             adapterPlanGenerated: adapterEventPlan.generated,
             plannedEventCount: adapterEventPlan.plannedEventCount,
-            consumedPlannedEventCount: Int(min(eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
+            consumedPlannedEventCount: Int(min(nativeLoopSession?.acknowledgedRawUniqueEventCount ??
+                eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
             skippedUnmatchedPlannedEventCount: Int(min(eventCounters.skippedUnmatchedPlannedEventCount, UInt64(Int.max))),
             runtimeRowOrderMapping: runtimeRowOrderMapping(for: context),
             adapterEventCategoriesConsumed: consumedAdapterEventCategories.sorted(),
@@ -2124,7 +2371,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             adapterPlanGenerated: adapterEventPlan.generated,
             adapterPlanGenerationMS: adapterPlanGenerationMS,
             plannedEventCount: adapterEventPlan.plannedEventCount,
-            consumedPlannedEventCount: Int(min(eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
+            consumedPlannedEventCount: Int(min(nativeLoopSession?.acknowledgedRawUniqueEventCount ??
+                eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
             skippedUnmatchedPlannedEventCount: Int(min(eventCounters.skippedUnmatchedPlannedEventCount, UInt64(Int.max))),
             runtimeRowOrderMapping: runtimeRowOrderMapping(for: context),
             adapterEventCategory: adapterEventCategory,

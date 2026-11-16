@@ -868,7 +868,10 @@ final class TestRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmSch
     ) -> RuntimeAdapterPlanPrewarmJob {
         let profileSession = request.adapterPlanProfileRecorder?.beginLifecycle("prewarm")
         let plan = RuntimeCMixerAdapterEventPlan.make(song: request.song,
-            sampleRate: request.sampleRate, profileSession: profileSession)
+            sampleRate: request.sampleRate, profileSession: profileSession,
+            initialPosition: { if case let .cold(order, row) = request.key.origin {
+                return request.song.position(orderIndex: order, rowIndex: row)
+            }; return nil }())
         let result = RuntimeAdapterPlanPrewarmResult(generation: request.generation, plan: plan,
             makeMS: makeMS, completedAfterCancellation: false,
             adapterPlanProfileSession: profileSession, sourceSong: request.song)
@@ -889,10 +892,16 @@ final class TestRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmSch
 }
 
 @MainActor
-final class TestRuntimeFollowAudioOutput: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput {
+final class TestRuntimeFollowAudioOutput: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerPlaybackHeadProviding {
     let audioBufferSampleRate = 100.0
     let runtimeAudioBackend: RuntimeAudioBackend = .cMixer
     var followPositions = [PlaybackFollowPosition?]()
+    var hasRuntimePlaybackHead = false
+    var playbackHeads = [RuntimeCMixerPlaybackHead?]()
+    private(set) var playbackHeadReadCount = 0
+    private(set) var followReadCount = 0
+    var didRecordFollow: (() -> Void)?
+    var captureOverride: RuntimeCMixerPlaybackHeadCapture?
     private(set) var recordedFollowEvents = [(position: PlaybackFollowPosition, resolverFailureReason: String?)]()
 
     func trigger(_ request: AudioVoiceRequest) {}
@@ -902,10 +911,21 @@ final class TestRuntimeFollowAudioOutput: PlaybackAudioOutput, PlaybackAudioBack
     func reset() {}
 
     func playbackFollowPosition(timerPosition: PlaybackPosition, timerTickInRow: Int) -> PlaybackFollowPosition? {
+        followReadCount += 1
         guard !followPositions.isEmpty else {
             return nil
         }
         return followPositions.removeFirst()
+    }
+
+    func runtimePlaybackHead() -> RuntimeCMixerPlaybackHead? {
+        playbackHeadReadCount += 1
+        return playbackHeads.isEmpty ? nil : playbackHeads.removeFirst()
+    }
+
+    func quiesceAndCaptureRuntimePlaybackHead() -> RuntimeCMixerPlaybackHeadCapture {
+        if let captureOverride { return captureOverride }
+        return hasRuntimePlaybackHead ? runtimePlaybackHead().map { .captured($0) } ?? .notRendered : .notRendered
     }
 
     func trigger(_ request: AudioVoiceRequest, context: AudioRuntimeTraceContext?) {}
@@ -923,6 +943,7 @@ final class TestRuntimeFollowAudioOutput: PlaybackAudioOutput, PlaybackAudioBack
         resolverFailureReason: String?
     ) {
         recordedFollowEvents.append((publishedPosition, resolverFailureReason))
+        didRecordFollow?()
     }
 }
 

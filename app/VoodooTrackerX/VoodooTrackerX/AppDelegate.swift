@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var editableDocumentIdentity: UUID?
     private var loadedModuleIdentity: UUID?
     private var editableDocumentRevision: UInt64 = 0
+    private var preparedEditablePlaybackIdentity: UUID?
+    private var preparedEditablePlaybackRevision: UInt64?
     private var blankDocument: BlankTrackerDocument? {
         didSet { editableDocumentRevision &+= 1 }
     }
@@ -381,6 +383,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         playbackEngine.playbackDidFail = { [weak self] fault in
             self?.presentRuntimeMixerAdmissionFailure(fault)
+        }
+        playbackEngine.userLoopPlaybackDidFail = { [weak self] fault in
+            self?.presentUserLoopPlaybackFailure(fault)
         }
         playbackEngine.runtimeAdapterPlanDidUpdate = { [weak self] in
             self?.syncControlPanelView()
@@ -1246,6 +1251,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         presentTopLevelDocumentAlert(alert)
     }
 
+    private func presentUserLoopPlaybackFailure(_ fault: RuntimeUserLoopPlaybackFailure) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Loop Playback Stopped"
+        switch fault {
+        case .planning(let native, _):
+            alert.informativeText = native.reason == .missingSuccessor
+                ? "Audio planning missed a loop boundary. Press Play to retry."
+                : "The audio engine could not continue the loop. Press Play to retry."
+        case .host:
+            alert.informativeText = "The audio engine could not access playback state. Press Play to retry."
+        case .refresh:
+            alert.informativeText = "The playback settings changed. Press Play to restart the loop."
+        }
+        presentTopLevelDocumentAlert(alert)
+    }
+
     private func presentTopLevelDocumentAlert(_ alert: NSAlert) {
         presentDocumentSheet(
             begin: { hostWindow, restoreAuxiliaryWindow in
@@ -1894,7 +1916,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             )
 
             let engineLoadStart = timingSession?.beginPhase()
-            playbackEngine.load(song: playbackSong, timingSession: timingSession)
+            let launchContext = playbackEngine.startContext(
+                for: PlaybackDebugLaunchConfiguration.parse().startRequest, in: playbackSong)
+            playbackEngine.load(song: playbackSong, startContext: launchContext, timingSession: timingSession)
             timingSession?.recordPhase(
                 "playback_engine_load",
                 startedAt: engineLoadStart,
@@ -1919,7 +1943,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 trackerDividerUnderlayView?.isHidden = false
                 trackerChromeOverlayView?.isHidden = false
                 updatePatternSelector(for: metadata, keepPattern: nil)
-                applySongPosition(selectedSongPositionIndex, in: metadata, resetCursor: false)
+                applySongPosition(selectedSongPositionIndex, in: metadata, resetCursor: false, preparePlayback: false)
                 renderCurrentPattern(metadata: metadata)
             } else {
                 metadataTextView?.activeFieldRange = nil
@@ -2348,6 +2372,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         }
 
+        if preparedEditablePlaybackIdentity == editableDocumentIdentity,
+           preparedEditablePlaybackRevision == editableDocumentRevision, playbackEngine.song != nil { return true }
         let buildStart = timingSession?.beginPhase()
         let song = EditablePlaybackSongBuilder.build(from: document)
         timingSession?.recordPhase(
@@ -2357,7 +2383,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
 
         let loadStart = timingSession?.beginPhase()
-        playbackEngine.load(song: song, timingSession: timingSession)
+        playbackEngine.loadEditableSnapshot(song: song, identity: editableDocumentIdentity,
+            startContext: currentPlaybackStartContext(), loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
+        preparedEditablePlaybackIdentity = editableDocumentIdentity
+        preparedEditablePlaybackRevision = editableDocumentRevision
         timingSession?.recordPhase(
             "editable_playback_engine_load_snapshot",
             startedAt: loadStart,
@@ -2596,7 +2625,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         selector.isEnabled = true
     }
 
-    private func applySongPosition(_ proposedPosition: Int, in metadata: ParsedModuleMetadata, resetCursor: Bool = true) {
+    private func applySongPosition(_ proposedPosition: Int, in metadata: ParsedModuleMetadata,
+                                   resetCursor: Bool = true, preparePlayback: Bool = true) {
         let clampedPosition = clampedSongPosition(proposedPosition, songLength: metadata.songLength)
         selectedSongPositionIndex = clampedPosition
         if let patternIndex = displayedPatternIndex(in: metadata, songPosition: clampedPosition) {
@@ -2608,6 +2638,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         if resetCursor {
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
+        }
+        // Initial presentation reset must not replace a known debug-launch origin.
+        if preparePlayback {
+            playbackEngine.prepare(from: currentPlaybackStartContext(), loopEnabled: isLoopPlaybackEnabled)
         }
     }
 

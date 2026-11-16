@@ -76,6 +76,8 @@ APP = [
     'RuntimeCMixerColdPlanAssemblyTests/testSingleOwnerPermutationRemainsValidAfterConstructionScopeIsReleased',
     'RuntimeCMixerColdPlanAssemblyTests/testTriggerPayloadRemainsCompactAndSharesPCMThroughPermutation',
     'RuntimeLoopNativeBatchStoragePCMTests/testProductionStorageAndCoreMatchExpandedPCMAtBothRatesModesAndRowCaps',
+    'RuntimeLoopNativeBatchStoragePCMTests/testAuthoredBxxNativeSequencePCMAndOwnershipThroughTwelvePassesWithLoopOffAndOn',
+    'SelectedOriginConsumerTests/testCachedCycleAnalysisCannotBecomeLiveEndAndTransportControlsStillWin',
     'RuntimeLoopNativeEarlyCutoverTests/testConcurrentReadyRetractionPreservesClaimedHeaderAndOwner',
     'RuntimeLoopNativeEarlyCutoverTests/testOptionalNaturalBoundaryCoalescingAndUnchangedMandatoryDelivery',
     'RuntimeLoopNativeEarlyEditPCMTests/testWarmEarlyEditMatchesExpandedPCMAtBothRatesAndModes',
@@ -120,6 +122,11 @@ APP = [
     'SongDurationTests/testReplacementIdentityRejectsBlockedStaleResultAndFileNewClearsDuration',
 ]
 PACKAGE_ASAN = [
+    'AuthoredBxxContinuationTests/testBoundedLiveBxxCarriesEveryHxyTickAcrossAdversarialSplitsAndColdOrigins',
+    'AuthoredBxxContinuationTests/testLongSilentCyclesRemainBoundedAndCancellationDoesNotAdvanceCheckpoint',
+    'AuthoredBxxContinuationTests/testFullAnalysisStillTerminatesAtKnownCycleAndFiniteControlKeepsExactEnd',
+    'AuthoredBxxContinuationTests/testBxxReturnStartsFreshPatternLocalE6ButRetainsActualFxxH00State',
+    'UserLoopProducerPCMTests/testAuthoredBxxWindowsMatchFiniteExpandedPCMThroughTwelvePasses',
     'CatalogPCMLeaseTests/testRevokedCandidatesReuseOnePayloadForPreviouslyUnplayedCatalogSample',
     'CatalogProofTests/testChangedBytesStaleGenerationOtherLeaseAndEpochCannotUseProof',
     'CatalogProofTests/testPrevalidatedProofConsumesSameLeasePrefixAndReusesSanitizedPCMWithFreshRawStorage',
@@ -575,7 +582,7 @@ def main():
             'inherited sanitizer options')
     emit({'head': head, 'architecture': 'arm64', 'Xcode': output(['xcodebuild', '-version']),
           'Swift': output(['swift', '--version']), 'evidenceRoot': str(root)})
-    require(len(APP) == len(set(APP)) == 101 and len(PACKAGE_ASAN) == len(set(PACKAGE_ASAN)) == 64,
+    require(len(APP) == len(set(APP)) == 103 and len(PACKAGE_ASAN) == len(set(PACKAGE_ASAN)) == 69,
             'selector manifest counts')
     base = ['xcodebuild', '-project', 'app/VoodooTrackerX/VoodooTrackerX.xcodeproj', '-scheme',
             'VoodooTrackerX', '-destination', 'platform=macOS,arch=arm64', '-derivedDataPath', 'build',
@@ -592,7 +599,7 @@ def main():
         ['-only-testing:VoodooTrackerXTests/' + selector for selector in APP] + ['test'], options, True,
         separate_stderr=True)
     image(product, True)
-    result_cases(result, 101, APP)
+    result_cases(result, 103, APP)
     attribution, removed = app_case_attribution_text(text, result)
     attribution_log = root / 'app-asan-case-attribution.log'
     attribution_log.write_text(attribution)
@@ -628,7 +635,7 @@ def main():
     options = runtime_context('package-asan', package)
     text = run('package-asan', ['swift', 'test', '--skip-build', '-c', 'debug', '--sanitize', 'address',
         '--filter', '|'.join(re.escape(selector) + '$' for selector in PACKAGE_ASAN)], options, True)
-    cases = package_cases(text, 64, PACKAGE_ASAN)
+    cases = package_cases(text, 69, PACKAGE_ASAN)
     # SwiftPM omits case PIDs. Require one actual mapped XCTest runner for this
     # exact workload; there is no ambiguous multi-process attribution fallback.
     matched = [pid for pid, observation in APP_RUNTIME['observations'].items() if observation['bundleMatched']]
@@ -642,7 +649,7 @@ def main():
         '-resultBundlePath', str(result), 'test'])
     release_compiler(text, 'VoodooTrackerX', True)
     image('build/Build/Products/Release/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests', False)
-    result_cases(result, 1906)
+    result_cases(result, 1908)
     build = run('package-release-build', ['swift', 'build', '--build-tests', '-c', 'release',
         '--disable-code-coverage', '-v', '-Xswiftc', '-enable-testing'])
     release_compiler(build, 'VoodooTrackerXPlaybackSupport', False)
@@ -650,7 +657,7 @@ def main():
     package = package_image('release', False)
     before = sha(package)
     text = run('package-release', ['swift', 'test', '--skip-build', '-c', 'release'])
-    package_cases(text, 970)
+    package_cases(text, 975)
     require(sha(package) == before, 'package Release image changed during execution')
     require(hashlib.sha256(GUARD_SOURCE.encode()).hexdigest() == GUARD_SHA, 'guard source changed')
     source, probe = root / 'GuardProbe.swift', root / 'guard-probe'
@@ -680,8 +687,8 @@ def main():
     image('build/Build/Products/Release/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX', False)
     require(output(['git', 'rev-parse', 'HEAD']) == head and
             output(['git', 'status', '--porcelain=v1', '-uall']) == '', 'source changed during qualification')
-    emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 101, 'packageASan': 64,
-          'optimizedAppRelease': 1906, 'optimizedPackageRelease': 970, 'expectedReleaseTraps': 4,
+    emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 103, 'packageASan': 69,
+          'optimizedAppRelease': 1908, 'optimizedPackageRelease': 975, 'expectedReleaseTraps': 4,
           'failed': 0, 'skipped': 0})
 
 

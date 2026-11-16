@@ -3,6 +3,34 @@ import Foundation
 import XCTest
 
 final class UserLoopProducerPCMTests: XCTestCase {
+    func testAuthoredBxxWindowsMatchFiniteExpandedPCMThroughTwelvePasses() throws {
+        for rate in [44_100.0, 48_000] { for linear in [true, false] { for origin in [0, 1] { for cap in [1, 3, 5] {
+            let song = try AuthoredBxxProofFixture.make(linear: linear)
+            let start = PlaybackPosition(orderIndex: origin, patternIndex: origin, rowIndex: 0)
+            let oracle = RuntimeCMixerAdapterEventPlan.make(song: try AuthoredBxxProofFixture.make(linear: linear, passes: 12),
+                sampleRate: rate, initialPosition: start)
+            let end = try XCTUnwrap(oracle.plannedSongEndFrame)
+            let producer = try PlaybackSongUserLoopProducer(song: song, initialPosition: start,
+                sampleRate: rate, sourceGeneration: 7, transportEpoch: 9, mode: .finiteSong,
+                terminalTailFrames: Int(rate * 3))
+            var batches = [(RuntimeCMixerAdapterEventPlan, Int)]()
+            let totalRows = (origin == 0 ? 1 : 0) + 48
+            var rows = 0
+            while rows < totalRows {
+                let batch = try producer.next(minimumHorizonFrames: Int.max, maximumRows: min(cap, totalRows - rows))
+                XCTAssertNil(batch.terminalStopReason)
+                XCTAssertEqual(batch.runtimeEndFrame, batch.endFrame)
+                batches.append((batch.adapterPlan, batch.endFrame))
+                rows += try XCTUnwrap(batch.adapterPlan.plan).diagnostics.rowTiming.count
+            }
+            let expected = try Consumer(rate: rate).render([(oracle, end)], partitions: [1, 127, 31, 509])
+            let actual = try Consumer(rate: rate).render(batches, partitions: [1, 127, 31, 509])
+            XCTAssertTrue(actual.prefix(Int(rate / 10)).contains { $0 != 0 })
+            XCTAssertTrue(actual.suffix(Int(rate / 5)).allSatisfy { $0 == 0 })
+            XCTAssertEqual(actual, expected, "Authored Bxx PCM, rate=\(rate), linear=\(linear), origin=\(origin), cap=\(cap)")
+        } } } }
+    }
+
     func testFiniteZeroTailRetainsFullPlanEndFrameWriter() throws {
         let rate = 48_000.0, input = FiniteSongProducerProofFixture.make(linear: true)
         let oracle = RuntimeCMixerAdapterEventPlan.make(song: input, sampleRate: rate,

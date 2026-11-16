@@ -48,11 +48,24 @@ Ordinary same-origin full-plan reuse and explicit user Loop retain their
 established paths.
 
 The existing traversal reducer, row interpreter, timing reducer and semantic
-folds execute finite B/D/E6/EE/Fxx traversal across orders, including backward
-targets and the existing row/cycle guards. An order boundary is not a musical
-state reset. Bounded checkpoints carry fractional frames, held channel/global
-state, modulation, envelopes and original source-birth bindings. Only native
+folds execute B/D/E6/EE/Fxx traversal across orders, including valid authored
+Bxx cycles with user Loop off. Live traversal has a distinct mode: its row cap
+ends each preparation invocation without declaring song end or keeping visited
+position history. Duration and full-plan/offline traversal retain their finite
+row/cycle guards. A cached analysis prefix ending at a Bxx cycle cannot supply a
+live end/tail; Play and reset-seek use the bounded native channel instead.
+An order boundary is not a musical state reset. Bounded checkpoints carry
+fractional frames, held channel/global state, modulation, envelopes and original
+source-birth bindings. Only native
 acknowledged execution advances the durable frontier.
+
+Authored returns preserve cumulative global volume and channel-local Hxy/H00
+memory, including silence at zero. Fresh pattern occurrences reset only their
+pattern-local E6 anchors/counters. Cold selected entry and Stop/Pause/seek resume
+retain their established cold-origin policy. No user Loop toggle, restarted
+source, new transport clock or full-song constructor is introduced at a return.
+The existing one-active/one-successor bound, cancellation and native underrun
+policy apply throughout; only a genuine finite terminal receives the normal tail.
 
 ## Native rows, ownership and successful end
 
@@ -60,6 +73,8 @@ acknowledged execution advances the durable frontier.
 `finiteSong`. Scope/generation/epoch/rate/mode and predecessor/frame continuity
 remain exact. Explicit Loop retains its current-pattern validation and wrap;
 finite delivery validates each row against the exact source order and pattern.
+The existing `finiteSong`/`finite_song` diagnostic kind identifies ordinary song
+transport, including live authored cycles; it does not promise a finite duration.
 The producer supplies one bounded row-array index per executed row. Storage
 checks that index against the corresponding source row label, preserving
 nonidentity labels without a second song graph or a full-song label index.

@@ -43,10 +43,10 @@ enum PlaybackSongTraversalPlanner {
         let outOfRange: Bool
     }
 
-    /// Bounded executed traversal state. The finite-song mode is a no-cutover
-    /// proof; the caller's preparation key owns document/rate/transport identity.
+    /// Bounded executed traversal state. Ordinary song playback may revisit an
+    /// authored position; each production invocation is bounded by its row cap.
     struct UserLoopState: Equatable {
-        enum Mode: Equatable { case explicitLoop, finiteSong }
+        enum Mode: Equatable { case explicitLoop, finiteSong, songPlayback }
         var orderIndex: Int
         var patternIndex: Int
         var rowLimit: Int
@@ -199,12 +199,19 @@ enum PlaybackSongTraversalPlanner {
         return state
     }
 
-    /// No-cutover finite traversal proof from a fresh selected cold origin.
+    /// Finite analysis from a cold origin, including position and total-row guards.
     static func makeFiniteSongState(_ song: PlaybackSong, initialPosition: PlaybackPosition) -> UserLoopState? {
         guard var state = makeUserLoopState(song, initialPosition: initialPosition) else { return nil }
         state.mode = .finiteSong
         state.rowLimit = traversalRowLimit(song: song, startOrderIndex: 0,
             selectedEndOrderIndex: song.orders.count)
+        return state
+    }
+
+    /// Live work is bounded per invocation, independently of finite duration analysis.
+    static func makeSongPlaybackState(_ song: PlaybackSong, initialPosition: PlaybackPosition) -> UserLoopState? {
+        guard var state = makeFiniteSongState(song, initialPosition: initialPosition) else { return nil }
+        state.mode = .songPlayback
         return state
     }
 
@@ -231,7 +238,7 @@ enum PlaybackSongTraversalPlanner {
         let row = pattern.rows[rowArrayIndex]
         let source = PlaybackPosition(orderIndex: state.orderIndex,
             patternIndex: pattern.index, rowIndex: row.index)
-        if state.rowsInIteration >= state.rowLimit {
+        if state.mode != .songPlayback && state.rowsInIteration >= state.rowLimit {
             let boundary = UserLoopBoundary(cause: .rowGuard,
                 targetOrderIndex: state.orderIndex, targetRowArrayIndex: rowArrayIndex,
                 traversalStopReason: .traversalGuardHit)
@@ -243,9 +250,11 @@ enum PlaybackSongTraversalPlanner {
         }
         let traversalRow = PlaybackSongTraversalRow(source: source, orderIndex: state.orderIndex,
             pattern: pattern, row: row, rowArrayIndex: rowArrayIndex, syntheticRow: syntheticRow)
-        state.rowsInIteration += 1
-        state.visitedPositions.insert(.init(orderIndex: state.orderIndex,
-            patternIndex: pattern.index, rowArrayIndex: rowArrayIndex))
+        if state.mode != .songPlayback {
+            state.rowsInIteration += 1
+            state.visitedPositions.insert(.init(orderIndex: state.orderIndex,
+                patternIndex: pattern.index, rowArrayIndex: rowArrayIndex))
+        }
         var diagnostics = [PlaybackSongSyntheticTraversalDiagnostic]()
         let decision = nextPosition(after: row, source: source, currentRowIndex: rowArrayIndex,
             pattern: pattern, song: song, startOrderIndex: 0,
@@ -253,7 +262,15 @@ enum PlaybackSongTraversalPlanner {
             maxTraversalRows: state.rowLimit, loopStarts: &state.loopStarts,
             loopRemaining: &state.loopRemaining, visitedPositions: state.visitedPositions,
             diagnostics: &diagnostics)
-        if state.mode == .finiteSong {
+        if state.mode != .explicitLoop {
+            // Live playback leaves visitedPositions empty. A bounded batch yields
+            // a checkpoint instead of converting an authored Bxx to song end.
+            // A new pattern occurrence owns fresh E6 anchors/counters (G38B).
+            if state.mode == .songPlayback && (decision.orderIndex != state.orderIndex ||
+                (decision.rowIndex == 0 && row.cells.contains { $0.effectType == 0x0B || $0.effectType == 0x0D })) {
+                state.loopStarts.removeAll(keepingCapacity: true)
+                state.loopRemaining.removeAll(keepingCapacity: true)
+            }
             if let reason = decision.stopReason {
                 state.terminalStopReason = reason == .selectedRangeEnd ? .songEnd : reason
             } else if decision.orderIndex == state.orderIndex {

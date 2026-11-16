@@ -3908,6 +3908,61 @@ extension SelectedOriginConsumerTests {
 }
 
 extension SelectedOriginConsumerTests {
+    @MainActor
+    func testCachedCycleAnalysisCannotBecomeLiveEndAndTransportControlsStillWin() async throws {
+        for rate in [44_100.0, 48_000] { for origin in [0, 1] {
+            let song = try makeAuthoredBxxTestSong()
+            let native = RuntimeCMixerAudioEngine(sampleRate: rate, channelCount: 1, startsOutputHostOnDemand: false)
+            let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false)
+            defer { engine.stop(); engine.load(song: nil) }
+            let context = PlaybackStartContext(moduleTitle: song.title, songPosition: origin, patternIndex: origin, row: 0)
+            engine.load(song: song, startContext: context)
+            for _ in 0..<500 {
+                if engine.runtimeAdapterPlanDurationSeconds != nil { break }
+                try await Task.sleep(for: .milliseconds(2))
+            }
+            XCTAssertNotNil(engine.runtimeAdapterPlanDurationSeconds, "Exercise an admitted compatible full analysis plan")
+            XCTAssertNil(PlaybackSongDuration.seconds(for: song))
+            XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: nil), "--:--")
+            let ready = expectation(description: "Known cycle enters bounded live continuation")
+            engine.requestPlay(from: context, loopEnabled: false, timingSession: nil) { started in
+                XCTAssertTrue(started); ready.fulfill()
+            }
+            await fulfillment(of: [ready], timeout: 5)
+            XCTAssertTrue(native.hasRuntimeUserLoop)
+            XCTAssertFalse(engine.isPatternLoopPlaybackActive, "Authored Bxx never turns on user Loop")
+            var frames = 0
+            let target = Int(rate * 0.48)
+            while frames < target {
+                let count = min(257, target - frames)
+                _ = native.renderForTesting(frameCount: count); frames += count
+            }
+            engine.advanceOneTick()
+            XCTAssertTrue(engine.state.isPlaying)
+            XCTAssertEqual(engine.currentPosition?.orderIndex, 1)
+            XCTAssertNil(native.consumeRuntimeSongContinuationCompletion())
+            engine.pause()
+            XCTAssertEqual(engine.state.mode, .paused)
+            let resume = engine.currentPosition
+            engine.togglePlayPause(from: nil)
+            XCTAssertTrue(engine.state.isPlaying); XCTAssertEqual(engine.currentPosition, resume)
+            XCTAssertTrue(native.hasRuntimeUserLoop)
+            _ = engine.seek(to: .init(orderIndex: 1, rowIndex: 2), autoplay: true)
+            XCTAssertEqual(engine.currentPosition?.rowIndex, 2)
+            XCTAssertTrue(native.hasRuntimeUserLoop)
+            let stopStart = DispatchTime.now().uptimeNanoseconds
+            engine.stop()
+            XCTAssertLessThan(DispatchTime.now().uptimeNanoseconds - stopStart, 1_000_000_000)
+            XCTAssertFalse(engine.state.isPlaying); XCTAssertFalse(native.hasRuntimeUserLoop)
+            XCTAssertTrue(native.renderForTesting(frameCount: 257).allSatisfy { $0 == 0 })
+            engine.play(from: context)
+            XCTAssertTrue(engine.state.isPlaying); XCTAssertTrue(native.hasRuntimeUserLoop)
+            engine.load(song: try makeAuthoredBxxTestSong(passes: 2))
+            XCTAssertFalse(engine.state.isPlaying); XCTAssertFalse(native.hasRuntimeUserLoop)
+            XCTAssertEqual(PlaybackSongDuration.seconds(for: try makeAuthoredBxxTestSong(passes: 2)), 0.36)
+        } }
+    }
+
     func testOneShotCancellationInsideLongEnvelopeFoldCannotPublishPartialHistory() {
         let sample = makePlaybackSample(pcm: [0.25, -0.25], loopStart: 0, loopLength: 2, loopType: 1)
         let envelope = PlaybackVolumeEnvelope(enabled: true, points: [.init(tick: 0, value: 64), .init(tick: 12, value: 32)],

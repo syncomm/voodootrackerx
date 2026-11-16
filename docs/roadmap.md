@@ -156,6 +156,14 @@ bounded contracts; they do not establish full command or audible parity.
   Play/full planning, with ordinary Debug/Release responsiveness and honest unknown
   handling for cyclic, malformed or guarded content. Existing
   planning and broader release gates remain unchanged.
+- Ordinary authored Bxx continuation is **CLOSED on the PR branch** for valid
+  position returns with user Loop off, cumulative Hxy/H00 state, bounded native
+  ownership and explicit transport cancellation. Finite analysis/export guards,
+  unknown cyclic SONG TIME and exact finite end/tail/cache behavior stay separate.
+  The [ordinary playback contract](design/ordinary-cold-start-continuation.md)
+  owns the scope. Acceptance requires submitted-head native/normal CI (Codex) and
+  Gregory's listening review/merge; #554 physical/native-host qualification remains
+  a distinct gate.
 - The same bounded contract uses the native C head for normal/Loop live position,
   Stop/Pause capture and resume context. End timers wait for the actual mapped
   song/tail deadline. UI polling is not a second musical clock; AUv3 remains

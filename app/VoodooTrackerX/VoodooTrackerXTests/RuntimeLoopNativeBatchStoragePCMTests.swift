@@ -32,9 +32,107 @@ private func render(_ core: RuntimeCMixerRenderCore, count: Int) -> [Float] {
     XCTAssertTrue(result.withUnsafeMutableBufferPointer { core.render(into: $0, frameCount: count) }, "C render")
     return result
 }
+
+/// Loads the public recipe; an explicit finite expansion supplies the PCM oracle.
+func makeAuthoredBxxTestSong(linear: Bool = true, passes: Int? = nil) throws -> PlaybackSong {
+    let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("tests/reference-xm/generated/authored-bxx-fade-v1.xm").path
+    let source = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: path), modulePath: path)
+    var patterns = source.patternsByIndex
+    if passes != nil {
+        let loop = try XCTUnwrap(patterns[1])
+        patterns[1] = .init(index: 1, rows: loop.rows.map { row in
+            .init(index: row.index, cells: row.cells.map { cell in
+                cell.effectType == 11 ? .init(note: cell.note, instrument: cell.instrument,
+                    volumeColumn: cell.volumeColumn, effectType: 0, effectParam: 0) : cell
+            })
+        })
+    }
+    let orders = passes.map { [0] + Array(repeating: 1, count: $0) } ?? [0, 1]
+    return .init(title: source.title, orders: orders.enumerated().map { .init(orderIndex: $0.offset, patternIndex: $0.element) },
+        patternsByIndex: patterns, instrumentsByIndex: source.instrumentsByIndex,
+        restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: source.initialTiming, usesLinearFrequencyTable: linear)
+}
+
 /// Uses the existing normal full-plan Core as PCM oracle; only production continuation
 /// chooses/interprets each bounded batch and prepares the native commands.
 final class RuntimeLoopNativeBatchStoragePCMTests: XCTestCase {
+    func testAuthoredBxxNativeSequencePCMAndOwnershipThroughTwelvePassesWithLoopOffAndOn() throws {
+        for rate in [44_100.0, 48_000] { for linear in [true, false] {
+            for (origin, explicit) in [(0, false), (1, false), (1, true)] { for cap in [1, 3, 5] {
+                let input = try makeAuthoredBxxTestSong(linear: linear)
+                let start = PlaybackPosition(orderIndex: origin, patternIndex: origin, rowIndex: 0)
+                let oracle = RuntimeCMixerAdapterEventPlan.make(song: try makeAuthoredBxxTestSong(linear: linear, passes: 12),
+                    sampleRate: rate, initialPosition: start)
+                let expectedPlan = try XCTUnwrap(oracle.plan), total = try XCTUnwrap(oracle.plannedSongEndFrame)
+                let resolver = PlaybackSongSampleTimePositionResolver(plan: expectedPlan)
+                let producer = try PlaybackSongUserLoopProducer(song: input, initialPosition: start, sampleRate: rate,
+                    sourceGeneration: 7, transportEpoch: 9, mode: explicit ? .explicitLoop : .finiteSong,
+                    terminalTailFrames: explicit ? 0 : Int(rate * 3))
+                let scope = RuntimeLoopNativeScope(documentHigh: 1, documentLow: 2, sourceGeneration: 7,
+                    transportEpoch: 9, sampleRateBits: rate.bitPattern, semanticVersion: 1,
+                    linearFrequencyMode: linear, order: origin, pattern: origin, firstRow: 0, lastRow: origin == 0 ? 0 : 3,
+                    transportKind: explicit ? .explicitLoop : .finiteSong)
+                let channel = RuntimeLoopNativeTwoSlotChannel(scope: scope), generation = Generation()
+                let actual = makeCore(rate), control = makeCore(rate)
+                defer { actual.stopAll(); control.stopAll(); channel.shutdownAfterCallbackQuiescence() }
+                func produce() throws {
+                    let reservation = try XCTUnwrap(channel.reserve())
+                    let batch = try producer.next(minimumHorizonFrames: Int.max, maximumRows: cap)
+                    XCTAssertNil(batch.terminalStopReason)
+                    let storage = try RuntimeLoopNativeBatchStorage(batch: batch, scope: scope, trackerChannelCount: 2,
+                        cache: generation.cache, sourceSong: explicit ? nil : input)
+                    XCTAssertNil(storage.header.finiteSongEndFrame)
+                    XCTAssertEqual(storage.header.runtimeEndFrame, UInt64(batch.endFrame))
+                    XCTAssertTrue(channel.publish(reservation, header: storage.header, retaining: storage))
+                }
+                try produce()
+                guard case .admitted = channel.begin(at: 0) else { return XCTFail("Initial native batch") }
+                try produce()
+                actual.configureNativeLoopDelivery(channel: channel, scope: scope, trackerChannelCount: 2,
+                    keepingAlive: generation, recordsOccurrences: true)
+                control.configureAdapterEventSchedule(oracle.eventStorage, runtimeFrameOffset: 0)
+                var frame = 0, acknowledged: UInt64 = 0, returns = Set<Int>(), sounded = false
+                var plateau: PlaybackSongUserLoopProducer.Resources?
+                while frame < total {
+                    let count = min(257, total - frame)
+                    let pcm = render(actual, count: count)
+                    XCTAssertEqual(pcm, render(control, count: count), "native PCM at \(frame), rate=\(rate), cap=\(cap)")
+                    sounded = sounded || pcm.contains { $0 != 0 }
+                    if frame > Int(rate) { XCTAssertTrue(pcm.allSatisfy { $0 == 0 }) }
+                    frame += count
+                    XCTAssertNil(actual.consumeNativeLoopPlanningFailure())
+                    XCTAssertNil(actual.consumeRuntimeSongContinuationCompletion())
+                    let occurrences = actual.drainNativeLoopOccurrences()
+                    XCTAssertEqual(occurrences.failures, 0); XCTAssertEqual(occurrences.drops, 0)
+                    XCTAssertTrue(occurrences.events.allSatisfy { $0.scope == scope && $0.plannedFrame == $0.appliedFrame })
+                    if frame < total {
+                        let follow = try XCTUnwrap(actual.nativeLoopFollowPosition())
+                        let expected = try XCTUnwrap(resolver.position(atFrame: frame))
+                        XCTAssertEqual(follow.nativeFrame, UInt64(frame))
+                        XCTAssertEqual(follow.source.patternIndex, expected.source.patternIndex)
+                        XCTAssertEqual(follow.source.orderIndex, expected.source.patternIndex == 0 ? 0 : 1)
+                        XCTAssertEqual(follow.source.rowIndex, expected.source.rowIndex)
+                        XCTAssertEqual(follow.tickInRow, expected.tickInRow)
+                        if follow.source.orderIndex == 1 && follow.source.rowIndex == 0 { returns.insert(follow.rowStartFrame) }
+                    }
+                    if channel.acknowledgedSequence != acknowledged {
+                        acknowledged = channel.acknowledgedSequence
+                        channel.reclaimRetired(); try produce()
+                        if frame > Int(rate) {
+                            if let plateau { XCTAssertEqual(producer.resources, plateau) }
+                            else { plateau = producer.resources }
+                        }
+                    }
+                }
+                XCTAssertTrue(sounded); XCTAssertEqual(returns.count, 12)
+                actual.stopAll()
+                XCTAssertTrue(render(actual, count: 257).allSatisfy { $0 == 0 }, "Explicit Stop wins while authorial playback remains endless")
+            } }
+        } }
+    }
+
     func testFiniteStorageValidatesCrossOrderArrayIndicesAndPreservesSourceLabelsThroughTail() throws {
         for linear in [true, false] {
             func source(swappedOrders: Bool = false) -> PlaybackSong {

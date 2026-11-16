@@ -220,6 +220,126 @@ final class UserLoopTraversalContinuationTests: XCTestCase {
         }
     }
 
+    func testFiniteSongColdBatchesMatchFullTwoOrderTraversalAndTiming() throws {
+        let first = [[cell()], [cell(14, 0x60)],
+            [cell(14, 0x61), cell(15, 0xE1)], [cell(11, 1), cell(13, 2)]]
+        let second = [[cell()], [cell()], [cell(15, 3)], [cell()], [cell()]]
+        let input = song([0: first, 1: second], orders: [0, 1])
+        let origin = PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 2)
+        let whole = Planner.plan(input, startOrderIndex: 0, orderCount: input.orders.count,
+            initialPosition: origin)
+        XCTAssertEqual(whole.rows.map { "\($0.orderIndex):\($0.rowArrayIndex)" },
+            ["0:2", "0:1", "0:2", "0:3", "1:2", "1:3", "1:4"])
+        XCTAssertEqual(whole.stopReason, .songEnd)
+        for rate in [44_100.0, 48_000] {
+            let expectedTiming = PlaybackSongFxxTimingPlanner.plan(input, traversalPlan: whole,
+                sampleRate: rate)
+            for cap in [1, 2, 3] {
+                let actual = try collectFinite(input, origin: origin, rate: rate, cap: cap)
+                assertFiniteEquivalent(actual, to: whole, timing: expectedTiming)
+                XCTAssertEqual(actual.state.terminalStopReason, .songEnd)
+                XCTAssertNil(Planner.peekUserLoopRow(input, state: actual.state))
+            }
+        }
+        // The explicit Loop factory still seals its outgoing B/D as a wrap.
+        var loop = try XCTUnwrap(Planner.makeUserLoopState(input, initialPosition: origin))
+        for row in 0..<4 {
+            let step = try XCTUnwrap(Planner.nextUserLoopRow(input, state: &loop, syntheticRow: row))
+            if row == 3 { XCTAssertNotNil(loop.pendingBoundary); XCTAssertNotNil(step.row) }
+        }
+        XCTAssertNil(loop.terminalStopReason)
+    }
+
+    func testFiniteSongCycleAndRowGuardsMatchFullPlanner() throws {
+        let cycle = song([0: [[cell(11, 0)]]], orders: [0])
+        let pathological = song([0: Array(repeating: [cell(14, 0x6F)], count: 128)], orders: [0])
+        for (input, cap) in [(cycle, 1), (pathological, 512)] {
+            let origin = PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0)
+            let whole = Planner.plan(input, startOrderIndex: 0, orderCount: 1,
+                initialPosition: origin)
+            let expectedTiming = PlaybackSongFxxTimingPlanner.plan(input,
+                traversalPlan: whole, sampleRate: 48_000)
+            let actual = try collectFinite(input, origin: origin, rate: 48_000, cap: cap)
+            assertFiniteEquivalent(actual, to: whole, timing: expectedTiming)
+            XCTAssertTrue(whole.guardHit)
+            XCTAssertEqual(actual.state.terminalStopReason, .traversalGuardHit)
+            XCTAssertNil(Planner.peekUserLoopRow(input, state: actual.state))
+        }
+    }
+
+    private struct FiniteCollected {
+        var rows = [PlaybackSongTraversalRow]()
+        var diagnostics = [PlaybackSongSyntheticTraversalDiagnostic]()
+        var diagnosticOffsets = [Int]()
+        var timings = [PlaybackSongFxxRowTiming]()
+        var state: Planner.UserLoopState
+    }
+
+    private func collectFinite(_ input: PlaybackSong, origin: PlaybackPosition,
+                               rate: Double, cap: Int) throws -> FiniteCollected {
+        var state = try XCTUnwrap(Planner.makeFiniteSongState(input, initialPosition: origin))
+        var clock = PlaybackSongFxxTimingPlanner.State(speed: input.initialTiming.speed,
+            bpm: input.initialTiming.bpm, nextExactFrame: 0)
+        var result = FiniteCollected(state: state)
+        for _ in 0..<16 {
+            let batch = try XCTUnwrap(Planner.planUserLoopBatch(input, state: state, timing: clock,
+                sampleRate: rate, minimumHorizonFrames: Int.max, maximumRows: cap))
+            let offset = result.rows.count
+            result.diagnosticOffsets += Array(repeating: offset, count: batch.traversal.traversalDiagnostics.count)
+            result.diagnostics += batch.traversal.traversalDiagnostics
+            result.rows += batch.traversal.rows
+            result.timings += batch.timing.rowTimings
+            XCTAssertEqual(batch.iterationByRow, Array(repeating: 0, count: batch.traversal.rows.count))
+            state = batch.terminalTraversal; clock = batch.timing.terminalState
+            if state.terminalStopReason != nil {
+                result.state = state
+                return result
+            }
+        }
+        XCTFail("Finite song did not terminate within the bounded fixture")
+        result.state = state
+        return result
+    }
+
+    private func assertFiniteEquivalent(_ actual: FiniteCollected, to whole: PlaybackSongTraversalPlan,
+                                        timing: PlaybackSongFxxTimingPlan,
+                                        file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(actual.rows.count, whole.rows.count, file: file, line: line)
+        for (index, pair) in zip(actual.rows, whole.rows).enumerated() {
+            XCTAssertEqual(pair.0.source, pair.1.source, "row \(index)", file: file, line: line)
+            XCTAssertEqual(pair.0.rowArrayIndex, pair.1.rowArrayIndex, "row \(index)", file: file, line: line)
+        }
+        XCTAssertEqual(actual.timings.count, timing.rowTimings.count, file: file, line: line)
+        for (a, b) in zip(actual.timings, timing.rowTimings) {
+            XCTAssertEqual(a.rowStartExactFrame, b.rowStartExactFrame, file: file, line: line)
+            XCTAssertEqual(a.rowEndExactFrame, b.rowEndExactFrame, file: file, line: line)
+            XCTAssertEqual(a.effectiveSpeed, b.effectiveSpeed, file: file, line: line)
+            XCTAssertEqual(a.effectiveBPM, b.effectiveBPM, file: file, line: line)
+            XCTAssertEqual(a.patternDelayCycles, b.patternDelayCycles, file: file, line: line)
+        }
+        XCTAssertEqual(actual.diagnostics.count, whole.traversalDiagnostics.count, file: file, line: line)
+        for (index, pair) in zip(actual.diagnostics, whole.traversalDiagnostics).enumerated() {
+            let (a, b) = pair
+            XCTAssertEqual(a.syntheticRow + actual.diagnosticOffsets[index], b.syntheticRow, file: file, line: line)
+            XCTAssertEqual(a.kind, b.kind, file: file, line: line)
+            XCTAssertEqual(a.status, b.status, file: file, line: line)
+            XCTAssertEqual(a.source, b.source, file: file, line: line)
+            XCTAssertEqual(a.channelIndex, b.channelIndex, file: file, line: line)
+            XCTAssertEqual(a.effectType, b.effectType, file: file, line: line)
+            XCTAssertEqual(a.effectParam, b.effectParam, file: file, line: line)
+            XCTAssertEqual(a.targetOrderIndex, b.targetOrderIndex, file: file, line: line)
+            XCTAssertEqual(a.targetPatternIndex, b.targetPatternIndex, file: file, line: line)
+            XCTAssertEqual(a.targetRowIndex, b.targetRowIndex, file: file, line: line)
+            XCTAssertEqual(a.nextOrderIndex, b.nextOrderIndex, file: file, line: line)
+            XCTAssertEqual(a.loopStartRowIndex, b.loopStartRowIndex, file: file, line: line)
+            XCTAssertEqual(a.loopRemaining, b.loopRemaining, file: file, line: line)
+            XCTAssertEqual(a.loopLimit, b.loopLimit, file: file, line: line)
+            XCTAssertEqual(a.combinedWithBxx, b.combinedWithBxx, file: file, line: line)
+            XCTAssertEqual(a.combinedWithDxx, b.combinedWithDxx, file: file, line: line)
+            XCTAssertEqual(a.policy, b.policy, file: file, line: line)
+        }
+    }
+
     private struct Collected {
         var rows = [PlaybackSongTraversalRow]()
         var diagnostics = [PlaybackSongSyntheticTraversalDiagnostic]()

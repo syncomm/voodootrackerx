@@ -32,6 +32,11 @@ host.
   preparation. Reuse requires the same origin, source generation, rate and mode;
   full traversal bounds preserve later backward jumps. Stopped loaded navigation
   updates speculative intent. Unchanged editable revisions reuse their snapshot.
+- Ordinary changed-origin Stop→Play still waits on full-song preparation on Main;
+  responsiveness is an OPEN merge blocker. Navigation-only editable changes
+  preserve a fresh snapshot, and transport reset reuses the immutable row resolver,
+  but neither removes that wait. The [bounded cold-start proposal](design/ordinary-cold-start-continuation.md)
+  remains a proof of concept; it does not enable a new runtime or ID policy.
 - Explicit user-pattern Loop interprets the cold selected-row suffix and later
   iterations through the existing row interpreter and semantic folds. Bounded
   terminal state and original source-birth bindings continue across immutable

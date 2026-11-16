@@ -143,6 +143,13 @@ bounded contracts; they do not establish full command or audible parity.
   at an acknowledged natural boundary. Original numeric IDs, full-plan gates and
   ordinary non-Loop planning remain protected. Gregory owns final composition,
   listening and merge acceptance; this does not close the issue or release gates.
+- PR #552 also requires unchanged Stop→Play, end-to-middle navigation, editable
+  navigation/real-edit and explicit-Loop responsiveness qualification in ordinary
+  Debug and optimized Release. Changed-origin full-plan waits on Main remain an
+  OPEN merge blocker owned by Codex; the [cold-start proposal](design/ordinary-cold-start-continuation.md)
+  has no runtime cutover or approved diagnostic-ID change. First C output and Main
+  starvation evidence are required alongside existing planning gates, followed by
+  Gregory's physical composition/listening acceptance.
 - The same bounded contract uses the native C head for normal/Loop live position,
   Stop/Pause capture and resume context. End timers wait for the actual mapped
   song/tail deadline. UI polling is not a second musical clock; AUv3 remains
@@ -206,7 +213,8 @@ issue repairs and adversarial integrated release acceptance. G41 integration sta
 PARTIAL; Gregory owns residual discovery, integration and release acceptance.
 The bounded [#516 contract](design/user-pattern-loop-continuation.md) implements
 cold live entry and explicit user Loop after G41. Local qualification is complete;
-submitted-head native CI (Codex) and Gregory's Loop-on review/merge remain required.
+submitted-head native CI and the Stop→Play regression qualification above (Codex),
+then Gregory's composition/Loop-on review and merge, remain required.
 Broader low-end-memory qualification and the planning/performance/memory/CI and cross-family pre-freeze audits,
 callback real-time safety, separate post-song host/offline tail decision,
 Speed/BPM/labels UI work and final release gates retain their owners and sequence.

@@ -43,12 +43,15 @@ enum PlaybackSongTraversalPlanner {
         let outOfRange: Bool
     }
 
-    /// Bounded executed traversal state for one explicit user-loop scope.
-    /// The caller's preparation key owns document/rate/transport identity.
+    /// Bounded executed traversal state. The finite-song mode is a no-cutover
+    /// proof; the caller's preparation key owns document/rate/transport identity.
     struct UserLoopState: Equatable {
-        let orderIndex: Int
-        let patternIndex: Int
-        let rowLimit: Int
+        enum Mode: Equatable { case explicitLoop, finiteSong }
+        var orderIndex: Int
+        var patternIndex: Int
+        var rowLimit: Int
+        fileprivate var mode: Mode = .explicitLoop
+        fileprivate(set) var terminalStopReason: PlaybackSongSyntheticTraversalStopReason?
         fileprivate(set) var nextRowArrayIndex: Int
         fileprivate(set) var iteration: UInt64 = 0
         fileprivate(set) var rowsInIteration = 0
@@ -109,6 +112,7 @@ enum PlaybackSongTraversalPlanner {
         var firstNaturalFrame: Int?
         var capInput: (UserLoopState, PlaybackSongFxxTimingPlanner.State, Int, Int, [PlaybackSongSyntheticOrderDiagnostic])?
         while rows.count < maximumRows {
+            if state.terminalStopReason != nil { break }
             if untilFrame == nil, minimumNaturalBoundaryTailFrames > 0, rows.count == maximumRows - 1, !rows.isEmpty {
                 capInput = (state, timing, diagnostics.count, changes.count, orders)
             }
@@ -118,12 +122,13 @@ enum PlaybackSongTraversalPlanner {
             guard let step = nextUserLoopRow(song, state: &state, syntheticRow: rows.count) else { return nil }
             diagnostics.append(contentsOf: step.diagnostics)
             guard let row = step.row else {
+                if state.terminalStopReason != nil { break }
                 // A pre-execution guard has no row/tick. Its explicit iteration
                 // transition is retained and the next entry starts at row zero.
                 guard state.pendingBoundary != nil else { return nil }
                 continue
             }
-            if rows.isEmpty || iterations.last != iteration {
+            if rows.isEmpty || iterations.last != iteration || orders.last?.requestedOrderIndex != row.orderIndex {
                 orders.append(.init(requestedOrderIndex: row.orderIndex, patternIndex: row.pattern.index,
                     syntheticStartRow: rows.count, rowCount: 0, status: .adapted))
             }
@@ -156,10 +161,19 @@ enum PlaybackSongTraversalPlanner {
             changes.removeSubrange(capInput.3..<changes.count); orders = capInput.4
             rows.removeLast(); timings.removeLast(); iterations.removeLast()
         }
+        if state.mode == .finiteSong, state.terminalStopReason == nil,
+           state.rowsInIteration >= state.rowLimit, !rows.isEmpty {
+            // The full planner reports its row guard before the next row. Seal
+            // it here so a capped batch carries the terminal diagnostic.
+            if let guardStep = nextUserLoopRow(song, state: &state, syntheticRow: rows.count) {
+                diagnostics.append(contentsOf: guardStep.diagnostics)
+            }
+        }
         guard !rows.isEmpty else { return nil }
         if let untilFrame, timings.last?.rowEndFrame != untilFrame { return nil }
         let traversal = PlaybackSongTraversalPlan(rows: rows, adaptedOrders: orders,
-            traversalDiagnostics: diagnostics, pathLength: rows.count, stopReason: .selectedRangeEnd,
+            traversalDiagnostics: diagnostics, pathLength: rows.count,
+            stopReason: state.terminalStopReason ?? .selectedRangeEnd,
             guardHit: diagnostics.contains { $0.status == .loopLimitHit })
         return .init(traversal: traversal,
             timing: .init(sampleRate: sampleRate, initialSpeed: initialTiming.speed, initialBPM: initialTiming.bpm,
@@ -185,11 +199,20 @@ enum PlaybackSongTraversalPlanner {
         return state
     }
 
+    /// No-cutover finite traversal proof from a fresh selected cold origin.
+    static func makeFiniteSongState(_ song: PlaybackSong, initialPosition: PlaybackPosition) -> UserLoopState? {
+        guard var state = makeUserLoopState(song, initialPosition: initialPosition) else { return nil }
+        state.mode = .finiteSong
+        state.rowLimit = traversalRowLimit(song: song, startOrderIndex: 0,
+            selectedEndOrderIndex: song.orders.count)
+        return state
+    }
+
     /// A new editable revision enters naturally at its verified old iteration
     /// boundary. Only traversal entry state resets; musical channel/timing state
     /// belongs to the existing continuation checkpoint.
     static func resumeUserLoopAtNaturalEntry(_ song: PlaybackSong, previous: UserLoopState) -> UserLoopState? {
-        guard previous.pendingBoundary != nil, previous.iteration < .max,
+        guard previous.mode == .explicitLoop, previous.pendingBoundary != nil, previous.iteration < .max,
               var state = makeUserLoopState(song, initialPosition: .init(orderIndex: previous.orderIndex,
                 patternIndex: previous.patternIndex, rowIndex: 0)) else { return nil }
         state.iteration = previous.iteration + 1
@@ -201,7 +224,7 @@ enum PlaybackSongTraversalPlanner {
     /// retaining their exact existing diagnostics; they do not become accepted B/D.
     static func nextUserLoopRow(_ song: PlaybackSong, state: inout UserLoopState,
                                syntheticRow: Int) -> UserLoopStep? {
-        guard syntheticRow >= 0, state.pendingBoundary == nil,
+        guard syntheticRow >= 0, state.pendingBoundary == nil, state.terminalStopReason == nil,
               let pattern = song.pattern(for: state.orderIndex), pattern.index == state.patternIndex,
               pattern.rows.indices.contains(state.nextRowArrayIndex) else { return nil }
         let rowArrayIndex = state.nextRowArrayIndex
@@ -212,7 +235,8 @@ enum PlaybackSongTraversalPlanner {
             let boundary = UserLoopBoundary(cause: .rowGuard,
                 targetOrderIndex: state.orderIndex, targetRowArrayIndex: rowArrayIndex,
                 traversalStopReason: .traversalGuardHit)
-            state.pendingBoundary = boundary
+            if state.mode == .finiteSong { state.terminalStopReason = .traversalGuardHit }
+            else { state.pendingBoundary = boundary }
             return UserLoopStep(row: nil, diagnostics: [loopLimitDiagnostic(
                 source: source, syntheticRow: syntheticRow, loopLimit: state.rowLimit)],
                 transition: .iterationBoundary(boundary))
@@ -229,6 +253,34 @@ enum PlaybackSongTraversalPlanner {
             maxTraversalRows: state.rowLimit, loopStarts: &state.loopStarts,
             loopRemaining: &state.loopRemaining, visitedPositions: state.visitedPositions,
             diagnostics: &diagnostics)
+        if state.mode == .finiteSong {
+            if let reason = decision.stopReason {
+                state.terminalStopReason = reason == .selectedRangeEnd ? .songEnd : reason
+            } else if decision.orderIndex == state.orderIndex {
+                state.nextRowArrayIndex = decision.rowIndex
+            } else {
+                var orderIndex = decision.orderIndex
+                var rowIndex = decision.rowIndex
+                // The full traversal skips natural empty orders; B/D refusals
+                // have already been reported by the shared position reducer.
+                while song.orders.indices.contains(orderIndex) {
+                    guard let next = song.pattern(for: orderIndex) else {
+                        state.terminalStopReason = .missingPattern
+                        break
+                    }
+                    if !next.rows.isEmpty {
+                        state.orderIndex = orderIndex
+                        state.patternIndex = next.index
+                        state.nextRowArrayIndex = rowIndex
+                        break
+                    }
+                    orderIndex += 1
+                    rowIndex = 0
+                }
+                if orderIndex >= song.orders.count { state.terminalStopReason = .songEnd }
+            }
+            return UserLoopStep(row: traversalRow, diagnostics: diagnostics, transition: .next)
+        }
         let hasPositionCommand = row.cells.contains { $0.effectType == 0x0B || $0.effectType == 0x0D }
         if decision.stopReason == .traversalGuardHit || decision.orderIndex != state.orderIndex {
             let boundary = UserLoopBoundary(cause: decision.stopReason == .traversalGuardHit
@@ -256,6 +308,7 @@ enum PlaybackSongTraversalPlanner {
     /// Peeks without executing effects. A sealed explicit-loop template's next
     /// raw row is zero, while a mere batch boundary preserves the current row.
     static func peekUserLoopRow(_ song: PlaybackSong, state: borrowing UserLoopState) -> PlaybackRow? {
+        guard state.terminalStopReason == nil else { return nil }
         guard let pattern = song.pattern(for: state.orderIndex), pattern.index == state.patternIndex else { return nil }
         let row = state.pendingBoundary == nil ? state.nextRowArrayIndex : 0
         guard pattern.rows.indices.contains(row) else { return nil }
@@ -266,7 +319,7 @@ enum PlaybackSongTraversalPlanner {
     /// G38B keeps repeated order occurrences independent; batch splits must not
     /// call this method. Source/channel/effect memories are owned elsewhere.
     static func finishUserLoopIteration(_ song: PlaybackSong, state: inout UserLoopState) -> Bool {
-        guard state.pendingBoundary != nil,
+        guard state.mode == .explicitLoop, state.pendingBoundary != nil,
               let pattern = song.pattern(for: state.orderIndex), pattern.index == state.patternIndex,
               !pattern.rows.isEmpty else { return false }
         let next = state.iteration.addingReportingOverflow(1)

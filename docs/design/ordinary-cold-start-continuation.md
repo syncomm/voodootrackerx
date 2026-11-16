@@ -42,18 +42,49 @@ The same-origin admitted plan remains valid and should be reused unchanged.
 5. The current full plan remains the reference oracle and the same-origin cache
    path. No product cutover occurs until bounded batches match full-plan
    semantics, source identity, native frames, PCM, and exposed numeric event IDs.
-   The family-batched ID allocator depends on future event counts; if exact IDs
-   require a full traversal pass, stop the spike and seek an explicit identity
-   decision. No silent renumbering or diagnostic compatibility change is allowed.
+   The family-batched ID allocator depends on future event counts. No silent
+   renumbering or diagnostic compatibility change is allowed.
+
+## Proven numeric-ID constraint
+
+The public
+[`testUnchangedEarlyOutputTargetIDDependsOnLaterNoteCount`](../../app/VoodooTrackerX/VoodooTrackerXTests/RuntimeCMixerTests.swift)
+constructs two songs with identical early rows, routing, sample, event source,
+frame, action and categories. One song has an extra later note. Their *early*
+audible-output-target numeric IDs differ under the current whole-song planner.
+The focused ordinary Debug test passes. A producer that sees only the early
+prefix therefore cannot assign both legacy IDs exactly. This proof does not
+measure the cost of a separate count pass.
+
+The current ID is an ordering tie in adapter storage, a planned-event trace
+field, and a raw-unique consumption key in the backend. Native Loop uses its
+batch-local ID for an executed-ID bitset and combines scope, batch sequence and
+event ordinal for occurrence identity. Runtime trace tests and correlators join
+normal `plannedEventID` to full-plan events; Loop tooling rejects an unscoped
+join. The Loop birth scope already protects native source causality, but does
+not make its batch-local numeric ID equal the normal whole-song ID.
+
+An exact pre-count would need the future family counts, including executed
+note/route outcomes, semantic publications and G32 reservations. B/D/E6
+traversal and effect/semantic state influence these counts; a metadata-only
+count is insufficient. Its runtime cost remains unmeasured and must be tested
+against the first-output goal. A versioned scoped diagnostic ID policy for
+ordinary continuation needs Gregory's explicit approval, reader audit,
+`docs/format-changes.md` design entry, and compatibility tests. Product cutover
+waits at this decision gate.
 
 ## Minimal proof and decision gates
 
-The first proof extends the existing traversal state with a finite-song mode and
-splits a public two-order song into deliberately short batches. It compares the
-concatenated visited source positions, Fxx frames, B/D/E6 outcomes, stop reason,
-and guard behavior against `PlaybackSongTraversalPlanner.plan` from the same
-cold order/row. It must also show that an explicit user Loop still wraps at its
-old boundary. This proof does not enable playback.
+The no-cutover finite traversal proof now extends the existing traversal state
+and splits a public two-order song into one-, two-, and three-row batches.
+[`UserLoopTraversalContinuationTests`](../../tests/vtx_render_bounded_xm/UserLoopTraversalContinuationTests.swift)
+compares visited source positions, B/D/E6 diagnostics, exact Fxx frames, stop
+reason, and cycle/row guards with the existing whole-song planner. It also
+checks that explicit user Loop still wraps at its old boundary. The focused
+SwiftPM Debug suite passes all 12 tests, including the two new finite cases.
+This proves only traversal/timing parity for these public fixtures. Empty-order
+diagnostics, semantic folds, native frames/PCM, event IDs, and product admission
+remain unproven; no playback path or diagnostic ID policy changes here.
 
 Only after that parity passes should a second proof run the existing producer's
 row interpreter/folds over a cross-order batch and compare per-tick state and

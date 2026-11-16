@@ -214,12 +214,13 @@ def runner_pids():
     child = subprocess.run(['pgrep', '-x', 'xctest'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     return {int(x) for x in child.stdout.split() if x.isdigit()}
 
-def observe_app_command(args, env, handle):
+def observe_app_command(args, env, handle, stderr_handle=None):
     context = APP_RUNTIME
     context['started'] = time.time()
     context['observations'] = {}
     context['baselinePIDs'] = sorted(runner_pids())
-    process = subprocess.Popen(args, env=env, stdout=handle, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(args, env=env, stdout=handle,
+                               stderr=stderr_handle if stderr_handle is not None else subprocess.STDOUT)
     while process.poll() is None:
         if context['bundleImage'].is_file():
             for pid in runner_pids() - set(context['baselinePIDs']):
@@ -327,19 +328,33 @@ def runtime_context(label, bundle):
     return {'ASAN_OPTIONS': options, 'TEST_RUNNER_ASAN_OPTIONS': options}
 
 
-def run(label, command, extra=None, observe=False):
+def run(label, command, extra=None, observe=False, separate_stderr=False):
     env = os.environ.copy()
     env.update(extra or {})
     log = root / (label + '.log')
+    stderr_log = root / (label + '.stderr.log') if separate_stderr else None
+    require(not separate_stderr or observe, 'separate stderr requires observed process collection')
     with log.open('x') as handle:
-        code = observe_app_command(command, env, handle) if observe else subprocess.call(
-            command, env=env, stdout=handle, stderr=subprocess.STDOUT)
+        if stderr_log is not None:
+            # Xcode writes runner case rows to stdout and completion diagnostics to
+            # stderr. A shared descriptor can splice stderr into a partial case row.
+            with stderr_log.open('x') as stderr_handle:
+                code = observe_app_command(command, env, handle, stderr_handle)
+        else:
+            code = observe_app_command(command, env, handle) if observe else subprocess.call(
+                command, env=env, stdout=handle, stderr=subprocess.STDOUT)
     text = log.read_text()
+    stderr_text = stderr_log.read_text() if stderr_log is not None else ''
     emit({'stage': label, 'exitCode': code, 'logSHA256': sha(log)})
+    if stderr_log is not None:
+        emit({'stage': label + '-stderr', 'logSHA256': sha(stderr_log),
+              'asanInitializationPIDs': sorted({int(pid) for pid in re.findall(
+                  r'==(\d+)==AddressSanitizer Init done', stderr_text)})})
     if code:
-        print(text, flush=True)
+        print(text + stderr_text, flush=True)
     require(code == 0, label + ' failed; original log: ' + str(log))
-    require('ERROR: AddressSanitizer' not in text and 'SUMMARY: AddressSanitizer' not in text,
+    all_output = text + stderr_text
+    require('ERROR: AddressSanitizer' not in all_output and 'SUMMARY: AddressSanitizer' not in all_output,
             label + ' sanitizer finding')
     return text
 
@@ -508,7 +523,8 @@ def main():
     result = root / 'asan.xcresult'
     text = run('app-asan', base + ['-configuration', 'Debug', '-enableAddressSanitizer', 'YES',
         '-enableThreadSanitizer', 'NO', '-resultBundlePath', str(result)] +
-        ['-only-testing:VoodooTrackerXTests/' + selector for selector in APP] + ['test'], options, True)
+        ['-only-testing:VoodooTrackerXTests/' + selector for selector in APP] + ['test'], options, True,
+        separate_stderr=True)
     image(product, True)
     result_cases(result, 70, APP)
     mapping = app_case_pid_mapping(text)
@@ -523,7 +539,7 @@ def main():
         console = json.loads(console_query.stdout)
     emit({'stage': 'app-asan-console', 'available': console_query.returncode == 0,
           'exitCode': console_query.returncode})
-    marker_pids = loop_marker_pids(text, console) | file_marker_pids
+    marker_pids = loop_marker_pids(text + (root / 'app-asan.stderr.log').read_text(), console) | file_marker_pids
     loop_pids = {pid for name, pid in mapping if name.startswith('LoopEngineLifecycleTests/')}
     require(bool(loop_pids) and marker_pids == loop_pids and loop_pids <= app_pids,
             'Loop marker is not correlated to initialized executed-test PID')
@@ -551,7 +567,7 @@ def main():
         '-resultBundlePath', str(result), 'test'])
     release_compiler(text, 'VoodooTrackerX', True)
     image('build/Build/Products/Release/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests', False)
-    result_cases(result, 1874)
+    result_cases(result, 1875)
     build = run('package-release-build', ['swift', 'build', '--build-tests', '-c', 'release',
         '--disable-code-coverage', '-v', '-Xswiftc', '-enable-testing'])
     release_compiler(build, 'VoodooTrackerXPlaybackSupport', False)
@@ -559,7 +575,7 @@ def main():
     package = package_image('release', False)
     before = sha(package)
     text = run('package-release', ['swift', 'test', '--skip-build', '-c', 'release'])
-    package_cases(text, 961)
+    package_cases(text, 963)
     require(sha(package) == before, 'package Release image changed during execution')
     require(hashlib.sha256(GUARD_SOURCE.encode()).hexdigest() == GUARD_SHA, 'guard source changed')
     source, probe = root / 'GuardProbe.swift', root / 'guard-probe'
@@ -590,7 +606,7 @@ def main():
     require(output(['git', 'rev-parse', 'HEAD']) == head and
             output(['git', 'status', '--porcelain=v1', '-uall']) == '', 'source changed during qualification')
     emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 70, 'packageASan': 57,
-          'optimizedAppRelease': 1874, 'optimizedPackageRelease': 961, 'expectedReleaseTraps': 4,
+          'optimizedAppRelease': 1875, 'optimizedPackageRelease': 963, 'expectedReleaseTraps': 4,
           'failed': 0, 'skipped': 0})
 
 

@@ -1107,6 +1107,39 @@ final class R02ReplacementParityTests: XCTestCase {
 }
 
 final class RuntimeCMixerColdPlanAssemblyTests: XCTestCase {
+    func testUnchangedEarlyOutputTargetIDDependsOnLaterNoteCount() throws {
+        let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125, -0.125],
+            baseSampleRate: 8_363, loopLength: 4, loopType: 1)
+        let instrument = PlaybackInstrument(index: 1, samples: [sample],
+            noteSampleMap: Array(repeating: 0, count: 96))
+        let first = makePlaybackRow(index: 0, note: 49, instrument: 1)
+        let empty = makePlaybackRow(index: 1)
+        let quietTail = makePlaybackRow(index: 2)
+        let noteTail = makePlaybackRow(index: 2, note: 53, instrument: 1)
+        func plan(tail: PlaybackRow) -> RuntimeCMixerAdapterEventPlan {
+            RuntimeCMixerAdapterEventPlan.make(song: makePlaybackSong(
+                orderPatternIndices: [0], patternRowsByIndex: [0: [first, empty, tail]],
+                instrumentsByIndex: [1: instrument], initialTiming: .init(speed: 3, bpm: 125)
+            ), sampleRate: 48_000)
+        }
+        let short = plan(tail: quietTail), long = plan(tail: noteTail)
+        func earlyTarget(_ plan: RuntimeCMixerAdapterEventPlan) -> RuntimeCMixerAdapterEvent? {
+            plan.events.first { event in
+                guard event.source.orderIndex == 0, event.source.rowIndex == 0 else { return false }
+                if case .audibleTargetUpdate = event.action { return true }
+                return false
+            }
+        }
+        let before = try XCTUnwrap(earlyTarget(short))
+        let after = try XCTUnwrap(earlyTarget(long))
+        XCTAssertEqual(before.source, after.source)
+        XCTAssertEqual(before.scheduledFrame, after.scheduledFrame)
+        XCTAssertEqual(before.action, after.action)
+        XCTAssertEqual(before.categories, after.categories)
+        XCTAssertNotEqual(before.id, after.id,
+            "Current whole-plan family IDs require knowledge of later events")
+    }
+
     func testRowEffectCategoriesShareStorageAcrossRepeatedOrderedShapes() throws {
         let noteLabels = Set(["note_trigger", "replacement", "sample_offset", "key_off"])
         var sharedGroups = 0

@@ -456,6 +456,34 @@ def app_case_pid_mapping(text):
         r"'(\w+)\.(test\w+)\(\)' passed on '[^'\n]*\((\d+)\)'", text) if cls + '/' + name in APP]
 
 
+def app_case_attribution_text(text, result):
+    """Remove one exact current-run success footer only when it interrupts a case row."""
+    header = 'Test session results, code coverage, and logs:'
+    require(text.count(header) <= 1, 'ambiguous Xcode result footers')
+    if header not in text:
+        return text, []
+    footers = list(re.finditer(
+        r'\nTest session results, code coverage, and logs:\n\t([^\n]+)\n\n\*\* TEST SUCCEEDED \*\*\n\n', text))
+    require(len(footers) == 1, 'malformed Xcode success footer')
+    footer = footers[0]
+    require(pathlib.Path(footer[1]).resolve() == pathlib.Path(result).resolve(),
+            'Xcode footer result-bundle mismatch')
+    left, right = text[:footer.start()], text[footer.end():]
+    left_line, right_line = left.rsplit('\n', 1)[-1], right.split('\n', 1)[0]
+    prefix = re.fullmatch(r"Test case '(\w+)\.(test\w*)", left_line)
+    suffix = re.fullmatch(r"\w+\(\)' passed on '[^'\n]*\([1-9][0-9]*\)' \([0-9]+(?:\.[0-9]+)? seconds\)", right_line)
+    if prefix is None and suffix is None:
+        return text, []  # An ordinary standalone footer does not alter attribution.
+    require(prefix is not None and suffix is not None, 'ambiguous interrupted Xcode case row')
+    joined = app_case_pid_mapping(left_line + right_line)
+    require(len(joined) == 1, 'interrupted Xcode row is not one exact expected case')
+    require(joined[0][0] not in {name for name, pid in app_case_pid_mapping(text)},
+            'interrupted Xcode case duplicates existing attribution')
+    removed = [{'SHA256': hashlib.sha256(footer[0].encode()).hexdigest(),
+                'byteCount': len(footer[0].encode())}]
+    return left + right, removed
+
+
 def loop_marker_pids(text, console):
     """Join Loop markers from stdout and target console content to case PIDs."""
     pids = {int(pid) for pid in re.findall(r'VTX_LOOP_ASAN_RUNTIME_ACTIVE pid=(\d+)', text)}
@@ -527,7 +555,16 @@ def main():
         separate_stderr=True)
     image(product, True)
     result_cases(result, 70, APP)
-    mapping = app_case_pid_mapping(text)
+    attribution, removed = app_case_attribution_text(text, result)
+    attribution_log = root / 'app-asan-case-attribution.log'
+    attribution_log.write_text(attribution)
+    attribution_receipt = {'rawStdoutSHA256': sha(root / 'app-asan.log'),
+                           'rawStderrSHA256': sha(root / 'app-asan.stderr.log'),
+                           'derivedSHA256': sha(attribution_log),
+                           'removedFooterCount': len(removed), 'removedFooters': removed}
+    (root / 'app-asan-case-attribution.json').write_text(json.dumps(attribution_receipt, indent=2))
+    emit({'stage': 'app-asan-case-attribution', **attribution_receipt})
+    mapping = app_case_pid_mapping(attribution)
     file_marker_pids = loop_file_marker_pids(APP_RUNTIME)
     app_pids = runtime_proof('app-asan', mapping, APP)
     console_query = subprocess.run(['xcrun', 'xcresulttool', 'get', 'log', '--type', 'console',

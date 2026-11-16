@@ -109,5 +109,56 @@ class NativeRuntimeProofTests(unittest.TestCase):
                 self.assertFalse(self.verdict(logs=logs)["proven"])
 
 
+class NativeCaseAttributionTests(unittest.TestCase):
+    result = Path("/private/tmp/vtx-native-case-control/asan.xcresult")
+    selector = "RuntimeLoopNativeEarlyCutoverTests/testOptionalNaturalBoundaryCoalescingAndUnchangedMandatoryDelivery"
+
+    def setUp(self):
+        self.row = "Test case '%s()' passed on 'My Mac - xctest (123)' (0.004 seconds)\n" % self.selector.replace("/", ".")
+        split = self.row.index("Coalescing") + len("Coalesc")
+        self.left, self.right = self.row[:split], self.row[split:]
+        self.footer = "\nTest session results, code coverage, and logs:\n\t%s\n\n** TEST SUCCEEDED **\n\n" % self.result
+
+    def test_native6_exact_footer_reconstructs_complete_case_and_preserves_removal_hash(self):
+        raw = self.left + self.footer + self.right
+        self.assertEqual(HELPER.app_case_pid_mapping(raw), [])
+        derived, removed = HELPER.app_case_attribution_text(raw, self.result)
+        self.assertEqual(derived, self.row)
+        self.assertEqual(HELPER.app_case_pid_mapping(derived), [(self.selector, 123)])
+        self.assertEqual(removed, [{"SHA256": HELPER.hashlib.sha256(self.footer.encode()).hexdigest(),
+                                    "byteCount": len(self.footer.encode())}])
+
+    def test_normal_standalone_footer_and_complete_rows_are_unchanged(self):
+        for raw in [self.row, self.row + self.footer]:
+            with self.subTest(raw=raw):
+                derived, removed = HELPER.app_case_attribution_text(raw, self.result)
+                self.assertEqual(derived, raw)
+                self.assertEqual(removed, [])
+
+    def test_native5_mixed_stderr_timing_stanza_is_not_generically_deleted(self):
+        timing = ("2026-11-16 07:17:28.143 xcodebuild[321:456] [MT] IDETestOperationsObserverDebug: "
+                  "124.074 elapsed -- Testing started completed.\n"
+                  "2026-11-16 07:17:28.144 xcodebuild[321:456] [MT] IDETestOperationsObserverDebug: "
+                  "0.000 sec, +0.000 sec -- start\n"
+                  "2026-11-16 07:17:28.144 xcodebuild[321:456] [MT] IDETestOperationsObserverDebug: "
+                  "124.074 sec, +124.074 sec -- end\n")
+        with self.assertRaisesRegex(AssertionError, "ambiguous interrupted Xcode case row"):
+            HELPER.app_case_attribution_text(self.left + timing + self.footer + self.right, self.result)
+
+    def test_wrong_path_malformed_ambiguous_foreign_and_duplicate_rows_fail_closed(self):
+        cases = {
+            "wrong path": self.left + self.footer.replace("vtx-native-case-control", "vtx-other-control") + self.right,
+            "malformed footer": self.left + self.footer.replace("TEST SUCCEEDED", "TEST FAILED") + self.right,
+            "duplicate footer": self.left + self.footer + self.footer + self.right,
+            "foreign case": self.left.replace("RuntimeLoopNativeEarlyCutoverTests", "OtherTests") + self.footer + self.right,
+            "missing suffix": self.left + self.footer,
+            "duplicate case": self.row + self.left + self.footer + self.right,
+            "injected line": self.left + "unexpected diagnostic\n" + self.footer + self.right,
+        }
+        for name, raw in cases.items():
+            with self.subTest(name=name), self.assertRaises(AssertionError):
+                HELPER.app_case_attribution_text(raw, self.result)
+
+
 if __name__ == "__main__":
     unittest.main()

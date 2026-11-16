@@ -2486,6 +2486,32 @@ extension PlaybackSongSyntheticAdapter {
         let executionTicks: Range<Int>?
     }
 
+    private struct TonePortamentoInstrumentFacts {
+        let isPresent: Bool
+        let channelVolume: Int?
+        let gain: Float?
+        let instrumentIndex: Int?
+    }
+
+    // Project one large snapshot per frame, then retire that frame before pitch
+    // preparation. Repeated optional snapshot copies exhaust an ASan worker stack.
+    @inline(never)
+    private static func tonePortamentoInstrumentFacts(
+        _ snapshot: borrowing ChannelState?
+    ) -> TonePortamentoInstrumentFacts {
+        guard let snapshot = copy snapshot else {
+            return .init(isPresent: false, channelVolume: nil, gain: nil, instrumentIndex: nil)
+        }
+        let gain: Float?
+        if snapshot.activeSampleVolume != nil {
+            gain = songGain(outputChannelVolume: snapshot.outputChannelVolume)
+        } else {
+            gain = nil
+        }
+        return .init(isPresent: true, channelVolume: snapshot.baseChannelVolume,
+            gain: gain, instrumentIndex: snapshot.activeInstrumentIndex)
+    }
+
     static func handleTonePortamento(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -2505,7 +2531,9 @@ extension PlaybackSongSyntheticAdapter {
         executionTicks: Range<Int>? = nil,
         beforeTick: ((Int, inout ChannelState) -> Void)? = nil
     ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
-        switch prepareTonePortamento(from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan, usesLinearFrequencyTable: usesLinearFrequencyTable, channelState: &channelState, instrumentStateBefore: instrumentStateBefore, instrumentStateAfter: instrumentStateAfter, instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied, sampleSelectedBefore: sampleSelectedBefore, sampleSelectedAfter: sampleSelectedAfter, targetPitchSample: targetPitchSample, volumeColumn: volumeColumn, executionTicks: executionTicks, beforeTick: beforeTick) {
+        let instrumentBefore = tonePortamentoInstrumentFacts(instrumentStateBefore)
+        let instrumentAfter = tonePortamentoInstrumentFacts(instrumentStateAfter)
+        switch prepareTonePortamento(from: cell, source: source, channelIndex: channelIndex, syntheticRow: syntheticRow, timingConfig: timingConfig, timingPlan: timingPlan, usesLinearFrequencyTable: usesLinearFrequencyTable, channelState: &channelState, instrumentBefore: instrumentBefore, instrumentAfter: instrumentAfter, instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied, sampleSelectedBefore: sampleSelectedBefore, sampleSelectedAfter: sampleSelectedAfter, targetPitchSample: targetPitchSample, volumeColumn: volumeColumn, executionTicks: executionTicks, beforeTick: beforeTick) {
         case let .completed(diagnostic): return diagnostic
         case let .execute(facts, usesAmiga):
             if usesAmiga {
@@ -2531,8 +2559,8 @@ extension PlaybackSongSyntheticAdapter {
         timingPlan: PlaybackSongFxxTimingPlan,
         usesLinearFrequencyTable: Bool,
         channelState: inout ChannelState,
-        instrumentStateBefore: ChannelState? = nil,
-        instrumentStateAfter: ChannelState? = nil,
+        instrumentBefore: TonePortamentoInstrumentFacts,
+        instrumentAfter: TonePortamentoInstrumentFacts,
         instrumentDefaultVolumeApplied: Bool = false,
         sampleSelectedBefore: Int? = nil,
         sampleSelectedAfter: Int? = nil,
@@ -2565,27 +2593,11 @@ extension PlaybackSongSyntheticAdapter {
         let currentPlaybackStepBefore = channelState.activePlaybackStep
         let targetNoteFromCell = (1...96).contains(cell.note) ? cell.note : nil
         let sameCellNote = targetNoteFromCell != nil
-        let instrumentStateUpdated = instrumentStateAfter != nil
-        let channelVolumeBefore = instrumentStateBefore?.baseChannelVolume
-        let channelVolumeAfter = instrumentStateAfter?.baseChannelVolume
-        // Keep these scalar projections out of closures that capture full channel
-        // snapshots on the sanitizer-instrumented preparation worker stack.
-        let gainBefore: Float?
-        if instrumentStateBefore?.activeSampleVolume != nil {
-            gainBefore = songGain(
-                outputChannelVolume: instrumentStateBefore?.outputChannelVolume ?? 64
-            )
-        } else {
-            gainBefore = nil
-        }
-        let gainAfter: Float?
-        if instrumentStateAfter?.activeSampleVolume != nil {
-            gainAfter = songGain(
-                outputChannelVolume: instrumentStateAfter?.outputChannelVolume ?? 64
-            )
-        } else {
-            gainAfter = nil
-        }
+        let instrumentStateUpdated = instrumentAfter.isPresent
+        let channelVolumeBefore = instrumentBefore.channelVolume
+        let channelVolumeAfter = instrumentAfter.channelVolume
+        let gainBefore = instrumentBefore.gain
+        let gainAfter = instrumentAfter.gain
 
         if cell.effectType == 0x03, cell.effectParam > 0 {
             channelState.tonePortamentoSpeed = Int(cell.effectParam)
@@ -2991,8 +3003,8 @@ extension PlaybackSongSyntheticAdapter {
             hasTargetPitchSample: targetPitchSample != nil,
             targetExistsBefore: targetExistsBefore,
             targetExistsAfter: targetExistsAfter,
-            instrumentIndexBefore: instrumentStateBefore?.activeInstrumentIndex,
-            instrumentIndexAfter: instrumentStateAfter?.activeInstrumentIndex,
+            instrumentIndexBefore: instrumentBefore.instrumentIndex,
+            instrumentIndexAfter: instrumentAfter.instrumentIndex,
             sampleSelectedBefore: sampleSelectedBefore,
             sampleSelectedAfter: sampleSelectedAfter,
             channelVolumeBefore: channelVolumeBefore,

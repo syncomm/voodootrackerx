@@ -515,8 +515,10 @@ def app_case_attribution_text(text, result):
             'Xcode footer result-bundle mismatch')
     left, right = text[:footer.start()], text[footer.end():]
     left_line, right_line = left.rsplit('\n', 1)[-1], right.split('\n', 1)[0]
-    prefix = re.fullmatch(r"Test case '(\w+)\.(test\w*)", left_line)
-    suffix = re.fullmatch(r"\w+\(\)' passed on '[^'\n]*\([1-9][0-9]*\)' \([0-9]+(?:\.[0-9]+)? seconds\)", right_line)
+    # Xcode can split the class identifier too. These are fragments only;
+    # the joined row below must still name one exact expected selector/PID.
+    prefix = re.fullmatch(r"Test case '[\w.]*", left_line)
+    suffix = re.fullmatch(r"[\w.]*\(\)' passed on '[^'\n]*\([1-9][0-9]*\)' \([0-9]+(?:\.[0-9]+)? seconds\)", right_line)
     if prefix is None and suffix is None:
         return text, []  # An ordinary standalone footer does not alter attribution.
     require(prefix is not None and suffix is not None, 'ambiguous interrupted Xcode case row')

@@ -135,6 +135,31 @@ class NativeCaseAttributionTests(unittest.TestCase):
                 self.assertEqual(derived, raw)
                 self.assertEqual(removed, [])
 
+    def test_footer_at_every_class_and_method_identifier_split_preserves_exact_attribution(self):
+        for split in range(len("Test case '"), self.row.index("()'") + 1):
+            with self.subTest(split=split):
+                raw = self.row[:split] + self.footer + self.row[split:]
+                self.assertEqual(HELPER.app_case_pid_mapping(raw), [])
+                derived, removed = HELPER.app_case_attribution_text(raw, self.result)
+                self.assertEqual(derived, self.row)
+                self.assertEqual(HELPER.app_case_pid_mapping(derived), [(self.selector, 123)])
+                self.assertEqual(removed, [{"SHA256": HELPER.hashlib.sha256(self.footer.encode()).hexdigest(),
+                                            "byteCount": len(self.footer.encode())}])
+
+    def test_class_split_with_verified_result_path_alias_keeps_existing_identity_check(self):
+        with tempfile.TemporaryDirectory(prefix="vtx-native-ci-alias-", dir="/private/tmp") as directory:
+            root = Path(directory)
+            result = root / "real" / "asan.xcresult"
+            result.mkdir(parents=True)
+            alias = root / "alias"
+            alias.symlink_to(result.parent, target_is_directory=True)
+            footer = self.footer.replace(str(self.result), str(alias / result.name))
+            split = self.row.index("EarlyCutover")
+            derived, removed = HELPER.app_case_attribution_text(self.row[:split] + footer + self.row[split:], result)
+            self.assertEqual(derived, self.row)
+            self.assertEqual(HELPER.app_case_pid_mapping(derived), [(self.selector, 123)])
+            self.assertEqual(removed[0]["SHA256"], HELPER.hashlib.sha256(footer.encode()).hexdigest())
+
     def test_native5_mixed_stderr_timing_stanza_is_not_generically_deleted(self):
         timing = ("2026-11-16 07:17:28.143 xcodebuild[321:456] [MT] IDETestOperationsObserverDebug: "
                   "124.074 elapsed -- Testing started completed.\n"

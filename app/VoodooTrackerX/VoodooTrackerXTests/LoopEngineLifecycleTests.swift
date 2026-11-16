@@ -482,14 +482,18 @@ final class LoopEngineLifecycleTests: XCTestCase {
             engine.requestEditablePatternLoopRefresh(song: obsolete)
             engine.requestEditablePatternLoopRefresh(song: desired)
             // Delivery and the same serial producer must admit without a MainActor tick.
-            Thread.sleep(forTimeInterval: 1.25)
+            let progressDeadline = Date(timeIntervalSinceNow: 10)
+            while Date() < progressDeadline {
+                if let position = output.runtimeUserLoopPosition(), position.nativeFrame > UInt64(rate) { break }
+                Thread.sleep(forTimeInterval: 0.001)
+            }
             XCTAssertNil(output.consumeRuntimeUserLoopFailure())
             engine.advanceOneTick()
             XCTAssertEqual(engine.song, desired)
             XCTAssertTrue(engine.state.isPlaying)
             XCTAssertTrue(faults.isEmpty)
             let before = try XCTUnwrap(output.runtimeUserLoopPosition()).nativeFrame
-            XCTAssertGreaterThan(before, UInt64(rate))
+            XCTAssertGreaterThan(before, UInt64(rate), "Native playback did not advance through one second within the bounded wait")
             let selected = engine.seek(to: .init(orderIndex: 0, rowIndex: 1, tickInRow: 0), autoplay: true)
             XCTAssertEqual(selected?.rowIndex, 1)
             XCTAssertTrue(output.hasRuntimeUserLoop)

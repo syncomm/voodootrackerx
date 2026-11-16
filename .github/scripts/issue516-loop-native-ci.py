@@ -498,7 +498,8 @@ def main():
             'selector manifest counts')
     base = ['xcodebuild', '-project', 'app/VoodooTrackerX/VoodooTrackerX.xcodeproj', '-scheme',
             'VoodooTrackerX', '-destination', 'platform=macOS,arch=arm64', '-derivedDataPath', 'build',
-            'CODE_SIGNING_ALLOWED=NO']
+            'CODE_SIGNING_ALLOWED=NO', '-parallel-testing-enabled', 'YES',
+            '-parallel-testing-worker-count', '1']
     product = pathlib.Path('build/Build/Products/Debug/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests')
     options = runtime_context('app-asan', product)
     options.update({'VTX_REQUIRE_LOOP_ASAN': '1', 'TEST_RUNNER_VTX_REQUIRE_LOOP_ASAN': '1',

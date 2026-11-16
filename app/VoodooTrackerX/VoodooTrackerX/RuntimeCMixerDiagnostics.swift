@@ -215,6 +215,49 @@ enum RuntimeCMixerOutputBufferCopy {
     }
 }
 
+/// Additive native Loop occurrence scope. Original numeric fields remain plan-local.
+/// Construct and encode only after host quiescence, never from the render callback.
+struct RuntimeLoopNativeTraceOccurrence: Encodable, Equatable {
+    let scope: RuntimeLoopNativeScope
+    let batchSequence: UInt64
+    let eventID: Int
+    let eventOrdinal: Int
+    let localSourceIndex: Int
+    let sourceOrder: Int
+    let sourcePattern: Int
+    let sourceRow: Int
+    let tick: Int
+    let channel: Int
+    let opcode: UInt32
+    let plannedRuntimeFrame: UInt64
+    let appliedRuntimeFrame: UInt64
+    let targetBirth: RuntimeLoopNativeSourceIdentity?
+    let sourceBefore: RuntimeLoopNativeSourceIdentity?
+    let sourceAfter: RuntimeLoopNativeSourceIdentity?
+    let nativeVoiceIndex: Int?
+    let disposition: UInt8
+
+    init(_ value: RuntimeLoopNativeOccurrence) {
+        scope = value.scope; batchSequence = value.sequence; eventID = value.eventID
+        eventOrdinal = value.eventOrdinal; localSourceIndex = value.localSourceIndex
+        sourceOrder = value.source.orderIndex; sourcePattern = value.source.patternIndex
+        sourceRow = value.source.rowIndex; tick = value.tick; channel = value.channel; opcode = value.opcode
+        plannedRuntimeFrame = value.plannedFrame; appliedRuntimeFrame = value.appliedFrame
+        targetBirth = value.targetBirth; sourceBefore = value.sourceBefore; sourceAfter = value.sourceAfter
+        nativeVoiceIndex = value.nativeVoiceIndex; disposition = value.disposition
+    }
+}
+
+/// Whole-transport scalar totals, including capsules dropped by the fixed ring.
+struct RuntimeLoopNativeTraceSummary: Encodable, Equatable {
+    let attemptedOccurrences: UInt64
+    let appliedOccurrences: UInt64
+    let suppressedOccurrences: UInt64
+    let failedOccurrences: UInt64
+    let recordedOccurrences: Int
+    let droppedOccurrences: UInt64
+}
+
 struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let schemaVersion: Int
     let runtimeAction: String
@@ -232,6 +275,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let adapterEventCategoriesConsumed: [String]?
     let runtimeEventCategory: String?
     let plannedEventID: Int?
+    let nativeTransportKind: String?
+    let loopOccurrence: RuntimeLoopNativeTraceOccurrence?
+    let loopOccurrenceSummary: RuntimeLoopNativeTraceSummary?
     let plannedSourceOrderIndex: Int?
     let plannedSourcePatternIndex: Int?
     let plannedSourceRowIndex: Int?
@@ -648,6 +694,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         adapterEventCategoriesConsumed: [String]? = nil,
         runtimeEventCategory: String? = nil,
         plannedEventID: Int? = nil,
+        nativeTransportKind: String? = nil,
+        loopOccurrence: RuntimeLoopNativeTraceOccurrence? = nil,
+        loopOccurrenceSummary: RuntimeLoopNativeTraceSummary? = nil,
         plannedSourceOrderIndex: Int? = nil,
         plannedSourcePatternIndex: Int? = nil,
         plannedSourceRowIndex: Int? = nil,
@@ -1037,6 +1086,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.adapterEventCategoriesConsumed = adapterEventCategoriesConsumed
         self.runtimeEventCategory = runtimeEventCategory
         self.plannedEventID = plannedEventID
+        self.nativeTransportKind = nativeTransportKind
+        self.loopOccurrence = loopOccurrence
+        self.loopOccurrenceSummary = loopOccurrenceSummary
         self.plannedSourceOrderIndex = plannedSourceOrderIndex
         self.plannedSourcePatternIndex = plannedSourcePatternIndex
         self.plannedSourceRowIndex = plannedSourceRowIndex

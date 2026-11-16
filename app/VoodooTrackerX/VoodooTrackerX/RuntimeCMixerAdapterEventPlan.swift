@@ -161,7 +161,8 @@ struct RuntimeCMixerAdapterPlanAssembly {
     }
 
     /// Consumes construction storage; downstream callers still receive canonical physical order.
-    mutating func finish(profileSession: AdapterPlanProfileSession? = nil) -> Result {
+    mutating func finish(profileSession: AdapterPlanProfileSession? = nil,
+                         admittedFrames: Range<Int>? = nil) -> Result {
         let eventCount = count
         let orderingStart = profileSession?.beginPhase()
         if ordering.count > 1 {
@@ -180,6 +181,12 @@ struct RuntimeCMixerAdapterPlanAssembly {
         ])
         let materializationStart = profileSession?.beginPhase()
         let moveCount = materializeOrderInPlace()
+        if let admittedFrames {
+            // Loop boundary writers remain pending. Compact the unique construction
+            // buffers before publication, preserving IDs, ties and category evidence.
+            events.removeAll { !admittedFrames.contains($0.scheduledFrame) }
+            ordering.removeAll { !admittedFrames.contains($0.frame) }
+        }
         let orderedEvents = events
         // Reuse scalar keys for the distinct runtime comparator without another wide-array walk.
         let runtimeEntries = ordering.enumerated().map { index, key in
@@ -206,25 +213,27 @@ struct RuntimeCMixerAdapterPlanAssembly {
     private mutating func materializeOrderInPlace() -> Int {
         ordering.withUnsafeMutableBufferPointer { keys in
             events.withUnsafeMutableBufferPointer { payloads in
+                guard let base = payloads.baseAddress else { return 0 }
                 var moves = 0
                 for start in keys.indices where keys[start].eventIndex >= 0 {
                     if keys[start].eventIndex == start {
                         keys[start].eventIndex = -1
                         continue
                     }
-                    // A permutation cycle needs only one saved wide value. Negative indices
-                    // mark visited keys; the runtime index consumes their untouched scalar fields.
-                    let saved = payloads[start]
+                    // Move one owned value out, then move each source into the one
+                    // uninitialized hole. The internal permutation restores every slot
+                    // before Array regains access, avoiding per-move ARC traffic.
+                    let saved = base.advanced(by: start).move()
                     var destination = start
                     while true {
                         let source = keys[destination].eventIndex
                         keys[destination].eventIndex = -1
                         moves += 1
                         if source == start {
-                            payloads[destination] = saved
+                            base.advanced(by: destination).initialize(to: consume saved)
                             break
                         }
-                        payloads[destination] = payloads[source]
+                        base.advanced(by: destination).moveInitialize(from: base.advanced(by: source), count: 1)
                         destination = source
                     }
                 }
@@ -382,6 +391,23 @@ private struct RuntimeCMixerRowEffectCategories {
     }
 }
 
+/// One immutable semantic owner shared by runtime plan value copies. The value
+/// getter preserves inspection CoW semantics without copying wide headers through
+/// every construction/transport stack frame.
+private final class RuntimeCMixerSemanticPlanStorage: Equatable {
+    let value: PlaybackSongSyntheticPlan
+    init(_ value: PlaybackSongSyntheticPlan) { self.value = value }
+    static func == (lhs: RuntimeCMixerSemanticPlanStorage, rhs: RuntimeCMixerSemanticPlanStorage) -> Bool {
+        lhs === rhs || lhs.value == rhs.value
+    }
+}
+
+/// Optional off-audio observations; probes must not retain the full row captures.
+struct RuntimeCMixerAdapterPlanLifetimeProbe {
+    let captureRows: ([PlaybackXMChannelRow]) -> Void
+    let beforeAssembly: () -> Void
+}
+
 struct RuntimeCMixerAdapterEventPlan: Equatable {
     let generated: Bool
     let sampleRate: Double
@@ -389,7 +415,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
     let plannedEventCount: Int
     let eventStorage: RuntimeCMixerAdapterEventStorage
     let categories: [String]
-    let plan: PlaybackSongSyntheticPlan?
+    private let semanticPlanStorage: RuntimeCMixerSemanticPlanStorage?
+    var plan: PlaybackSongSyntheticPlan? { semanticPlanStorage?.value }
+#if DEBUG
+    var semanticPlanOwnerForTesting: AnyObject? { semanticPlanStorage }
+#endif
 
     var events: [RuntimeCMixerAdapterEvent] { eventStorage.events }
 
@@ -402,7 +432,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         self.plannedSongEndFrame = plannedSongEndFrame
         self.plannedEventCount = plannedEventCount
         self.categories = categories
-        self.plan = plan
+        semanticPlanStorage = plan.map(RuntimeCMixerSemanticPlanStorage.init)
         eventStorage = .init(events: events, orderingEntries: runtimeOrderingEntries, profileSession: profileSession)
     }
 
@@ -434,7 +464,12 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         sampleRate: Double,
         profileSession: AdapterPlanProfileSession? = nil,
         preparedPlan: PlaybackSongSyntheticPlan? = nil,
-        rowCaptureRetention: PlaybackXMRowCaptureStorage.Retention = .full
+        rowCaptureRetention: PlaybackXMRowCaptureStorage.Retention = .full,
+        initialPosition: PlaybackPosition? = nil,
+        isCancelled: (() -> Bool)? = nil,
+        lifetimeProbe: RuntimeCMixerAdapterPlanLifetimeProbe? = nil,
+        lookupOnlySourceCount: Int = 0,
+        admittedFrames: Range<Int>? = nil
     ) -> RuntimeCMixerAdapterEventPlan {
         let makeStart = profileSession?.beginPhase()
         guard let song else {
@@ -446,16 +481,35 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             )
             return unavailablePlan
         }
-        let adaptedPlan = preparedPlan ?? PlaybackSongSyntheticAdapter.adapt(
-            song,
-            startOrderIndex: 0,
-            orderCount: song.orders.count,
-            sampleRate: sampleRate,
-            profileSession: profileSession
-        )
-        precondition(adaptedPlan.$xmChannelRows.isFullCapture, "Event assembly requires full row captures")
-        return assemble(song: song, adaptedPlan: adaptedPlan, sampleRate: sampleRate, rowCaptureRetention: rowCaptureRetention,
-            profileSession: profileSession, makeStart: makeStart)
+        let adaptedPlan = preparedPlan ?? PlaybackSongSyntheticAdapter.adaptCancellable(song,
+            sampleRate: sampleRate, profileSession: profileSession, initialPosition: initialPosition,
+            isCancelled: isCancelled)
+        return finishAdaptedPlan(consume adaptedPlan, song: song, sampleRate: sampleRate,
+            rowCaptureRetention: rowCaptureRetention, profileSession: profileSession,
+            makeStart: makeStart, isCancelled: isCancelled, lifetimeProbe: lifetimeProbe,
+            lookupOnlySourceCount: lookupOnlySourceCount, admittedFrames: admittedFrames)
+    }
+
+    // Keep mutable plan/finalization temporaries out of the live row-interpreter stack.
+    // Consume both optional owners so full rows cannot overlap assembly through a caller alias.
+    @inline(never)
+    private static func finishAdaptedPlan(_ adapted: consuming PlaybackSongSyntheticPlan?, song: PlaybackSong,
+        sampleRate: Double, rowCaptureRetention: PlaybackXMRowCaptureStorage.Retention,
+        profileSession: AdapterPlanProfileSession?, makeStart: UInt64?, isCancelled: (() -> Bool)?,
+        lifetimeProbe: RuntimeCMixerAdapterPlanLifetimeProbe?,
+        lookupOnlySourceCount: Int, admittedFrames: Range<Int>?) -> RuntimeCMixerAdapterEventPlan {
+        guard var adaptedPlan = consume adapted, isCancelled?() != true else { return unavailable(sampleRate: sampleRate) }
+        precondition(lookupOnlySourceCount >= 0 && lookupOnlySourceCount <= adaptedPlan.pattern.events.count)
+        precondition(rowCaptureRetention == .runtimeFinalized || adaptedPlan.$xmChannelRows.isFullCapture,
+            "Full inspection requires full row captures")
+        // Row interpretation has finished. Assembly reads completed semantic values
+        // and ordinal owners, so full captures need not overlap wide events and sorting.
+        if let lifetimeProbe, adaptedPlan.$xmChannelRows.isFullCapture { lifetimeProbe.captureRows(adaptedPlan.xmChannelRows) }
+        if rowCaptureRetention == .runtimeFinalized { adaptedPlan.$xmChannelRows.finalizeForRuntime() }
+        lifetimeProbe?.beforeAssembly()
+        return assemble(song: song, adaptedPlan: adaptedPlan, sampleRate: sampleRate,
+            profileSession: profileSession, makeStart: makeStart, isCancelled: isCancelled,
+            lookupOnlySourceCount: lookupOnlySourceCount, admittedFrames: admittedFrames)
     }
 
     // Event materialization has a large Debug stack frame. Enter it only after
@@ -465,10 +519,12 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         song: PlaybackSong,
         adaptedPlan: PlaybackSongSyntheticPlan,
         sampleRate: Double,
-        rowCaptureRetention: PlaybackXMRowCaptureStorage.Retention,
         profileSession: AdapterPlanProfileSession?,
-        makeStart: UInt64?
+        makeStart: UInt64?,
+        isCancelled: (() -> Bool)?,
+        lookupOnlySourceCount: Int, admittedFrames: Range<Int>?
     ) -> RuntimeCMixerAdapterEventPlan {
+        var cancellationWork = 0
         let diagnosticIndexingStart = profileSession?.beginPhase()
         let scheduler = SyntheticTrackerScheduler(config: adaptedPlan.timingConfig)
         let eventMappingsByIndex = Dictionary(
@@ -556,6 +612,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             measuresCategories: profileSession != nil)
         var nextID = 0
         var seenNoteTriggerChannels = Set<Int>()
+        if lookupOnlySourceCount > 0 {
+            for index in 0..<lookupOnlySourceCount {
+                if let mapping = eventMappingsByIndex[index] { seenNoteTriggerChannels.insert(mapping.channelIndex) }
+            }
+        }
         profileSession?.recordPhase(
             "adapter_diagnostic_indexing",
             startedAt: diagnosticIndexingStart,
@@ -573,6 +634,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         let eventGenerationStart = profileSession?.beginPhase()
         let rowCategories = RuntimeCMixerRowEffectCategories()
         for (eventIndex, syntheticEvent) in adaptedPlan.pattern.events.enumerated() {
+            if eventIndex < lookupOnlySourceCount { continue }
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let mapping = eventMappingsByIndex[eventIndex] else {
                 continue
             }
@@ -739,6 +803,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for eventIndex in adaptedPlan.initialHeldPitchEventIndices.sorted() {
+            if eventIndex < lookupOnlySourceCount { continue }
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard !adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.contains(eventIndex) else { continue }
             let event = adaptedPlan.pattern.events[eventIndex]
             guard let mapping = eventMappingsByIndex[eventIndex] else { continue }
@@ -751,6 +818,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for update in adaptedPlan.diagnostics.voiceStateUpdates where update.applied && update.activeVoiceUpdated {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let activeEventIndex = update.activeEventIndex else {
                 continue
             }
@@ -838,6 +907,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for (index, diagnostic) in adaptedPlan.diagnostics.tonePortamentoEffects.enumerated() where diagnostic.applied {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             // Construction IDs encode only this pair's Bx-before-tone tie order.
             if let vibrato = bxTonePairs.byTone[index] {
                 appendVibrato(adaptedPlan.diagnostics.vibratoEffects[vibrato])
@@ -875,6 +946,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.portamentoSlideEffects where diagnostic.applied {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -912,6 +985,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.finePortamentoUpEffects where diagnostic.applied && !diagnostic.appliedToInitialPlaybackStep {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -934,6 +1009,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.finePortamentoDownEffects where diagnostic.applied && !diagnostic.appliedToInitialPlaybackStep {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -956,6 +1033,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.extraFinePortamentoEffects where diagnostic.applied && !diagnostic.appliedToInitialPlaybackStep {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -979,6 +1058,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.arpeggioEffects where diagnostic.applied {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let activeEventIndex = diagnostic.activeEventIndex else {
                 continue
             }
@@ -1004,6 +1085,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for diagnostic in adaptedPlan.diagnostics.envelopePositionEffects where diagnostic.applied {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let activeEventIndex = diagnostic.activeEventIndex,
                   let appliedPositionFrame = diagnostic.appliedPositionFrame else {
                 continue
@@ -1026,6 +1109,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         for cut in adaptedPlan.diagnostics.noteCutEffects where cut.applied {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             events.append(RuntimeCMixerAdapterEvent(
                 id: nextID,
                 source: cut.source,
@@ -1069,6 +1154,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         // Immutable lists share their backing storage across a publication run.
         let carriedPlaybackStateCategories = ["carried_playback_state"]
         for update in stateEvents {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard adaptedPlan.xmEnvelopeTimeline?.updatesByEvent[update.activeEventIndex] == nil else { continue }
             guard let mapping = eventMappingsByIndex[update.activeEventIndex] else { continue }
             // A carried voice may have started on a different row/tick (including EDx).
@@ -1081,6 +1168,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
         let emptyRouteStopCategories = ["empty_route_source_stop"]
         for route in adaptedPlan.xmEmptyRoutes {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let old = route.stoppedEventIndex else { continue }
             events.append(.init(id: events.count, source: route.source, channelIndex: route.channelIndex,
                 syntheticTick: route.tick, scheduledFrame: route.scheduledFrame,
@@ -1089,12 +1178,16 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
         let channelSemanticCategories = ["xm_channel_semantic_tick"]
         for update in adaptedPlan.xmEnvelopeTimeline?.channelUpdates ?? [] where sourceFreeChannels.contains(update.channelIndex) {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             events.append(.init(id: events.count, source: update.source, channelIndex: update.channelIndex,
                 syntheticTick: update.tick, scheduledFrame: update.scheduledFrame, action: .channelSemanticUpdate(update),
                 categories: channelSemanticCategories))
         }
         let envelopeSemanticCategories = ["xm_envelope_semantic_tick"]
         for update in adaptedPlan.xmEnvelopeTimeline?.updates ?? [] {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             events.append(RuntimeCMixerAdapterEvent(id: events.count, source: update.source,
                 channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
                 action: .envelopeSemanticUpdate(activeEventIndex: update.eventIndex, state: update.state),
@@ -1111,6 +1204,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.count
         var nextPitchID = audibleIDStart + preexistingAudibleCount
         for (ordinal, update) in (adaptedPlan.xmAudibleTimeline?.updates ?? []).enumerated() {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             let id = audibleIDStart + ordinal + (ordinal < preexistingAudibleCount ? 0 : reservedPitchIDCount)
             events.append(RuntimeCMixerAdapterEvent(id: id, source: update.source,
                 channelIndex: update.channelIndex, syntheticTick: update.tick, scheduledFrame: update.scheduledFrame,
@@ -1118,6 +1213,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
         let instrumentAutoPitchCategories = ["step_update", "instrument_auto_pitch"]
         for request in adaptedPlan.instrumentAutovibratoRequests {
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard adaptedPlan.diagnostics.rowMappings.indices.contains(request.syntheticRow) else { continue }
             events.append(.init(id: nextPitchID,
                 source: adaptedPlan.diagnostics.rowMappings[request.syntheticRow].source,
@@ -1130,6 +1227,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
 
         let introducedHoldCategories = ["step_update", "initial_pitch_hold"]
         for eventIndex in adaptedPlan.instrumentAutovibratoInitialHoldEventIndices.sorted() {
+            if eventIndex < lookupOnlySourceCount { continue }
+            cancellationWork &+= 1
+            if cancellationWork & 63 == 0, isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
             guard let mapping = eventMappingsByIndex[eventIndex] else { continue }
             events.append(.init(id: nextPitchID, source: mapping.source,
                 channelIndex: mapping.channelIndex, syntheticTick: mapping.syntheticTick,
@@ -1140,12 +1240,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         profileSession?.recordPhase("adapter_semantic_event_materialization", startedAt: semanticMaterializationStart)
         let sortingStart = profileSession?.beginPhase()
         let unsortedEventCount = events.count
-        let assembly = events.finish(profileSession: profileSession)
+        if isCancelled?() == true { return unavailable(sampleRate: sampleRate) }
+        let assembly = events.finish(profileSession: profileSession, admittedFrames: admittedFrames)
         let plannedSongEndFrame = adaptedPlan.diagnostics.rowTiming
             .map { max($0.rowStartFrame, $0.rowStartFrame + max(0, $0.rowDurationFrames)) }
             .max()
-        var retainedPlan = adaptedPlan
-        if rowCaptureRetention == .runtimeFinalized { retainedPlan.$xmChannelRows.finalizeForRuntime() }
         let plan = RuntimeCMixerAdapterEventPlan(
             generated: true,
             sampleRate: sampleRate,
@@ -1153,7 +1252,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             plannedEventCount: assembly.events.count,
             events: assembly.events,
             categories: assembly.categories,
-            plan: retainedPlan,
+            plan: adaptedPlan,
             runtimeOrderingEntries: assembly.runtimeOrderingEntries,
             profileSession: profileSession
         )

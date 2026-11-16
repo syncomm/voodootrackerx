@@ -18,7 +18,9 @@ extension PlaybackSongSyntheticAdapter {
 
     static func eventMapping(
         _ mapping: PlaybackSongSyntheticEventMapping,
-        applying semantics: PlaybackSongSyntheticEnvelopeSemanticsDiagnostic
+        applying semantics: PlaybackSongSyntheticEnvelopeSemanticsDiagnostic,
+        lookupEventIndex: Int? = nil,
+        lookupSyntheticRow: Int? = nil
     ) -> PlaybackSongSyntheticEventMapping {
         PlaybackSongSyntheticEventMapping(
             source: mapping.source,
@@ -39,9 +41,9 @@ extension PlaybackSongSyntheticAdapter {
             sampleMapKeymapMissingOrDeferred: mapping.sampleMapKeymapMissingOrDeferred,
             effectType: mapping.effectType,
             effectParam: mapping.effectParam,
-            syntheticRow: mapping.syntheticRow,
+            syntheticRow: lookupSyntheticRow ?? mapping.syntheticRow,
             syntheticTick: mapping.syntheticTick,
-            eventIndex: mapping.eventIndex,
+            eventIndex: lookupEventIndex ?? mapping.eventIndex,
             loopMode: mapping.loopMode,
             volumeColumn: mapping.volumeColumn,
             sampleOffset: mapping.sampleOffset,

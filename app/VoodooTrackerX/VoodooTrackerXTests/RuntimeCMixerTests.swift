@@ -1107,6 +1107,39 @@ final class R02ReplacementParityTests: XCTestCase {
 }
 
 final class RuntimeCMixerColdPlanAssemblyTests: XCTestCase {
+    func testUnchangedEarlyOutputTargetIDDependsOnLaterNoteCount() throws {
+        let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125, -0.125],
+            baseSampleRate: 8_363, loopLength: 4, loopType: 1)
+        let instrument = PlaybackInstrument(index: 1, samples: [sample],
+            noteSampleMap: Array(repeating: 0, count: 96))
+        let first = makePlaybackRow(index: 0, note: 49, instrument: 1)
+        let empty = makePlaybackRow(index: 1)
+        let quietTail = makePlaybackRow(index: 2)
+        let noteTail = makePlaybackRow(index: 2, note: 53, instrument: 1)
+        func plan(tail: PlaybackRow) -> RuntimeCMixerAdapterEventPlan {
+            RuntimeCMixerAdapterEventPlan.make(song: makePlaybackSong(
+                orderPatternIndices: [0], patternRowsByIndex: [0: [first, empty, tail]],
+                instrumentsByIndex: [1: instrument], initialTiming: .init(speed: 3, bpm: 125)
+            ), sampleRate: 48_000)
+        }
+        let short = plan(tail: quietTail), long = plan(tail: noteTail)
+        func earlyTarget(_ plan: RuntimeCMixerAdapterEventPlan) -> RuntimeCMixerAdapterEvent? {
+            plan.events.first { event in
+                guard event.source.orderIndex == 0, event.source.rowIndex == 0 else { return false }
+                if case .audibleTargetUpdate = event.action { return true }
+                return false
+            }
+        }
+        let before = try XCTUnwrap(earlyTarget(short))
+        let after = try XCTUnwrap(earlyTarget(long))
+        XCTAssertEqual(before.source, after.source)
+        XCTAssertEqual(before.scheduledFrame, after.scheduledFrame)
+        XCTAssertEqual(before.action, after.action)
+        XCTAssertEqual(before.categories, after.categories)
+        XCTAssertNotEqual(before.id, after.id,
+            "Current whole-plan family IDs require knowledge of later events")
+    }
+
     func testRowEffectCategoriesShareStorageAcrossRepeatedOrderedShapes() throws {
         let noteLabels = Set(["note_trigger", "replacement", "sample_offset", "key_off"])
         var sharedGroups = 0
@@ -1353,6 +1386,69 @@ final class RuntimeCMixerColdPlanAssemblyTests: XCTestCase {
         XCTAssertEqual(result.metrics.wideEventMoveCount, 2)
     }
 
+    func testLongPermutationCyclePreservesIndirectPayloadsAndUnicodeCategories() {
+        let count = 257
+        let input = (0..<count).map { index in
+            event(index * 7 + 3, (index + count - 1) % count,
+                categories: ["owned-\(index)-\(String(repeating: "音", count: 40))"], action: trigger())
+        }
+        let result = assemble(input)
+        XCTAssertEqual(result.events, legacyColdOrder(input))
+        XCTAssertEqual(result.metrics.wideEventMoveCount, count)
+        for value in result.events {
+            let original = input[(value.id - 3) / 7]
+            assertCategoryStorageShared(value.categories, original.categories)
+            guard case let .noteTrigger(_, actual, _) = value.action,
+                  case let .noteTrigger(_, expected, _) = original.action else {
+                return XCTFail("An indirect payload changed during permutation")
+            }
+            XCTAssertEqual(actual, expected)
+        }
+    }
+
+    func testAssemblyCopyKeepsIndependentNonInvolutionPermutationAndRangeRemoval() {
+        let source = PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0)
+        let channel = PlaybackXMChannelUpdate(channelIndex: 0, instrumentIndex: 1, sampleIndex: 0,
+            sourceEventIndex: nil, source: source, tick: 0, scheduledFrame: 0,
+            bpm: 125, speed: 6, state: .init())
+        let frames = [2, 0, 1, 4, 3, 5] // A 3-cycle, a 2-cycle and a fixed point.
+        let input = frames.enumerated().map { index, frame in
+            event(index, frame, categories: ["copy-\(index)-\(String(repeating: "category", count: 8))"],
+                action: index.isMultiple(of: 2) ? trigger() : .channelSemanticUpdate(channel))
+        }
+        var first = RuntimeCMixerAdapterPlanAssembly(initialCapacity: input.count)
+        for value in input { first.append(value) }
+        var copy = first
+        let bounded = first.finish(admittedFrames: 1..<5)
+        let full = copy.finish()
+        XCTAssertEqual(full.events, legacyColdOrder(input))
+        XCTAssertEqual(bounded.events, full.events.filter { (1..<5).contains($0.scheduledFrame) })
+        XCTAssertEqual(full.metrics.wideEventMoveCount, 5)
+        XCTAssertEqual(bounded.categories, full.categories)
+    }
+
+    func testSingleOwnerPermutationRemainsValidAfterConstructionScopeIsReleased() {
+        func construct() -> RuntimeCMixerAdapterPlanAssembly.Result {
+            var assembly = RuntimeCMixerAdapterPlanAssembly(initialCapacity: 31)
+            for index in 0..<31 {
+                assembly.append(event(index, (index + 30) % 31,
+                    categories: ["single-\(index)-\(String(repeating: "retained", count: 16))"], action: trigger()))
+            }
+            return assembly.finish(admittedFrames: 1..<30)
+        }
+        for _ in 0..<16 {
+            let result = construct()
+            XCTAssertEqual(result.events.map(\.id), Array(2..<31))
+            for value in result.events {
+                XCTAssertEqual(value.categories, ["single-\(value.id)-\(String(repeating: "retained", count: 16))"])
+                guard case let .noteTrigger(_, payload, _) = value.action else {
+                    return XCTFail("A sole-owner payload did not survive construction")
+                }
+                XCTAssertFalse(payload.sample.monoPCM.isEmpty)
+            }
+        }
+    }
+
     func testEmptyAndSingleEventPlansReuseTheirConstructionStorage() {
         let empty = assemble([])
         XCTAssertTrue(empty.events.isEmpty)
@@ -1393,6 +1489,24 @@ final class RuntimeCMixerColdPlanAssemblyTests: XCTestCase {
         assembly.append(expected)
         XCTAssertFalse(assembly.reserveAdditionalCapacity([Int.max]))
         XCTAssertEqual(assembly.finish().events, [expected])
+    }
+
+    func testLoopRangeCompactionPreservesRawIDsWriterTiesCategoriesAndRuntimeKeys() {
+        let input = [event(91, 12, categories: ["after"]), event(8, 5), event(8, 5),
+            event(3, 4, categories: ["before"]), event(42, 9, tick: 1), event(7, 5)]
+        let full = assemble(input)
+        for range in [5..<10, 0..<0, 0..<20] {
+            var assembly = RuntimeCMixerAdapterPlanAssembly(initialCapacity: input.count)
+            for value in input { assembly.append(value) }
+            let bounded = assembly.finish(admittedFrames: range)
+            let expected = full.events.filter { range.contains($0.scheduledFrame) }
+            XCTAssertEqual(bounded.events, expected)
+            XCTAssertEqual(bounded.categories, full.categories, "Out-of-range diagnostic categories remain visible")
+            XCTAssertEqual(bounded.metrics.fullWidthPlanCopyCount, 0)
+            let compactStorage = RuntimeCMixerAdapterEventStorage(events: bounded.events,
+                orderingEntries: bounded.runtimeOrderingEntries)
+            XCTAssertEqual(compactStorage, RuntimeCMixerAdapterEventStorage(events: expected))
+        }
     }
 
     func testResultingRuntimeKeysRetainTheDistinctComparatorAndCachedStorage() {
@@ -5450,38 +5564,69 @@ final class RuntimeCMixerTests: XCTestCase {
 
     @MainActor
     func testRuntimeCMixerEditableLoopRefreshSchedulesNewNoteOnLaterPass() async throws {
-        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
         let initialSong = makeRuntimeEditablePatternLoopSong(notesByRow: [0: 49])
         let refreshedSong = makeRuntimeEditablePatternLoopSong(notesByRow: [0: 49, 1: 51])
-        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 100, prewarmScheduler: prewarmScheduler)
-
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 48_000,
+            prewarmScheduler: DispatchQueueRuntimeAdapterPlanPrewarmScheduler())
+        defer { harness.engine.stop(); harness.engine.load(song: nil) }
         harness.engine.load(song: initialSong)
         harness.engine.play(
             from: PlaybackStartContext(moduleTitle: "editable", songPosition: 0, patternIndex: 0, row: 0),
             loopEnabled: true,
             timingSession: nil
         )
-        _ = harness.audioEngine.renderForTesting(frameCount: 45)
-
-        harness.engine.requestEditablePatternLoopRefresh(song: refreshedSong)
-        prewarmScheduler.complete(at: 1)
-        await Task.yield()
-        advanceRows(4, engine: harness.engine, timing: initialSong.initialTiming)
-        _ = harness.audioEngine.renderForTesting(frameCount: 80)
-
-        let addVoices = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }
-        let refreshedNote = addVoices.first {
-            $0.noteValue == 51 &&
-                $0.plannedSourceOrderIndex == 0 &&
-                $0.plannedSourcePatternIndex == 0 &&
-                $0.plannedSourceRowIndex == 1 &&
-                ($0.plannedRuntimeFrame ?? 0) >= 45
+        XCTAssertTrue(harness.audioEngine.hasRuntimeUserLoop)
+        // The old 100-Hz fixture's 45 frames are 21,600 frames at 48 kHz.
+        var rendered = 0
+        while rendered < 21_600 {
+            let count = min(4_096, 21_600 - rendered)
+            _ = harness.audioEngine.renderForTesting(frameCount: count); rendered += count
         }
-
-        XCTAssertNotNil(refreshedNote)
-        XCTAssertTrue(addVoices.allSatisfy { $0.runtimeEventSource == "offline_adapter_plan" })
-        XCTAssertEqual(harness.engine.state.mode, .playing)
+        harness.engine.requestEditablePatternLoopRefresh(song: refreshedSong)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        var boundary: UInt64?
+        while boundary == nil, Date() < deadline {
+            switch harness.engine.userLoopRefreshStatusForTesting {
+            case let .published(_, frame): boundary = frame
+            case let .admitted(_, _, frame): boundary = frame
+            case .refused: XCTFail("Compatible edit was refused"); return
+            default: break
+            }
+            if boundary == nil {
+                // Actual delivery must reach an active batch with a future safe boundary.
+                // UI service never fabricates row visits or native admission.
+                _ = harness.audioEngine.renderForTesting(frameCount: 512); rendered += 512
+                harness.engine.advanceOneTick()
+                try await Task.sleep(nanoseconds: 11_000_000)
+            }
+        }
+        let admittedBoundary = try XCTUnwrap(boundary)
+        XCTAssertGreaterThan(admittedBoundary, 21_600)
+        let target = Int(admittedBoundary) + 4_801
+        XCTAssertLessThan(rendered, target)
+        while rendered < target {
+            let count = min(512, target - rendered)
+            _ = harness.audioEngine.renderForTesting(frameCount: count); rendered += count
+        }
+        harness.engine.advanceOneTick()
+        XCTAssertTrue(harness.engine.state.isPlaying)
+        XCTAssertEqual(harness.engine.song, refreshedSong)
+        XCTAssertNil(harness.audioEngine.consumeRuntimeUserLoopFailure())
         XCTAssertTrue(clearAllEventsAfterRenderStarted(in: harness.traceWriter.events).isEmpty)
+        // Native observations drain only after host quiescence, before reset.
+        harness.engine.stop()
+        let births = harness.traceWriter.events.compactMap(\.loopOccurrence).filter { $0.opcode == 0 }
+        let initialBirth = try XCTUnwrap(births.first { $0.sourceRow == 0 && $0.plannedRuntimeFrame == 0 })
+        let refreshedBirth = try XCTUnwrap(births.first {
+            $0.sourceOrder == 0 && $0.sourcePattern == 0 && $0.sourceRow == 1 &&
+                $0.plannedRuntimeFrame == admittedBoundary + 4_800
+        })
+        XCTAssertEqual(refreshedBirth.appliedRuntimeFrame, admittedBoundary + 4_800)
+        XCTAssertEqual(refreshedBirth.disposition, 0)
+        XCTAssertGreaterThan(refreshedBirth.scope.sourceGeneration, initialBirth.scope.sourceGeneration)
+        XCTAssertEqual(refreshedBirth.scope.transportEpoch, initialBirth.scope.transportEpoch)
+        XCTAssertEqual(refreshedBirth.targetBirth?.sourceGeneration, refreshedBirth.scope.sourceGeneration)
+        XCTAssertFalse(births.contains { $0.sourceRow == 1 && $0.plannedRuntimeFrame < admittedBoundary })
     }
 
     @MainActor
@@ -5583,6 +5728,30 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(third.source, PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 0))
         XCTAssertEqual(third.tickInRow, 0)
     }
+
+#if DEBUG
+    @MainActor
+    func testRuntimeBackendKeepsSampleTimeResolverAcrossStopsAndRebuildsForNewPlan() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowCounts: [2: 2, 3: 1],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let backend = RuntimeCMixerAudioEngine(sampleRate: 100, startsOutputHostOnDemand: false)
+        let first = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        backend.configureRuntimeAdapterEventPlan(first, generationMS: nil, timingSession: nil)
+        XCTAssertEqual(backend.sampleTimePositionResolverBuildCountForTesting, 1)
+
+        backend.stopAll()
+        backend.resetRuntimeAdapterEventConsumption()
+        XCTAssertEqual(backend.sampleTimePositionResolverBuildCountForTesting, 1)
+
+        let laterOrigin = try XCTUnwrap(song.position(orderIndex: 1, rowIndex: 0))
+        let second = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100, initialPosition: laterOrigin)
+        backend.configureRuntimeAdapterEventPlan(second, generationMS: nil, timingSession: nil)
+        XCTAssertEqual(backend.sampleTimePositionResolverBuildCountForTesting, 2)
+    }
+#endif
 
     func testSampleTimePositionResolverUsesSelectedRuntimeSampleRate() throws {
         let song = makePlaybackSong(
@@ -7883,7 +8052,7 @@ final class RuntimeCMixerTests: XCTestCase {
         _ = harness.audioEngine.renderForTesting(frameCount: 25)
         harness.engine.advanceOneTick()
 
-        XCTAssertEqual(harness.engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(harness.engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2))
         XCTAssertEqual(positions.last, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2))
         XCTAssertEqual(harness.engine.currentPublishedFollowPosition?.source, .cMixerSampleTime)
         XCTAssertEqual(harness.engine.currentPublishedFollowPosition?.position, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2))
@@ -7948,9 +8117,11 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(latest?.publishedPlaybackFollowSyntheticRow, 2)
         XCTAssertEqual(latest?.publishedPlaybackFollowToCMixerFrameDelta, 0)
         XCTAssertEqual(latest?.publishedPlaybackFollowToCMixerRowDelta, 0)
-        XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowFrameDelta, 15)
-        XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowRowDelta, 1)
-        XCTAssertEqual(latest?.playbackEngineToCMixerFrameDelta, 15)
+        // Frame deltas measure from the current tick's start (20), not a stale
+        // timer row (10); the one captured C head is five frames into that tick.
+        XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowFrameDelta, 5)
+        XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowRowDelta, 0)
+        XCTAssertEqual(latest?.playbackEngineToCMixerFrameDelta, 5)
         XCTAssertEqual(latest?.followPublishedCount, 2)
         XCTAssertEqual(latest?.followConsumedCount, 2)
         XCTAssertEqual(latest?.followDroppedCount, 0)
@@ -8041,7 +8212,7 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(harness.traceWriter.events.last { $0.runtimeAction == "spacebarStop" }, nil)
         let stopEvent = harness.traceWriter.events.last { $0.runtimeAction == "stop" }
         XCTAssertEqual(stopEvent?.runtimeAudioBackend, "c_mixer")
-        XCTAssertEqual(stopEvent?.previousRowIndex, 1)
+        XCTAssertEqual(stopEvent?.previousRowIndex, 2)
         XCTAssertEqual(stopEvent?.nextRowIndex, 2)
         XCTAssertEqual(stopEvent?.reason, "transport_stop_preserve_position")
     }
@@ -8216,8 +8387,11 @@ final class RuntimeCMixerTests: XCTestCase {
 
         XCTAssertEqual(configuredEvents.count, 2)
         XCTAssertEqual(addVoiceEvents.count, 2)
-        XCTAssertEqual(addVoiceEvents.map(\.plannedRuntimeFrame), [10, 10])
-        XCTAssertEqual(addVoiceEvents.map(\.eventAppliedFrame), [10, 10])
+        // Stop captures row 1 at native frame 12. Its next cold Play begins
+        // there, so the selected row's note is correctly scheduled at frame 0.
+        XCTAssertEqual(harness.engine.currentPosition?.rowIndex, 1)
+        XCTAssertEqual(addVoiceEvents.map(\.plannedRuntimeFrame), [10, 0])
+        XCTAssertEqual(addVoiceEvents.map(\.eventAppliedFrame), [10, 0])
         XCTAssertEqual(addVoiceEvents.map(\.plannedVsAppliedDelta), [0, 0])
     }
 
@@ -10474,7 +10648,7 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
-    func testRuntimeCMixerTraceRecordsRowTransitionsWithRenderSnapshot() {
+    func testRuntimeCMixerTraceRecordsRowTransitionsWithRenderSnapshot() throws {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let audioEngine = RuntimeCMixerAudioEngine(
             startsOutputHostOnDemand: false,
@@ -10498,63 +10672,73 @@ final class RuntimeCMixerTests: XCTestCase {
             initialTiming: PlaybackTiming(speed: 1, bpm: 125)
         ))
 
+        defer { engine.stop(); engine.load(song: nil) }
         engine.play(from: nil)
         engine.advanceOneTick()
+        XCTAssertEqual(engine.currentPosition?.rowIndex, 0, "No C frames means no musical row advance")
 
         let transitions = traceWriter.events.filter { $0.runtimeAction == "row_transition" }
-        XCTAssertEqual(transitions.count, 2)
-        XCTAssertEqual(transitions[0].orderIndex, 0)
-        XCTAssertEqual(transitions[0].patternIndex, 2)
-        XCTAssertEqual(transitions[0].rowIndex, 0)
-        XCTAssertEqual(transitions[0].sampleRate, 44_100)
-        XCTAssertEqual(transitions[0].channelCount, 2)
-        XCTAssertEqual(transitions[0].renderCallbackCount, 0)
-        XCTAssertEqual(transitions[0].eventQueueBacklogCount, 0)
-        XCTAssertEqual(transitions[0].runtimeHeadroomPolicy, "default_runtime_headroom_db")
-        XCTAssertEqual(transitions[0].runtimeOutputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain)
-        XCTAssertEqual(transitions[0].transitionPhase, "before_events")
-        XCTAssertEqual(transitions[0].nextOrderIndex, 0)
-        XCTAssertEqual(transitions[0].nextPatternIndex, 2)
-        XCTAssertEqual(transitions[0].nextRowIndex, 0)
-        XCTAssertEqual(transitions[0].transitionRuntimeFrame, 0)
-        XCTAssertEqual(transitions[0].runtimeEventCategory, "row_transition")
-        XCTAssertEqual(transitions[0].cMixerRenderedFrames, 0)
-        XCTAssertEqual(transitions[0].cMixerSampleTimeFrame, 0)
-        XCTAssertEqual(transitions[0].cMixerSampleTimeOrderIndex, 0)
-        XCTAssertEqual(transitions[0].cMixerSampleTimePatternIndex, 2)
-        XCTAssertEqual(transitions[0].cMixerSampleTimeRowIndex, 0)
-        XCTAssertEqual(transitions[0].cMixerSampleTimeTickInRow, 0)
-        XCTAssertEqual(transitions[0].playbackEngineOrderIndex, 0)
-        XCTAssertEqual(transitions[0].playbackEnginePatternIndex, 2)
-        XCTAssertEqual(transitions[0].playbackEngineRowIndex, 0)
-        XCTAssertEqual(transitions[0].playbackEngineTickInRow, 0)
-        XCTAssertEqual(transitions[0].plannedSongEndFrame, 1_764)
-        XCTAssertEqual(transitions[0].plannedSongEndSeconds ?? 0, 0.04, accuracy: 0.000_001)
-        XCTAssertEqual(transitions[0].playbackEngineToCMixerFrameDelta, 0)
-        XCTAssertEqual(transitions[0].playbackEngineToCMixerPositionMismatch, false)
-        XCTAssertEqual(transitions[0].rowTransitionDeltaCategory, "exact")
-        XCTAssertEqual(transitions[1].rowIndex, 1)
-        XCTAssertEqual(transitions[1].previousOrderIndex, 0)
-        XCTAssertEqual(transitions[1].previousPatternIndex, 2)
-        XCTAssertEqual(transitions[1].previousRowIndex, 0)
-        XCTAssertNotNil(transitions[1].activeVoiceCount)
-        XCTAssertNotNil(transitions[1].loadedVoiceCount)
-        XCTAssertEqual(transitions[1].playbackEngineRowIndex, 1)
-        XCTAssertEqual(transitions[1].cMixerSampleTimeRowIndex, 0)
-        XCTAssertEqual(transitions[1].playbackEngineToCMixerPositionMismatch, true)
-        XCTAssertEqual(transitions[1].rowTransitionDeltaCategory, "different_row_or_order")
-
+        XCTAssertEqual(transitions.count, 1)
+        let initialTransition = try XCTUnwrap(transitions.first)
+        XCTAssertEqual(initialTransition.orderIndex, 0)
+        XCTAssertEqual(initialTransition.patternIndex, 2)
+        XCTAssertEqual(initialTransition.rowIndex, 0)
+        XCTAssertEqual(initialTransition.sampleRate, 44_100)
+        XCTAssertEqual(initialTransition.channelCount, 2)
+        XCTAssertEqual(initialTransition.renderCallbackCount, 0)
+        XCTAssertEqual(initialTransition.eventQueueBacklogCount, 0)
+        XCTAssertEqual(initialTransition.runtimeHeadroomPolicy, "default_runtime_headroom_db")
+        XCTAssertEqual(initialTransition.runtimeOutputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain)
+        XCTAssertEqual(initialTransition.transitionPhase, "before_events")
+        XCTAssertEqual(initialTransition.nextOrderIndex, 0)
+        XCTAssertEqual(initialTransition.nextPatternIndex, 2)
+        XCTAssertEqual(initialTransition.nextRowIndex, 0)
+        XCTAssertEqual(initialTransition.transitionRuntimeFrame, 0)
+        XCTAssertEqual(initialTransition.runtimeEventCategory, "row_transition")
+        XCTAssertEqual(initialTransition.cMixerRenderedFrames, 0)
+        XCTAssertEqual(initialTransition.cMixerSampleTimeFrame, 0)
+        XCTAssertEqual(initialTransition.cMixerSampleTimeOrderIndex, 0)
+        XCTAssertEqual(initialTransition.cMixerSampleTimePatternIndex, 2)
+        XCTAssertEqual(initialTransition.cMixerSampleTimeRowIndex, 0)
+        XCTAssertEqual(initialTransition.cMixerSampleTimeTickInRow, 0)
+        XCTAssertEqual(initialTransition.playbackEngineOrderIndex, 0)
+        XCTAssertEqual(initialTransition.playbackEnginePatternIndex, 2)
+        XCTAssertEqual(initialTransition.playbackEngineRowIndex, 0)
+        XCTAssertEqual(initialTransition.playbackEngineTickInRow, 0)
+        XCTAssertEqual(initialTransition.plannedSongEndFrame, 1_764)
+        XCTAssertEqual(initialTransition.plannedSongEndSeconds ?? 0, 0.04, accuracy: 0.000_001)
+        XCTAssertEqual(initialTransition.playbackEngineToCMixerFrameDelta, 0)
+        XCTAssertEqual(initialTransition.playbackEngineToCMixerPositionMismatch, false)
+        XCTAssertEqual(initialTransition.rowTransitionDeltaCategory, "exact")
         let transitionSummaries = traceWriter.events.filter { $0.runtimeAction == "row_transition_after_events" }
-        XCTAssertEqual(transitionSummaries.count, 2)
-        XCTAssertEqual(transitionSummaries[0].transitionPhase, "after_events")
-        XCTAssertEqual(transitionSummaries[0].activeVoiceCountBefore, 0)
-        XCTAssertEqual(transitionSummaries[0].activeVoiceCountAfter, 0)
-        XCTAssertEqual(transitionSummaries[0].eventQueueBacklogCount, 4)
-        XCTAssertEqual(transitionSummaries[0].transitionReplacementRampCount, 0)
-        XCTAssertEqual(transitionSummaries[0].transitionUpdateCount, 0)
-        XCTAssertEqual(transitionSummaries[1].previousRowIndex, 0)
-        XCTAssertEqual(transitionSummaries[1].nextRowIndex, 1)
-        XCTAssertNotNil(transitionSummaries[1].transitionRuntimeFrame)
+        XCTAssertEqual(transitionSummaries.count, 1)
+        let initialSummary = try XCTUnwrap(transitionSummaries.first)
+        XCTAssertEqual(initialSummary.transitionPhase, "after_events")
+        XCTAssertEqual(initialSummary.activeVoiceCountBefore, 0)
+        XCTAssertEqual(initialSummary.activeVoiceCountAfter, 0)
+        XCTAssertEqual(initialSummary.eventQueueBacklogCount, 4)
+        XCTAssertEqual(initialSummary.transitionReplacementRampCount, 0)
+        XCTAssertEqual(initialSummary.transitionUpdateCount, 0)
+        // Render the actual row-1 onset at 882; frame 883 is its next-unrendered head.
+        _ = audioEngine.renderForTesting(frameCount: 883)
+        engine.advanceOneTick()
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(engine.currentPublishedFollowPosition?.sampleTimeFrame, 883)
+        XCTAssertEqual(engine.currentPublishedFollowPosition?.position, engine.currentPosition)
+        let published = try XCTUnwrap(traceWriter.events.last { $0.runtimeAction == "playback_follow_position_published" })
+        XCTAssertEqual(published.publishedPlaybackFollowRowIndex, 1)
+        XCTAssertEqual(published.publishedPlaybackFollowSampleTimeFrame, 883)
+        XCTAssertEqual(published.publishedPlaybackFollowToCMixerFrameDelta, 0)
+        let birth = try XCTUnwrap(traceWriter.events.first {
+            $0.runtimeAction == "c_mixer_add_voice" && $0.plannedSourceRowIndex == 1
+        })
+        XCTAssertEqual(birth.plannedRuntimeFrame, 882)
+        XCTAssertEqual(birth.eventAppliedFrame, 882)
+        XCTAssertEqual(birth.plannedVsAppliedDelta, 0)
+        XCTAssertEqual(birth.runtimeEventSource, "offline_adapter_plan")
+        // Initial scheduling breadcrumbs survive; UI polling adds no synthetic row entry.
+        XCTAssertEqual(traceWriter.events.filter { $0.runtimeAction == "row_transition" }.count, 1)
+        XCTAssertEqual(traceWriter.events.filter { $0.runtimeAction == "row_transition_after_events" }.count, 1)
     }
 
     @MainActor

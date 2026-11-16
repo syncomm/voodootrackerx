@@ -3,6 +3,37 @@ import XCTest
 
 @MainActor
 final class EditableDocumentEditCoordinatorTests: XCTestCase {
+    func testPreparedEditableSnapshotSurvivesNavigationButPendingContentEditStaysStale() {
+        let identity = UUID()
+        let harness = EditHarness(context: .editable(
+            document: documentWithArrangedSongDataAndPalette(), isPlaybackActive: false
+        ))
+        var preparedRevision: UInt64? = UInt64(harness.revision)
+
+        XCTAssertTrue(harness.navigationCoordinator.selectOrderPosition(0))
+        preparedRevision = EditablePlaybackSnapshotRevisionPolicy.afterNonContentChange(
+            preparedIdentity: identity, preparedRevision: preparedRevision, documentIdentity: identity,
+            previousRevision: 0, currentRevision: UInt64(harness.revision)
+        )
+        XCTAssertEqual(preparedRevision, UInt64(harness.revision))
+
+        XCTAssertTrue(harness.coordinator.setSampleVolume(instrumentAt: 0, sampleAt: 1, volume: 31))
+        XCTAssertTrue(harness.navigationCoordinator.selectOrderPosition(2))
+        preparedRevision = EditablePlaybackSnapshotRevisionPolicy.afterNonContentChange(
+            preparedIdentity: identity, preparedRevision: preparedRevision, documentIdentity: identity,
+            previousRevision: UInt64(harness.revision - 1), currentRevision: UInt64(harness.revision)
+        )
+        XCTAssertNotEqual(preparedRevision, UInt64(harness.revision))
+        XCTAssertEqual(EditablePlaybackSnapshotRevisionPolicy.afterNonContentChange(
+            preparedIdentity: identity, preparedRevision: 0, documentIdentity: UUID(),
+            previousRevision: 0, currentRevision: 1
+        ), 0)
+        XCTAssertEqual(EditablePlaybackSnapshotRevisionPolicy.afterNonContentChange(
+            preparedIdentity: nil, preparedRevision: 0, documentIdentity: nil,
+            previousRevision: 0, currentRevision: 1
+        ), 0)
+    }
+
     func testEditableNavigationCreatesNoUndoAndContentUndoRedoKeepsCanonicalPositionAndView() throws {
         let initial = documentWithArrangedSongDataAndPalette()
         let harness = EditHarness(context: .editable(document: initial, isPlaybackActive: false))

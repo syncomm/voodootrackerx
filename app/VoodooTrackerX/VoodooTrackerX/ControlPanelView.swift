@@ -106,6 +106,7 @@ final class ControlPanelView: NSView {
     func apply(_ content: ControlPanelContent) {
         songTitleField.stringValue = content.songTitle
         songTimeField.stringValue = content.songTime
+        songTimeField.toolTip = content.songTimeTooltip
         songLengthField.stringValue = content.songLength
         songPositionField.stringValue = content.songPosition
         restartPositionField.stringValue = content.restartPosition
@@ -123,8 +124,8 @@ final class ControlPanelView: NSView {
         octaveSelector.selectItem(withTitle: String(content.selectedOctave))
         loopButton.state = content.isLoopEnabled ? .on : .off
         editModeButton.state = content.isEditModeEnabled ? .on : .off
-        playButton.isEnabled = !content.isPlaybackActive
-        stopButton.isEnabled = content.isPlaybackActive
+        playButton.isEnabled = !content.isPlaybackActive && !content.isPlaybackPreparing
+        stopButton.isEnabled = content.isPlaybackActive || content.isPlaybackPreparing
         songPositionStepper.maxValue = Double(content.maximumSongPosition)
         songPositionStepper.integerValue = content.songPositionValue
         songPositionStepper.isEnabled = content.isSongPositionEnabled

@@ -74,8 +74,28 @@ struct PlaybackXMAudibleTimeline: Equatable {
     // Construction identity slots preceding automatic pitch, including pruned publications.
     let preexistingPublicationCount: Int
 
-    init(plan: PlaybackSongSyntheticPlan) {
+    /// Targets, deduplication and legacy activation values only; no old timeline is owned.
+    struct SourceCheckpoint: Equatable {
+        var gain: Float
+        var pan: Float
+        var semantic: MixerEnvelopeSemanticState
+        var channelPanning: Double
+        var lastAmplitude: Float?
+        var lastPan: Float?
+        var observedPriorGain: Float
+        var observedPriorPan: Float
+        var observedActivation: Bool
+        var initial: Bool
+        var retainsTickPublications: Bool
+        var lastPublicationFrame: Int?
+    }
+
+    init(plan: PlaybackSongSyntheticPlan,
+         continuationSeed: [Int: SourceCheckpoint]? = nil,
+         importedEventIndices: Set<Int> = [], batchStartFrame: Int = 0,
+         terminalCheckpoint: (([Int: SourceCheckpoint]) -> Void)? = nil) {
         var all = [PlaybackXMAudibleUpdate]()
+        var checkpoints: [Int: SourceCheckpoint]? = terminalCheckpoint == nil ? nil : (continuationSeed ?? [:])
         let changes = Dictionary(grouping: plan.diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated),
             by: { $0.activeEventIndex ?? -1 })
         var work = PlaybackXMHistoryLookupDiagnostics()
@@ -86,6 +106,10 @@ struct PlaybackXMAudibleTimeline: Equatable {
         var preexistingCount = 0
         var mappingsByIndex: [Int: PlaybackSongSyntheticEventMapping]?
         for (index, event) in plan.pattern.events.enumerated() {
+            let checkpoint = importedEventIndices.contains(index) ? continuationSeed?[index] : nil
+            // Only seeded retained sources are audible continuation owners. Imported
+            // retiring lookup records never fabricate a second source or birth target.
+            if importedEventIndices.contains(index) && checkpoint == nil { continue }
             let mapping: PlaybackSongSyntheticEventMapping?
             if plan.diagnostics.eventMappings.indices.contains(index),
                plan.diagnostics.eventMappings[index].eventIndex == index {
@@ -103,13 +127,15 @@ struct PlaybackXMAudibleTimeline: Equatable {
             let emitsOutput = mapping != nil && event.sample.frameCount > 0 &&
                 event.initialSourceFrame < event.sample.frameCount
             // Planned legacy identities existed even when C refused the source.
-            if event.volumeEnvelope != nil { preexistingCount += history.count }
+            if event.volumeEnvelope != nil || checkpoint?.observedActivation == true {
+                preexistingCount += history.count
+            }
             guard emitsOutput || (event.volumeEnvelope == nil && !history.isEmpty) else { continue }
-            let birth = emitsOutput ? scheduler.frame(for: event) : history[0].scheduledFrame
+            let birth = checkpoint == nil ? (emitsOutput ? scheduler.frame(for: event) : history[0].scheduledFrame) : batchStartFrame
             let channel = mapping?.channelIndex ?? history[0].channelIndex
             // Consume the existing semantic clock where it is needed. Plain sources add
             // only their birth and actual factor-write frames, never a neutral tick clock.
-            let retainsTickPublications = event.volumeEnvelope != nil
+            let retainsTickPublications = checkpoint?.retainsTickPublications ?? (event.volumeEnvelope != nil)
             let sourceWrites = changes[index] ?? []
             let writes = sourceWrites.enumerated().sorted {
                 $0.element.scheduledFrame == $1.element.scheduledFrame ? $0.offset < $1.offset :
@@ -118,18 +144,19 @@ struct PlaybackXMAudibleTimeline: Equatable {
             let resetFrames = Set((resets[index] ?? []).compactMap { update -> Int? in
                 if case .reset = update.change { return update.scheduledFrame }; return nil
             })
-            var gain = event.gain
-            var pan = event.pan
+            var gain = checkpoint?.gain ?? event.gain
+            var pan = checkpoint?.pan ?? event.pan
             var writeIndex = 0
             var semanticIndex = 0
-            var observedPriorGain = event.gain
-            var observedPriorPan = event.pan
-            var observedActivation = false
-            var state = MixerEnvelopeSemanticState()
-            var channelPanning = 128.0
-            var initial = true
-            var lastAmplitude: Float?
-            var lastPan: Float?
+            var observedPriorGain = checkpoint?.observedPriorGain ?? event.gain
+            var observedPriorPan = checkpoint?.observedPriorPan ?? event.pan
+            var observedActivation = checkpoint?.observedActivation ?? false
+            var state = checkpoint?.semantic ?? MixerEnvelopeSemanticState()
+            var channelPanning = checkpoint?.channelPanning ?? 128.0
+            var initial = checkpoint == nil
+            var lastAmplitude = checkpoint?.lastAmplitude
+            var lastPan = checkpoint?.lastPan
+            var lastPublicationFrame = checkpoint?.lastPublicationFrame
             let birthRow = mapping?.syntheticRow ?? event.row
             let birthTiming = plan.diagnostics.rowTiming.indices.contains(birthRow)
                 ? plan.diagnostics.rowTiming[birthRow] : nil
@@ -231,13 +258,22 @@ struct PlaybackXMAudibleTimeline: Equatable {
                     intent: initial ? "initial" : reset ? "nonretriggering_reset" :
                         (quickVolume ? "quick_volume" : "ordinary_tick"), rebaseFromCurrent: reset))
                 lastAmplitude = amplitude; lastPan = audiblePan
+                lastPublicationFrame = frame
                 initial = false
+            }
+            if checkpoints != nil {
+                checkpoints![index] = .init(gain: gain, pan: pan, semantic: state,
+                    channelPanning: channelPanning, lastAmplitude: lastAmplitude, lastPan: lastPan,
+                    observedPriorGain: observedPriorGain, observedPriorPan: observedPriorPan,
+                    observedActivation: observedActivation, initial: initial,
+                    retainsTickPublications: retainsTickPublications, lastPublicationFrame: lastPublicationFrame)
             }
         }
         updates = all.sorted { $0.scheduledFrame == $1.scheduledFrame ? $0.eventIndex < $1.eventIndex : $0.scheduledFrame < $1.scheduledFrame }
         updatesByEvent = Dictionary(grouping: updates, by: \.eventIndex)
         planningHistoryDiagnostics = work
         preexistingPublicationCount = preexistingCount
+        if let checkpoints { terminalCheckpoint?(checkpoints) }
     }
 
     /// Applies the observed byte-domain envelope displacement while retaining the static conversion baseline.

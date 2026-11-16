@@ -43,7 +43,7 @@ authority. E90 now reports applied, no-route or NOTE_OFF-suppressed dispatch.
 
 Start here for what each command does. A Closed status covers its named bounded contract, not universal reference PCM or the Release gates. Shared-setting explanations and optional exact rules are in [more about effect commands](#more-about-effect-commands) and the linked technical sections. Shared warm-envelope, selected-order and output-tail obligations remain in the [closure inventory](ft2-xm-closure-matrix.md#open-and-retained-difference-inventory).
 
-**Shared cold-start limit:** Starting Play at a later song order can use history from earlier, unplayed patterns ([#516](https://github.com/syncomm/voodootrackerx/issues/516)). This remains a shared planning release blocker; an effect-specific fault needs its own witness. The `E6x` row retains the specific pattern-loop witness, and this general notice applies to both command tables.
+**Cold live entry and user Loop:** Normal Play resolves the selected cold order/row before preparation. Explicit user-pattern Loop carries actual executed state and source births through bounded native batches under the [bounded #516 contract](design/user-pattern-loop-continuation.md), CLOSED on this PR branch with local qualification complete. The mixed resource profile is provisionally authorized for PR/native CI only; green final submitted-head native arm64 CI remains required (Codex). Accepted effect semantics and G38B's current-pattern/implicit-row-0 policy remain unchanged. Gregory's final hands-on acceptance and broader release gates remain open.
 
 **Tuning:** Linear and Amiga are the two XM tuning systems; they affect how notes and pitch slides are tuned.
 
@@ -69,7 +69,7 @@ Start here for what each command does. A Closed status covers its named bounded 
 | `E3x` | Glissando control | Implemented | Closed | Persistent glissando setting; zero off, nonzero on | Both | Makes tone slides step through tuned notes while preserving the underlying continuous slide. Ordinary in-song tone output is the bounded closed contract. |
 | `E4x` | Vibrato control | Implemented | Closed | Persistent vibrato waveform/reset setting | Not applicable | Chooses the vibrato waveform and whether a new note restarts its cycle. |
 | `E5x` | Set finetune | Implemented | Partial | None; without a note it is inert | Both | Changes the tuning used by a note triggered on this row. The tested same-note tuning changes work in both modes; a no-note command is inert and wider trigger compatibility remains unqualified. |
-| `E6x` | Pattern loop | Implemented | Partial | Pattern-local loop start and repeat counter per channel | Not applicable | Repeats part of a pattern. Cold live playback at a later order can still use unplayed history ([#516](https://github.com/syncomm/voodootrackerx/issues/516)). Known difference — intentionally not emulated: loop state stays within each pattern instead of inheriting it from another pattern. |
+| `E6x` | Pattern loop | Implemented | Partial | Pattern-local loop start and repeat counter per channel | Not applicable | Repeats part of the current pattern, using row 0 when its channel has no applicable E60 marker. Cold live entry and explicit user Loop use executed state under [#516](design/user-pattern-loop-continuation.md); local qualification is complete and submitted-head native CI/maintainer acceptance remains required. Known difference — intentionally not emulated: numeric anchors/counters do not leak between patterns. |
 | `E7x` | Tremolo control | Implemented | Closed | Persistent tremolo waveform/reset setting, separate from vibrato | Not applicable | Chooses the tremolo waveform and whether a new note restarts its cycle. The verified ramp follows FT2’s shared-phase quirk. |
 | `E8x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Does nothing in FT2 XM. Use `8xx` for panning; the audible E8 alias is outside this target. |
 | `E9x` | Retrigger note | Implemented | Partial | No ordinary interval replay; `E90` has separate row-entry behavior | Not applicable | Restarts the current sample at a chosen tick interval; `E90` restarts on row entry. Whole-runtime tails and unusual released/delayed-note combinations remain unqualified. |
@@ -146,7 +146,7 @@ Instrument defaults, ongoing notes and envelopes also interact. A cut can silenc
 | `E3x` | Recorded scope: bounded G36 parent. Actual 3xx/300, 5xy and volume Fx output uses the bounded note/finetune grid after continuous movement and target clamp. Internal period, target, direction, speed and source cursor remain independent; the control alone publishes no pitch. G32 composes after projected output. Bounded in-song modulation is closed under G39. Reference memory: Special; E30 off, E31...E3F on; persistent per-channel state. |
 | `E4x` | All 16 controls: sine/ramp/square/square; bit 2 suppresses phase reset; bit 3 ignored. Bounded control contract only. Reference memory: Special; persistent control for `4xy`/`6xy`. |
 | `E5x` | Recorded scope: G29 in-range Amiga trigger closed. Ordinary exact mapped note trigger uses `16 * nibble - 128` instead of header finetune, preserving relative note, defaults/reset and latent tone target/direction/speed. No-note E5 does not retune current/later sources. Amiga reports inert; the Linear legacy no-note diagnostic is unchanged. G30B supplies ordinary admission below. Reference memory: None; no-note form inert. |
-| `E6x` | Recorded scope: bounded G38 closed. G37A initial-state and G38A ordered pending-row foundations remain closed. G38B uses this pattern's executed E60 or implicit row 0, independent counters and natural row-0 entry, intentionally excluding FT2 leakage. Full live cold-start integration remains [#516](https://github.com/syncomm/voodootrackerx/issues/516), after G41. Reference memory: Special; pattern-local channel anchor/counter. |
+| `E6x` | Recorded scope: bounded G38 closed. G37A initial-state and G38A ordered pending-row foundations remain closed. G38B uses this pattern's executed E60 or implicit row 0, independent counters and natural row-0 entry, intentionally excluding FT2 leakage. Bounded live cold entry is implemented under [#516](design/user-pattern-loop-continuation.md); local qualification is complete; submitted-head native CI and maintainer acceptance remain required. Reference memory: Special; pattern-local channel anchor/counter. |
 | `E7x` | All nibble aliases and phase-reset suppression are supported; ramp retains FT2's vibrato-phase sign quirk. Bounded `7xy` in-song audio is closed under G39. Reference memory: Special; persistent control independent of E4. |
 | `E8x` | Dummy dispatch; current no-op matches. OpenMPT's audible panning alias is outside FT2 v1; use supported `8xx`. Reference memory: None. |
 | `E9x` | G19 `E90` row-entry routing/carry/reset is closed. E91...E9F retain existing nonzero-tick resets and offsets. Onset/ramp parity and `Rxy` are separate. Reference memory: Special; no ordinary interval replay. |
@@ -231,7 +231,7 @@ Its exit criterion is:
 
 Remaining FT2/XM v1 targets include:
 
-- live cold selected-order/row planning under G37/#516;
+- green final submitted-head native arm64 ASan/Release CI (Codex) and Gregory's Loop-on review/merge of the locally qualified #516 contract;
 - remaining relevant E-command gaps;
 - volume-column vibrato and effect-memory gaps; and
 - broader Amiga-table pitch parity where it remains in v1 scope.
@@ -246,8 +246,14 @@ contracts from remaining timing, memory, output and frequency-mode differences.
 Bounded Q2 offline source admission is closed under the
 [delivery foundation](ft2-xm-closure-matrix.md#closed-foundations). It preserves
 source order/continuation and the 256/4096 native limits. G35 ordinary EEx now
-uses that foundation under the bounded contract below. High variable process RSS remains
-unresolved under the post-G41 planning/memory audit, with #516 still open.
+uses that foundation under the bounded contract below. High variable process RSS
+remains broader historical debt owned by the post-G41 planning/memory audit.
+The #516 contract has completed local qualification with its matched resource
+tradeoffs disclosed. That specific mixed profile is provisionally authorized for
+PR submission/native CI only; it establishes no memory budget or whole-app
+improvement. Broader low-end-memory qualification remains a release obligation.
+Historical debt and bounded component ownership grant no waiver for material new
+resource regressions or the original qualification gates.
 
 Each effect-family slice uses the smallest sufficient project-generated public
 XM fixture and a deterministic automated regression. An ft2-clone WAV rendered
@@ -286,7 +292,8 @@ those labels do not indicate missing ordinary timing.
 
 G38A implements the bounded local B/D/E6 pending-position contract below.
 G38B closes its bounded composition and safe traversal policy below.
-#516 remains a separate release blocker. G21 offline E9/Rxy retirement has its separate bounded closure;
+#516's bounded live-entry/Loop contract is locally qualified; green final
+submitted-head native CI (Codex) and Gregory's Loop-on review/merge remain required. G21 offline E9/Rxy retirement has its separate bounded closure;
 interpolation/onset residuals and broader host/offline qualification remain
 separately owned. The qualified musical-study numerical difference has its own
 narrow policy. These contracts do not establish universal FT2 PCM parity.
@@ -346,8 +353,12 @@ No parser, persistence, capacity, runtime-host or callback contract changes.
 [ImplicitPatternLoopTests](../tests/vtx_render_bounded_xm/ImplicitPatternLoopTests.swift),
 [TraversalPrecedenceTests](../tests/vtx_render_bounded_xm/TraversalPrecedenceTests.swift)
 and app runtime controls pin the policy and existing safety boundaries.
-Full G37 remains **PARTIAL**: [#516](https://github.com/syncomm/voodootrackerx/issues/516)
-owns live cold start-aware planning after G41, before release/backend freeze.
+Bounded G37 cold live entry is **CLOSED on this PR branch**, with local qualification
+complete under the [#516 contract](design/user-pattern-loop-continuation.md).
+Acceptance requires green final submitted-head native CI (Codex) and Gregory's Loop-on review/merge.
+Explicit user Loop
+retains E6 state across batch splits and starts a new pattern-local occurrence at
+natural wrap; E64 never selects a preceding pattern. Wider release gates remain open.
 
 ### E3x glissando control
 
@@ -363,14 +374,14 @@ direction and speed while projecting each actual audible tone invocation onto
 the existing bounded note/finetune grid after target clamping, in both modes.
 E30 therefore holds the last snapped output until a later pitch writer.
 Direct selected-range adapter/prepared-runtime plans start cold and ignore earlier
-E31 controls. Product cold nonzero-order live starts can inherit E3 state from
-eager order-0 prewarm; that integration remains OPEN under #516.
+E31 controls. Product cold live starts now resolve that same selected origin before
+preparation under the [#516 contract](design/user-pattern-loop-continuation.md).
 
 [GlissandoTests](../tests/vtx_render_bounded_xm/GlissandoTests.swift), the original
 public fixture and matched reference/actual-host controls pin both rates,
 source lifetime, toggles, grid ties, E5, Fxx/EEx and G32 composition. The bounded
-parent closure leaves G37/#516, G40/G41
-and the post-G41 planning/memory/UI/CI and cross-family audit OPEN.
+parent closure leaves broader G40/G41 integration and the post-G41
+planning/memory/UI/CI and cross-family audit OPEN.
 
 ### Instrument-only cells
 
@@ -722,7 +733,7 @@ G30 is closed for:
 
 Combined verification covers both rates, whole/window/runtime-core/canonical-host
 delivery, matched reference audio and paired Release guardrails. Remaining
-G37/#516, broader pan/G41 integration and callback real-time safety stay open;
+broader pan/G41 integration and callback real-time safety stay open;
 G32/G33/G34/G36 are closed under their separate bounded contracts.
 
 #### Retained-source arpeggio row handoff
@@ -892,7 +903,7 @@ pairs stay exact and the original
 planning / First Play / heavy p50 gates pass with a thin planning margin and
 retained high-tail samples. See the [G39C stack contract](ft2-xm-closure-matrix.md#g39c-debug-prewarm-stack-lifetime).
 The bounded G39 in-song acceptance ledger is CLOSED. Post-song host/offline tail
-parity, #516 live nonzero-order cold start and planning/real-time audits stay OPEN;
+parity and planning/real-time audits stay OPEN; bounded #516 live entry is locally qualified with submitted-head native CI and maintainer acceptance required;
 G40's bounded opt-in static law and G41B admission/memory/retirement are merged;
 G41C's bounded shared geometry is CLOSED; historical-input and integration limits remain.
 
@@ -1015,16 +1026,17 @@ support alone does not close these domains:
   channel E60 history. Direct selected-range adapter/offline tests start with
   fresh history and remain valid. Direct construction also accepts an explicit
   cold order/row, with fresh musical state and same-pattern/channel structural
-  E60 lookup. Cold live selected-order/row playback remains OPEN: eager load-time
-  order-0 prewarm can retain unplayed Fxx and instrument-only state. Cross-family
-  start-aware planning/reuse and memory/startup qualification belong to
-  [release blocker #516](https://github.com/syncomm/voodootrackerx/issues/516),
-  owned after G41 and required before release/backend freeze.
+  E60 lookup. The [#516 contract](design/user-pattern-loop-continuation.md)
+  implements that cold origin in live preparation and explicit user Loop, with
+  bounded executed-state/source continuation and protected full-plan controls.
+  Local qualification is complete; submitted-head native CI (Codex), Gregory's
+  Loop-on review/merge and broader resource/release gates remain required.
   G38B closes the bounded pattern-local and safety policy above: prior-pattern
   E60 cannot suppress the current implicit origin; counters and natural entry
   stay local. FT2 inherited numeric offsets and stale entry are intentional
-  differences. G37 remains Partial under #516; safe finite rendering does not
-  establish indefinite replay or universal FT2 parity.
+  differences. Bounded G37 live entry is locally qualified, with submitted-head
+  native CI and maintainer acceptance required; explicit user Loop does not
+  broaden module-defined indefinite replay or universal FT2 parity.
 - **Pitch and mode:** Linear in-range arpeggio ordering is closed under G25;
   Amiga quantized arpeggio reuses it under G26; G27 upward slides and G28
   5xy/Fx consumers close their bounded mode paths. G29 closes in-range Amiga

@@ -4,6 +4,84 @@ import Darwin
 import Foundation
 import Synchronization
 
+
+/// Immutable prepared values, not an effect interpreter or an owning graph.
+struct RuntimeLoopPreparedCommandPayload {
+    enum Action {
+        case birth(CSoftwareMixerPreparedLoopBirth)
+        case gainPan(Float?, Float?)
+        case step(Double)
+        case playbackState(MixerPlaybackStateChange)
+        case envelopePosition(Int)
+        case envelopeSemantic(MixerEnvelopeSemanticState)
+        case channelSemantic(PlaybackXMChannelUpdate, selectionRuntimeFrame: UInt64)
+        case audible(amplitude: Float, pan: Float, duration: Int,
+                     activation: MixerAudibleOutputSeed?, rebase: Bool)
+        case sourceStop(retireSong: Bool)
+        case noteCut
+    }
+    let source: PlaybackPosition
+    let tick: Int
+    let action: Action
+    var opcode: UInt32 {
+        switch action {
+        case .birth: return 0
+        case .gainPan: return 1
+        case .step: return 2
+        case .playbackState: return 3
+        case .envelopePosition: return 4
+        case .envelopeSemantic: return 5
+        case .channelSemantic: return 6
+        case .audible: return 7
+        case .sourceStop: return 8
+        case .noteCut: return 9
+        }
+    }
+}
+
+/// A genuine host callback failure, separate from a missed planning boundary.
+/// lastPublishedNativeFrame is the last completed C cursor, not a fabricated host timestamp.
+struct RuntimeLoopNativeHostFault {
+    let scope: RuntimeLoopNativeScope
+    let lastPublishedNativeFrame: UInt64
+}
+
+/// POD occurrence capsule. Optional scopes supplement original numeric IDs, never replace them.
+struct RuntimeLoopNativeOccurrence {
+    let scope: RuntimeLoopNativeScope
+    let sequence: UInt64
+    let eventID: Int
+    let eventOrdinal: Int
+    let localSourceIndex: Int
+    let source: PlaybackPosition
+    let tick: Int
+    let channel: Int
+    let opcode: UInt32
+    let plannedFrame: UInt64
+    let appliedFrame: UInt64
+    let targetBirth: RuntimeLoopNativeSourceIdentity?
+    let sourceBefore: RuntimeLoopNativeSourceIdentity?
+    let sourceAfter: RuntimeLoopNativeSourceIdentity?
+    let nativeVoiceIndex: Int?
+    let disposition: UInt8 // 0 applied, 1 unchanged/epsilon, 2 stale/completed, 3 fatal.
+}
+
+private final class RuntimeLoopNativeSemanticChannels {
+    struct Entry {
+        var update: PlaybackXMChannelUpdate?
+        var selectionRuntimeFrame: UInt64 = 0
+        var initialized = false
+    }
+    let count: Int
+    let entries: UnsafeMutablePointer<Entry>
+    init(count: Int) {
+        self.count = count
+        entries = .allocate(capacity: count)
+        entries.initialize(repeating: Entry(), count: count)
+    }
+    deinit { entries.deinitialize(count: count); entries.deallocate() }
+}
+
 /// First native admission failure, retained until the stopped transport resets its generation.
 struct RuntimeCMixerAdmissionFault: Equatable {
     let generation: UInt64
@@ -1016,6 +1094,13 @@ struct RuntimeCMixerThreadDiagnostics: Equatable {
     }
 }
 
+/// First completed C render on the actual host callback path, never a DAC timestamp.
+struct RuntimeCMixerFirstHostOutputObservation: Equatable, Sendable {
+    let generation: UInt64
+    let completedUptimeNanoseconds: UInt64
+    let runtimeEndFrame: UInt64
+}
+
 struct RuntimeCMixerRealtimeState: Equatable {
     let requestedFrameCount: Int
     let callbackThread: RuntimeCMixerThreadDiagnostics
@@ -1046,7 +1131,7 @@ struct RuntimeCMixerCallbackCounters: Equatable {
     }
 }
 
-final class RuntimeCMixerRenderCore: @unchecked Sendable {
+final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked Sendable {
     static let updateEpsilon = RuntimeCMixerUpdatePolicy.defaultUpdateEpsilon
     static let outputDiscontinuityThreshold = Float(0.75)
     static let outputPeakWarningThreshold = Float(0.95)
@@ -1073,6 +1158,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private let audioUnitLifecycleCallWhileCallbackActiveCounter = Atomic(UInt64(0))
     private let lastCallbackOutputFrameCountAtomic = Atomic(UInt64(0))
     private let realtimeCurrentFrameCounter = Atomic(UInt64(0))
+    private let playbackTimingEnabled: Bool
+    private let hostOutputTimingGeneration = Atomic(UInt64(1))
+    private let firstHostOutputCompletedUptime = Atomic(UInt64(0))
+    private let firstHostOutputEndFrame = Atomic(UInt64(0))
     private let mixer: CSoftwareMixer
     private let captureBuffer: RuntimeCMixerCaptureBuffer?
     private let callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration
@@ -1081,6 +1170,28 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private let maximumRenderFrames: Int
     private var scratchInterleavedPCM: [Float]
     private var lastCallbackOutputInterleavedPCM: [Float]
+    // Created/replaced off audio with host quiescent; callback only borrows their stable storage.
+    private let nativeLoopInstalled = Atomic(false)
+    private let nativeLoopHostFaulted = Atomic(false)
+    private let nativeLoopHostFaultConsumed = Atomic(false)
+    private let nativeLoopHostFaultFrame = Atomic(UInt64(0))
+    private var nativeLoopScope: RuntimeLoopNativeScope?
+    private var nativeLoopChannel: RuntimeLoopNativeTwoSlotChannel?
+    private var nativeLoopCursor: RuntimeLoopNativeDeliveryCursor?
+    private var nativeLoopFollow: RuntimeLoopNativeFollowPublication?
+    private var nativeLoopVoices: RuntimeLoopNativeVoiceTable<RuntimeCMixerAdapterVoiceState>?
+    private var nativeLoopSemantic: RuntimeLoopNativeSemanticChannels?
+    private var nativeLoopOwner: AnyObject?
+    private var nativeLoopOutput: UnsafeMutableBufferPointer<Float>?
+    private let nativeLoopMaximumCallbackFrames = Atomic<UInt64>(0)
+    private var nativeLoopTrackedChannels = 0
+    private var nativeLoopRecordsOccurrences = false
+    private var nativeLoopOccurrences = RuntimeCMixerFixedRingBuffer<RuntimeLoopNativeOccurrence>(capacity: 0)
+    private var nativeLoopAttempts: UInt64 = 0
+    private var nativeLoopApplied: UInt64 = 0
+    private var nativeLoopSuppressed: UInt64 = 0
+    private var nativeLoopFailures: UInt64 = 0
+
     private var voiceStateByChannel = [Int: RuntimeCMixerChannelVoiceState]()
     private var adapterVoiceStateByEventIndex = [Int: RuntimeCMixerAdapterVoiceState]()
     private var adapterEventIndexByChannel = [Int: Int]()
@@ -1191,13 +1302,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
         captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil,
         callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration = .defaultConfiguration,
-        songEndTailPolicy: RuntimeCMixerSongEndTailPolicy = .defaultPolicy
+        songEndTailPolicy: RuntimeCMixerSongEndTailPolicy = .defaultPolicy,
+        playbackTimingEnabled: Bool = PlaybackTimingTraceConfiguration.isEnabled()
     ) {
         self.config = config
         self.outputPolicy = outputPolicy
         self.updatePolicy = updatePolicy
         self.callbackDiagnostics = callbackDiagnostics
         self.songEndTailPolicy = songEndTailPolicy
+        self.playbackTimingEnabled = playbackTimingEnabled
         runtimeTailFrames = songEndTailPolicy.tailFrames(sampleRate: config.sampleRate)
         self.maximumRenderFrames = max(1, maximumRenderFrames)
         let configuredMixer = CSoftwareMixer(config: config)
@@ -1210,6 +1323,263 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         scratchInterleavedPCM = Array(repeating: 0, count: self.maximumRenderFrames * mixer.config.channelCount)
         lastCallbackOutputInterleavedPCM = Array(repeating: 0, count: self.maximumRenderFrames * mixer.config.channelCount)
         burstDiagnosticScratch = Array(repeating: nil, count: Self.callbackBurstScratchCapacity)
+    }
+
+    /// Installs prepared native delivery before host start, never during a callback.
+    /// keepingAlive retains generation PCM cache through host quiescence and C reset.
+    func configureNativeLoopDelivery(channel: RuntimeLoopNativeTwoSlotChannel, scope: RuntimeLoopNativeScope,
+        trackerChannelCount: Int, keepingAlive: AnyObject, recordsOccurrences: Bool = false) {
+        precondition(trackerChannelCount > 0 && scope.sampleRateBits == config.sampleRate.bitPattern)
+        lock.lock()
+        defer { lock.unlock() }
+        precondition(nativeLoopCursor == nil, "Quiesce/reset old loop before replacement")
+        adapterEventSchedule.removeAll(keepingCapacity: false)
+        adapterEventPlanEvents = []
+        adapterEventLoopRange = nil
+        adapterEventLoopRuntimeFrameOffset = nil
+        nextAdapterEventScheduleIndex = 0
+        plannedSongEndFrame = nil; plannedSongEndRuntimeFrame = nil
+        songEndStopFrame = nil; songEndStopRuntimeFrame = nil
+        nativeLoopTrackedChannels = trackerChannelCount
+        nativeLoopVoices = .init(nativeVoiceCapacity: CSoftwareMixer.maximumVoiceCount, channelCount: trackerChannelCount)
+        nativeLoopSemantic = .init(count: trackerChannelCount)
+        nativeLoopOwner = keepingAlive
+        nativeLoopChannel = channel
+        nativeLoopCursor = .init(channel: channel, scope: scope,
+            retirementFrames: CSoftwareMixer.songReplacementRampFrameCount(sampleRate: config.sampleRate))
+        nativeLoopFollow = .init()
+        nativeLoopRecordsOccurrences = recordsOccurrences
+        nativeLoopOccurrences = .init(capacity: recordsOccurrences ? Self.callbackDiagnosticRingCapacity : 0)
+        nativeLoopAttempts = 0; nativeLoopApplied = 0; nativeLoopSuppressed = 0; nativeLoopFailures = 0
+        nativeLoopScope = scope
+        nativeLoopHostFaulted.store(false, ordering: .relaxed)
+        nativeLoopHostFaultConsumed.store(false, ordering: .relaxed)
+        nativeLoopInstalled.store(true, ordering: .releasing)
+    }
+
+    /// Main/backend ownership keeps scope replacement outside all callback lifetimes.
+    /// A genuine unavailable render state is sticky and uses existing host-error stop service.
+    func consumeNativeLoopHostFault() -> RuntimeLoopNativeHostFault? {
+        guard nativeLoopHostFaulted.load(ordering: .acquiring),
+              nativeLoopHostFaultConsumed.compareExchange(expected: false, desired: true,
+                  ordering: .acquiringAndReleasing).exchanged,
+              let scope = nativeLoopScope else { return nil }
+        return .init(scope: scope, lastPublishedNativeFrame: nativeLoopHostFaultFrame.load(ordering: .relaxed))
+    }
+
+    /// Callback only; it never reads a C cursor while another render owner holds its lock.
+    private func failNativeLoopForUnavailableRenderState() -> Bool {
+        guard nativeLoopInstalled.load(ordering: .acquiring) else { return false }
+        if !nativeLoopHostFaulted.load(ordering: .relaxed) {
+            nativeLoopHostFaultFrame.store(realtimeCurrentFrameCounter.load(ordering: .relaxed), ordering: .relaxed)
+            nativeLoopHostFaulted.store(true, ordering: .releasing)
+        }
+        return true
+    }
+
+    /// Service only after cursor publishes actual retirement completion; never truncates its fade.
+    func consumeNativeLoopPlanningFailure() -> RuntimeLoopNativeDeliveryFault? {
+        // The MainActor/backend owns reference replacement and host quiescence.
+        nativeLoopCursor?.takeCompletedFault()
+    }
+
+    /// Exactly one successful finite tail-stop receipt, published by actual rendering.
+    func consumeRuntimeSongContinuationCompletion() -> RuntimeLoopNativeSongCompletion? {
+        nativeLoopCursor?.takeCompletedSong()
+    }
+
+    /// Main/backend reads only fixed atomic fields, never a borrowed batch or C voice.
+    func nativeLoopFollowPosition() -> RuntimeLoopNativeFollowSnapshot? { nativeLoopFollow?.read() }
+
+    /// Control-side only after the host stopped. Active slot storage is still
+    /// pinned, so resolve the exact C head before reset/reclamation clears it.
+    func quiescentPlaybackHead() -> (frame: UInt64, nativeFollow: RuntimeLoopNativeFollowSnapshot?) {
+        lock.lock()
+        defer { lock.unlock() }
+        let frame = mixer.currentFrame
+        return (frame, nativeLoopCursor?.follow(at: frame, sampleRate: config.sampleRate))
+    }
+
+    /// Observed host quantum for off-audio publication slack; no diagnostic render lock.
+    var nativeLoopObservedCallbackFrames: Int? {
+        let frames = nativeLoopMaximumCallbackFrames.load(ordering: .acquiring)
+        return frames == 0 ? nil : Int(clamping: frames)
+    }
+
+    /// Drains after host stop, matching existing Backend diagnostics; no event graph or Set.
+    /// Do not introduce a periodic off-audio render-lock holder during Loop playback.
+    func drainNativeLoopOccurrences() -> (events: [RuntimeLoopNativeOccurrence], drops: UInt64,
+        attempts: UInt64, applied: UInt64, suppressed: UInt64, failures: UInt64) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (nativeLoopOccurrences.drain(), nativeLoopOccurrences.droppedCount,
+                nativeLoopAttempts, nativeLoopApplied, nativeLoopSuppressed, nativeLoopFailures)
+    }
+
+    var nativeLoopCurrentFrame: UInt64 { mixer.currentFrame }
+
+    func didAdmitNativeLoopScope(_ scope: RuntimeLoopNativeScope) {
+        // Callback-only until a sticky host failure publishes the final scalar scope.
+        nativeLoopScope = scope
+    }
+
+    /// Records the exact musical boundary without changing existing C voice state.
+    func reachNativeSongEnd(atRuntimeFrame frame: UInt64) {
+        plannedSongEndFrame = Int(exactly: frame)
+        plannedSongEndRuntimeFrame = frame
+        recordPlannedSongEndBoundaryLocked(runtimeFrame: frame)
+    }
+
+    /// Clears C at the ordinary tail deadline before native storage can retire.
+    func finishNativeSong(atRuntimeFrame frame: UInt64) {
+        songEndStopFrame = Int(exactly: frame)
+        songEndStopRuntimeFrame = frame
+        // Reuse ordinary song-tail clearing, before publishing native retirement.
+        recordSongEndTailStopBoundaryLocked(runtimeFrame: frame)
+    }
+
+    func renderNativeLoopFrames(outputOffset: Int, frameCount: Int) {
+        guard let output = nativeLoopOutput else { return }
+        renderSubrangeLocked(into: output, startFrameOffset: outputOffset, frameCount: frameCount)
+    }
+
+    func silenceNativeLoopFrames(outputOffset: Int, frameCount: Int) {
+        guard let output = nativeLoopOutput else { return }
+        let first = outputOffset * config.channelCount
+        let count = frameCount * config.channelCount
+        guard first >= 0, count >= 0, first <= output.count, count <= output.count - first else { return }
+        for index in first..<(first + count) { output[index] = 0 }
+    }
+
+    func beginNativeLoopRetirement() {
+        // Existing C one-time policy preserves reached output/cursor and existing tail deadlines.
+        for channel in 0..<nativeLoopTrackedChannels { mixer.retireSongVoices(channel: channel) }
+    }
+
+    @inline(never)
+    func applyPreparedNativeLoopCommand(_ command: RuntimeLoopNativeCommandDescriptor,
+        header: RuntimeLoopNativeBatchHeader, target: RuntimeLoopNativeSourceBinding?) -> Bool {
+        guard let voices = nativeLoopVoices, (0..<nativeLoopTrackedChannels).contains(command.channel),
+              mixer.currentFrame <= UInt64(Int.max), command.localFrame >= header.localStartFrame,
+              let pointer = command.payload else { return false }
+        let delta = UInt64(command.localFrame - header.localStartFrame)
+        let planned = header.runtimeStartFrame.addingReportingOverflow(delta)
+        guard !planned.overflow, planned.partialValue == mixer.currentFrame else { return false }
+        let payload = pointer.assumingMemoryBound(to: RuntimeLoopPreparedCommandPayload.self).pointee
+        guard payload.opcode == command.opcode,
+              target == nil || (target!.localLookupIndex == command.localSourceIndex &&
+                target!.birth.transportEpoch == header.scope.transportEpoch) else { return false }
+        let before = voices.source(on: command.channel)
+        var voiceIndex: Int?
+        var disposition: UInt8 = 2
+        nativeLoopAttempts &+= 1
+        defer {
+            switch disposition {
+            case 0: nativeLoopApplied &+= 1
+            case 1, 2: nativeLoopSuppressed &+= 1
+            default: nativeLoopFailures &+= 1
+            }
+            if nativeLoopRecordsOccurrences {
+                nativeLoopOccurrences.record(.init(scope: header.scope, sequence: header.sequence, eventID: command.eventID,
+                    eventOrdinal: command.eventOrdinal, localSourceIndex: command.localSourceIndex,
+                    source: payload.source, tick: payload.tick, channel: command.channel, opcode: command.opcode,
+                    plannedFrame: planned.partialValue, appliedFrame: mixer.currentFrame,
+                    targetBirth: target?.birth, sourceBefore: before, sourceAfter: voices.source(on: command.channel),
+                    nativeVoiceIndex: voiceIndex, disposition: disposition))
+            }
+        }
+        switch payload.action {
+        case let .birth(birth):
+            guard let target, target.birth.sourceGeneration == header.scope.sourceGeneration,
+                  target.birth.birthSequence == header.sequence,
+                  target.birth.birthEventIndex == command.localSourceIndex else { disposition = 3; return false }
+            mixer.retireSongVoices(channel: command.channel)
+            let admission = mixer.addPreparedLoopVoice(birth)
+            guard let index = admission.voiceIndex else { disposition = 3; return false }
+            voiceIndex = index
+            mixer.setChannelTag(command.channel, forVoiceAt: index)
+            let state = RuntimeCMixerAdapterVoiceState(voiceIndex: index, channel: command.channel,
+                gain: birth.gain, pan: birth.pan, sampleStep: birth.playbackStep, volumeEnvelopePositionFrame: 0,
+                lastGainPanUpdateFrame: nil, lastStepUpdateFrame: nil, lastEnvelopePositionUpdateFrame: nil)
+            guard voices.bindBirth(target.birth, channel: command.channel, nativeVoice: index, state: state) != nil else {
+                disposition = 3; return false
+            }
+            disposition = 0
+            return true
+        case let .channelSemantic(update, selectionFrame):
+            guard let semantic = nativeLoopSemantic,
+                  (update.sourceEventIndex == nil) == (target == nil),
+                  target?.birth == voices.source(on: command.channel) else { return true }
+            var current = semantic.entries[command.channel]
+            guard !current.initialized || selectionFrame >= current.selectionRuntimeFrame else { return true }
+            current.update = update; current.selectionRuntimeFrame = selectionFrame; current.initialized = true
+            semantic.entries[command.channel] = current
+            disposition = 0
+            return true
+        case let .sourceStop(retireSong):
+            // Retire the association even when its PCM already completed. A later source-free
+            // semantic publication must not inherit this otherwise harmless completed source.
+            guard let target, let index = voices.resolve(target, channel: command.channel),
+                  let state = voices.state(at: index),
+                  mixer.voiceDiagnostic(forVoiceAt: state.voiceIndex)?.channelTag == command.channel else { return true }
+            voiceIndex = state.voiceIndex
+            if retireSong { _ = mixer.retireSongVoices(channel: command.channel) }
+            else { _ = mixer.stopVoice(at: state.voiceIndex) }
+            voices.clearCurrent(target, channel: command.channel)
+            disposition = 0
+            return true
+        default: break
+        }
+        // Completion/replacement/stale bindings are harmless refusals, never retargeted by channel.
+        guard let target, let index = voices.resolve(target, channel: command.channel),
+              var state = voices.state(at: index),
+              let native = mixer.voiceDiagnostic(forVoiceAt: state.voiceIndex),
+              native.active, !native.deactivateAfterGainRamp, native.channelTag == command.channel else { return true }
+        voiceIndex = state.voiceIndex
+        let frame = Int(clamping: mixer.currentFrame)
+        switch payload.action {
+        case let .gainPan(gain, pan):
+            let nextGain = gain.flatMap { updateDecision(previous: Double(state.gain), requested: Double($0)).shouldApply ? $0 : nil }
+            let nextPan = pan.flatMap { updateDecision(previous: Double(state.pan), requested: Double($0)).shouldApply ? $0 : nil }
+            guard nextGain != nil || nextPan != nil else { disposition = 1; return true }
+            guard mixer.scheduleVoiceGainPanUpdate(voiceIndex: state.voiceIndex, scheduledFrame: frame,
+                gain: nextGain, pan: nextPan).wasAccepted else { disposition = 3; return false }
+            state.gain = nextGain ?? state.gain; state.pan = nextPan ?? state.pan
+            state.lastGainPanUpdateFrame = mixer.currentFrame
+            voices.storeState(state, at: index)
+        case let .step(step):
+            let holdCrossing = (state.sampleStep == 0) != (step == 0)
+            guard holdCrossing || updateDecision(previous: state.sampleStep, requested: step).shouldApply else {
+                disposition = 1; return true
+            }
+            guard mixer.scheduleVoicePlaybackStepUpdate(voiceIndex: state.voiceIndex, scheduledFrame: frame,
+                playbackStep: step).wasAccepted else { disposition = 3; return false }
+            state.sampleStep = step; state.lastStepUpdateFrame = mixer.currentFrame
+            voices.storeState(state, at: index)
+        case let .playbackState(change):
+            guard mixer.schedulePlaybackStateChange(change, voiceIndex: state.voiceIndex,
+                scheduledFrame: frame).wasAccepted else { disposition = 3; return false }
+        case let .envelopePosition(position):
+            guard mixer.scheduleVoiceVolumeEnvelopePositionUpdate(voiceIndex: state.voiceIndex,
+                scheduledFrame: frame, positionFrame: position).wasAccepted else { disposition = 3; return false }
+            state.volumeEnvelopePositionFrame = position; state.lastEnvelopePositionUpdateFrame = mixer.currentFrame
+            voices.storeState(state, at: index)
+        case let .envelopeSemantic(semantic):
+            guard mixer.setEnvelopeSemanticState(semantic, forVoiceAt: state.voiceIndex) else { disposition = 3; return false }
+        case let .audible(amplitude, pan, duration, activation, rebase):
+            let update = PlaybackXMAudibleUpdate(eventIndex: command.localSourceIndex, channelIndex: command.channel,
+                source: payload.source, tick: payload.tick, scheduledFrame: command.localFrame,
+                bpm: 0, speed: 0, amplitude: amplitude, pan: pan, durationFrames: duration,
+                intent: "", activation: activation, rebaseFromCurrent: rebase)
+            guard mixer.publishAudibleOutput(update, forVoiceAt: state.voiceIndex) else { disposition = 3; return false }
+        case .noteCut:
+            // Accepted ECx output target owns the physical change; preserve source association.
+            break
+        case .birth, .channelSemantic, .sourceStop:
+            disposition = 3; return false
+        }
+        disposition = 0
+        return true
     }
 
     @discardableResult
@@ -2883,6 +3253,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let safeFrameCount = max(0, frameCount)
         guard lock.try() else {
             callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
+            _ = failNativeLoopForUnavailableRenderState()
             clear(outputInterleavedPCM)
             return false
         }
@@ -2937,7 +3308,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             )
             return false
         }
-        if admissionFault != nil {
+        if admissionFault != nil || nativeLoopHostFaulted.load(ordering: .acquiring) {
             clear(outputInterleavedPCM)
             captureOutputLocked(outputInterleavedPCM, frameCount: safeFrameCount)
             return true
@@ -2945,6 +3316,17 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let callbackEndFrame = callbackStartFrame.addingReportingOverflow(UInt64(safeFrameCount)).overflow
             ? UInt64.max
             : callbackStartFrame + UInt64(safeFrameCount)
+        if let cursor = nativeLoopCursor {
+            if UInt64(safeFrameCount) > nativeLoopMaximumCallbackFrames.load(ordering: .relaxed) {
+                nativeLoopMaximumCallbackFrames.store(UInt64(safeFrameCount), ordering: .releasing)
+            }
+            nativeLoopOutput = outputInterleavedPCM
+            cursor.render(frameCount: safeFrameCount, sink: self)
+            if let follow = cursor.follow(at: mixer.currentFrame, sampleRate: config.sampleRate) {
+                nativeLoopFollow?.publish(follow)
+            }
+            nativeLoopOutput = nil // POD pointer only; batch owners stay pinned off audio.
+        } else {
         renderCallbackWithScheduledAdapterEventsLocked(
             into: outputInterleavedPCM,
             frameCount: safeFrameCount,
@@ -2953,6 +3335,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             callbackIndex: renderCallbackCount &+ 1,
             callbackThread: callbackThread
         )
+        }
         let sampleCount = safeFrameCount * mixer.config.channelCount
         applyOutputGain(outputInterleavedPCM, sampleCount: sampleCount)
         captureOutputLocked(outputInterleavedPCM, frameCount: safeFrameCount)
@@ -3698,11 +4081,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             return noErr
         }
 
+        if nativeLoopHostFaulted.load(ordering: .acquiring) { return noErr }
         let sampleCount = safeFrameCount * mixer.config.channelCount
         callbackLockAttemptCounter.wrappingAdd(1, ordering: .relaxed)
         guard lock.try() else {
             callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
             callbackSkippedDiagnosticsDueToLockCounter.wrappingAdd(1, ordering: .relaxed)
+            // New Loop cannot replay an obsolete buffer or continue a paused musical clock.
+            // ioData was cleared above; the off-audio host-error getter requests existing stop.
+            if failNativeLoopForUnavailableRenderState() { return noErr }
             if !admissionSilenced.load(ordering: .acquiring),
                copyLastCallbackOutputToAudioBuffers(ioData: ioData, frameCount: safeFrameCount) {
                 callbackRenderedFromStaleSnapshotCounter.wrappingAdd(1, ordering: .relaxed)
@@ -3732,8 +4119,21 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     private func resetLocked() {
+        firstHostOutputCompletedUptime.store(0, ordering: .releasing)
+        firstHostOutputEndFrame.store(0, ordering: .relaxed)
         mixer.clearVoices()
         mixer.reset()
+        // Existing stop/reset caller has quiesced host; native PCM refs die before generation owner.
+        nativeLoopChannel?.revoke()
+        nativeLoopCursor = nil; nativeLoopFollow = nil; nativeLoopVoices = nil; nativeLoopSemantic = nil
+        nativeLoopOutput = nil; nativeLoopTrackedChannels = 0
+        nativeLoopMaximumCallbackFrames.store(0, ordering: .relaxed)
+        nativeLoopChannel = nil; nativeLoopOwner = nil; nativeLoopScope = nil
+        nativeLoopInstalled.store(false, ordering: .releasing)
+        nativeLoopHostFaulted.store(false, ordering: .relaxed)
+        nativeLoopHostFaultConsumed.store(false, ordering: .relaxed)
+        nativeLoopRecordsOccurrences = false
+        nativeLoopOccurrences = .init(capacity: 0)
         voiceStateByChannel.removeAll()
         adapterVoiceStateByEventIndex.removeAll()
         adapterEventIndexByChannel.removeAll()
@@ -3779,6 +4179,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         latePlannedEventCount = 0
         maxPlannedVsAppliedDelta = 0
         admissionGeneration &+= 1
+        hostOutputTimingGeneration.store(admissionGeneration, ordering: .releasing)
         admissionFault = nil
         admissionFaultConsumed = false
         // Host is stopped and the cached callback was invalidated above before reopening audio.
@@ -3964,6 +4365,26 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
 #if DEBUG
+    /// Off-audio observation of existing atomics; never takes the running render lock.
+    /// Fields are independent observations, not one coherent musical-head capsule.
+    func callbackProgressForTesting() -> [String: UInt64] {
+        [
+            "observedUptimeNanos": DispatchTime.now().uptimeNanoseconds,
+            "runtimeFrame": realtimeCurrentFrameCounter.load(ordering: .relaxed),
+            "callbackLockAttempts": callbackLockAttemptCounter.load(ordering: .relaxed),
+            "callbackLockFailures": callbackLockFailureCounter.load(ordering: .relaxed),
+            "activeCallbackDepth": callbackActiveRenderDepth.load(ordering: .relaxed),
+            "lastCallbackOutputFrames": lastCallbackOutputFrameCountAtomic.load(ordering: .relaxed),
+            "maximumLoopCallbackFrames": nativeLoopMaximumCallbackFrames.load(ordering: .relaxed),
+            "nativeLoopInstalled": nativeLoopInstalled.load(ordering: .acquiring) ? 1 : 0,
+            "nativeLoopHostFaulted": nativeLoopHostFaulted.load(ordering: .acquiring) ? 1 : 0,
+            "staleOutputCallbacks": callbackRenderedFromStaleSnapshotCounter.load(ordering: .relaxed),
+            "unavailableStateSilenceCallbacks": callbackRenderedSilenceDueToUnavailableStateCounter.load(ordering: .relaxed),
+            "lifecycleChangesWhileRendering": lifecycleChangeWhileRenderingCounter.load(ordering: .relaxed),
+            "audioUnitLifecycleCallsWhileCallbackActive": audioUnitLifecycleCallWhileCallbackActiveCounter.load(ordering: .relaxed)
+        ]
+    }
+
     func channelSemanticStateForTesting(_ channel: Int) -> PlaybackXMChannelUpdate? {
         lock.lock()
         defer { lock.unlock() }
@@ -3993,6 +4414,19 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     var realtimeCurrentFrame: UInt64 {
         realtimeCurrentFrameCounter.load(ordering: .relaxed)
+    }
+
+    /// Off-audio, bounded read. Concurrent transport reset returns nil rather than
+    /// combining generations; formatting and timing-session publication belong off audio.
+    func firstHostOutputObservation() -> RuntimeCMixerFirstHostOutputObservation? {
+        guard playbackTimingEnabled else { return nil }
+        let generation = hostOutputTimingGeneration.load(ordering: .acquiring)
+        let completed = firstHostOutputCompletedUptime.load(ordering: .acquiring)
+        guard completed > 0 else { return nil }
+        let frame = firstHostOutputEndFrame.load(ordering: .relaxed)
+        guard hostOutputTimingGeneration.load(ordering: .acquiring) == generation,
+              firstHostOutputCompletedUptime.load(ordering: .acquiring) == completed else { return nil }
+        return .init(generation: generation, completedUptimeNanoseconds: completed, runtimeEndFrame: frame)
     }
 
     func recordAudioUnitLifecycleCallIfCallbackActive() {
@@ -4213,6 +4647,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         outputMetrics: RuntimeCMixerOutputMetrics,
         callbackThread: RuntimeCMixerThreadDiagnostics? = nil
     ) {
+        if playbackTimingEnabled, callbackThread != nil, succeeded, renderedFrames > 0,
+           callbackEndFrame > callbackStartFrame,
+           firstHostOutputCompletedUptime.load(ordering: .relaxed) == 0 {
+            firstHostOutputEndFrame.store(callbackEndFrame, ordering: .relaxed)
+            firstHostOutputCompletedUptime.store(DispatchTime.now().uptimeNanoseconds, ordering: .releasing)
+        }
         let callbackIndex = renderCallbackCount &+ 1
         renderCallbackCount &+= 1
         if let callbackThread {

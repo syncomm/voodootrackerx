@@ -130,6 +130,10 @@ struct PlaybackSongFxxTimingPlan: Equatable {
     let finalBPM: Int
     let endExactFrame: Double
 
+    var terminalState: PlaybackSongFxxTimingPlanner.State {
+        .init(speed: finalSpeed, bpm: finalBPM, nextExactFrame: endExactFrame)
+    }
+
     var rowTimingDiagnostics: [PlaybackSongSyntheticRowTimingDiagnostic] {
         rowTimings.map(\.diagnostic)
     }
@@ -186,6 +190,14 @@ struct PlaybackSongFxxTimingPlan: Equatable {
 }
 
 enum PlaybackSongFxxTimingPlanner {
+    /// Terminal timing values only. Preserve the exact accumulator rather than
+    /// rounding/rebasing it at a continuation boundary.
+    struct State: Equatable, Sendable {
+        var speed: Int
+        var bpm: Int
+        var nextExactFrame: Double
+    }
+
     static func plan(
         _ song: PlaybackSong,
         startOrderIndex: Int,
@@ -203,93 +215,101 @@ enum PlaybackSongFxxTimingPlanner {
     static func plan(
         _ song: PlaybackSong,
         traversalPlan: PlaybackSongTraversalPlan,
-        sampleRate: Double
+        sampleRate: Double,
+        initialState: State? = nil
     ) -> PlaybackSongFxxTimingPlan {
         let initialConfig = SyntheticTrackerTimingConfig(
             speed: song.initialTiming.speed,
             bpm: song.initialTiming.bpm,
             sampleRate: sampleRate
         )
-        var currentSpeed = initialConfig.speed
-        var currentBPM = initialConfig.bpm
-        var currentExactFrame = 0.0
+        var state = initialState ?? State(speed: initialConfig.speed, bpm: initialConfig.bpm, nextExactFrame: 0)
+        let firstSpeed = state.speed, firstBPM = state.bpm
         var rowTimings = [PlaybackSongFxxRowTiming]()
         var timingChanges = [PlaybackSongSyntheticTimingChangeDiagnostic]()
 
         for traversalRow in traversalPlan.rows {
-            let row = traversalRow.row
-            let syntheticRow = traversalRow.syntheticRow
-            let source = traversalRow.source
-            let rowStartExactFrame = currentExactFrame
-            let rowStartFrame = rowTimings.last?.rowEndFrame ?? 0
-
-            // FT2 processes channels at tick 0 before timing that tick. The last
-            // speed and BPM commands each win, and both govern this entire row.
-            var nextSpeed = currentSpeed
-            var nextBPM = currentBPM
-            for (channelIndex, cell) in row.cells.enumerated() where isFxxTimingEffect(cell) {
-                let speedBefore = nextSpeed
-                let bpmBefore = nextBPM
-                let kind: PlaybackSongSyntheticTimingChangeDiagnostic.Kind
-                let applied: Bool
-                switch cell.effectParam {
-                case 0:
-                    kind = .ignoredF00
-                    applied = false
-                case 0x01...0x1F:
-                    kind = .speed
-                    applied = true
-                    nextSpeed = Int(cell.effectParam)
-                default:
-                    kind = .bpm
-                    applied = true
-                    nextBPM = Int(cell.effectParam)
-                }
-                timingChanges.append(PlaybackSongSyntheticTimingChangeDiagnostic(
-                    source: source,
-                    channelIndex: channelIndex,
-                    effectType: cell.effectType,
-                    effectParam: cell.effectParam,
-                    rowStartFrame: rowStartFrame,
-                    appliesToSyntheticRowAfter: syntheticRow,
-                    kind: kind,
-                    applied: applied,
-                    speedBefore: speedBefore,
-                    bpmBefore: bpmBefore,
-                    speedAfter: nextSpeed,
-                    bpmAfter: nextBPM
-                ))
-            }
-
-            currentSpeed = nextSpeed
-            currentBPM = nextBPM
-            let delay = row.cells.last(where: { $0.effectType == 0x0E && $0.effectParam >> 4 == 0x0E })
-                .map { Int($0.effectParam & 15) } ?? 0
-            currentExactFrame += rowDuration(
-                speed: currentSpeed,
-                bpm: currentBPM,
-                sampleRate: initialConfig.sampleRate
-            ) * Double(delay + 1)
-            rowTimings.append(PlaybackSongFxxRowTiming(
-                source: source,
-                syntheticRow: syntheticRow,
-                rowStartExactFrame: rowStartExactFrame,
-                rowEndExactFrame: currentExactFrame,
-                effectiveSpeed: currentSpeed,
-                effectiveBPM: currentBPM,
-                patternDelayCycles: delay
-            ))
+            rowTimings.append(advance(row: traversalRow.row, source: traversalRow.source,
+                syntheticRow: traversalRow.syntheticRow, sampleRate: initialConfig.sampleRate,
+                state: &state, timingChanges: &timingChanges))
         }
 
         return PlaybackSongFxxTimingPlan(
             sampleRate: initialConfig.sampleRate,
-            initialSpeed: initialConfig.speed,
-            initialBPM: initialConfig.bpm,
+            initialSpeed: firstSpeed,
+            initialBPM: firstBPM,
             rowTimings: rowTimings,
             timingChanges: timingChanges,
-            finalSpeed: currentSpeed,
-            finalBPM: currentBPM,
-            endExactFrame: currentExactFrame
+            finalSpeed: state.speed,
+            finalBPM: state.bpm,
+            endExactFrame: state.nextExactFrame
+        )
+    }
+
+    /// The shared executed-row reducer used by full planning and loop continuation.
+    @inline(__always)
+    static func advance(row: PlaybackRow, source: PlaybackPosition, syntheticRow: Int,
+        sampleRate: Double, state: inout State,
+        timingChanges: inout [PlaybackSongSyntheticTimingChangeDiagnostic]) -> PlaybackSongFxxRowTiming {
+        let rowStartExactFrame = state.nextExactFrame
+        let rowStartFrame = PlaybackSongFxxRowTiming.frame(rowStartExactFrame: rowStartExactFrame,
+            tick: 0, bpm: state.bpm, sampleRate: sampleRate)
+
+        // FT2 processes channels at tick 0 before timing that tick. The last
+        // speed and BPM commands each win, and both govern this entire row.
+        var nextSpeed = state.speed
+        var nextBPM = state.bpm
+        for (channelIndex, cell) in row.cells.enumerated() where isFxxTimingEffect(cell) {
+            let speedBefore = nextSpeed
+            let bpmBefore = nextBPM
+            let kind: PlaybackSongSyntheticTimingChangeDiagnostic.Kind
+            let applied: Bool
+            switch cell.effectParam {
+            case 0:
+                kind = .ignoredF00
+                applied = false
+            case 0x01...0x1F:
+                kind = .speed
+                applied = true
+                nextSpeed = Int(cell.effectParam)
+            default:
+                kind = .bpm
+                applied = true
+                nextBPM = Int(cell.effectParam)
+            }
+            timingChanges.append(PlaybackSongSyntheticTimingChangeDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                rowStartFrame: rowStartFrame,
+                appliesToSyntheticRowAfter: syntheticRow,
+                kind: kind,
+                applied: applied,
+                speedBefore: speedBefore,
+                bpmBefore: bpmBefore,
+                speedAfter: nextSpeed,
+                bpmAfter: nextBPM
+            ))
+        }
+
+        state.speed = nextSpeed
+        state.bpm = nextBPM
+        let delay = row.cells.last(where: { $0.effectType == 0x0E && $0.effectParam >> 4 == 0x0E })
+            .map { Int($0.effectParam & 15) } ?? 0
+        state.nextExactFrame += rowDuration(
+            speed: state.speed,
+            bpm: state.bpm,
+            sampleRate: sampleRate
+        ) * Double(delay + 1)
+        return PlaybackSongFxxRowTiming(
+            source: source,
+            syntheticRow: syntheticRow,
+            rowStartExactFrame: rowStartExactFrame,
+            rowEndExactFrame: state.nextExactFrame,
+            effectiveSpeed: state.speed,
+            effectiveBPM: state.bpm,
+            patternDelayCycles: delay
         )
     }
 
@@ -299,5 +319,64 @@ enum PlaybackSongFxxTimingPlanner {
 
     private static func rowDuration(speed: Int, bpm: Int, sampleRate: Double) -> Double {
         sampleRate * 2.5 / Double(max(1, bpm)) * Double(max(1, speed))
+    }
+}
+
+/// A timing-only total for one finite song traversal, independent of mixer planning.
+enum PlaybackSongDuration {
+    /// Returns the exact pre-tail duration for a finite, playable song.
+    /// Cycles, guard limits, missing content, cancellation, and frame overflow
+    /// remain unknown. An outgoing B/D beyond the final order is a finite stop.
+    static func seconds(for song: PlaybackSong, isCancelled: () -> Bool = { false }) -> TimeInterval? {
+        guard song.endBehavior == .stopAtEnd, !song.orders.isEmpty else { return nil }
+        let sampleRate = 48_000.0 // Matches the legacy UI plan's ordinary output rate.
+        var firstPosition: PlaybackPosition?
+        for orderIndex in song.orders.indices {
+            if isCancelled() { return nil }
+            guard let pattern = song.pattern(for: orderIndex) else { return nil }
+            if !pattern.rows.isEmpty {
+                firstPosition = .init(orderIndex: orderIndex, patternIndex: pattern.index, rowIndex: 0)
+                break
+            }
+        }
+        guard let firstPosition,
+              var traversal = PlaybackSongTraversalPlanner.makeFiniteSongState(song,
+                  initialPosition: firstPosition) else { return nil }
+        let config = SyntheticTrackerTimingConfig(speed: song.initialTiming.speed,
+            bpm: song.initialTiming.bpm, sampleRate: sampleRate)
+        var timing = PlaybackSongFxxTimingPlanner.State(speed: config.speed, bpm: config.bpm,
+            nextExactFrame: 0)
+        var timingChanges = [PlaybackSongSyntheticTimingChangeDiagnostic]()
+        var executedRows = 0
+        var finalFrame: Int?
+        var acceptedOutgoingEnd = false
+        while traversal.terminalStopReason == nil {
+            if isCancelled() { return nil }
+            guard let step = PlaybackSongTraversalPlanner.nextUserLoopRow(song,
+                state: &traversal, syntheticRow: executedRows) else { return nil }
+            if let row = step.row {
+                let rowTiming = PlaybackSongFxxTimingPlanner.advance(row: row.row,
+                    source: row.source, syntheticRow: executedRows, sampleRate: sampleRate,
+                    state: &timing, timingChanges: &timingChanges)
+                guard timing.nextExactFrame.isFinite,
+                      timing.nextExactFrame < Double(Int.max) else { return nil }
+                finalFrame = rowTiming.rowEndFrame
+                executedRows += 1
+                timingChanges.removeAll(keepingCapacity: true)
+            }
+            if traversal.terminalStopReason == .outOfRange {
+                acceptedOutgoingEnd = step.diagnostics.contains {
+                    ($0.kind == .bxxPositionJump || $0.kind == .dxxPatternBreak) &&
+                        ($0.targetOrderIndex ?? -1) >= song.orders.count
+                }
+            }
+        }
+        guard !isCancelled(), let finalFrame, finalFrame > 0,
+              let stopReason = traversal.terminalStopReason else { return nil }
+        switch stopReason {
+        case .songEnd: return Double(finalFrame) / sampleRate
+        case .outOfRange where acceptedOutgoingEnd: return Double(finalFrame) / sampleRate
+        default: return nil
+        }
     }
 }

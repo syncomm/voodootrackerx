@@ -5,6 +5,7 @@ import Foundation
 struct PlaybackSongHeldPitchProvenance: Equatable {
     enum Coverage { case notAdapterProduced, partialBxUpSlideTargetlessRows }
     enum Producer: Equatable {
+        case continuationInput
         case selectionFact(Int)
         case volumeColumnVibrato(diagnostic: Int, child: Int)
         case portamentoUp(diagnostic: Int, child: Int)

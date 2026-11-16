@@ -44,6 +44,18 @@ state whether behavior is intentionally retained or remains unresolved.
 
 ## Closed foundations
 
+The [bounded #516 live-entry/user-Loop contract](design/user-pattern-loop-continuation.md)
+is CLOSED on this PR branch for cold selected-origin preparation and executed
+state/source continuation; implementation and local suite qualification are complete.
+The mixed resource profile is provisionally authorized for PR/native CI only.
+Acceptance requires green final submitted-head native arm64 ASan/Release CI
+(Codex) and Gregory's Loop-on review/merge; low-end-memory and release gates remain OPEN.
+This supersedes only the live-consumer implementation gap named by earlier
+#516-open references. Historical proof/evidence rows retain their original scope;
+their open/hold labels do not override this scoped submission authorization.
+accepted G38B, broader resource/safety/release obligations and Gregory's final
+hands-on acceptance/merge remain separate.
+
 Each row closes only its stated scope. Detailed numerical/source proof remains linked below.
 
 | Bounded behavior | Status | Verified in plain English | Technical verification |
@@ -128,7 +140,7 @@ Only outstanding or retained contracts belong here. Intentional artifacts are vi
 | G21 fully uninitialized Rxy volume bookkeeping | Known difference | Known difference — intentionally not emulated: Rxy omits volume bookkeeping only before a channel has ever selected an instrument/note. | [Rxy evidence](#decision-inputs-and-current-status) |
 | G32 accepted autovibrato differences | Known difference | Known difference — intentionally not emulated: reference rounding bias, sweep overshoot, release-amplitude collapse and rate-zero-square detuning. The accepted VTX policy is a Closed bounded contract. | [Approved policy](design/xm-final-pitch-publication.md#compatibility-disposition-separate-from-architecture-approval); [merged PR #507](https://github.com/syncomm/voodootrackerx/pull/507) |
 | Public Linear musical study, 48 kHz VTX runtime/offline sum | Known difference | Known difference — intentionally retained under one narrow policy: at most one PCM16 LSB in this exact study; broader runtime/output qualification remains open. | [Numerical policy](design/xm-reset-output-ramp.md#bounded-musical-study-numerical-difference) |
-| G37 E6x implicit initial loop start | Partial | Cold live starts at a later order/row can inherit unplayed history. Initial/default-origin and direct cold-range slices are Closed. | [#516](https://github.com/syncomm/voodootrackerx/issues/516); [traversal policy](xm-effect-support.md#bounded-g38b-pattern-local-loop-and-traversal-policy) |
+| G37 cold live entry and explicit user Loop | Closed | Bounded PR contract CLOSED and local qualification complete; acceptance requires green final submitted-head native arm64 CI (Codex) and Gregory's Loop-on review/merge. | [Bounded #516 contract](design/user-pattern-loop-continuation.md); [traversal policy](xm-effect-support.md#bounded-g38b-pattern-local-loop-and-traversal-policy) |
 | G41 9xx/900 and sample loop/end boundaries | Partial | G41B/G41C are Closed slices; broader loop/end integration, discovery and unavailable historical inputs still need qualification. | [Offset/loop qualification and remaining limits](#g41-bounded-offset-admission-and-shared-ping-pong-geometry) |
 | F00 zero speed | Known difference | Known difference — unresolved: VTX ignores F00, while FT2 writes zero speed/tick state. Resulting traversal and transport policy still need characterization. | [VTX zero-speed handling](../app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+Timing.swift#L235) |
 | Pan-envelope fractional/Q8 and point-64 arithmetic | Known difference | Known difference — unresolved: Float interpolation and stored point 64 differ from the reference arithmetic/point limit. | [G06/G07 evidence](design/xm-reset-output-ramp.md#g06-panning-envelope-factor) |
@@ -463,7 +475,8 @@ retains the separate post-song discrepancy (first frame 11528 after song end
 this is distinct from the separately accepted one-LSB sum-order residual.
 No full-tail parity or waiver is claimed. G40's bounded implementation is
 CLOSED for its bounded static law; G41's bounded evidence is above. #516 live nonzero-order cold
-start and the planning/real-time audits remain separately OPEN. Closed musical
+start is locally qualified, with submitted-head native CI and maintainer acceptance
+required; the planning/real-time audits remain separately OPEN. Closed musical
 foundations retain their boundaries.
 
 ### Decision inputs and current status
@@ -502,7 +515,7 @@ Temporary controls are evidence, not newly committed regression tests.
 | G34 | CLOSED above; counter/memory through the existing O final-output authority. | Bounded T00 replay, signed phase, Fxx, trigger carry and envelope/volume writers are qualified and maintainer-accepted. | Medium: independent output mute versus base-volume mutation. |
 | G35 | Ordinary timing/dispatch CLOSED using T and existing Q2 delivery. | Both-mode/rate ordinary EE/Fxx/last-writer and source/clock controls are qualified; local combined B/D/E6/EE is implemented under G38A; G38B local/safety policy is CLOSED. | Effective speed and actual tick count remain distinct; no callback rewrite or cap change. |
 | G36 | CLOSED above; projects audible tone output through the existing bounded grid and final-pitch publisher. | Both-mode/rate crossings, ties, aliases, tuning, continuous clamps, shared tone consumers, source lifetime and delivery are qualified. | ChannelState/child strides remain 1152/144 bytes; no extra event array or C/host/callback change. Bounded in-song modulation interactions are closed under G39 above. |
-| G37 | G37A initial/default-start and direct cold adapter behavior remain qualified; G38B supplies the bounded local pattern policy. | Full live selected-order/row planning remains OPEN under [#516](https://github.com/syncomm/voodootrackerx/issues/516). | No broader prewarming repair is claimed; post-G41 owner and release blocker remain. |
+| G37 | CLOSED on this PR branch for bounded cold live entry and explicit user Loop under the [#516 contract](design/user-pattern-loop-continuation.md). | G37A and accepted G38B remain protected; local qualification is complete and green final submitted-head native arm64 CI is required (Codex). | Gregory owns final hands-on acceptance, merge and issue disposition; broader resource/release obligations and module-defined indefinite replay remain separate. |
 | G38 | CLOSED, bounded G38A/G38B contract through the existing traversal owner. | Ordered B/D/E6/EE plus pattern-local anchors/counters, row-0 natural entry and documented safe input/restart scope. Both-mode/rate source/frame/delivery controls distinguish intentional FT2 differences. | Existing long-pattern behavior, finite/capacity guards and host/callback authority remain; no legacy profile or new planner. |
 | G39 | CLOSED for the six-family bounded in-song interaction contract above. | Merged-byte identity, concrete semantic/native/delivery assertions, actual Debug hosts, native arm64 CI and protected outputs qualify the contract. | Separate tail parity, broader pan/G41 integration, #516 and later planning/RT/release audits remain OPEN. |
 | G40 | CLOSED for merged bounded FT2 coefficient evaluation. | Native Q16 bytes, source/cursor and protected 360/248 partition. | VTX defaults unchanged; broader pan-envelope exclusions remain. |

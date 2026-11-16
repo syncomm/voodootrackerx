@@ -3769,6 +3769,15 @@ final class PlaybackSongOfflineRenderer {
     /// Plan-local scalar projection of the existing pitch histories and inclusive source cuts.
     /// Source indices are generations, never reusable channel/voice slots. No PCM is retained.
     struct PitchSourceHistory {
+        /// The last executed writer remains the integration anchor across a batch boundary.
+        /// Reanchoring at each boundary changes the order of Double additions and can
+        /// move a one-shot source's completion test by a frame.
+        struct Checkpoint: Equatable {
+            let lastWriterFrame: Int
+            let unfoldedPositionAtWriter: Double
+            let heldStep: Double
+            let cutFrame: Int?
+        }
         struct Segment {
             let frame: Int
             let position: Double
@@ -3795,7 +3804,8 @@ final class PlaybackSongOfflineRenderer {
         var sourceStride: Int { MemoryLayout<Entry>.stride }
         var recordStride: Int { MemoryLayout<Segment>.stride }
 
-        init(plan: PlaybackSongSyntheticPlan, work: Work? = nil) {
+        init(plan: PlaybackSongSyntheticPlan, work: Work? = nil,
+             continuationSeed: [Int: Checkpoint] = [:]) {
             self.work = work
             typealias Step = PlaybackSongSyntheticTonePortamentoStepUpdate
             struct Point {
@@ -3856,9 +3866,11 @@ final class PlaybackSongOfflineRenderer {
                     $0.frame == $1.frame ? $0.tick < $1.tick : $0.frame < $1.frame
                 }
                 let start = scheduler.frame(for: event), lower = segments.count
-                var cursor = start, position = Double(max(0, event.initialSourceFrame))
-                var step = plan.initialHeldPitchEventIndices.contains(source) ? 0 : event.playbackStep
-                segments.append(.init(frame: start, position: position, step: step))
+                let seed = continuationSeed.isEmpty ? nil : continuationSeed[source]
+                var cursor = seed?.lastWriterFrame ?? start
+                var position = seed?.unfoldedPositionAtWriter ?? Double(max(0, event.initialSourceFrame))
+                var step = seed?.heldStep ?? (plan.initialHeldPitchEventIndices.contains(source) ? 0 : event.playbackStep)
+                segments.append(.init(frame: cursor, position: position, step: step))
                 for update in bySource[source] where update.frame > start {
                     // Preserve the scan's sequential Double operations, including equal-frame writes.
                     position += Double(max(0, update.frame - cursor)) * step
@@ -3866,7 +3878,10 @@ final class PlaybackSongOfflineRenderer {
                     step = update.step
                     segments.append(.init(frame: cursor, position: position, step: step))
                 }
-                entries.append(.init(lower: lower, upper: segments.count, cutFrame: cuts[source]))
+                let cutFrame: Int?
+                if let previous = seed?.cutFrame { cutFrame = min(cuts[source] ?? previous, previous) }
+                else { cutFrame = cuts[source] }
+                entries.append(.init(lower: lower, upper: segments.count, cutFrame: cutFrame))
             }
             self.entries = entries
             self.segments = segments
@@ -3874,6 +3889,23 @@ final class PlaybackSongOfflineRenderer {
 
         func cutFrame(for source: Int) -> Int? {
             entries.indices.contains(source) ? entries[source].cutFrame : nil
+        }
+
+        /// Captures only executed writes; commands at the exclusive boundary belong
+        /// to its successor. The checkpoint owns no plan or history storage.
+        func checkpoint(for source: Int, before boundaryFrame: Int) -> Checkpoint? {
+            guard entries.indices.contains(source) else { return nil }
+            let entry = entries[source]
+            guard segments[entry.lower].frame < boundaryFrame else { return nil }
+            var lower = entry.lower + 1, upper = entry.upper
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if segments[middle].frame < boundaryFrame { lower = middle + 1 } else { upper = middle }
+            }
+            let segment = segments[lower - 1]
+            return .init(lastWriterFrame: segment.frame,
+                unfoldedPositionAtWriter: segment.position, heldStep: segment.step,
+                cutFrame: entry.cutFrame.flatMap { $0 < boundaryFrame ? $0 : nil })
         }
 
         /// Strict-before lookup matches boundary events queued at local frame zero.

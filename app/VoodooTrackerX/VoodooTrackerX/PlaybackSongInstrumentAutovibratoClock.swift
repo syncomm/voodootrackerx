@@ -110,6 +110,25 @@ struct PlaybackSongInstrumentAutovibratoClock: Equatable {
             channels[channel].append(run)
             if capacity != channels[channel].capacity { growths += 1 }
         }
+        struct ContinuationSeed {
+            let runs: [Run]
+            let valid: Bool
+        }
+
+        /// Resolves one current run per channel; no run history survives export.
+        func exportContinuation(nextOrdinal: Int) -> ContinuationSeed {
+            .init(runs: channels.map { ($0.last ?? Run()).advancing(to: nextOrdinal) }, valid: valid)
+        }
+
+        /// The imported run is already the state immediately before nextOrdinal.
+        mutating func restoreContinuation(_ seed: ContinuationSeed) {
+            channels = seed.runs.map { [$0] }
+            resets = Array(repeating: nil, count: channels.count)
+            releases = Array(repeating: false, count: channels.count)
+            growths = 0
+            valid = seed.valid
+        }
+
         var evidence: PlaybackSongInstrumentAutovibratoClock {
             guard valid else { return .notAdapterProduced }
             return .init(coverage: .depthOffV1, channels: channels, storageGrowthCount: growths,

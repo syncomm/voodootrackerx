@@ -3,6 +3,22 @@ import XCTest
 
 @MainActor
 final class ControlPanelViewTests: XCTestCase {
+    func testPendingPlayCanBeStoppedWithoutClaimingActivePlayback() {
+        let view = ControlPanelView(frame: .zero)
+        var content = ControlPanelContent()
+        content.isPlaybackPreparing = true
+        content.isSongPositionEnabled = true
+        view.apply(content)
+        XCTAssertFalse(content.isPlaybackActive)
+        XCTAssertFalse(view.playButton.isEnabled)
+        XCTAssertTrue(view.stopButton.isEnabled)
+        XCTAssertTrue(view.songPositionStepper.isEnabled)
+        content.isPlaybackPreparing = false
+        view.apply(content)
+        XCTAssertTrue(view.playButton.isEnabled)
+        XCTAssertFalse(view.stopButton.isEnabled)
+    }
+
     func testMainControlTooltipsAreSpecificAndNonPlaceholder() {
         let view = ControlPanelView(frame: .zero)
         let tooltips = [
@@ -518,4 +534,232 @@ private extension ControlPanelView {
 
 private extension NSView {
     var subviewsRecursively: [NSView] { subviews.flatMap { [$0] + $0.subviewsRecursively } }
+}
+
+@MainActor
+final class SongDurationTests: XCTestCase {
+    func testFiniteControlFlowDurationMatchesManualSecondsAndTimingOnlyOracle() throws {
+        let song = durationSong([0: [
+            [durationCell(15, 3), durationCell(15, 150)],
+            [durationCell(14, 0x60), durationCell()],
+            [durationCell(14, 0x62), durationCell(14, 0xE1)],
+            [durationCell(11, 2), durationCell(13, 1)],
+        ], 1: [[durationCell(15, 1)]], 2: [
+            [durationCell(15, 1)], [durationCell(15, 2), durationCell(15, 125)],
+            [durationCell()],
+        ]], orders: [0, 1, 2])
+        let seconds = try XCTUnwrap(PlaybackSongDuration.seconds(for: song))
+        // EE1 commits E6 to anchor1, then advances before fresh cells: repeats
+        // enter row2 directly. B02+D01 subsequently skips order1 and row0.
+        let rowSeconds: [TimeInterval] = [0.05, 0.05, 0.10, 0.10, 0.10, 0.05, 0.04, 0.04]
+        XCTAssertEqual(seconds, rowSeconds.reduce(0, +), accuracy: 1 / 48_000.0)
+        let traversal = PlaybackSongTraversalPlanner.plan(song, startOrderIndex: 0, orderCount: 3)
+        XCTAssertEqual(traversal.rows.map(\.rowArrayIndex), [0, 1, 2, 2, 2, 3, 1, 2])
+        for rate in [44_100.0, 48_000] {
+            let timing = PlaybackSongFxxTimingPlanner.plan(song, traversalPlan: traversal, sampleRate: rate)
+            XCTAssertEqual(timing.rowTimings.map(\.patternDelayCycles), [0, 0, 1, 1, 1, 0, 0, 0])
+            for (row, expected) in zip(timing.rowTimings, rowSeconds) {
+                XCTAssertEqual((row.rowEndExactFrame - row.rowStartExactFrame) / rate,
+                    expected, accuracy: 0.000_000_001)
+            }
+            let end = try XCTUnwrap(timing.rowTimings.last).rowEndFrame
+            XCTAssertEqual(seconds, Double(end) / rate, accuracy: 1 / min(rate, 48_000))
+        }
+    }
+
+    func testOddRowsEmptyInputsAndOutgoingFiniteEndsKeepExecutedCommandRow() throws {
+        let odd = durationSong([0: Array(repeating: [durationCell()], count: 3)])
+        XCTAssertEqual(try XCTUnwrap(PlaybackSongDuration.seconds(for: odd)), 0.36, accuracy: 1 / 48_000.0)
+        XCTAssertNil(PlaybackSongDuration.seconds(for: durationSong([:], orders: [])))
+        XCTAssertNil(PlaybackSongDuration.seconds(for: durationSong([0: []])))
+        let emptyOrders = durationSong([0: [], 1: [[durationCell()]], 2: []], orders: [0, 1, 2, 1])
+        XCTAssertEqual(try XCTUnwrap(PlaybackSongDuration.seconds(for: emptyOrders)), 0.24,
+            accuracy: 1 / 48_000.0)
+        for command in [durationCell(11, 7), durationCell(13, 0)] {
+            let song = durationSong([0: [[command], [durationCell(15, 1)]]])
+            XCTAssertEqual(try XCTUnwrap(PlaybackSongDuration.seconds(for: song)), 0.12, accuracy: 1 / 48_000.0)
+        }
+    }
+
+    func testMissingCyclicAndCancelledDurationNeverPublishesExactPrefix() {
+        XCTAssertNil(PlaybackSongDuration.seconds(for: durationSong([0: [[durationCell()]]], orders: [0, 1])))
+        XCTAssertNil(PlaybackSongDuration.seconds(for: durationSong([0: [[durationCell(11, 1)]], 1: []], orders: [0, 1])))
+        XCTAssertNil(PlaybackSongDuration.seconds(for: durationSong([0: [[durationCell(11, 0)]]])))
+        let song = durationSong([0: Array(repeating: [durationCell()], count: 100)])
+        var polls = 0
+        XCTAssertNil(PlaybackSongDuration.seconds(for: song, isCancelled: { polls += 1; return polls >= 3 }))
+        XCTAssertGreaterThanOrEqual(polls, 3)
+    }
+
+    func testLoadPublishesDurationBeforePlayWithoutEngineOrSamplePayload() async throws {
+        let model = SongDurationDisplayModel { song, cancelled in
+            XCTAssertFalse(Thread.isMainThread)
+            XCTAssertTrue(song.instrumentsByIndex.isEmpty)
+            return PlaybackSongDuration.seconds(for: song, isCancelled: cancelled)
+        }
+        let sample = makePlaybackSample(pcm: [0.25, -0.25], loopStart: 0, loopLength: 2, loopType: 1)
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 125],
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample])])
+        model.load(song: song, identity: UUID())
+        XCTAssertTrue(model.isPending)
+        XCTAssertNil(model.durationSeconds)
+        await waitForDuration(model)
+        XCTAssertEqual(try XCTUnwrap(model.durationSeconds), 15, accuracy: 1 / 48_000.0)
+        let view = ControlPanelView(frame: .zero)
+        var content = ControlPanelContent()
+        content.songTime = ControlPanelDisplayState.songTimeDisplay(durationSeconds: model.durationSeconds)
+        content.songTimeTooltip = model.tooltip
+        view.apply(content)
+        XCTAssertEqual(view.songTimeField.stringValue, "00:15")
+        XCTAssertEqual(view.songTimeField.toolTip, model.tooltip)
+        XCTAssertFalse(content.isPlaybackActive)
+        XCTAssertTrue(model.tooltip.contains("excluding the playback tail"))
+        model.load(song: makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 125],
+            endBehavior: .restartFromBeginning), identity: UUID())
+        await waitForDuration(model)
+        XCTAssertNil(model.durationSeconds)
+        content.songTime = ControlPanelDisplayState.songTimeDisplay(durationSeconds: model.durationSeconds)
+        content.songTimeTooltip = model.tooltip
+        view.apply(content)
+        XCTAssertEqual(view.songTimeField.stringValue, "--:--")
+        XCTAssertEqual(view.songTimeField.toolTip, model.tooltip)
+        XCTAssertTrue(model.tooltip.contains("unavailable"))
+    }
+
+    func testEditableTimingEditUndoAndRedoRefreshDurationThroughCanonicalCoordinator() async throws {
+        let model = SongDurationDisplayModel(), identity = UUID()
+        var current = BlankTrackerDocument.makeDefault()
+        let coordinator = EditableDocumentEditCoordinator(undoManager: UndoManager(),
+            contextProvider: { .editable(document: current, isPlaybackActive: false) },
+            documentApplyHandler: { document in
+                current = document
+                model.update(document: document, identity: identity)
+            })
+        model.update(document: current, identity: identity)
+        await waitForDuration(model)
+        XCTAssertEqual(try XCTUnwrap(model.durationSeconds), 7.68, accuracy: 1 / 48_000.0)
+        var edited = current
+        edited.patterns[0].rows[0][0] = .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 15, effectParam: 3)
+        XCTAssertTrue(coordinator.applyEdit(label: "Change Timing", updatedDocument: edited))
+        XCTAssertNil(model.durationSeconds)
+        await waitForDuration(model)
+        XCTAssertEqual(try XCTUnwrap(model.durationSeconds), 3.84, accuracy: 1 / 48_000.0)
+        let generation = model.generation
+        XCTAssertFalse(coordinator.applyEdit(label: "No Change", updatedDocument: current))
+        XCTAssertEqual(model.generation, generation)
+        XCTAssertTrue(coordinator.undo())
+        await waitForDuration(model)
+        XCTAssertEqual(try XCTUnwrap(model.durationSeconds), 7.68, accuracy: 1 / 48_000.0)
+        XCTAssertTrue(coordinator.redo())
+        await waitForDuration(model)
+        XCTAssertEqual(try XCTUnwrap(model.durationSeconds), 3.84, accuracy: 1 / 48_000.0)
+        XCTAssertEqual(coordinator.undoMenuItemTitle, "Undo Change Timing")
+        let malformed = BlankTrackerDocument(title: current.title, songLength: current.songLength + 1,
+            currentPosition: current.currentPosition, restartPosition: current.restartPosition,
+            currentPatternIndex: current.currentPatternIndex, tempo: current.tempo, speed: current.speed,
+            orderTable: current.orderTable, selection: current.selection,
+            instrumentPalette: current.instrumentPalette, patterns: current.patterns)
+        model.update(document: malformed, identity: identity)
+        await waitForDuration(model)
+        XCTAssertNil(model.durationSeconds, "A short order table cannot supply an exact prefix duration")
+    }
+
+    func testNavigationFocusTitleSampleAndRestartChangesPreserveDurationGeneration() async throws {
+        let model = SongDurationDisplayModel(), identity = UUID()
+        let blank = BlankTrackerDocument.makeDefault()
+        let sample = makePlaybackSample(pcm: [0.25])
+        let palette = [1: PlaybackInstrument(index: 1, samples: [sample]),
+            2: PlaybackInstrument(index: 2, samples: [sample, sample, sample])]
+        let base = BlankTrackerDocument(title: blank.title, songLength: 2,
+            currentPosition: 0, restartPosition: 0, currentPatternIndex: 0,
+            tempo: blank.tempo, speed: blank.speed, orderTable: [0, 1], selection: .default,
+            instrumentPalette: palette,
+            patterns: blank.patterns + [.init(index: 1, rowCount: 3, channels: 1,
+                rows: Array(repeating: [.empty], count: 3))])
+        model.update(document: base, identity: identity)
+        await waitForDuration(model)
+        let generation = model.generation, seconds = model.durationSeconds
+        let changed = BlankTrackerDocument(title: "Different title", songLength: base.songLength,
+            currentPosition: 1, restartPosition: 1, currentPatternIndex: 1,
+            tempo: base.tempo, speed: base.speed, orderTable: base.orderTable,
+            selection: .init(selectedInstrument: 2, selectedSample: 3),
+            instrumentPalette: [2: .init(index: 2, samples: [makePlaybackSample(pcm: [0.5])])],
+            patterns: base.patterns)
+        var notifications = 0
+        model.didChange = { notifications += 1 }
+        defer { model.didChange = nil }
+        model.update(document: changed, identity: identity)
+        model.update(document: changed, identity: identity)
+        XCTAssertEqual(model.generation, generation)
+        XCTAssertEqual(model.durationSeconds, seconds)
+        XCTAssertFalse(model.isPending)
+        XCTAssertEqual(notifications, 0)
+        model.update(document: changed, identity: UUID())
+        XCTAssertEqual(model.generation, generation + 1)
+        XCTAssertNil(model.durationSeconds)
+        await waitForDuration(model)
+        XCTAssertEqual(model.durationSeconds, seconds)
+    }
+
+    func testReplacementIdentityRejectsBlockedStaleResultAndFileNewClearsDuration() async {
+        let started = expectation(description: "old duration worker entered")
+        let ready = expectation(description: "replacement duration published")
+        let first = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        first.signal()
+        let model = SongDurationDisplayModel { _, cancelled in
+            XCTAssertFalse(Thread.isMainThread)
+            if first.wait(timeout: .now()) == .success {
+                started.fulfill()
+                guard release.wait(timeout: .now() + 5) == .success else { return nil }
+                XCTAssertTrue(cancelled())
+                return 99 // Deliberately ignores cancellation; publication must reject it.
+            }
+            return 4
+        }
+        defer { release.signal(); model.didChange = nil }
+        var published = [TimeInterval]()
+        model.didChange = { [weak model] in
+            if let seconds = model?.durationSeconds {
+                published.append(seconds)
+                if seconds == 4 { ready.fulfill() }
+            }
+        }
+        let song = durationSong([0: [[durationCell()]]])
+        model.load(song: song, identity: UUID())
+        await fulfillment(of: [started], timeout: 2)
+        let generation = model.generation
+        model.load(song: song, identity: UUID())
+        XCTAssertEqual(model.generation, generation + 1)
+        XCTAssertNil(model.durationSeconds)
+        XCTAssertTrue(model.isPending)
+        release.signal()
+        await fulfillment(of: [ready], timeout: 5)
+        XCTAssertEqual(published, [4])
+        model.load(song: nil, identity: nil)
+        XCTAssertNil(model.durationSeconds)
+        XCTAssertFalse(model.isPending)
+        XCTAssertTrue(model.tooltip.contains("unavailable"))
+    }
+
+    private func waitForDuration(_ model: SongDurationDisplayModel) async {
+        guard model.isPending else { return }
+        let ready = expectation(description: "duration calculation completed")
+        model.didChange = { [weak model] in
+            if model?.isPending == false { ready.fulfill() }
+        }
+        await fulfillment(of: [ready], timeout: 5)
+        model.didChange = nil
+        XCTAssertFalse(model.isPending)
+    }
+
+    private func durationCell(_ effect: UInt8 = 0, _ parameter: UInt8 = 0) -> PlaybackCell {
+        .init(note: 0, instrument: 0, volumeColumn: 0, effectType: effect, effectParam: parameter)
+    }
+
+    private func durationSong(_ patterns: [Int: [[PlaybackCell]]], orders: [Int] = [0]) -> PlaybackSong {
+        makePlaybackSong(orderPatternIndices: orders,
+            patternRowsByIndex: patterns.mapValues { rows in
+                rows.enumerated().map { PlaybackRow(index: $0.offset, cells: $0.element) }
+            })
+    }
 }

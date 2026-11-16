@@ -19,7 +19,7 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
         let rowEntryResetIndex: Int?, delayedResetIndex: Int?
     }
     /// Packed references share existing producer storage, including original numeric children.
-    struct Ref: Equatable {
+    struct Ref: Equatable, Hashable {
         enum Kind: UInt64 { case cold, missing, selection, writer, writerInput, fineUp, fineDown, extraFine, arpExit, vibratoExit, suppressedExit, toneHold, seed, writerBase }
         let raw: UInt64
         init(_ kind: Kind, _ index: Int = 0, _ child: Int = 0) {
@@ -140,6 +140,31 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
         return (row.controls.semanticInstrumentIndex, row.controls.semanticSampleIndex, row.controls.carriedInstrumentIndex)
     }
 
+    /// Compact values immediately before a continuation row. Original producer
+    /// references are scalar provenance for the outer input scope, never array roots.
+    struct ContinuationSeed {
+        struct Owner: Equatable {
+            let instrument: Int?, sample: Int?, carriedInstrument: Int?
+        }
+        struct Channel {
+            let base: Pitch, output: Pitch, incoming: Pitch
+            let baseProducer: Ref, outputProducer: Ref, incomingProducer: Ref
+            let owner: Owner
+            let generation: Int
+            let rawBase: Double?
+            let lastReset: ResetRun?
+        }
+        struct Pending {
+            let channel: Int, generation: Int, diagnosticIndex: Int
+            let originalReference: Ref
+            let pitch: Pitch
+        }
+        let nextOrdinal: Int
+        let channels: [Channel]
+        let pending: [Pending]
+        let automatic: PlaybackSongInstrumentAutovibratoClock.Builder.ContinuationSeed
+    }
+
     /// Planning-only row workspace: no full controls, PCM, or retained numeric-child copies.
     struct Builder {
         enum Action {
@@ -167,6 +192,87 @@ struct PlaybackSongSemanticPitchProjection: Equatable {
         var linear = true
         var firstRetrigger = 0, firstRowReset = 0, firstDelayedReset = 0, firstExit = 0, firstRow = 0
         var firstRelease = 0
+
+        /// Export only resolved terminal values, last reset facts and pending exits.
+        /// plan must carry this builder's completed producer arrays and evidence.
+        func exportContinuation(plan: borrowing PlaybackSongSyntheticPlan,
+            terminalChannels: borrowing [PlaybackSongSyntheticAdapter.ChannelState],
+            nextOrdinal: Int) -> ContinuationSeed {
+            precondition(nextOrdinal > 0 && terminalChannels.count == states.count)
+            let projection = evidence
+            let resolved = states.enumerated().map { channel, record in
+                let owner = PlaybackSongSemanticPitchProjection.owner(record.selection,
+                    facts: plan.selectionDispatchFacts.facts, rows: plan.xmChannelRows, routes: plan.xmEmptyRoutes)
+                return ContinuationSeed.Channel(base: projection.pitch(record.base, plan: plan),
+                    output: projection.pitch(record.output, plan: plan),
+                    incoming: projection.pitch(record.incoming, plan: plan),
+                    baseProducer: record.base, outputProducer: record.output, incomingProducer: record.incoming,
+                    owner: .init(instrument: owner.0, sample: owner.1, carriedInstrument: owner.2),
+                    generation: record.generation, rawBase: baseValues[channel],
+                    lastReset: resetRuns[channel].last)
+            }
+            let exits = following.map { boundary in
+                ContinuationSeed.Pending(channel: boundary.channel, generation: boundary.generation,
+                    diagnosticIndex: boundary.index, originalReference: boundary.ref,
+                    pitch: projection.pitch(boundary.ref, plan: plan))
+            }
+            return .init(nextOrdinal: nextOrdinal, channels: resolved, pending: exits,
+                automatic: automatic.exportContinuation(nextOrdinal: nextOrdinal))
+        }
+
+        /// Imports bounded input observations and seeds; no old history index is
+        /// used as a current producer reference. Mapping failures reject the seed.
+        /// ownerFactIndices names honest continuationInput facts (or exact real facts).
+        mutating func restoreContinuation(_ seed: ContinuationSeed,
+            factMap: [Int: Int], sourceMap: [Int: Int], ownerFactIndices: [Int?],
+            rowResetMap: [Int: Int] = [:], delayedResetMap: [Int: Int] = [:]) -> Bool {
+            guard seed.nextOrdinal > 0, ownerFactIndices.count == seed.channels.count,
+                  seed.automatic.runs.count == seed.channels.count else { return false }
+            var restored = Self()
+            func source(_ old: Int) -> Int? { old < 0 ? -1 : sourceMap[old] }
+            func reset(_ old: Int, _ map: [Int: Int]) -> Int? { old < 0 ? -1 : map[old] }
+            for (channel, input) in seed.channels.enumerated() {
+                guard let generation = source(input.generation) else { return false }
+                // factMap authenticates genuine old fact references in the outer
+                // input-provenance scope; current ownership is an explicit input.
+                _ = factMap
+                let owner = ownerFactIndices[channel]
+                let owns = input.owner.instrument != nil || input.owner.sample != nil || input.owner.carriedInstrument != nil
+                guard !owns || owner != nil else { return false }
+                let record = Record(ordinal: seed.nextOrdinal - 1,
+                    base: restored.importPitch(input.base), output: restored.importPitch(input.output),
+                    incoming: restored.importPitch(input.incoming), selection: owner ?? -1, generation: generation)
+                restored.states.append(record); restored.channels.append([record])
+                restored.baseValues.append(input.rawBase)
+                restored.lastTicks.append(-1); restored.folds.append(-1)
+                restored.rowStarts.append(0); restored.entryOwners.append(owner ?? -1)
+                if let prior = input.lastReset {
+                    guard let row = reset(prior.rowReset, rowResetMap),
+                          let delayed = reset(prior.delayedReset, delayedResetMap) else { return false }
+                    restored.resetRuns.append([.init(ordinal: prior.ordinal, rowReset: row, delayedReset: delayed)])
+                } else { restored.resetRuns.append([]) }
+            }
+            // begin swaps following into pending. Resolved seed values keep EE's
+            // actual exit tick independent of an imported parent's local row -1.
+            for exit in seed.pending {
+                guard restored.states.indices.contains(exit.channel), let generation = source(exit.generation) else { return false }
+                let ref = restored.importPitch(exit.pitch)
+                restored.following.append(.init(channel: exit.channel, generation: generation,
+                    index: exit.diagnosticIndex, ref: ref))
+            }
+            restored.automatic.restoreContinuation(seed.automatic)
+            self = restored
+            return true
+        }
+
+        private mutating func importPitch(_ pitch: Pitch) -> Ref {
+            switch pitch {
+            case let .known(value):
+                let index = seeds.count; seeds.append(value); return Ref(.seed, index)
+            case .notEstablished: return Ref(.cold)
+            case .notCaptured: return Ref(.missing)
+            }
+        }
 
         mutating func begin(states incoming: borrowing [PlaybackSongSyntheticAdapter.ChannelState], count: Int,
             firstOrdinal: Int, speed: Int, linear: Bool, retriggers: Int, rowResets: Int, delayedResets: Int, exits: Int, rows: Int) {

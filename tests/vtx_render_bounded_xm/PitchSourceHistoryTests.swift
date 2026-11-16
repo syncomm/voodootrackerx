@@ -6,6 +6,43 @@ final class PitchSourceHistoryTests: XCTestCase {
     typealias Adapter = PlaybackSongSyntheticAdapter
     typealias Renderer = PlaybackSongOfflineRenderer
 
+    func testContinuationRetainsActualWriterAnchorAndStrictBoundaryAcrossAThousandPartitions() throws {
+        for rate in [44_100.0, 48_000] {
+            var plan = Adapter.adapt(song([[c(note: 49, instrument: 1)], [c()]]),
+                startOrderIndex: 0, orderCount: 2, sampleRate: rate)
+            // Physical writer input, independent of the checkpoint's arithmetic.
+            // Repeated equal-frame writes and holds exercise ordering and completion.
+            plan.instrumentAutovibratoRequests = (1...400).flatMap { index in
+                let frame = index * 37
+                return [Double(index % 19) / 113.0, index % 11 == 0 ? 0 : 0.123456789123].map { step in
+                    PlaybackSongInstrumentAutovibratoPublication.Request(row: 0, tick: 1, channel: 0,
+                        frame: frame, generation: 0, step: step)
+                }
+            }
+            let uninterrupted = Renderer.PitchSourceHistory(plan: plan)
+            var seeds = [Int: Renderer.PitchSourceHistory.Checkpoint]()
+            var start = 0
+            for partition in 0..<1_000 {
+                let end = start + [1, 17, 37, 23, 11][partition % 5]
+                var batch = plan
+                batch.instrumentAutovibratoRequests = plan.instrumentAutovibratoRequests.filter {
+                    $0.scheduledFrame >= start && $0.scheduledFrame < end
+                }
+                let history = Renderer.PitchSourceHistory(plan: batch, continuationSeed: seeds)
+                for frame in start...end {
+                    XCTAssertEqual(history.advancedPosition(for: 0, at: frame),
+                        uninterrupted.advancedPosition(for: 0, at: frame), "partition=\(partition) frame=\(frame)")
+                }
+                let checkpoint = try XCTUnwrap(history.checkpoint(for: 0, before: end))
+                XCTAssertEqual(checkpoint, uninterrupted.checkpoint(for: 0, before: end))
+                seeds = [0: checkpoint]
+                XCTAssertEqual(seeds.count, 1)
+                start = end
+            }
+            XCTAssertNil(uninterrupted.checkpoint(for: 0, before: 0))
+        }
+    }
+
     func testIndexedPredicateMatchesScanAcrossSourceAndWriterBoundaries() {
         for rate in [44_100.0, 48_000] {
             for loop in [0, 1, 2] {

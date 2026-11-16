@@ -14,8 +14,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var editableDocumentIdentity: UUID?
     private var loadedModuleIdentity: UUID?
     private var editableDocumentRevision: UInt64 = 0
+    private var preparedEditablePlaybackIdentity: UUID?
+    private var preparedEditablePlaybackRevision: UInt64?
+    private let songDuration = SongDurationDisplayModel()
     private var blankDocument: BlankTrackerDocument? {
-        didSet { editableDocumentRevision &+= 1 }
+        didSet {
+            editableDocumentRevision &+= 1
+            songDuration.update(document: blankDocument, identity: editableDocumentIdentity)
+        }
     }
     private var loadedMetadata: ParsedModuleMetadata?
     private lazy var documentReplacementCoordinator = DocumentReplacementCoordinator(
@@ -304,15 +310,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 isSampleEditorActionContext: sampleEditorWindowPresenter.isActionContextActive
             )
         case ApplicationMenuBuilder.Actions.play:
-            return displayedMetadata != nil && !playbackEngine.state.isPlaying
+            return displayedMetadata != nil && !playbackEngine.state.isPlaying && !playbackEngine.isPreparingPlayback
         case ApplicationMenuBuilder.Actions.playCurrentPattern:
             return TrackerTransportCommandAvailability.canPlayCurrentPattern(
                 metadata: displayedMetadata,
                 currentPatternIndex: currentPatternIndex,
-                isPlaybackActive: playbackEngine.state.isPlaying
+                isPlaybackActive: playbackEngine.state.isPlaying || playbackEngine.isPreparingPlayback
             )
         case ApplicationMenuBuilder.Actions.stop:
-            return playbackEngine.state.isPlaying
+            return playbackEngine.state.isPlaying || playbackEngine.isPreparingPlayback
         case ApplicationMenuBuilder.Actions.toggleLoop:
             menuItem.state = isLoopPlaybackEnabled ? .on : .off
             return true
@@ -382,7 +388,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         playbackEngine.playbackDidFail = { [weak self] fault in
             self?.presentRuntimeMixerAdmissionFailure(fault)
         }
+        playbackEngine.userLoopPlaybackDidFail = { [weak self] fault in
+            self?.presentUserLoopPlaybackFailure(fault)
+        }
         playbackEngine.runtimeAdapterPlanDidUpdate = { [weak self] in
+            self?.syncControlPanelView()
+        }
+        songDuration.didChange = { [weak self] in self?.syncControlPanelView() }
+        playbackEngine.playbackPreparationDidChange = { [weak self] in
             self?.syncControlPanelView()
         }
 
@@ -1246,6 +1259,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         presentTopLevelDocumentAlert(alert)
     }
 
+    private func presentUserLoopPlaybackFailure(_ fault: RuntimeUserLoopPlaybackFailure) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        let isFiniteSong = fault.scope.transportKind == .finiteSong
+        alert.messageText = isFiniteSong ? "Playback Stopped" : "Loop Playback Stopped"
+        switch fault {
+        case .planning(let native, _):
+            if isFiniteSong {
+                alert.informativeText = "The audio engine could not continue playback. Press Play to retry."
+            } else {
+                alert.informativeText = native.reason == .missingSuccessor
+                    ? "Audio planning missed a loop boundary. Press Play to retry."
+                    : "The audio engine could not continue the loop. Press Play to retry."
+            }
+        case .host:
+            alert.informativeText = "The audio engine could not access playback state. Press Play to retry."
+        case .refresh:
+            alert.informativeText = "The playback settings changed. Press Play to restart the loop."
+        }
+        presentTopLevelDocumentAlert(alert)
+    }
+
     private func presentTopLevelDocumentAlert(_ alert: NSAlert) {
         presentDocumentSheet(
             begin: { hostWindow, restoreAuxiliaryWindow in
@@ -1657,6 +1692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         _ document: BlankTrackerDocument,
         application: EditableDocumentNavigationApplication
     ) {
+        let previousRevision = editableDocumentRevision
         switch application {
         case .userSelection:
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
@@ -1664,6 +1700,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             cursor.row = rowIndex
         }
         applyEditableDocumentSnapshot(document)
+        retainPreparedEditablePlaybackSnapshot(afterNonContentChangeFrom: previousRevision)
+    }
+
+    private func retainPreparedEditablePlaybackSnapshot(afterNonContentChangeFrom previousRevision: UInt64) {
+        preparedEditablePlaybackRevision = EditablePlaybackSnapshotRevisionPolicy.afterNonContentChange(
+            preparedIdentity: preparedEditablePlaybackIdentity,
+            preparedRevision: preparedEditablePlaybackRevision,
+            documentIdentity: editableDocumentIdentity,
+            previousRevision: previousRevision,
+            currentRevision: editableDocumentRevision
+        )
     }
 
     private func refreshEditableDocumentPresentation(_ document: BlankTrackerDocument) {
@@ -1887,6 +1934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let playbackSongBuildStart = timingSession?.beginPhase()
             let playbackSong = try? PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
             timingPlaybackSong = playbackSong
+            songDuration.load(song: playbackSong, identity: loadedModuleIdentity)
             timingSession?.recordPhase(
                 "playback_song_builder_build",
                 startedAt: playbackSongBuildStart,
@@ -1894,7 +1942,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             )
 
             let engineLoadStart = timingSession?.beginPhase()
-            playbackEngine.load(song: playbackSong, timingSession: timingSession)
+            let launchContext = playbackEngine.startContext(
+                for: PlaybackDebugLaunchConfiguration.parse().startRequest, in: playbackSong)
+            playbackEngine.load(song: playbackSong, startContext: launchContext, timingSession: timingSession)
             timingSession?.recordPhase(
                 "playback_engine_load",
                 startedAt: engineLoadStart,
@@ -1919,7 +1969,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 trackerDividerUnderlayView?.isHidden = false
                 trackerChromeOverlayView?.isHidden = false
                 updatePatternSelector(for: metadata, keepPattern: nil)
-                applySongPosition(selectedSongPositionIndex, in: metadata, resetCursor: false)
+                applySongPosition(selectedSongPositionIndex, in: metadata, resetCursor: false, preparePlayback: false)
                 renderCurrentPattern(metadata: metadata)
             } else {
                 metadataTextView?.activeFieldRange = nil
@@ -2043,7 +2093,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             document.selectInstrument(selectedInstrument)
             guard document.selection != previousSelection else { return false }
             cancelPreviewForSelectionChange()
+            let previousRevision = editableDocumentRevision
             blankDocument = document
+            retainPreparedEditablePlaybackSnapshot(afterNonContentChangeFrom: previousRevision)
             syncControlPanelView()
             return true
         }
@@ -2072,7 +2124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             document.selectSample(selectedSample)
             guard document.selection != previousSelection else { return false }
             cancelPreviewForSelectionChange()
+            let previousRevision = editableDocumentRevision
             blankDocument = document
+            retainPreparedEditablePlaybackSnapshot(afterNonContentChangeFrom: previousRevision)
             syncControlPanelView()
             return true
         }
@@ -2126,30 +2180,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func playPressed(_ sender: Any?) {
-        let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        let heartbeat = PlaybackMainThreadHeartbeatProbe.begin()
+        let timingSession = beginPlayTimingSession()
         guard prepareEditablePlaybackSnapshotForPlayIfNeeded(timingSession: timingSession) else {
             syncControlPanelView()
+            recordPlayHeartbeat(heartbeat, timingSession: timingSession)
             finishPlayTimingSession(timingSession, context: nil)
             return
         }
         let context = measuredPlaybackStartContext(timingSession: timingSession)
         cancelNoteAuditionForDocumentTransition()
-        let enginePlayStart = timingSession?.beginPhase()
-        playbackEngine.play(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
-        timingSession?.recordPhase(
-            "app_delegate_play_to_playback_engine_play",
-            startedAt: enginePlayStart,
-            fields: [PlaybackTimingTraceField("is_playing_after", playbackEngine.state.isPlaying)]
-        )
-        let controlPanelStart = timingSession?.beginPhase()
+        requestPreparedPlayback(from: context, timingSession: timingSession, heartbeat: heartbeat)
+    }
+
+    private func requestPreparedPlayback(from context: PlaybackStartContext?, timingSession: PlaybackTimingTraceSession?,
+                                         heartbeat: PlaybackMainThreadHeartbeatProbe?) {
+        let identity = editableDocumentIdentity
+        let loadedIdentity = loadedModuleIdentity
+        let wasEditable = blankDocument != nil && loadedMetadata == nil
+        let requestedLoop = isLoopPlaybackEnabled
+        let requestStart = timingSession?.beginPhase()
+        playbackEngine.requestPlay(from: context, loopEnabled: isLoopPlaybackEnabled,
+            timingSession: timingSession, admissionIsCurrent: { [weak self] in
+                guard let self, self.currentPlaybackStartContext() == context,
+                      self.isLoopPlaybackEnabled == requestedLoop else { return false }
+                if wasEditable {
+                    return self.loadedMetadata == nil && self.editableDocumentIdentity == identity &&
+                        self.preparedEditablePlaybackIdentity == identity &&
+                        self.preparedEditablePlaybackRevision == self.editableDocumentRevision
+                }
+                return self.loadedModuleIdentity == loadedIdentity && self.loadedMetadata != nil
+            }, completion: { [weak self] started in
+                guard let self else { return }
+                let epoch = self.playbackEngine.timingTransportEpoch
+                timingSession?.recordMilestone("play_admission", at: DispatchTime.now().uptimeNanoseconds,
+                    fields: [.init("started", started)])
+                // Keep request-return before total, including an already-ready cache.
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.syncControlPanelView()
+                    if started, let timingSession {
+                        var observed = false
+                        for _ in 0..<100 {
+                            guard self.playbackEngine.timingTransportEpoch == epoch,
+                                  self.playbackEngine.state.isPlaying else { break }
+                            if let output = self.playbackEngine.firstHostOutputObservation(),
+                               let requestStart, output.completedUptimeNanoseconds >= requestStart {
+                                timingSession.recordMilestone("first_actual_host_output",
+                                    at: output.completedUptimeNanoseconds,
+                                    fields: [.init("host_generation", output.generation),
+                                             .init("runtime_end_frame", output.runtimeEndFrame)])
+                                observed = true
+                                break
+                            }
+                            try? await Task.sleep(nanoseconds: 10_000_000)
+                        }
+                        timingSession.recordPhase("host_output_observation", startedAt: nil,
+                            fields: [.init("observed", observed)])
+                    }
+                    self.recordPlayHeartbeat(heartbeat, timingSession: timingSession)
+                    self.finishPlayTimingSession(timingSession, context: context)
+                }
+            })
+        timingSession?.recordPhase("app_delegate_play_request_return", startedAt: requestStart,
+            fields: [.init("preparing", playbackEngine.isPreparingPlayback),
+                     .init("request_start_uptime_ns", requestStart ?? 0),
+                     .init("is_playing_after", playbackEngine.state.isPlaying)])
         syncControlPanelView()
-        timingSession?.recordPhase("control_panel_sync_after_play", startedAt: controlPanelStart)
-        finishPlayTimingSession(timingSession, context: context)
     }
 
     @objc
     private func playCurrentPatternPressed(_ sender: Any?) {
-        let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        let timingSession = beginPlayTimingSession()
         guard !playbackEngine.state.isPlaying,
               TrackerTransportCommandAvailability.canPlayCurrentPattern(
                   metadata: displayedMetadata,
@@ -2192,17 +2294,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard displayedMetadata != nil else {
             return false
         }
-        let timingSession = playbackEngine.state.isPlaying ? nil : playbackTimingRecorder.beginLifecycle("play")
+        if playbackEngine.state.isPlaying || playbackEngine.isPreparingPlayback {
+            cancelNoteAuditionForDocumentTransition()
+            playbackEngine.stop()
+            syncControlPanelView()
+            return true
+        }
+        let heartbeat = PlaybackMainThreadHeartbeatProbe.begin()
+        let timingSession = beginPlayTimingSession()
         guard prepareEditablePlaybackSnapshotForPlayIfNeeded(timingSession: timingSession) else {
             syncControlPanelView()
+            recordPlayHeartbeat(heartbeat, timingSession: timingSession)
             finishPlayTimingSession(timingSession, context: nil)
             return true
         }
         let context = measuredPlaybackStartContext(timingSession: timingSession)
         cancelNoteAuditionForDocumentTransition()
-        playbackEngine.togglePlayStop(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
-        syncControlPanelView()
-        finishPlayTimingSession(timingSession, context: context)
+        requestPreparedPlayback(from: context, timingSession: timingSession, heartbeat: heartbeat)
         return true
     }
 
@@ -2267,7 +2375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func performDebugAutoplay(_ configuration: PlaybackDebugLaunchConfiguration) {
-        let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        let timingSession = beginPlayTimingSession()
         if let request = configuration.startRequest {
             playbackEngine.seek(to: request, autoplay: true, timingSession: timingSession)
         } else {
@@ -2300,7 +2408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func playDebugReplayAfterStop(stopAfterSeconds seconds: TimeInterval?) {
-        let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        let timingSession = beginPlayTimingSession()
         let context = measuredPlaybackStartContext(timingSession: timingSession)
         playbackEngine.play(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
         syncControlPanelView()
@@ -2348,6 +2456,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         }
 
+        if preparedEditablePlaybackIdentity == editableDocumentIdentity,
+           preparedEditablePlaybackRevision == editableDocumentRevision, playbackEngine.song != nil { return true }
         let buildStart = timingSession?.beginPhase()
         let song = EditablePlaybackSongBuilder.build(from: document)
         timingSession?.recordPhase(
@@ -2357,7 +2467,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
 
         let loadStart = timingSession?.beginPhase()
-        playbackEngine.load(song: song, timingSession: timingSession)
+        playbackEngine.loadEditableSnapshot(song: song, identity: editableDocumentIdentity,
+            startContext: currentPlaybackStartContext(), loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
+        preparedEditablePlaybackIdentity = editableDocumentIdentity
+        preparedEditablePlaybackRevision = editableDocumentRevision
         timingSession?.recordPhase(
             "editable_playback_engine_load_snapshot",
             startedAt: loadStart,
@@ -2437,6 +2550,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         fields.append(contentsOf: PlaybackTimingTraceFields.playbackSong(playbackSong))
         timingSession.finish(fields: fields)
+    }
+
+    private func beginPlayTimingSession() -> PlaybackTimingTraceSession? {
+        let session = playbackTimingRecorder.beginLifecycle("play")
+        if let session {
+            session.recordPhase("ui_play_handler_entry", startedAt: nil,
+                fields: [.init("ui_handler_entry_uptime_ns", session.startUptimeNanoseconds)])
+        }
+        return session
+    }
+
+    private func recordPlayHeartbeat(_ heartbeat: PlaybackMainThreadHeartbeatProbe?,
+                                     timingSession: PlaybackTimingTraceSession?) {
+        guard let measurement = heartbeat?.finish() else { return }
+        timingSession?.recordMeasuredPhase("main_dispatch_delay", elapsedMS: measurement.maximumDispatchDelayMS,
+            fields: measurement.fields)
     }
 
     private func finishPlayTimingSession(_ timingSession: PlaybackTimingTraceSession?, context: PlaybackStartContext?) {
@@ -2596,7 +2725,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         selector.isEnabled = true
     }
 
-    private func applySongPosition(_ proposedPosition: Int, in metadata: ParsedModuleMetadata, resetCursor: Bool = true) {
+    private func applySongPosition(_ proposedPosition: Int, in metadata: ParsedModuleMetadata,
+                                   resetCursor: Bool = true, preparePlayback: Bool = true) {
         let clampedPosition = clampedSongPosition(proposedPosition, songLength: metadata.songLength)
         selectedSongPositionIndex = clampedPosition
         if let patternIndex = displayedPatternIndex(in: metadata, songPosition: clampedPosition) {
@@ -2608,6 +2738,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         if resetCursor {
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
+        }
+        // Initial presentation reset must not replace a known debug-launch origin.
+        if preparePlayback {
+            playbackEngine.prepare(from: currentPlaybackStartContext(), loopEnabled: isLoopPlaybackEnabled)
         }
     }
 
@@ -3297,14 +3431,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if shouldReloadInstrumentControls {
                 reloadInstrumentControls(for: blankDocument)
             }
-            controlPanelView?.apply(ControlPanelDisplayState.blankDocumentContent(
+            var content = ControlPanelDisplayState.blankDocumentContent(
                 for: blankDocument,
                 selectedSongPositionIndex: selectedSongPositionIndex,
                 selectedOctave: selectedOctave,
                 isLoopEnabled: isLoopPlaybackEnabled,
                 isEditModeEnabled: isEditModeEnabled,
                 isPlaybackActive: playbackEngine.state.isPlaying
-            ))
+            )
+            content.isPlaybackPreparing = playbackEngine.isPreparingPlayback
+            content.songTime = ControlPanelDisplayState.songTimeDisplay(durationSeconds: songDuration.durationSeconds)
+            content.songTimeTooltip = songDuration.tooltip
+            controlPanelView?.apply(content)
             return
         }
 
@@ -3313,7 +3451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 reloadInstrumentControls(for: metadata, selection: loadedModuleSelection)
             }
             let selectedInstrument = playbackEngine.song?.instrument(forInstrument: loadedModuleSelection.selectedInstrument)
-            let content = ControlPanelDisplayState.loadedModuleContent(
+            var content = ControlPanelDisplayState.loadedModuleContent(
                 metadata: metadata,
                 selection: loadedModuleSelection,
                 selectedSongPositionIndex: selectedSongPositionIndex,
@@ -3323,10 +3461,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 isEditModeEnabled: isEditModeEnabled,
                 isPlaybackActive: playbackEngine.state.isPlaying,
                 songTime: ControlPanelDisplayState.songTimeDisplay(
-                    durationSeconds: playbackEngine.runtimeAdapterPlanDurationSeconds
+                    durationSeconds: songDuration.durationSeconds
                 ),
                 selectedInstrumentName: selectedInstrument?.name
             )
+            content.isPlaybackPreparing = playbackEngine.isPreparingPlayback
+            content.songTimeTooltip = songDuration.tooltip
             controlPanelView?.apply(content)
         } else {
             if shouldReloadInstrumentControls {

@@ -11,6 +11,11 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from .runtime_loop_trace import (
+    FINITE_SONG, ScopedLoopTraceError, loop_observation, require_unscoped_offline_correlation,
+    scoped_finite_song_summary, scoped_loop_summary,
+)
+
 
 FLOAT_DIGITS = 9
 DEFAULT_ALIGNMENT_SEARCH_FRAMES = 1024
@@ -314,7 +319,14 @@ def trace_correlation(events: list[dict[str, Any]], start_frame: int, end_frame:
                                  "sameFrameBurstActiveVoiceCountBefore", "sameFrameBurstActiveVoiceCountAfter")
     loaded_values = event_values(nearby, "loadedVoiceCount", "loadedVoiceCountBefore", "loadedVoiceCountAfter",
                                  "sameFrameBurstLoadedVoiceCountBefore", "sameFrameBurstLoadedVoiceCountAfter")
+    try:
+        native_loop = scoped_loop_summary([row["event"] for row in nearby])
+        native_song = scoped_finite_song_summary([row["event"] for row in nearby])
+    except ScopedLoopTraceError as error:
+        raise WindowCorrelationError(str(error)) from error
     return {
+        **({"user_loop_native": native_loop} if native_loop is not None else {}),
+        **({"ordinary_native": native_song} if native_song is not None else {}),
         "padding_frames": padding,
         "event_count": len(nearby),
         "category_counts": dict(sorted(Counter(row["category"] for row in nearby).items())),
@@ -464,6 +476,9 @@ def event_order_sample(rows: list[dict[str, Any]], start_frame: int, limit: int)
             "loaded_voice_count_before": integer(row["event"].get("loadedVoiceCountBefore")),
             "loaded_voice_count_after": integer(row["event"].get("loadedVoiceCountAfter")),
             "context": trace_context(row["event"]),
+            **({("ordinary_occurrence" if row["event"].get("nativeTransportKind") == FINITE_SONG else "loop_occurrence"):
+                loop_observation(row["event"])}
+               if "loopOccurrence" in row["event"] else {}),
         }
         for row in rows[:limit]
     ]
@@ -699,6 +714,10 @@ def build_report(
     if runtime_info["channel_count"] != offline_info["channel_count"]:
         raise WindowCorrelationError("runtime and offline WAV channel counts must match")
     trace = load_trace(runtime_trace)
+    try:
+        require_unscoped_offline_correlation(trace, offline_diagnostics_json is not None)
+    except ScopedLoopTraceError as error:
+        raise WindowCorrelationError(str(error)) from error
     offline_diagnostics = load_json(offline_diagnostics_json, "offline diagnostics JSON") if offline_diagnostics_json else None
     parsed_windows = [parse_window(window, runtime_info["sample_rate"], False) for window in windows]
     parsed_windows += [parse_window(window, runtime_info["sample_rate"], True) for window in window_frames]
@@ -816,6 +835,12 @@ def build_markdown(report: dict[str, Any]) -> str:
             f"- Active voices: {trace['active_voice_range']['min']}...{trace['active_voice_range']['max']}; "
             f"loaded voices: {trace['loaded_voice_range']['min']}...{trace['loaded_voice_range']['max']}",
         ])
+        if trace.get("user_loop_native") is not None:
+            native_loop = trace["user_loop_native"]
+            lines.append(f"- Scoped user-Loop observations: {native_loop['observed_occurrence_count']}; raw IDs are plan-local. JSON retains occurrence and birth keys; no unscoped offline identity/effect join was performed.")
+        if trace.get("ordinary_native") is not None:
+            native_song = trace["ordinary_native"]
+            lines.append(f"- Scoped ordinary song observations: {native_song['observed_occurrence_count']}; schema v2 IDs are plan-local. JSON retains transport-kind occurrence and birth keys; no unscoped offline identity/effect join was performed.")
         if trace["same_frame_bursts"]:
             burst = trace["same_frame_bursts"][0]
             lines.append(

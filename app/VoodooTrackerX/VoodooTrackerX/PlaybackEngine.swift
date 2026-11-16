@@ -7,7 +7,7 @@ struct PlaybackPreparationKey: Equatable, Sendable {
     enum FrequencyMode: Equatable, Sendable { case linear, amiga }
     struct Bounds: Equatable, Sendable { let lowerOrder: Int; let upperOrder: Int }
     enum Origin: Equatable, Sendable { case cold(order: Int, row: Int), warm(frontier: UInt64) }
-    enum Purpose: Equatable, Sendable { case normalPlay, resetSeek, loopRefresh, editRefresh }
+    enum Purpose: Equatable, Sendable { case normalPlay, resetSeek, loopRefresh, editRefresh, userLoop }
     struct LoopScope: Equatable, Sendable { let order: Int; let pattern: Int }
 
     let instanceEpoch: UUID
@@ -68,7 +68,7 @@ struct PlaybackPreparationAttempt: Equatable, Sendable {
     let serial: UInt64
 }
 
-/// A producer checks this token only on its off-RT worker. Existing make is unchanged.
+/// A producer checks this token within construction on its off-RT worker.
 final class PlaybackPreparationCancellation: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
@@ -79,7 +79,8 @@ final class PlaybackPreparationCancellation: @unchecked Sendable {
         return cancelled
     }
 
-    fileprivate func cancel() {
+    /// Cancels an off-Main preparation or timing-only metadata traversal.
+    func cancel() {
         lock.lock()
         cancelled = true
         lock.unlock()
@@ -375,6 +376,10 @@ final class PlaybackPreparationOwner<Product: Sendable>: Sendable {
     }
 
     var snapshot: Snapshot { core.snapshot }
+
+    /// Explicit Loop uses this same serial lane after revoking normal preparation.
+    /// It must never perform work from a render callback or wait on its own queue.
+    var productionQueue: DispatchQueue { core.queue }
 }
 
 /// A synchronous control-side source supply; queued requests retain only `key` and attempt.
@@ -448,15 +453,19 @@ protocol RuntimeAdapterPlanPrewarmScheduling: AnyObject {
 }
 
 /// Optional scalar probes and worker barriers exercise the actual production arbitration.
-/// The default maker remains the existing whole-song adapter, including its legacy origin.
+/// Construction uses full traversal bounds with a cold origin supplied by the request.
 struct RuntimeAdapterPlanPreparationHooks: Sendable {
     var beforeSourceResolution: @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt) -> Void = { _, _ in }
     var beforeMake: @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt) -> Void = { _, _ in }
     var afterMake: @Sendable (PlaybackPreparationKey, PlaybackPreparationAttempt) -> Void = { _, _ in }
     var receipt: @Sendable (RuntimeAdapterPlanPreparationReceipt) -> Void = { _ in }
-    var makePlan: @Sendable (PlaybackSong, Double, AdapterPlanProfileSession?) -> RuntimeCMixerAdapterEventPlan? = {
-        RuntimeCMixerAdapterEventPlan.make(song: $0, sampleRate: $1, profileSession: $2,
-            rowCaptureRetention: .runtimeFinalized)
+    var makePlan: @Sendable (PlaybackSong, Double, AdapterPlanProfileSession?, PlaybackPreparationKey, PlaybackPreparationCancellation) -> RuntimeCMixerAdapterEventPlan? = { song, rate, profile, key, cancellation in
+        guard case let .cold(order, row) = key.origin,
+              let origin = song.position(orderIndex: order, rowIndex: row),
+              origin.orderIndex == order, origin.rowIndex == row else { return nil }
+        return RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate, profileSession: profile,
+            rowCaptureRetention: .runtimeFinalized, initialPosition: origin,
+            isCancelled: { cancellation.isCancelled })
     }
 }
 
@@ -637,7 +646,12 @@ private final class DispatchQueueRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPla
 
 /// The single production constructor for prewarm, compatible waits, fallback and refresh.
 /// The fixed producer closes over the broker only, never the engine or an initial song.
-final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling {
+@MainActor
+protocol RuntimeUserLoopWorkerProviding: AnyObject {
+    var userLoopWorkerQueue: DispatchQueue { get }
+}
+
+final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling, RuntimeUserLoopWorkerProviding {
     private let broker: RuntimeAdapterPlanPreparationBroker
     private let owner: PlaybackPreparationOwner<RuntimeAdapterPlanPrewarmResult>
     private let hooks: RuntimeAdapterPlanPreparationHooks
@@ -669,7 +683,7 @@ final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanP
             let profileSession = source.recorder?.beginLifecycle("prewarm")
             hooks.receipt(.init(kind: .constructorStarted, key: key, attempt: attempt, isMainThread: Thread.isMainThread))
             let start = DispatchTime.now().uptimeNanoseconds
-            let plan = hooks.makePlan(song, source.sampleRate, profileSession)
+            let plan = hooks.makePlan(song, source.sampleRate, profileSession, key, cancellation)
             let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
             hooks.receipt(.init(kind: .constructorFinished, key: key, attempt: attempt, isMainThread: Thread.isMainThread))
             hooks.afterMake(key, attempt)
@@ -704,6 +718,7 @@ final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanP
     }
 
     var snapshot: PlaybackPreparationOwner<RuntimeAdapterPlanPrewarmResult>.Snapshot { owner.snapshot }
+    var userLoopWorkerQueue: DispatchQueue { owner.productionQueue }
 
     func schedule(
         request: RuntimeAdapterPlanPrewarmRequest,
@@ -724,6 +739,13 @@ final class PlaybackEngine: PlaybackTransport {
 
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Playback")
     private let audioEngine: PlaybackAudioOutput
+
+    /// Diagnostic polling is scoped to the admitted transport, never a later Play.
+    var timingTransportEpoch: UInt64 { preparationTransportEpoch }
+
+    func firstHostOutputObservation() -> RuntimeCMixerFirstHostOutputObservation? {
+        (audioEngine as? RuntimeCMixerAudioEngine)?.firstHostOutputObservation()
+    }
     private let traceWriter: PlaybackTraceWriting
     private let runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting
     private let playbackTimingRecorder: PlaybackTimingTraceRecorder?
@@ -754,6 +776,11 @@ final class PlaybackEngine: PlaybackTransport {
     private var preparationSourceSerial: UInt64 = 0
     private var currentSourceGeneration: UInt64 = 0
     private var runtimeAdapterPlanKey: PlaybackPreparationKey?
+    private var userLoopPreparationSession: RuntimeLoopPlanningSession?
+    private var userLoopPreparationKey: PlaybackPreparationKey?
+    private var intendsExecutedUserLoop = false
+    private var lastAdmittedUserLoopRefresh: UInt64 = 0
+    private var desiredUserLoopRefresh: (serial: UInt64, song: PlaybackSong, generation: UInt64)?
     private var runtimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob?
     private var runtimeAdapterPlanPrewarmTimingSession: PlaybackTimingTraceSession?
     private var runtimeAdapterPlanCacheSource = RuntimeAdapterPlanCacheSource.none
@@ -772,11 +799,19 @@ final class PlaybackEngine: PlaybackTransport {
     private var runtimeNoteTriggerEventCount: UInt64 = 0
     private var activeDebugStartTraceContext: PlaybackDebugStartTraceContext?
     private var activePatternLoopRange: PlaybackPatternLoopRange?
+    private struct PendingPlay {
+        let id: UUID
+        let completion: @MainActor (Bool) -> Void
+    }
+    private var pendingPlay: PendingPlay?
+    var isPreparingPlayback: Bool { pendingPlay != nil }
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
     var playbackDidFail: ((RuntimeCMixerAdmissionFault) -> Void)?
+    var userLoopPlaybackDidFail: ((RuntimeUserLoopPlaybackFailure) -> Void)?
     var runtimeAdapterPlanDidUpdate: (() -> Void)?
+    var playbackPreparationDidChange: (() -> Void)?
 
     var runtimeAdapterPlanDurationSeconds: TimeInterval? {
         runtimeAdapterEventPlan.plannedSongEndSeconds
@@ -846,7 +881,30 @@ final class PlaybackEngine: PlaybackTransport {
         editablePatternLoopRefreshJob?.cancel()
     }
 
-    func load(song: PlaybackSong?, timingSession: PlaybackTimingTraceSession? = nil) {
+    private var preparedEditableSourceIdentity: UUID?
+    private var intendedColdPosition: PlaybackPosition?
+
+    /// Resolves a known launch origin before speculative construction begins.
+    func startContext(for request: PlaybackDebugStartRequest?, in song: PlaybackSong?) -> PlaybackStartContext? {
+        guard let request, let song, let resolved = resolveDebugStart(request, in: song) else { return nil }
+        return .init(moduleTitle: song.title, songPosition: resolved.position.orderIndex,
+            patternIndex: resolved.position.patternIndex, row: resolved.position.rowIndex)
+    }
+
+    /// Reuses an unchanged editable audio value after focus/navigation-only revisions.
+    /// A different document identity always creates a fresh source generation.
+    func loadEditableSnapshot(song: PlaybackSong, identity: UUID?, startContext: PlaybackStartContext?,
+                              loopEnabled: Bool, timingSession: PlaybackTimingTraceSession?) {
+        if let identity, preparedEditableSourceIdentity == identity, self.song == song {
+            prepare(from: startContext, loopEnabled: loopEnabled)
+            return
+        }
+        load(song: song, startContext: startContext, loopEnabled: loopEnabled, timingSession: timingSession)
+        preparedEditableSourceIdentity = identity
+    }
+
+    func load(song: PlaybackSong?, startContext: PlaybackStartContext? = nil, loopEnabled: Bool = false, timingSession: PlaybackTimingTraceSession? = nil) {
+        preparedEditableSourceIdentity = nil
         runtimeAdapterPlanGeneration &+= 1
         cancelRuntimeAdapterPlanPrewarm(reason: "load_invalidation")
         cancelEditablePatternLoopRefresh(reason: "load_invalidation")
@@ -863,8 +921,11 @@ final class PlaybackEngine: PlaybackTransport {
         preparationDocumentID = UUID()
         currentSourceGeneration = mintSourceGeneration()
         timing = song?.initialTiming ?? .xmDefault
-        currentPosition = song?.startPosition
-        currentPublishedFollowPosition = song?.startPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
+        currentPosition = startContext == nil ? song?.startPosition : song.flatMap { playbackStartPosition(from: startContext, in: $0) ?? $0.startPosition }
+        intendedColdPosition = currentPosition
+        intendsExecutedUserLoop = loopEnabled && supportsExecutedUserLoop
+        if loopEnabled && !intendsExecutedUserLoop { intendedColdPosition = song?.startPosition }
+        currentPublishedFollowPosition = currentPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
         pendingPositionCommand = nil
         channelStates.removeAll()
         globalState = PlaybackGlobalState()
@@ -880,7 +941,9 @@ final class PlaybackEngine: PlaybackTransport {
             fields: PlaybackTimingTraceFields.playbackSong(song)
         )
         invalidateRuntimeAdapterEventPlan(timingSession: timingSession)
-        scheduleRuntimeAdapterPlanPrewarmIfNeeded(for: song, timingSession: timingSession)
+        if intendsExecutedUserLoop, let song, let position = currentPosition {
+            _ = scheduleUserLoopPreparation(song: song, position: position)
+        } else { scheduleRuntimeAdapterPlanPrewarmIfNeeded(for: song, timingSession: timingSession) }
         cancelRuntimeCMixerSongEndStop()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
@@ -915,6 +978,20 @@ final class PlaybackEngine: PlaybackTransport {
         } else {
             playbackRefreshSong = refreshedSong
         }
+        if let native = audioEngine as? RuntimeCMixerUserLoopConsuming, native.hasRuntimeUserLoop,
+           let session = userLoopPreparationSession {
+            let original = session.scope
+            let generation = mintSourceGeneration()
+            let scope = RuntimeLoopNativeScope(documentHigh: original.documentHigh, documentLow: original.documentLow,
+                sourceGeneration: generation, transportEpoch: original.transportEpoch,
+                sampleRateBits: audioEngine.audioBufferSampleRate.bitPattern, semanticVersion: original.semanticVersion,
+                linearFrequencyMode: playbackRefreshSong.usesLinearFrequencyTable,
+                order: original.order, pattern: original.pattern, firstRow: original.firstRow, lastRow: original.lastRow)
+            if let serial = session.requestEditableRefresh(song: playbackRefreshSong, scope: scope) {
+                desiredUserLoopRefresh = (serial, playbackRefreshSong, generation)
+            }
+            return
+        }
         cancelRuntimeAdapterPlanPrewarm(reason: "edit_refresh")
         cancelEditablePatternLoopRefresh(reason: "superseded_refresh")
         let generation = editablePatternLoopRefreshGeneration
@@ -943,6 +1020,99 @@ final class PlaybackEngine: PlaybackTransport {
 
     func play(from context: PlaybackStartContext?, loopEnabled: Bool, timingSession: PlaybackTimingTraceSession?) {
         play(from: context, debugStart: nil, loopEnabled: loopEnabled, action: .play, timingSession: timingSession)
+    }
+
+    /// Product Play prepares a fresh normal origin without joining a constructor
+    /// on Main. A compatible admitted full plan and explicit Loop keep their paths.
+    func requestPlay(from context: PlaybackStartContext?, loopEnabled: Bool,
+                     timingSession: PlaybackTimingTraceSession?,
+                     admissionIsCurrent: @escaping @MainActor () -> Bool = { true },
+                     completion: @escaping @MainActor (Bool) -> Void) {
+        guard !state.isPlaying else { completion(false); return }
+        if let previous = pendingPlay {
+            preparationControlIntent += 1
+            let cancellationIntent = preparationControlIntent
+            cancelUserLoopPreparation()
+            finishPendingPlay(previous.id, started: false)
+            guard preparationControlIntent == cancellationIntent, !state.isPlaying else {
+                completion(false); return
+            }
+        }
+        if (audioEngine as? RuntimeCMixerUserLoopConsuming)?.hasRuntimeUserLoop == true {
+            // A position observer can replace Play after the old native graph is
+            // installed but before its transport state becomes playing.
+            let replacementIntent = preparationControlIntent + 1
+            stop(notify: false, resetAudio: false, reason: "loop_start_superseded")
+            guard preparationControlIntent == replacementIntent, !state.isPlaying,
+                  (audioEngine as? RuntimeCMixerUserLoopConsuming)?.hasRuntimeUserLoop != true else {
+                completion(false); return
+            }
+        }
+        let admissionIntent = preparationControlIntent
+        let admissionEpoch = preparationTransportEpoch
+        let admissionGeneration = currentSourceGeneration
+        guard let song, let position = playbackStartPosition(from: context, in: song) ?? song.startPosition,
+              admissionIsCurrent(), preparationControlIntent == admissionIntent,
+              preparationTransportEpoch == admissionEpoch,
+              currentSourceGeneration == admissionGeneration,
+              pendingPlay == nil, !state.isPlaying else { completion(false); return }
+        let compatibleFullPlan = runtimeAdapterEventPlan.generated &&
+            runtimeAdapterPlanKey?.sourceGeneration == currentSourceGeneration &&
+            runtimeAdapterPlanKey?.origin == .cold(order: position.orderIndex, row: position.rowIndex) &&
+            runtimeAdapterPlanKey?.sampleRateBits == audioEngine.audioBufferSampleRate.bitPattern &&
+            runtimeAdapterPlanKey?.frequencyMode == (song.usesLinearFrequencyTable ? .linear : .amiga)
+        if loopEnabled || !supportsExecutedUserLoop || compatibleFullPlan {
+            play(from: context, loopEnabled: loopEnabled, timingSession: timingSession)
+            completion(state.isPlaying)
+            return
+        }
+        intendsExecutedUserLoop = false
+        updatePreparationOrigin(position, timingSession: timingSession)
+        preparationControlIntent += 1
+        let intent = preparationControlIntent, epoch = preparationTransportEpoch
+        let generation = currentSourceGeneration, requestID = UUID()
+        pendingPlay = PendingPlay(id: requestID, completion: completion)
+        let waitStart = timingSession?.beginPhase()
+        let session = scheduleUserLoopPreparation(song: song, position: position, transportKind: .finiteSong,
+            onInitialPreparation: { [weak self] result in
+                Task { @MainActor [weak self] in
+                    guard let self, self.pendingPlay?.id == requestID else { return }
+                    guard self.preparationControlIntent == intent, self.preparationTransportEpoch == epoch,
+                          self.currentSourceGeneration == generation, !self.state.isPlaying,
+                          case let .ready(preparation) = result,
+                          let session = self.userLoopPreparationSession,
+                          session.scope == preparation.scope, session.channel === preparation.channel,
+                          !session.isCancelled else {
+                        self.finishPendingPlay(requestID, started: false)
+                        return
+                    }
+                    guard admissionIsCurrent(), self.pendingPlay?.id == requestID,
+                          self.preparationControlIntent == intent, self.preparationTransportEpoch == epoch,
+                          self.currentSourceGeneration == generation, !self.state.isPlaying,
+                          self.userLoopPreparationSession === session, !session.isCancelled else {
+                        self.finishPendingPlay(requestID, started: false)
+                        return
+                    }
+                    timingSession?.recordPhase("normal_continuation_preparation", startedAt: waitStart)
+                    self.play(from: context, debugStart: nil, loopEnabled: false, action: .play,
+                        timingSession: timingSession, preparedContinuation: (session, preparation))
+                    let started = self.state.isPlaying && self.preparationTransportEpoch == epoch &&
+                        self.currentSourceGeneration == generation && self.userLoopPreparationSession === session
+                    self.finishPendingPlay(requestID, started: started)
+                }
+            })
+        guard session != nil else { finishPendingPlay(requestID, started: false); return }
+        playbackPreparationDidChange?()
+    }
+
+    private func finishPendingPlay(_ id: UUID, started: Bool) {
+        guard let pendingPlay, pendingPlay.id == id else { return }
+        self.pendingPlay = nil
+        if !started, userLoopPreparationSession?.scope.transportKind == .finiteSong {
+            cancelUserLoopPreparation()
+        }
+        playbackPreparationDidChange?()
+        pendingPlay.completion(started)
     }
 
     func playCurrentPatternLoop(from context: PlaybackStartContext?, timingSession: PlaybackTimingTraceSession?) {
@@ -989,9 +1159,9 @@ final class PlaybackEngine: PlaybackTransport {
 
         isolatedPatternLoopPlaybackRestoreState = IsolatedPatternLoopPlaybackRestoreState(
             sourceSong: sourceSong,
-            runtimeAdapterEventPlan: runtimeAdapterEventPlan,
-            runtimeAdapterPlanCacheSource: runtimeAdapterPlanCacheSource,
-            runtimeAdapterPlanUseCount: runtimeAdapterPlanUseCount,
+            runtimeAdapterEventPlan: .unavailable(sampleRate: audioEngine.audioBufferSampleRate),
+            runtimeAdapterPlanCacheSource: .none,
+            runtimeAdapterPlanUseCount: 0,
             key: runtimeAdapterPlanKey
         )
         isolatedPatternLoopPlaybackContext = IsolatedPatternLoopPlaybackContext(
@@ -1027,7 +1197,8 @@ final class PlaybackEngine: PlaybackTransport {
         debugStart: PlaybackDebugStartRequest?,
         loopEnabled: Bool,
         action: PlaybackTransportAction,
-        timingSession: PlaybackTimingTraceSession?
+        timingSession: PlaybackTimingTraceSession?,
+        preparedContinuation: (RuntimeLoopPlanningSession, RuntimeLoopPlanningSession.Preparation)? = nil
     ) {
         guard !state.isPlaying else {
             timingSession?.recordPhase(
@@ -1037,6 +1208,13 @@ final class PlaybackEngine: PlaybackTransport {
             )
             logger.debug("Ignoring play request because playback is already active")
             return
+        }
+        if (audioEngine as? RuntimeCMixerUserLoopConsuming)?.hasRuntimeUserLoop == true {
+            // A synchronous observer may replace a start before transport publishes
+            // playing. Quiesce that installed generation before creating the new one.
+            let replacementIntent = preparationControlIntent + 1
+            stop(notify: false, resetAudio: false, reason: "loop_start_superseded")
+            guard preparationControlIntent == replacementIntent, !state.isPlaying else { return }
         }
         guard let song else {
             let stopStart = timingSession?.beginPhase()
@@ -1048,19 +1226,40 @@ final class PlaybackEngine: PlaybackTransport {
             )
             return
         }
+        let resolvedDebugStart = debugStart.flatMap { resolveDebugStart($0, in: song) }
+        let selectedPosition = resolvedDebugStart?.position ?? playbackStartPosition(from: context, in: song) ?? song.startPosition
+        let executedLoop = loopEnabled && supportsExecutedUserLoop
+        intendsExecutedUserLoop = executedLoop
+        updatePreparationOrigin(executedLoop ? selectedPosition : loopEnabled ? song.startPosition : selectedPosition,
+            timingSession: timingSession)
         preparationControlIntent += 1
         let playAdmissionIntent = preparationControlIntent
         let playAdmissionEpoch = preparationTransportEpoch
-        guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession),
-              preparationTransportEpoch == playAdmissionEpoch,
-              preparationControlIntent == playAdmissionIntent else {
-            logger.error("Unable to prepare runtime adapter event plan; playback start aborted")
-            return
+        let preparedLoop: (RuntimeLoopPlanningSession, RuntimeLoopPlanningSession.Preparation)?
+        if let preparedContinuation {
+            guard preparedContinuation.0 === userLoopPreparationSession,
+                  preparedContinuation.1.scope.transportKind == .finiteSong,
+                  !preparedContinuation.0.isCancelled else { return }
+            preparedLoop = preparedContinuation
+        } else if executedLoop {
+            guard let selectedPosition,
+                  let session = scheduleUserLoopPreparation(song: song, position: selectedPosition),
+                  let preparation = awaitUserLoopPreparation(session, epoch: playAdmissionEpoch, intent: playAdmissionIntent),
+                  preparationTransportEpoch == playAdmissionEpoch, preparationControlIntent == playAdmissionIntent else { return }
+            preparedLoop = (session, preparation)
+        } else {
+            cancelUserLoopPreparation()
+            guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession),
+                  preparationTransportEpoch == playAdmissionEpoch,
+                  preparationControlIntent == playAdmissionIntent else {
+                logger.error("Unable to prepare runtime adapter event plan; playback start aborted")
+                return
+            }
+            preparedLoop = nil
         }
         let startPositionStart = timingSession?.beginPhase()
-        let resolvedDebugStart = debugStart.flatMap { resolveDebugStart($0, in: song) }
         let positionBeforePlay = currentPosition
-        currentPosition = resolvedDebugStart?.position ?? playbackStartPosition(from: context, in: song) ?? song.startPosition
+        currentPosition = selectedPosition
         timingSession?.recordPhase(
             "playback_engine_start_position_resolution",
             startedAt: startPositionStart,
@@ -1068,15 +1267,20 @@ final class PlaybackEngine: PlaybackTransport {
         )
 
         let resetStart = timingSession?.beginPhase()
-        resetRuntimeState(resetTiming: resolvedDebugStart != nil)
+        let resetsColdTiming = resolvedDebugStart != nil || audioEngine is RuntimeCMixerAdapterEventConsuming
+        resetRuntimeState(resetTiming: resetsColdTiming)
         activePatternLoopRange = loopEnabled
             ? currentPosition.flatMap { song.patternLoopRange(containing: $0) }
             : nil
+        if let (session, preparation) = preparedLoop {
+            guard (audioEngine as? RuntimeCMixerUserLoopConsuming)?.configureRuntimeUserLoop(session, preparation: preparation) == true,
+                  preparationTransportEpoch == playAdmissionEpoch, preparationControlIntent == playAdmissionIntent else { return }
+        }
         timingSession?.recordPhase(
             "playback_engine_transient_runtime_state_reset",
             startedAt: resetStart,
             fields: [
-                PlaybackTimingTraceField("reset_timing", resolvedDebugStart != nil),
+                PlaybackTimingTraceField("reset_timing", resetsColdTiming),
                 PlaybackTimingTraceField("pattern_loop_enabled_for_play", activePatternLoopRange != nil),
                 PlaybackTimingTraceField("pattern_loop_order", activePatternLoopRange?.orderIndex ?? -1),
                 PlaybackTimingTraceField("pattern_loop_pattern", activePatternLoopRange?.patternIndex ?? -1),
@@ -1130,18 +1334,29 @@ final class PlaybackEngine: PlaybackTransport {
         autoplay: Bool? = nil,
         timingSession: PlaybackTimingTraceSession? = nil
     ) -> PlaybackPosition? {
-        guard let song,
-              let resolvedStart = resolveDebugStart(request, in: song) else {
+        adoptUserLoopRefresh(from: userLoopPreparationSession)
+        guard var song = self.song,
+              var resolvedStart = resolveDebugStart(request, in: song) else {
             return nil
         }
-        preparationControlIntent += 1
-        let seekAdmissionIntent = preparationControlIntent
+        let retiringUserLoopSession = userLoopPreparationSession
         let shouldPlay = autoplay ?? state.isPlaying
+        let executedLoop = intendsExecutedUserLoop && supportsExecutedUserLoop
+        if executedLoop {
+            preparationTransportEpoch += 1
+            cancelUserLoopPreparation()
+        }
         timer?.invalidate()
         timer = nil
         cancelRuntimeCMixerFollowTimer()
         cancelRuntimeCMixerSongEndStop()
+        let quiescenceIntent = preparationControlIntent
         stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "debug_seek")
+        guard preparationControlIntent == quiescenceIntent else { return currentPosition }
+        adoptUserLoopRefresh(from: retiringUserLoopSession)
+        if let admitted = self.song, let selected = resolveDebugStart(request, in: admitted) {
+            song = admitted; resolvedStart = selected
+        }
         currentPosition = resolvedStart.position
         resetRuntimeState(resetTiming: true)
         activeDebugStartTraceContext = shouldPlay
@@ -1152,9 +1367,22 @@ final class PlaybackEngine: PlaybackTransport {
             )
             : nil
 
+        updatePreparationOrigin(resolvedStart.position, timingSession: timingSession)
+        preparationControlIntent += 1
+        let seekAdmissionIntent = preparationControlIntent
         if shouldPlay {
             let admissionEpoch = preparationTransportEpoch
-            let prepared = prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession)
+            let prepared: Bool
+            if executedLoop {
+                if let session = scheduleUserLoopPreparation(song: song, position: resolvedStart.position),
+                   let preparation = awaitUserLoopPreparation(session, epoch: admissionEpoch, intent: seekAdmissionIntent) {
+                    prepared = (audioEngine as? RuntimeCMixerUserLoopConsuming)?
+                        .configureRuntimeUserLoop(session, preparation: preparation) == true
+                    activePatternLoopRange = song.patternLoopRange(containing: resolvedStart.position)
+                } else { prepared = false }
+            } else {
+                prepared = prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession)
+            }
             guard preparationTransportEpoch == admissionEpoch,
                   preparationControlIntent == seekAdmissionIntent else { return resolvedStart.position }
             guard prepared else {
@@ -1214,21 +1442,31 @@ final class PlaybackEngine: PlaybackTransport {
         let stopAdmissionIntent = preparationControlIntent
         cancelRuntimeAdapterPlanPrewarm(reason: "transport_stop")
         cancelEditablePatternLoopRefresh(reason: "transport_stop")
-        let wasActive = state.mode != .stopped || timer != nil
+        let retiringUserLoopSession = userLoopPreparationSession
+        cancelUserLoopPreparation()
+        if let pendingPlay { finishPendingPlay(pendingPlay.id, started: false) }
+        guard preparationControlIntent == stopAdmissionIntent else { return }
+        let wasActive = state.mode != .stopped || timer != nil ||
+            (audioEngine as? RuntimeCMixerUserLoopConsuming)?.hasRuntimeUserLoop == true
         guard wasActive || resetAudio else {
             logger.debug("Ignoring stop request because playback is already stopped")
             return
         }
         let positionBeforeStop = currentPosition
         let tickInRowBeforeStop = tickState.tickInRow
-        let preservedPosition = resetAudio
-            ? song?.startPosition
-            : currentPublishedFollowPosition?.position ?? currentPosition ?? song?.startPosition
         timer?.invalidate()
         timer = nil
         cancelRuntimeCMixerFollowTimer()
         cancelRuntimeCMixerSongEndStop()
         cancelEditablePatternLoopRefresh(reason: "transport_stop")
+        // Capture after host quiescence, while the retiring schedule still owns
+        // its geometry. A delayed UI timer is never a stopped-position authority.
+        let capturedHead = resetAudio ? nil : captureRuntimePlaybackHeadForTransport()
+        let unavailableFollow = currentPublishedFollowPosition.flatMap {
+            !resetAudio && $0.sampleTimeStatus == "capture_unavailable" ? $0 : nil
+        }
+        let preservedPosition = resetAudio ? song?.startPosition :
+            capturedHead?.follow.position ?? currentPublishedFollowPosition?.position ?? currentPosition ?? song?.startPosition
         let automaticStop = reason == "planned_song_end" || reason == "runtime_song_end_tail" || reason == "debug_stop_after_seconds"
         // A callback can fail after the service poll; quiesce before consuming and resetting.
         let finalAdmissionFault = !resetAudio && automaticStop
@@ -1237,14 +1475,22 @@ final class PlaybackEngine: PlaybackTransport {
         if resetAudio {
             audioEngine.reset()
         } else {
-            let audioStopReason = automaticStop || reason == "runtime_mixer_admission_failure" ? reason : "transport_stop"
+            let audioStopReason = automaticStop || reason == "runtime_mixer_admission_failure" || reason.hasPrefix("loop_")
+                ? reason : "transport_stop"
             stopAllAudio(
-                context: runtimeTraceContext(at: positionBeforeStop, tickInRow: tickInRowBeforeStop, channelIndex: nil),
+                context: runtimeTraceContext(at: capturedHead?.follow.position ?? positionBeforeStop,
+                    tickInRow: capturedHead?.follow.tickInRow ?? tickInRowBeforeStop, channelIndex: nil,
+                    timingOverride: capturedHead?.timing),
                 reason: audioStopReason
             )
         }
+        guard preparationControlIntent == stopAdmissionIntent else { return }
+        adoptUserLoopRefresh(from: retiringUserLoopSession)
         tickState.reset()
         currentPosition = preservedPosition
+        currentPublishedFollowPosition = capturedHead?.follow ?? unavailableFollow ??
+            preservedPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
+        if let capturedHead { timing = capturedHead.timing }
         pendingPositionCommand = nil
         channelStates.removeAll()
         globalState = PlaybackGlobalState()
@@ -1266,11 +1512,12 @@ final class PlaybackEngine: PlaybackTransport {
                 reason: reason
             )
         }
+        guard preparationControlIntent == stopAdmissionIntent else { return }
         traceWriter.flush()
         runtimeCMixerTraceWriter.flush()
+        guard preparationControlIntent == stopAdmissionIntent else { return }
         restoreIsolatedPatternLoopSourceIfNeeded(configureAudioPlan: true)
         guard preparationControlIntent == stopAdmissionIntent else { return }
-        currentPublishedFollowPosition = currentPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
         apply(action: action, nextState: .stopped)
         if notify, wasActive {
             playbackDidStop?()
@@ -1282,12 +1529,39 @@ final class PlaybackEngine: PlaybackTransport {
         guard state.mode == .playing else {
             return
         }
+        if (audioEngine as? RuntimeCMixerUserLoopConsuming)?.hasRuntimeUserLoop == true {
+            preparationTransportEpoch += 1 // A fresh Loop session must never reuse actual birth keys.
+        }
         preparationControlIntent += 1
+        let retiringUserLoopSession = userLoopPreparationSession
+        let pauseIntent = preparationControlIntent
+        cancelUserLoopPreparation()
         timer?.invalidate()
         timer = nil
         cancelRuntimeCMixerSongEndStop()
-        stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "transport_pause")
-        apply(action: .pause, nextState: PlaybackState(mode: .paused, context: state.context))
+        let capturedHead = captureRuntimePlaybackHeadForTransport()
+        stopAllAudio(context: runtimeTraceContext(at: capturedHead?.follow.position ?? currentPosition,
+            tickInRow: capturedHead?.follow.tickInRow ?? tickState.tickInRow, channelIndex: nil,
+            timingOverride: capturedHead?.timing), reason: "transport_pause")
+        guard preparationControlIntent == pauseIntent else { return }
+        adoptUserLoopRefresh(from: retiringUserLoopSession)
+        var context = state.context
+        if let capturedHead { adoptRuntimePlaybackHead(capturedHead) }
+        // A failed capture keeps its explicitly tagged last-known resume row;
+        // retaining the original Play context would silently rewind that row.
+        let resumePosition = capturedHead?.follow.position ?? currentPublishedFollowPosition.flatMap {
+            $0.sampleTimeStatus == "capture_unavailable" ? $0.position : nil
+        }
+        if let resumePosition {
+            context = .init(moduleTitle: context?.moduleTitle,
+                songPosition: resumePosition.orderIndex,
+                patternIndex: resumePosition.patternIndex, row: resumePosition.rowIndex)
+        }
+        apply(action: .pause, nextState: PlaybackState(mode: .paused, context: context))
+        if let capturedHead {
+            publishPlaybackFollowPosition(capturedHead.follow, timerPosition: capturedHead.follow.position,
+                timerTickInRow: capturedHead.follow.tickInRow, notifyDuplicatePositions: false)
+        }
     }
 
     func togglePlayPause(from context: PlaybackStartContext?) {
@@ -1343,6 +1617,9 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeAdapterPlanCacheSource = restoreState.runtimeAdapterPlanCacheSource
         runtimeAdapterPlanUseCount = restoreState.runtimeAdapterPlanUseCount
         runtimeAdapterPlanKey = restoreState.key
+        if case let .cold(order, row) = restoreState.key?.origin {
+            intendedColdPosition = song?.position(orderIndex: order, rowIndex: row) ?? song?.startPosition
+        } else { intendedColdPosition = song?.startPosition }
         currentSourceGeneration = restoreState.key?.sourceGeneration ?? mintSourceGeneration()
         isolatedPatternLoopPlaybackRestoreState = nil
         isolatedPatternLoopPlaybackContext = nil
@@ -1393,8 +1670,174 @@ final class PlaybackEngine: PlaybackTransport {
         )
     }
 
+    /// Updates speculative work when stopped navigation changes the next cold start.
+    func prepare(from context: PlaybackStartContext?, loopEnabled: Bool = false) {
+        guard !state.isPlaying, let song else { return }
+        let executedLoop = loopEnabled && supportsExecutedUserLoop
+        if intendsExecutedUserLoop != executedLoop {
+            preparationControlIntent += 1
+            cancelUserLoopPreparation()
+            cancelRuntimeAdapterPlanPrewarm(reason: "playback_mode_changed")
+            invalidateRuntimeAdapterEventPlan(timingSession: nil)
+        }
+        intendsExecutedUserLoop = executedLoop
+        if executedLoop {
+            let position = playbackStartPosition(from: context, in: song) ?? song.startPosition
+            updatePreparationOrigin(position, timingSession: nil)
+            if let position { _ = scheduleUserLoopPreparation(song: song, position: position) }
+            return
+        }
+        let position = loopEnabled ? song.startPosition : playbackStartPosition(from: context, in: song) ?? song.startPosition
+        updatePreparationOrigin(position, timingSession: nil)
+        if !runtimeAdapterEventPlan.generated && runtimeAdapterPlanPrewarmJob == nil {
+            scheduleRuntimeAdapterPlanPrewarmIfNeeded(for: song, timingSession: nil)
+        }
+    }
+
+    #if DEBUG
+    /// Immutable worker status for focused transport races; never takes the render lock.
+    var userLoopRefreshStatusForTesting: RuntimeLoopPlanningSession.RefreshStatus? {
+        userLoopPreparationSession?.latestEditableRefreshStatus()
+    }
+    #endif
+
+    private var supportsExecutedUserLoop: Bool {
+        audioEngine is RuntimeCMixerUserLoopConsuming && runtimeAdapterPlanPrewarmScheduler is RuntimeUserLoopWorkerProviding
+    }
+
+    private func cancelUserLoopPreparation() {
+        let session = userLoopPreparationSession
+        adoptUserLoopRefresh(from: session)
+        userLoopPreparationSession = nil; userLoopPreparationKey = nil
+        lastAdmittedUserLoopRefresh = 0; desiredUserLoopRefresh = nil
+        guard let session else { return }
+        session.cancel()
+        // An installed generation is joined by Backend only after host quiescence
+        // and C reset. A purely speculative session has no native voice references.
+        if (audioEngine as? RuntimeCMixerUserLoopConsuming)?.hasRuntimeUserLoop != true,
+           let worker = runtimeAdapterPlanPrewarmScheduler as? RuntimeUserLoopWorkerProviding {
+            worker.userLoopWorkerQueue.async { session.cancelAndWait() }
+        }
+    }
+
+    @discardableResult
+    private func scheduleUserLoopPreparation(song: PlaybackSong, position: PlaybackPosition,
+        transportKind: RuntimeLoopNativeScope.TransportKind = .explicitLoop,
+        onInitialPreparation: (@Sendable (RuntimeLoopPlanningSession.PreparationResult) -> Void)? = nil
+    ) -> RuntimeLoopPlanningSession? {
+        guard let worker = runtimeAdapterPlanPrewarmScheduler as? RuntimeUserLoopWorkerProviding,
+              audioEngine is RuntimeCMixerUserLoopConsuming,
+              let pattern = song.pattern(for: position.orderIndex), pattern.index == position.patternIndex,
+              let first = pattern.rows.first, let last = pattern.rows.last,
+              let key = PlaybackPreparationKey(instanceEpoch: preparationInstanceID, transportEpoch: preparationTransportEpoch,
+                documentID: preparationDocumentID, revision: currentSourceGeneration, sourceGeneration: currentSourceGeneration,
+                sampleRate: audioEngine.audioBufferSampleRate,
+                frequencyMode: song.usesLinearFrequencyTable ? .linear : .amiga,
+                traversalBounds: .init(lowerOrder: 0, upperOrder: max(1, song.orders.count)),
+                origin: .cold(order: position.orderIndex, row: position.rowIndex),
+                purpose: transportKind == .explicitLoop ? .userLoop : .normalPlay,
+                loopScope: transportKind == .explicitLoop ? .init(order: position.orderIndex, pattern: position.patternIndex) : nil,
+                plannerVersion: transportKind == .explicitLoop ? 2 : 3)
+            else { return nil }
+        if onInitialPreparation == nil, userLoopPreparationKey == key,
+           let session = userLoopPreparationSession, !session.isCancelled {
+            switch session.waitForPreparation() {
+            case .pending, .ready: return session
+            case .failed, .cancelled: break
+            }
+        }
+        cancelUserLoopPreparation()
+        cancelRuntimeAdapterPlanPrewarm(reason: transportKind == .explicitLoop ? "executed_user_loop" : "normal_continuation")
+        let schedulingEpoch = preparationTransportEpoch, schedulingIntent = preparationControlIntent
+        invalidateRuntimeAdapterEventPlan(timingSession: nil)
+        guard preparationTransportEpoch == schedulingEpoch, preparationControlIntent == schedulingIntent else { return nil }
+        var uuid = preparationDocumentID.uuid
+        let halves = withUnsafeBytes(of: &uuid) { bytes in
+            ((0..<8).reduce(UInt64(0)) { ($0 << 8) | UInt64(bytes[$1]) },
+             (8..<16).reduce(UInt64(0)) { ($0 << 8) | UInt64(bytes[$1]) })
+        }
+        let scope = RuntimeLoopNativeScope(documentHigh: halves.0, documentLow: halves.1,
+            sourceGeneration: currentSourceGeneration, transportEpoch: preparationTransportEpoch,
+            sampleRateBits: key.sampleRateBits, semanticVersion: 1, linearFrequencyMode: song.usesLinearFrequencyTable,
+            order: position.orderIndex, pattern: position.patternIndex, firstRow: first.index, lastRow: last.index,
+            transportKind: transportKind)
+        let profile = adapterPlanProfileRecorder?.beginLifecycle(transportKind == .explicitLoop ? "user_loop" : "normal_continuation")
+        let diagnostics: RuntimeLoopPlanningSession.Diagnostics?
+        if let profile {
+            diagnostics = { value in
+                switch value {
+                case .produced(let measurement):
+                    profile.recordMeasuredPhase("user_loop_batch_production", elapsedMS: measurement.milliseconds,
+                        fields: [.init("batch_sequence", measurement.sequence), .init("warmup", measurement.warmup),
+                            .init("row_count", measurement.rowCount), .init("command_count", measurement.commandCount),
+                            .init("prepared_birth_count", measurement.preparedBirthCount), .init("native_pod_bytes", measurement.ownedPODBytes),
+                            .init("remaining_before_frames", measurement.remainingHorizonBeforeFrames.map(String.init) ?? "unavailable"),
+                            .init("remaining_after_frames", measurement.remainingHorizonAfterFrames.map(String.init) ?? "unavailable")])
+                case .refreshCatalogValidated(let measurement):
+                    profile.recordMeasuredPhase("user_loop_edit_catalog_validation", elapsedMS: measurement.milliseconds,
+                        fields: [.init("request_serial", measurement.requestSerial), .init("active_sequence", measurement.activeSequence),
+                            .init("outcome", measurement.outcome.rawValue),
+                            .init("remaining_before_frames", measurement.remainingHorizonBeforeFrames.map(String.init) ?? "unavailable"),
+                            .init("remaining_after_frames", measurement.remainingHorizonAfterFrames.map(String.init) ?? "unavailable")])
+                case .failed(let failure, let afterStart):
+                    profile.recordPhase("user_loop_production_failed", startedAt: nil,
+                        fields: [.init("stage", failure.stage.rawValue), .init("after_start", afterStart)])
+                case .refreshPrepared(let measurement):
+                    profile.recordMeasuredPhase("user_loop_edit_preparation", elapsedMS: measurement.milliseconds,
+                        fields: [.init("request_serial", measurement.requestSerial), .init("active_sequence", measurement.activeSequence),
+                            .init("boundary_frame", measurement.boundaryFrame), .init("outcome", measurement.outcome.rawValue),
+                            .init("remaining_mandatory_frames", measurement.remainingMandatoryHorizonFrames.map(String.init) ?? "unavailable"),
+                            .init("ready_at_frame", measurement.readyAtNativeFrame.map(String.init) ?? "unavailable"),
+                            .init("published_at_frame", measurement.publishedAtNativeFrame.map(String.init) ?? "unavailable"),
+                            .init("first_ready_boundary", measurement.firstReadyVisibleBoundaryFrame.map(String.init) ?? "unavailable"),
+                            .init("admitted_boundary", measurement.admittedBoundaryFrame.map(String.init) ?? "unavailable")])
+                }
+            }
+        } else { diagnostics = nil }
+        let rate = audioEngine.audioBufferSampleRate
+        guard let callbackCapacity = (audioEngine as? RuntimeCMixerUserLoopConsuming)?
+            .prepareRuntimeUserLoopCallbackCapacity() else {
+            userLoopPlaybackDidFail?(.host(.init(scope: scope, lastPublishedNativeFrame: 0)))
+            return nil
+        }
+        let session = RuntimeLoopPlanningSession(song: song, origin: position, scope: scope,
+            workerQueue: worker.userLoopWorkerQueue, horizonFrames: max(1, Int(rate * 0.5)),
+            maximumRows: 128, refreshPublicationGuardFrames: callbackCapacity,
+            finiteSongTailFrames: runtimeCMixerSongEndTailPolicy.tailFrames(sampleRate: rate),
+            diagnostics: diagnostics, onInitialPreparation: onInitialPreparation)
+        userLoopPreparationSession = session; userLoopPreparationKey = key
+        return session
+    }
+
+    private func awaitUserLoopPreparation(_ session: RuntimeLoopPlanningSession,
+        epoch: UInt64, intent: UInt64) -> RuntimeLoopPlanningSession.Preparation? {
+        while preparationTransportEpoch == epoch, preparationControlIntent == intent, !session.isCancelled {
+            switch session.waitForPreparation(timeout: 0.002) {
+            case .ready(let preparation): return preparation
+            case .failed(let failure):
+                logger.error("User Loop preparation failed at \(failure.stage.rawValue, privacy: .public)")
+                return nil
+            case .cancelled: return nil
+            case .pending:
+                // Keep newer Stop/load/navigation intents observable during a cold wait.
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.002))
+            }
+        }
+        return nil
+    }
+
+    private func updatePreparationOrigin(_ position: PlaybackPosition?, timingSession: PlaybackTimingTraceSession?) {
+        guard intendedColdPosition != position else { return }
+        intendedColdPosition = position
+        preparationControlIntent += 1
+        cancelUserLoopPreparation()
+        cancelRuntimeAdapterPlanPrewarm(reason: "cold_origin_changed")
+        // Drop the obsolete admitted graph before allocating its replacement.
+        invalidateRuntimeAdapterEventPlan(timingSession: timingSession)
+    }
+
     private func scheduleRuntimeAdapterPlanPrewarmIfNeeded(for song: PlaybackSong?, timingSession: PlaybackTimingTraceSession?) {
-        guard let song,
+        guard !intendsExecutedUserLoop, let song,
               audioEngine as? RuntimeCMixerAdapterEventConsuming != nil else {
             return
         }
@@ -1458,7 +1901,8 @@ final class PlaybackEngine: PlaybackTransport {
             sampleRate: audioEngine.audioBufferSampleRate,
             frequencyMode: song.usesLinearFrequencyTable ? .linear : .amiga,
             traversalBounds: .init(lowerOrder: 0, upperOrder: max(1, song.orders.count)),
-            origin: .cold(order: 0, row: 0), purpose: purpose,
+            origin: .cold(order: purpose == .editRefresh ? 0 : intendedColdPosition?.orderIndex ?? 0,
+                          row: purpose == .editRefresh ? 0 : intendedColdPosition?.rowIndex ?? 0), purpose: purpose,
             loopScope: purpose == .editRefresh ? activePatternLoopRange.map {
                 .init(order: $0.orderIndex, pattern: $0.patternIndex)
             } : nil)
@@ -1587,6 +2031,7 @@ final class PlaybackEngine: PlaybackTransport {
         if runtimeAdapterEventPlan.generated,
            let key = runtimeAdapterPlanKey,
            key.sourceGeneration == currentSourceGeneration,
+           key.origin == preparationKey(for: song, sourceGeneration: currentSourceGeneration, purpose: .normalPlay)?.origin,
            key.sampleRateBits == audioEngine.audioBufferSampleRate.bitPattern,
            key.frequencyMode == (song.usesLinearFrequencyTable ? .linear : .amiga) {
             if !adapterConsumer.hasRuntimeAdapterEventPlan {
@@ -1703,6 +2148,13 @@ final class PlaybackEngine: PlaybackTransport {
 
     func advanceOneTick() {
         guard !serviceRuntimeCMixerAdmissionFailure() else { return }
+        if let provider = audioEngine as? RuntimeCMixerPlaybackHeadProviding, provider.hasRuntimePlaybackHead {
+            guard state.isPlaying, let head = provider.runtimePlaybackHead() else { return }
+            adoptRuntimePlaybackHead(head)
+            publishPlaybackFollowPosition(head.follow, timerPosition: head.follow.position,
+                timerTickInRow: head.follow.tickInRow, notifyDuplicatePositions: false)
+            return
+        }
         guard state.isPlaying,
               let song,
               let position = currentPosition else {
@@ -1781,13 +2233,104 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func finishRuntimeCMixerSongEndTail() {
         guard !serviceRuntimeCMixerAdmissionFailure() else { return }
+        guard runtimeCMixerSongEndStopPending, state.isPlaying else { return }
         runtimeCMixerSongEndStopTimer = nil
+        if let provider = audioEngine as? RuntimeCMixerPlaybackHeadProviding, provider.hasRuntimePlaybackHead {
+            // Wall time only wakes us. The existing native song/tail deadline
+            // must actually be rendered, including a nonzero selected origin.
+            let head = provider.runtimePlaybackHead()
+            let tail = runtimeCMixerSongEndTailPolicy.tailFrames(sampleRate: audioEngine.audioBufferSampleRate)
+            let deadline = runtimeAdapterEventPlan.plannedSongEndFrame?.addingReportingOverflow(tail)
+            guard let head, let frame = head.follow.sampleTimeFrame,
+                  let deadline, !deadline.overflow, frame >= deadline.partialValue else {
+                runtimeCMixerSongEndStopTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { [weak self] _ in
+                    Task { @MainActor in self?.finishRuntimeCMixerSongEndTail() }
+                }
+                return
+            }
+        }
         runtimeCMixerSongEndStopPending = false
         stop(action: .stop, reason: "runtime_song_end_tail")
     }
 
+    private func adoptRuntimePlaybackHead(_ head: RuntimeCMixerPlaybackHead) {
+        currentPosition = head.follow.position
+        timing = head.timing
+        tickState.setTickInRow(head.follow.tickInRow % max(1, head.timing.speed), timing: head.timing)
+    }
+
+    private func captureRuntimePlaybackHeadForTransport() -> RuntimeCMixerPlaybackHead? {
+        guard let provider = audioEngine as? RuntimeCMixerPlaybackHeadProviding,
+              provider.hasRuntimePlaybackHead else { return nil }
+        switch provider.quiesceAndCaptureRuntimePlaybackHead() {
+        case .captured(let head): return head
+        case .notRendered: return nil // Preserve the explicit cold selection.
+        case .unavailable(let reason):
+            // Keep the last known coordinate, honestly tagged; never claim that a
+            // failed host stop supplied an exact new audio head.
+            logger.error("Unable to capture stopped mixer position: \(reason, privacy: .public)")
+            if let previous = currentPublishedFollowPosition {
+                currentPublishedFollowPosition = .init(position: previous.position, tickInRow: previous.tickInRow,
+                    source: previous.source, sampleTimeFrame: previous.sampleTimeFrame,
+                    sampleTimeStatus: "capture_unavailable", syntheticRow: previous.syntheticRow)
+            }
+            return nil
+        }
+    }
+
+    private func adoptUserLoopRefresh(from session: RuntimeLoopPlanningSession?) {
+        guard let receipt = session?.latestAdmittedEditableRefresh(), receipt.serial > lastAdmittedUserLoopRefresh else { return }
+        lastAdmittedUserLoopRefresh = receipt.serial
+        song = receipt.song
+        currentSourceGeneration = receipt.scope.sourceGeneration
+        userLoopPreparationKey = nil
+    }
+
+    /// Transfers ownership only after delivery acknowledges the revision's exact boundary.
+    private func serviceUserLoopRefresh() -> Bool {
+        guard let session = userLoopPreparationSession,
+              (audioEngine as? RuntimeCMixerUserLoopConsuming)?.hasRuntimeUserLoop == true else { return false }
+        adoptUserLoopRefresh(from: session)
+        if case let .refused(serial, reason) = session.latestEditableRefreshStatus(),
+           let desired = desiredUserLoopRefresh, desired.serial == serial {
+            let scope = session.scope
+            let wasIsolated = isolatedPatternLoopPlaybackContext != nil
+            let stopIntent = preparationControlIntent + 1
+            let stopEpoch = preparationTransportEpoch + 1
+            stop(action: .stop, reason: "loop_refresh_requires_restart")
+            // Teardown and the Stop observer may synchronously load or Play a
+            // newer source. Only this refusal's own completed Stop may recover it.
+            guard preparationControlIntent == stopIntent,
+                  preparationTransportEpoch == stopEpoch else { return true }
+            // The refused value remains available for the next cold Play. The loaded
+            // source/editor ownership is unchanged; no rejected commands were executed.
+            if !wasIsolated {
+                song = desired.song
+                currentSourceGeneration = desired.generation
+            }
+            userLoopPlaybackDidFail?(.refresh(scope, reason))
+            return true
+        }
+        return false
+    }
+
     /// Services faults on the existing main cadence, independently of tracing and follow publication.
     private func serviceRuntimeCMixerAdmissionFailure() -> Bool {
+        guard !serviceUserLoopRefresh() else { return true }
+        if let native = audioEngine as? RuntimeCMixerUserLoopConsuming, native.hasRuntimeUserLoop,
+           let fault = native.consumeRuntimeUserLoopFailure() {
+            guard fault.scope.transportEpoch == preparationTransportEpoch else { return false }
+            stop(action: .stop, reason: fault.stopReason)
+            userLoopPlaybackDidFail?(fault)
+            return true
+        }
+        if let native = audioEngine as? RuntimeCMixerUserLoopConsuming,
+           let completed = native.consumeRuntimeSongContinuationCompletion(),
+           completed.scope.transportEpoch == preparationTransportEpoch,
+           completed.scope.sourceGeneration == currentSourceGeneration, state.isPlaying {
+            stop(action: .stop, reason: "runtime_song_end_tail")
+            return true
+        }
         guard let consumer = audioEngine as? RuntimeCMixerAdmissionFailureConsuming,
               let fault = consumer.consumeRuntimeAdmissionFailure() else { return false }
         // Stop the host and retire the failed generation before any alert can enter a modal run loop.
@@ -1837,6 +2380,14 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func publishRuntimeCMixerHeldFollowPosition() {
         guard !serviceRuntimeCMixerAdmissionFailure() else { return }
+        if let provider = audioEngine as? RuntimeCMixerPlaybackHeadProviding, provider.hasRuntimePlaybackHead {
+            guard runtimeCMixerSongEndStopPending, state.isPlaying,
+                  let head = provider.runtimePlaybackHead() else { return }
+            adoptRuntimePlaybackHead(head)
+            publishPlaybackFollowPosition(head.follow, timerPosition: head.follow.position,
+                timerTickInRow: head.follow.tickInRow, notifyDuplicatePositions: false)
+            return
+        }
         guard runtimeCMixerSongEndStopPending,
               state.isPlaying,
               let position = currentPosition ?? currentPublishedFollowPosition?.position else {
@@ -1868,8 +2419,12 @@ final class PlaybackEngine: PlaybackTransport {
         let admissionEpoch = preparationTransportEpoch
         let admissionIntent = preparationControlIntent
         publishPlaybackFollowPosition(timerPosition: position, tickInRow: tickState.tickInRow, allowBackendOverride: true)
+        guard preparationTransportEpoch == admissionEpoch,
+              preparationControlIntent == admissionIntent else { return }
         traceRowTiming(at: position, reason: "row_timing_before_effects")
         recordRuntimeRowTransition(from: previousPosition, to: position, phase: "before_events")
+        guard preparationTransportEpoch == admissionEpoch,
+              preparationControlIntent == admissionIntent else { return }
         let usesAdapterPlan = usesRuntimeAdapterEventPlan
         prepareRowPlaybackState(at: position, emitRuntimeControlUpdates: !usesAdapterPlan)
         // Follow/diagnostic observers can synchronously Stop or load. Their newer intent
@@ -2476,16 +3031,26 @@ final class PlaybackEngine: PlaybackTransport {
             ? "resolver_unresolved"
             : nil
         let followPosition = published ?? PlaybackFollowPosition.timer(position: timerPosition, tickInRow: tickInRow)
+        publishPlaybackFollowPosition(followPosition, timerPosition: timerPosition, timerTickInRow: tickInRow,
+            notifyDuplicatePositions: notifyDuplicatePositions, resolverFailureReason: resolverFailureReason)
+    }
+
+    /// Publishes the same immutable value used to update transport state; no second native read.
+    private func publishPlaybackFollowPosition(_ followPosition: PlaybackFollowPosition,
+        timerPosition: PlaybackPosition, timerTickInRow: Int, notifyDuplicatePositions: Bool,
+        resolverFailureReason: String? = nil) {
+        let publicationIntent = preparationControlIntent
+        // The UI observer consumes row coordinates. Exact tick/frame state and
+        // diagnostics still update below for every coherent native observation.
         let duplicateSuppressed = !notifyDuplicatePositions &&
-            currentPublishedFollowPosition?.position == followPosition.position &&
-            currentPublishedFollowPosition?.tickInRow == followPosition.tickInRow
+            currentPublishedFollowPosition?.position == followPosition.position
         let consumedByUI = !runtimeCMixerFollowPublicationDisabled &&
             !duplicateSuppressed &&
             positionDidChange != nil
         currentPublishedFollowPosition = followPosition
         if let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput {
             diagnosticOutput.recordPublishedPlaybackFollowPosition(
-                timerContext: runtimeTraceContext(at: timerPosition, tickInRow: tickInRow, channelIndex: nil),
+                timerContext: runtimeTraceContext(at: timerPosition, tickInRow: timerTickInRow, channelIndex: nil),
                 publishedPosition: followPosition,
                 publicationDisabled: runtimeCMixerFollowPublicationDisabled,
                 consumedByUI: consumedByUI,
@@ -2493,6 +3058,7 @@ final class PlaybackEngine: PlaybackTransport {
                 resolverFailureReason: resolverFailureReason
             )
         }
+        guard preparationControlIntent == publicationIntent else { return }
         if !runtimeCMixerFollowPublicationDisabled, !duplicateSuppressed {
             positionDidChange?(followPosition.position)
         }
@@ -2509,7 +3075,8 @@ final class PlaybackEngine: PlaybackTransport {
         tickInRow: Int,
         channelIndex: Int?,
         channelState: PlaybackChannelState? = nil,
-        request: AudioVoiceRequest? = nil
+        request: AudioVoiceRequest? = nil,
+        timingOverride: PlaybackTiming? = nil
     ) -> AudioRuntimeTraceContext? {
         guard let position else {
             return nil
@@ -2545,8 +3112,8 @@ final class PlaybackEngine: PlaybackTransport {
             effectType: traceCell?.effectType,
             effectParam: traceCell?.effectParam,
             volumeColumn: traceCell?.volumeColumn,
-            speed: timing.speed,
-            bpm: timing.bpm,
+            speed: (timingOverride ?? timing).speed,
+            bpm: (timingOverride ?? timing).bpm,
             tickIndex: traceTickIndex
         )
     }

@@ -1,5 +1,18 @@
 import Foundation
 
+enum EditablePlaybackSnapshotRevisionPolicy {
+    static func afterNonContentChange(
+        preparedIdentity: UUID?, preparedRevision: UInt64?, documentIdentity: UUID?,
+        previousRevision: UInt64, currentRevision: UInt64
+    ) -> UInt64? {
+        guard let documentIdentity, preparedIdentity == documentIdentity,
+              preparedRevision == previousRevision else {
+            return preparedRevision
+        }
+        return currentRevision
+    }
+}
+
 /// Loaded modules carry no editable value or source-path ownership into this boundary.
 enum EditableDocumentEditContext: Equatable {
     case none

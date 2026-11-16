@@ -4,6 +4,46 @@ import CryptoKit
 import XCTest
 
 final class FxxTimingTests: XCTestCase {
+    func testTimingContinuationKeepsExecutedFxxDelayAndFractionalFramesAcrossPartitions() {
+        for rate in [44_100.0, 48_000.0] {
+            let commands = [[cc(15, 3)], [cc(15, 151)], [cc(14, 0xE2), cc(15, 5)], [cc(15, 7), cc(15, 143)]]
+            let rows = (0..<4000).map { PlaybackRow(index: $0, cells: commands[$0 % commands.count]) }
+            let pattern = PlaybackPattern(index: 0, rows: rows)
+            let song = PlaybackSong(title: "Public continuation clock", orders: [.init(orderIndex: 0, patternIndex: 0)],
+                patternsByIndex: [0: pattern], instrumentsByIndex: [:], restartOrderIndex: 0,
+                endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125))
+            let whole = PlaybackSongFxxTimingPlanner.plan(song, startOrderIndex: 0, orderCount: 1, sampleRate: rate)
+            for partition in [1, 3, 7, 64] {
+                var state = PlaybackSongFxxTimingPlanner.State(speed: 6, bpm: 125, nextExactFrame: 0)
+                for start in stride(from: 0, to: rows.count, by: partition) {
+                    let end = min(rows.count, start + partition)
+                    let visits = (start..<end).enumerated().map { local, global in
+                        PlaybackSongTraversalRow(source: .init(orderIndex: 0, patternIndex: 0, rowIndex: global),
+                            orderIndex: 0, pattern: pattern, row: rows[global], rowArrayIndex: global, syntheticRow: local)
+                    }
+                    let traversal = PlaybackSongTraversalPlan(rows: visits, adaptedOrders: [], traversalDiagnostics: [],
+                        pathLength: visits.count, stopReason: .selectedRangeEnd, guardHit: false)
+                    let batch = PlaybackSongFxxTimingPlanner.plan(song, traversalPlan: traversal, sampleRate: rate, initialState: state)
+                    for local in batch.rowTimings.indices {
+                        let actual = batch.rowTimings[local], expected = whole.rowTimings[start + local]
+                        XCTAssertEqual(actual.rowStartExactFrame, expected.rowStartExactFrame)
+                        XCTAssertEqual(actual.rowEndExactFrame, expected.rowEndExactFrame)
+                        XCTAssertEqual(actual.effectiveSpeed, expected.effectiveSpeed)
+                        XCTAssertEqual(actual.effectiveBPM, expected.effectiveBPM)
+                        XCTAssertEqual(actual.patternDelayCycles, expected.patternDelayCycles)
+                        for tick in 0..<expected.actualTickCount {
+                            XCTAssertEqual(batch.frameFor(row: local, tick: tick), whole.frameFor(row: start + local, tick: tick))
+                        }
+                    }
+                    state = batch.terminalState
+                }
+                XCTAssertEqual(state, whole.terminalState)
+            }
+            XCTAssertEqual(whole.rowTimings[2].patternDelayCycles, 2)
+            XCTAssertNotEqual(whole.endExactFrame, whole.endExactFrame.rounded(.down))
+        }
+    }
+
     func testNativeSelectionLiteralPeriodsAndIndependentThreeSampleRouting() throws {
         typealias F = PlaybackSongSelectionDispatchFacts
         for linear in [true, false] { for rate in [44_100.0, 48_000] {

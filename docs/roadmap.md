@@ -103,7 +103,8 @@ bounded contracts; they do not establish full command or audible parity.
   real ED/E9/R generations share runtime/offline delivery. Both modes/rates,
   protected no-EEx controls, actual-host frames and optimized guardrails are
   qualified. G38A implements bounded local combined pending-position precedence;
-  G38B closes bounded traversal policy; #516 remains a separate open boundary.
+  G38B closes bounded traversal policy; #516's live continuation contract is
+  locally qualified, with native CI/maintainer acceptance required below.
 - G36 E3x is CLOSED for its [bounded post-merge tone-output contract](design/xm-final-pitch-publication.md#g36-e3x-tone-output-glissando):
   Gregory accepted the eight-WAV listening study and merged
   [PR #521](https://github.com/syncomm/voodootrackerx/pull/521). Its
@@ -111,9 +112,8 @@ bounded contracts; they do not establish full command or audible parity.
   preserving continuous tone state and source identity. Both-mode/rate reference,
   actual-host/offline, protected-control and optimized guardrails qualify the
   bounded parent for default-origin playback. Direct selected-range adapter and
-  prepared-runtime plans start cold. Product live selected-order E3 inheritance
-  through eager order-0 prewarm remains
-  OPEN under #516, alongside full G37 and G40/G41.
+  prepared-runtime plans start cold. The bounded #516 contract extends that
+  selected cold origin to product preparation; wider integration remains separate.
 - G38A local B/D/E6/EE pending-position precedence is CLOSED: ordered row
   writes, local channel counters, held skips and short-pattern valid D bounds
   have both-mode/rate reference, source/frame, actual-host, protected-byte and
@@ -123,7 +123,7 @@ bounded contracts; they do not establish full command or audible parity.
   accidental FT2 inheritance. G38A precedence, long-pattern behavior and finite
   guards remain; non-BCD/extended-break and one-pass restart scope is explicit in
   [effect support](xm-effect-support.md#bounded-g38b-pattern-local-loop-and-traversal-policy).
-  Full G37 remains PARTIAL under #516, assigned after G41.
+  Bounded G37 cold live entry is locally qualified under #516; native CI/maintainer acceptance remains required below.
 - G21 offline E9/Rxy outgoing-source retirement is CLOSED for its bounded
   post-merge delivery contract: runtime and offline share native 5 ms retirement
   of the exact outgoing generation, including overlapping tails and source/window
@@ -133,6 +133,33 @@ bounded contracts; they do not establish full command or audible parity.
   BOUNDED-NUMERICAL-DIFFERENCE from runtime-slot Float32 summation order, accepting
   at most one PCM16 LSB for that comparison only. Broader whole-runtime and
   mode/rate qualification remains OPEN; no frame/state/Float32 tolerance is introduced.
+- The bounded [#516 live-entry and explicit user-Loop contract](design/user-pattern-loop-continuation.md)
+  is CLOSED on this PR branch, with implementation and local suite qualification
+  complete. The mixed resource profile is provisionally authorized for PR/native
+  CI only. Acceptance requires green final submitted-head native arm64
+  ASan/Release CI (Codex) and Gregory's Loop-on review/merge. Normal Play/seek prepare the chosen cold
+  origin; explicit Loop carries actual executed state and source births
+  through one active and at most one successor batch. Compatible live edits enter
+  at an acknowledged natural boundary. Original full-plan/offline numeric IDs,
+  source births and full-plan planning gates remain protected. Gregory owns final composition,
+  listening and merge acceptance; this does not close the issue or release gates.
+- PR #552 also requires unchanged Stop→Play, end-to-middle navigation, editable
+  navigation/real-edit and explicit-Loop responsiveness qualification in ordinary
+  Debug and optimized Release. The [cold-start contract](design/ordinary-cold-start-continuation.md)
+  prepares finite ordinary batches off Main and uses approved version 2 scoped
+  diagnostic IDs while preserving full-plan/offline IDs. The bounded repair is
+  CLOSED on the PR branch after local control and ordinary Debug/Release workflow
+  qualification, including actual C-host output and Main dispatch observations.
+  Acceptance still requires final submitted-head normal/native CI (Codex) and
+  Gregory's physical composition/listening review and merge. SONG TIME restoration
+  requires a useful finite total after Open and timing edits, independently of
+  Play/full planning, with ordinary Debug/Release responsiveness and honest unknown
+  handling for cyclic, malformed or guarded content. Existing
+  planning and broader release gates remain unchanged.
+- The same bounded contract uses the native C head for normal/Loop live position,
+  Stop/Pause capture and resume context. End timers wait for the actual mapped
+  song/tail deadline. UI polling is not a second musical clock; AUv3 remains
+  outside this implementation.
 - First-Play performance stabilization covers history indexing, runtime queue
   reuse, compact cold-plan ordering/materialization, semantic row/control
   sharing, and the empty-cell construction fast path.
@@ -175,7 +202,7 @@ G32 composition and the event-assembly stack boundary; canonical Debug host
 controls, native arm64 CI, all 608 accepted protected pairs and original matched
 performance gates pass. See the
 [G39 acceptance ledger and exclusions](ft2-xm-closure-matrix.md#g39-phase-consumption-and-remaining-range).
-No backend freeze is claimed; full G37 remains PARTIAL.
+No backend freeze is claimed; bounded G37 live entry is locally qualified, with #516 submitted-head native CI and maintainer acceptance still required.
 
 The bounded opt-in FT2 static pan law (G40) is **CLOSED** through merged
 [PR #533](https://github.com/syncomm/voodootrackerx/pull/533),
@@ -190,12 +217,14 @@ retain 56 historical-only controls. After submission, native arm64 CI and Gregor
 merge, run a separate maintainer-local BIG real-corpus discovery audit, then bounded
 issue repairs and adversarial integrated release acceptance. G41 integration stays
 PARTIAL; Gregory owns residual discovery, integration and release acceptance.
-Cold live selected-order/row planning
-and full G37 integration under [#516](https://github.com/syncomm/voodootrackerx/issues/516)
-follow G41. The planning/performance/memory/CI and cross-family pre-freeze audits,
+The bounded [#516 contract](design/user-pattern-loop-continuation.md) implements
+cold live entry and explicit user Loop after G41. Local qualification is complete;
+submitted-head native CI and the Stop→Play regression qualification above (Codex),
+then Gregory's composition/Loop-on review and merge, remain required.
+Broader low-end-memory qualification and the planning/performance/memory/CI and cross-family pre-freeze audits,
 callback real-time safety, separate post-song host/offline tail decision,
-Speed/BPM/labels UI work and final release gates retain their owners and
-sequence. All remain OPEN.
+Speed/BPM/labels UI work and final release gates retain their owners and sequence.
+Those broader obligations remain OPEN.
 
 Ordinary optimized Xcode Release test-bundle instrumentation remains a separate
 future build/test policy question: current fault-injection coverage intentionally
@@ -223,12 +252,13 @@ and final integrated gate. Semantic/output closure precedes callback hardening;
 both precede the freeze and later product phases. Effects, DSP, host, real-time
 safety, and editor contracts remain separate PRs.
 
-[Cold selected-order planning](https://github.com/syncomm/voodootrackerx/issues/516)
-blocks Phase 2/v0.5 release qualification and backend freeze; the cross-family
-planning/performance/memory audit owns it after G41. That audit also owns high variable
-process RSS, including the Q2 copied-payload pressure measurements. Measured
-reusable VM pages do not resolve this residual; the cold selected-order blocker
-remains open independently of bounded offline source admission.
+[#516](https://github.com/syncomm/voodootrackerx/issues/516) remains open for
+Codex's required green final submitted-head native CI and Gregory's Loop-on
+hands-on acceptance and merge of its locally qualified bounded contract.
+The cross-family planning/performance/memory audit still owns wider resource
+work, including high variable process RSS and Q2 copied-payload pressure.
+Measured reusable VM pages do not resolve that separate residual. Phase 2/v0.5
+release qualification and backend freeze remain OPEN.
 
 Gregory owns the bounded [G39E planning exception](ft2-xm-closure-matrix.md#g39e-bxe9-and-scoped-planning-exception)
 as accepted performance debt pending the dedicated planning/performance overhaul.

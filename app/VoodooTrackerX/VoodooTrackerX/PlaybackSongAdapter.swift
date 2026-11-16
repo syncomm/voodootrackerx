@@ -8,9 +8,9 @@ struct PlaybackSongSelectionDispatchFacts: Equatable {
     enum Coverage { case notAdapterProduced, nativeSelectionProducersV1 }
     enum Domain { case linear, amigaVTX4x }
     enum Pitch: Equatable { case known(Domain, nativePeriod: Double), unavailable }
-    enum Role { case trigger, emptySelection, refusedDispatch, carriedInstrument, retainedNoteRestart, coldDispatch, unavailableRoute }
+    enum Role { case trigger, emptySelection, refusedDispatch, carriedInstrument, retainedNoteRestart, coldDispatch, unavailableRoute, continuationInput }
     enum InputOrigin: Equatable {
-        case absent, representedHeader, declaredEmptyHeader, finetuneCommand, refusedRoute, neutralDefault
+        case absent, representedHeader, declaredEmptyHeader, finetuneCommand, refusedRoute, neutralDefault, continuationInput
         // References the actual earlier setter, independently for each conversion field.
         case selectionFact(Int)
     }
@@ -31,6 +31,30 @@ struct PlaybackSongSelectionDispatchFacts: Equatable {
         let baseRateOrigin: InputOrigin, relativeNoteOrigin: InputOrigin, finetuneOrigin: InputOrigin
         let cachedDefaultVolume: Int, cachedDefaultPan: UInt8
     }
+    /// An observation of actual checkpoint input, never an executed selection or birth.
+    /// The outer continuation scope preserves the original producer/birth identities.
+    static func continuationInput(source: PlaybackPosition, syntheticRow: Int = -1,
+        channelIndex: Int, frame: Int, linear: Bool,
+        state: borrowing PlaybackSongSyntheticAdapter.ChannelState,
+        routedInstrument: Int? = nil, mappedSample: Int? = nil,
+        selectionMethod: PlaybackSongSyntheticSampleSelectionMethod? = nil) -> Fact {
+        let period = linear ? state.activeLinearPeriod : state.activeAmigaPeriod
+        return .init(source: source, syntheticRow: syntheticRow, tick: 0, channel: channelIndex,
+            absoluteFrame: frame, role: .continuationInput, noteOnly: false,
+            pitch: period.map { .known(linear ? .linear : .amigaVTX4x, nativePeriod: $0) } ?? .unavailable,
+            semanticInstrument: state.semanticInstrumentIndex, semanticSample: state.semanticSampleIndex,
+            carriedInstrument: state.carriedInstrumentIndex, carriedNote: state.carriedNote,
+            routedInstrument: routedInstrument, mappedSample: mappedSample, selectionMethod: selectionMethod,
+            associatedGeneration: state.activeEventIndex,
+            baseRate: state.activeSampleBaseSampleRate, relativeNote: state.activeSampleRelativeNote,
+            finetune: state.activeSampleFinetune,
+            baseRateOrigin: state.activeSampleBaseSampleRate == nil ? .absent : .continuationInput,
+            relativeNoteOrigin: state.activeSampleRelativeNote == nil ? .absent : .continuationInput,
+            finetuneOrigin: state.activeSampleFinetune == nil ? .absent : .continuationInput,
+            cachedDefaultVolume: state.triggeredSampleDefaultVolume,
+            cachedDefaultPan: state.triggeredSampleDefaultPan)
+    }
+
     let coverage: Coverage
     let facts: [Fact]
     // Excludes seven-family outputs, tone targets, unpaired E9 clones, release/cut facts and final pitch.
@@ -88,6 +112,22 @@ struct PlaybackSongSyntheticPlan: Equatable {
     var initialHeldPitchEventIndices: Set<Int> = []
 }
 
+extension PlaybackSongSyntheticPlan {
+    /// Installs continuing fold products without invoking cold/full-plan property observers.
+    /// Keep this initializer in an extension so the existing memberwise initializer survives.
+    init(continuing base: Self, envelope: PlaybackXMEnvelopeTimeline,
+         audibleSeed: [Int: PlaybackXMAudibleTimeline.SourceCheckpoint]? = nil,
+         importedEventIndices: Set<Int> = [], batchStartFrame: Int = 0,
+         terminalAudibleCheckpoint: (([Int: PlaybackXMAudibleTimeline.SourceCheckpoint]) -> Void)? = nil) {
+        self = base
+        // Initialization assignments suppress didSet; only the seeded audible fold runs.
+        self.xmEnvelopeTimeline = envelope
+        self.xmAudibleTimeline = PlaybackXMAudibleTimeline(plan: self, continuationSeed: audibleSeed,
+            importedEventIndices: importedEventIndices, batchStartFrame: batchStartFrame,
+            terminalCheckpoint: terminalAudibleCheckpoint)
+    }
+}
+
 /// Targets the existing trigger event identity, never a reusable mixer slot.
 struct PlaybackVoiceStateEvent: Equatable {
     let activeEventIndex: Int
@@ -97,6 +137,21 @@ struct PlaybackVoiceStateEvent: Equatable {
 }
 
 enum PlaybackSongSyntheticAdapter {
+    /// Bounded fold inputs for explicit user Loop only; ordinary song plans stay cold/full.
+    struct ContinuationFoldInput {
+        let batchStartFrame: Int
+        let importedEventIndices: Set<Int>
+        let envelope: [Int: PlaybackXMEnvelopeTimeline.ChannelCheckpoint]?
+        let audible: [Int: PlaybackXMAudibleTimeline.SourceCheckpoint]?
+        let pitch: [Int: PlaybackSongOfflineRenderer.PitchSourceHistory.Checkpoint]
+    }
+
+    /// Value state only. The caller prunes sources to its validated carried birth bindings.
+    struct ContinuationFoldOutput {
+        let envelope: [Int: PlaybackXMEnvelopeTimeline.ChannelCheckpoint]
+        let audible: [Int: PlaybackXMAudibleTimeline.SourceCheckpoint]
+        let pitch: [Int: PlaybackSongOfflineRenderer.PitchSourceHistory.Checkpoint]
+    }
     static let maxMixerEnvelopePointCount = 12
     static let xmLinearPeriodBase = 7_680.0
     static let xmLinearC4Period = 4_608.0
@@ -521,6 +576,8 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     struct AdapterRowContext {
+        // Continuation lookups bind earlier births; they never dispatch a new source.
+        var importedSourceCount = 0
         // The row dispatcher owns this clock even when a direct probe omits semantic capture.
         var currentRowActualTickCount: Int?
         var semanticPitchBuilder = PlaybackSongSemanticPitchProjection.Builder()
@@ -652,7 +709,7 @@ enum PlaybackSongSyntheticAdapter {
         initialPosition: PlaybackPosition? = nil
     ) -> PlaybackSongSyntheticPlan {
         adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
-              profileSession: profileSession, initialPosition: initialPosition, eligibilityOracle: nil)
+              profileSession: profileSession, initialPosition: initialPosition, eligibilityOracle: nil)!
     }
 
     #if DEBUG
@@ -662,7 +719,7 @@ enum PlaybackSongSyntheticAdapter {
         adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
               profileSession: nil, eligibilityOracle: { event, frame, plan in
                   PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: event, at: frame, plan: plan)
-              })
+              })!
     }
 
     /// Test-only injection of the frozen pre-compaction projection into a complete adapter plan.
@@ -670,17 +727,31 @@ enum PlaybackSongSyntheticAdapter {
         orderCount: Int, sampleRate: Double,
         oracle: @escaping (PlaybackSongFxxTimingPlan, inout AdapterRowContext) -> Void) -> PlaybackSongSyntheticPlan {
         adapt(song, startOrderIndex: startOrderIndex, orderCount: orderCount, sampleRate: sampleRate,
-              profileSession: nil, eligibilityOracle: nil, globalVolumeProjectionOracle: oracle)
+              profileSession: nil, eligibilityOracle: nil, globalVolumeProjectionOracle: oracle)!
     }
     #endif
+
+    /// Canceled construction never exposes a partial semantic plan to its caller.
+    static func adaptCancellable(_ song: PlaybackSong, sampleRate: Double,
+        profileSession: AdapterPlanProfileSession?, initialPosition: PlaybackPosition?,
+        isCancelled: (() -> Bool)?) -> PlaybackSongSyntheticPlan? {
+        var cancelled = false
+        let check: (() -> Bool)? = isCancelled.map { predicate in
+            { if !cancelled { cancelled = predicate() }; return cancelled }
+        }
+        return adapt(song, startOrderIndex: 0, orderCount: song.orders.count, sampleRate: sampleRate,
+            profileSession: profileSession, initialPosition: initialPosition, eligibilityOracle: nil,
+            isCancelled: check)
+    }
 
     private static func adapt(
         _ song: PlaybackSong, startOrderIndex: Int, orderCount: Int, sampleRate: Double,
         profileSession: AdapterPlanProfileSession?,
         initialPosition: PlaybackPosition? = nil,
         eligibilityOracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?,
-        globalVolumeProjectionOracle: ((PlaybackSongFxxTimingPlan, inout AdapterRowContext) -> Void)? = nil
-    ) -> PlaybackSongSyntheticPlan {
+        globalVolumeProjectionOracle: ((PlaybackSongFxxTimingPlan, inout AdapterRowContext) -> Void)? = nil,
+        isCancelled: (() -> Bool)? = nil
+    ) -> PlaybackSongSyntheticPlan? {
         let totalStart = profileSession?.beginPhase()
         let traversalStart = profileSession?.beginPhase()
         let traversalPlan = PlaybackSongTraversalPlanner.plan(
@@ -689,43 +760,20 @@ enum PlaybackSongSyntheticAdapter {
             orderCount: orderCount,
             initialPosition: initialPosition
         )
-        profileSession?.recordPhase(
-            "order_traversal",
-            startedAt: traversalStart,
-            fields: AdapterPlanProfileFields.playbackSong(song) + [
-                AdapterPlanProfileField("requested_start_order_index", startOrderIndex),
-                AdapterPlanProfileField("requested_order_count", max(0, orderCount)),
-                AdapterPlanProfileField("row_count", traversalPlan.pathLength),
-                AdapterPlanProfileField("adapted_order_count", traversalPlan.adaptedOrders.count),
-                AdapterPlanProfileField("traversal_diagnostic_count", traversalPlan.traversalDiagnostics.count),
-                AdapterPlanProfileField("traversal_guard_hit", traversalPlan.guardHit),
-                AdapterPlanProfileField("traversal_stop_reason", traversalPlan.stopReason.rawValue),
-            ]
-        )
+        recordTraversalProfile(profileSession: profileSession, song: song, startOrderIndex: startOrderIndex, orderCount: orderCount, traversalPlan: traversalPlan, startedAt: traversalStart)
+        if isCancelled?() == true { return nil }
         let timingStart = profileSession?.beginPhase()
         let timingPlan = PlaybackSongFxxTimingPlanner.plan(
             song,
             traversalPlan: traversalPlan,
             sampleRate: sampleRate
         )
-        profileSession?.recordPhase(
-            "timing_frame_calculation",
-            startedAt: timingStart,
-            fields: [
-                AdapterPlanProfileField("row_count", timingPlan.rowTimings.count),
-                AdapterPlanProfileField("timing_change_count", timingPlan.timingChanges.count),
-                AdapterPlanProfileField("initial_speed", timingPlan.initialSpeed),
-                AdapterPlanProfileField("initial_bpm", timingPlan.initialBPM),
-                AdapterPlanProfileField("final_speed", timingPlan.finalSpeed),
-                AdapterPlanProfileField("final_bpm", timingPlan.finalBPM),
-            ]
-        )
+        recordTimingProfile(profileSession: profileSession, timingPlan: timingPlan, startedAt: timingStart)
         let timingConfig = SyntheticTrackerTimingConfig(
             speed: timingPlan.initialSpeed,
             bpm: timingPlan.initialBPM,
             sampleRate: timingPlan.sampleRate
         )
-        let safeOrderCount = max(0, orderCount)
         var rowMappings = [PlaybackSongSyntheticRowMapping]()
         var context = AdapterRowContext()
         // Keep the optional composition workspace out of every ordinary row helper.
@@ -750,19 +798,13 @@ enum PlaybackSongSyntheticAdapter {
         context.mixerSampleBuffers.reserveCapacity(song.instrumentsByIndex.values.reduce(0) { $0 + $1.samples.count })
         let traversalStatusStart = profileSession?.beginPhase()
         context.traversalEffectStatuses = traversalEffectStatuses(from: traversalPlan.traversalDiagnostics)
-        profileSession?.recordPhase(
-            "traversal_effect_status_indexing",
-            startedAt: traversalStatusStart,
-            fields: [
-                AdapterPlanProfileField("traversal_diagnostic_count", traversalPlan.traversalDiagnostics.count),
-                AdapterPlanProfileField("traversal_effect_status_count", context.traversalEffectStatuses.count),
-            ]
-        )
+        recordTraversalIndexProfile(profileSession: profileSession, traversalPlan: traversalPlan, context: context, startedAt: traversalStatusStart)
 
         let rowIterationStart = profileSession?.beginPhase()
         var eventGenerationNanoseconds: UInt64 = 0
         var semanticPublicationNanoseconds: UInt64 = 0
         for (rowIndex, traversalRow) in traversalPlan.rows.enumerated() {
+            if rowIndex & 31 == 0, isCancelled?() == true { return nil }
             rowMappings.append(PlaybackSongSyntheticRowMapping(
                 source: traversalRow.source,
                 syntheticRow: traversalRow.syntheticRow
@@ -816,9 +858,84 @@ enum PlaybackSongSyntheticAdapter {
             context.rowDiagnostics.append(rowDiagnostic)
         }
         if automaticEnabled { finishInstrumentAutovibratoTail(context: &context, builder: &automaticPitchBuilder) }
-        profileSession?.recordMeasuredPhase("semantic_pitch_publication", elapsedMS: Double(semanticPublicationNanoseconds) / 1_000_000.0,
+        recordRowConstructionProfile(profileSession: profileSession, context: context,
+            automaticPitchBuilder: automaticPitchBuilder, traversalPlan: traversalPlan,
+            semanticPublicationNanoseconds: semanticPublicationNanoseconds,
+            eventGenerationNanoseconds: eventGenerationNanoseconds, rowIterationStart: rowIterationStart)
+
+        if let globalVolumeProjectionOracle {
+            globalVolumeProjectionOracle(timingPlan, &context)
+        } else {
+            planGlobalVolumeChannelTargets(timingPlan: timingPlan, context: &context, profileSession: profileSession)
+        }
+        return finishAdaptation(song: song, startOrderIndex: startOrderIndex, orderCount: orderCount,
+            timingPlan: timingPlan, traversalPlan: traversalPlan, timingConfig: timingConfig,
+            rowMappings: rowMappings, clockRuns: clockRuns, canonicalTickCount: canonicalTickCount,
+            context: &context, automaticPitchBuilder: automaticPitchBuilder,
+            profileSession: profileSession, totalStart: totalStart, eligibilityOracle: eligibilityOracle,
+            isCancelled: isCancelled)
+    }
+
+    // Preparation-only profile values must not reserve row-interpreter stack space.
+    @inline(never)
+    private static func recordTraversalProfile(profileSession: AdapterPlanProfileSession?, song: PlaybackSong, startOrderIndex: Int, orderCount: Int, traversalPlan: PlaybackSongTraversalPlan, startedAt: UInt64?) {
+        guard let profileSession else { return }
+        profileSession.recordPhase(
+            "order_traversal",
+            startedAt: startedAt,
+            fields: AdapterPlanProfileFields.playbackSong(song) + [
+                AdapterPlanProfileField("requested_start_order_index", startOrderIndex),
+                AdapterPlanProfileField("requested_order_count", max(0, orderCount)),
+                AdapterPlanProfileField("row_count", traversalPlan.pathLength),
+                AdapterPlanProfileField("adapted_order_count", traversalPlan.adaptedOrders.count),
+                AdapterPlanProfileField("traversal_diagnostic_count", traversalPlan.traversalDiagnostics.count),
+                AdapterPlanProfileField("traversal_guard_hit", traversalPlan.guardHit),
+                AdapterPlanProfileField("traversal_stop_reason", traversalPlan.stopReason.rawValue),
+            ]
+        )
+    }
+
+    @inline(never)
+    private static func recordTimingProfile(profileSession: AdapterPlanProfileSession?, timingPlan: PlaybackSongFxxTimingPlan, startedAt: UInt64?) {
+        guard let profileSession else { return }
+        profileSession.recordPhase(
+            "timing_frame_calculation",
+            startedAt: startedAt,
+            fields: [
+                AdapterPlanProfileField("row_count", timingPlan.rowTimings.count),
+                AdapterPlanProfileField("timing_change_count", timingPlan.timingChanges.count),
+                AdapterPlanProfileField("initial_speed", timingPlan.initialSpeed),
+                AdapterPlanProfileField("initial_bpm", timingPlan.initialBPM),
+                AdapterPlanProfileField("final_speed", timingPlan.finalSpeed),
+                AdapterPlanProfileField("final_bpm", timingPlan.finalBPM),
+            ]
+        )
+    }
+
+    @inline(never)
+    private static func recordTraversalIndexProfile(profileSession: AdapterPlanProfileSession?, traversalPlan: PlaybackSongTraversalPlan, context: borrowing AdapterRowContext, startedAt: UInt64?) {
+        guard let profileSession else { return }
+        profileSession.recordPhase(
+            "traversal_effect_status_indexing",
+            startedAt: startedAt,
+            fields: [
+                AdapterPlanProfileField("traversal_diagnostic_count", traversalPlan.traversalDiagnostics.count),
+                AdapterPlanProfileField("traversal_effect_status_count", context.traversalEffectStatuses.count),
+            ]
+        )
+    }
+
+    // Profiling-only aggregate fields belong after row execution, outside its live stack.
+    @inline(never)
+    private static func recordRowConstructionProfile(profileSession: AdapterPlanProfileSession?,
+        context: borrowing AdapterRowContext,
+        automaticPitchBuilder: borrowing PlaybackSongInstrumentAutovibratoPublication.Builder,
+        traversalPlan: PlaybackSongTraversalPlan, semanticPublicationNanoseconds: UInt64,
+        eventGenerationNanoseconds: UInt64, rowIterationStart: UInt64?) {
+        guard let profileSession else { return }
+        profileSession.recordMeasuredPhase("semantic_pitch_publication", elapsedMS: Double(semanticPublicationNanoseconds) / 1_000_000.0,
             fields: [AdapterPlanProfileField("semantic_pitch_capture_failures", context.semanticPitchBuilder.failures)])
-        profileSession?.recordMeasuredPhase(
+        profileSession.recordMeasuredPhase(
             "event_generation",
             elapsedMS: Double(eventGenerationNanoseconds) / 1_000_000.0,
             fields: [
@@ -889,7 +1006,7 @@ enum PlaybackSongSyntheticAdapter {
                 AdapterPlanProfileField("selection_provenance_stride", MemoryLayout<PlaybackSongSelectionDispatchFacts.TuningProducers>.stride),
             ]
         )
-        profileSession?.recordPhase(
+        profileSession.recordPhase(
             "pattern_row_iteration",
             startedAt: rowIterationStart,
             fields: [
@@ -899,11 +1016,21 @@ enum PlaybackSongSyntheticAdapter {
             ]
         )
 
-        if let globalVolumeProjectionOracle {
-            globalVolumeProjectionOracle(timingPlan, &context)
-        } else {
-            planGlobalVolumeChannelTargets(timingPlan: timingPlan, context: &context, profileSession: profileSession)
-        }
+    }
+
+    // Plan-wide materialization must not reserve its aggregate temporaries while
+    // the bounded dispatch worker is executing the row-entry interpreter.
+    @inline(never)
+    static func finishAdaptation(song: PlaybackSong, startOrderIndex: Int, orderCount: Int,
+        timingPlan: PlaybackSongFxxTimingPlan, traversalPlan: PlaybackSongTraversalPlan,
+        timingConfig: SyntheticTrackerTimingConfig, rowMappings: [PlaybackSongSyntheticRowMapping],
+        clockRuns: [PlaybackSongCanonicalTickClock.ClockRun], canonicalTickCount: Int,
+        context: inout AdapterRowContext, automaticPitchBuilder: PlaybackSongInstrumentAutovibratoPublication.Builder,
+        profileSession: AdapterPlanProfileSession?, totalStart: UInt64?,
+        eligibilityOracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?, isCancelled: (() -> Bool)?,
+        continuation: ContinuationFoldInput? = nil,
+        terminalCheckpoint: ((ContinuationFoldOutput) -> Void)? = nil) -> PlaybackSongSyntheticPlan? {
+        let safeOrderCount = max(0, orderCount)
         let rowTimingDiagnostics = timingPlan.rowTimingDiagnostics
         let canonicalTickClock = PlaybackSongCanonicalTickClock(runs: clockRuns, totalCanonicalTicks: canonicalTickCount,
             sampleRate: timingConfig.sampleRate, rowTiming: rowTimingDiagnostics, rowDiagnostics: context.rowDiagnostics)
@@ -962,13 +1089,31 @@ enum PlaybackSongSyntheticAdapter {
         plan.initialHeldPitchEventIndices = context.initialHeldPitchEventIndices
         plan.instrumentAutovibratoRequests = automaticPitchBuilder.requests
         plan.instrumentAutovibratoInitialHoldEventIndices = automaticPitchBuilder.introducedHoldEventIndices
-        plan.xmEnvelopeTimeline = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan)
+        if isCancelled?() == true { return nil }
+        var terminalEnvelope = [Int: PlaybackXMEnvelopeTimeline.ChannelCheckpoint]()
+        var terminalAudible = [Int: PlaybackXMAudibleTimeline.SourceCheckpoint]()
+        let envelope = PlaybackXMEnvelopeTimeline(song: song, timing: timingPlan, plan: plan,
+            isCancelled: isCancelled, continuationSeed: continuation?.envelope,
+            importedEventIndices: continuation?.importedEventIndices ?? [],
+            batchStartFrame: continuation?.batchStartFrame ?? 0,
+            terminalCheckpoint: terminalCheckpoint == nil ? nil : { terminalEnvelope = $0 })
+        if isCancelled?() == true { return nil }
+        if let continuation {
+            plan = .init(continuing: plan, envelope: envelope, audibleSeed: continuation.audible,
+                importedEventIndices: continuation.importedEventIndices, batchStartFrame: continuation.batchStartFrame,
+                terminalAudibleCheckpoint: { terminalAudible = $0 })
+        } else { plan.xmEnvelopeTimeline = envelope }
+        if isCancelled?() == true { return nil }
         admitFinePitchPublications(in: &plan, ordinaryDelayedVibratoIndices: context.ordinaryDelayedVibratoIndices,
-            profileSession: profileSession, oracle: eligibilityOracle)
+            profileSession: profileSession, oracle: eligibilityOracle, continuationSeed: continuation?.pitch ?? [:])
         // Eligibility must see managed envelope/release lifetime. Only completed
         // cold-500 sources require rebuilding targets after gain admission changes.
-        if excludeCompletedCold500Publications(from: &plan) {
-            plan.xmAudibleTimeline = PlaybackXMAudibleTimeline(plan: plan)
+        if excludeCompletedCold500Publications(from: &plan, continuationSeed: continuation?.pitch ?? [:]) {
+            if let continuation {
+                plan = .init(continuing: plan, envelope: envelope, audibleSeed: continuation.audible,
+                    importedEventIndices: continuation.importedEventIndices, batchStartFrame: continuation.batchStartFrame,
+                    terminalAudibleCheckpoint: { terminalAudible = $0 })
+            } else { plan.xmAudibleTimeline = PlaybackXMAudibleTimeline(plan: plan) }
         }
         // Install only after existing diagnostic/admission mutations have completed.
         plan.semanticPitchProjection = context.semanticPitchBuilder.evidence
@@ -980,6 +1125,16 @@ enum PlaybackSongSyntheticAdapter {
         plan.rowExitProvenance = context.rowExitObserver.evidence
         plan.rowEntryTriggerResetFacts = context.rowEntryTriggerResetObserver.evidence
         plan.delayedInstrumentResetFacts = context.delayedInstrumentResetObserver.evidence
+        if let terminalCheckpoint {
+            let history = PlaybackSongOfflineRenderer.PitchSourceHistory(plan: plan,
+                continuationSeed: continuation?.pitch ?? [:])
+            let end = timingPlan.rowTimings.last.map { $0.rowStartFrame + $0.rowDurationFrames } ?? 0
+            var pitch = [Int: PlaybackSongOfflineRenderer.PitchSourceHistory.Checkpoint]()
+            for source in plan.pattern.events.indices {
+                if let value = history.checkpoint(for: source, before: end) { pitch[source] = value }
+            }
+            terminalCheckpoint(.init(envelope: terminalEnvelope, audible: terminalAudible, pitch: pitch))
+        }
         profileSession?.recordPhase(
             "playback_song_synthetic_adapter_adapt_total",
             startedAt: totalStart,
@@ -991,7 +1146,8 @@ enum PlaybackSongSyntheticAdapter {
     /// Admits fine/extra-fine and ordinary delayed Bx writes against the existing source lifetime.
     private static func admitFinePitchPublications(in plan: inout PlaybackSongSyntheticPlan,
         ordinaryDelayedVibratoIndices: [Int],
-        profileSession: AdapterPlanProfileSession?, oracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?) {
+        profileSession: AdapterPlanProfileSession?, oracle: ((Int, Int, PlaybackSongSyntheticPlan) -> Bool)?,
+        continuationSeed: [Int: PlaybackSongOfflineRenderer.PitchSourceHistory.Checkpoint] = [:]) {
         let start = profileSession?.beginPhase(), buildStart = profileSession?.beginPhase()
         let hasQueries = plan.diagnostics.finePortamentoUpEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
             plan.diagnostics.finePortamentoDownEffects.contains { $0.applied && !$0.appliedToInitialPlaybackStep && $0.activeEventIndex != nil } ||
@@ -1001,7 +1157,8 @@ enum PlaybackSongSyntheticAdapter {
         let work = profileSession == nil ? nil : PlaybackSongOfflineRenderer.PitchSourceHistory.Work()
         // Admission only removes writes to an already dead source. Its earlier, eligible
         // positive-step prefix is unchanged, so this immutable projection stays valid.
-        let history = hasQueries && oracle == nil ? PlaybackSongOfflineRenderer.PitchSourceHistory(plan: plan, work: work) : nil
+        let history = hasQueries && oracle == nil ? PlaybackSongOfflineRenderer.PitchSourceHistory(plan: plan,
+            work: work, continuationSeed: continuationSeed) : nil
         let fields: [AdapterPlanProfileField] = [
             .init("index_build_count", history == nil ? 0 : 1), .init("source_count", history?.sourceCount ?? 0),
             .init("pitch_diagnostics_visited", history?.diagnosticsVisited ?? 0),
@@ -1079,14 +1236,18 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     /// Keeps cold-500 semantic execution while excluding completed sources from C gain scheduling.
-    private static func excludeCompletedCold500Publications(from plan: inout PlaybackSongSyntheticPlan) -> Bool {
+    private static func excludeCompletedCold500Publications(from plan: inout PlaybackSongSyntheticPlan,
+        continuationSeed: [Int: PlaybackSongOfflineRenderer.PitchSourceHistory.Checkpoint] = [:]) -> Bool {
         var completedChannelsByFrame = [Int: Set<Int>]()
+        let history = continuationSeed.isEmpty ? nil : PlaybackSongOfflineRenderer.PitchSourceHistory(plan: plan,
+            continuationSeed: continuationSeed)
         for update in plan.diagnostics.voiceStateUpdates {
             guard case .effect5xyVolumeSlide = update.command,
                   update.applied, update.effectParam == 0,
                   !update.effectMemoryReused, update.activeVoiceUpdated,
                   let eventIndex = update.activeEventIndex,
-                  !PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: eventIndex, at: update.scheduledFrame, plan: plan) else { continue }
+                  !PlaybackSongOfflineRenderer.hasActiveSource(eventIndex: eventIndex, at: update.scheduledFrame,
+                    plan: plan, pitchHistory: history) else { continue }
             completedChannelsByFrame[update.scheduledFrame, default: []].insert(update.channelIndex)
         }
         guard !completedChannelsByFrame.isEmpty else { return false }
@@ -3037,6 +3198,7 @@ enum PlaybackSongSyntheticAdapter {
                     var firstTick = 1
                     if cell.effectType == 0x0E && cell.effectParam >> 4 == 0x0D,
                        let eventIndex = context.channelStates[channelIndex].activeEventIndex,
+                       eventIndex >= context.importedSourceCount,
                        context.events[eventIndex].row == syntheticRow {
                         firstTick = max(1, context.events[eventIndex].tick + 1)
                     }

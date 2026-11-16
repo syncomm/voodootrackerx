@@ -134,6 +134,15 @@
 		D39E01000000000000000002 /* BxE9OrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39E01000000000000000001 /* BxE9OrderTests.swift */; };
 		D39F01000000000000000002 /* KeyOffVibratoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39F01000000000000000001 /* KeyOffVibratoTests.swift */; };
 		T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000008 /* RuntimeCMixerTests.swift */; };
+		516700000000000000000101 /* RuntimeLoopNativeBatchStoragePCMTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516700000000000000000103 /* RuntimeLoopNativeBatchStoragePCMTests.swift */; };
+		516150000000000000000101 /* RuntimeLoopSessionRapidDeadlineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516150000000000000000103 /* RuntimeLoopSessionRapidDeadlineTests.swift */; };
+		516140000000000000000101 /* RuntimeLoopNativeOccurrenceTraceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516140000000000000000103 /* RuntimeLoopNativeOccurrenceTraceTests.swift */; };
+		516130000000000000000101 /* LoopEngineLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516130000000000000000103 /* LoopEngineLifecycleTests.swift */; };
+		516120000000000000000101 /* RuntimeLoopNativeRawIDAccountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516120000000000000000103 /* RuntimeLoopNativeRawIDAccountingTests.swift */; };
+		516110000000000000000101 /* RuntimeLoopNativeEarlyEditReleasePCMTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516110000000000000000103 /* RuntimeLoopNativeEarlyEditReleasePCMTests.swift */; };
+		516100000000000000000101 /* RuntimeLoopNativeEarlyEditPCMTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516100000000000000000103 /* RuntimeLoopNativeEarlyEditPCMTests.swift */; };
+		516090000000000000000101 /* RuntimeLoopNativeEarlyCutoverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516090000000000000000103 /* RuntimeLoopNativeEarlyCutoverTests.swift */; };
+		516800000000000000000101 /* RenderCoreNativeLoopIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516800000000000000000103 /* RenderCoreNativeLoopIntegrationTests.swift */; };
 		T00000000000000000000109 /* TrackerViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000009 /* TrackerViewportTests.swift */; };
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
 		A00000000000000000000014 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* XCTest.framework */; };
@@ -165,6 +174,14 @@
 		K00000000000000000000014 /* PlaybackSongOfflineRender.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000024 /* PlaybackSongOfflineRender.swift */; };
 		K00000000000000000000015 /* PlaybackVolumeColumnDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */; };
 		K00000000000000000000016 /* RuntimeCMixerAdapterEventPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000026 /* RuntimeCMixerAdapterEventPlan.swift */; };
+		516A00000000000000000101 /* RuntimeLoopNativeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516A00000000000000000103 /* RuntimeLoopNativeChannel.swift */; };
+		516600000000000000000101 /* RuntimeLoopPlanningSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516600000000000000000103 /* RuntimeLoopPlanningSession.swift */; };
+		516900000000000000000101 /* RuntimeLoopNativeBatchStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516900000000000000000103 /* RuntimeLoopNativeBatchStorage.swift */; };
+		516F00000000000000000101 /* PlaybackSongLoopResetContinuation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516F00000000000000000103 /* PlaybackSongLoopResetContinuation.swift */; };
+		516E00000000000000000101 /* PlaybackSongUserLoopProducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516E00000000000000000103 /* PlaybackSongUserLoopProducer.swift */; };
+		516D00000000000000000101 /* PlaybackSongPendingRowPitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516D00000000000000000103 /* PlaybackSongPendingRowPitch.swift */; };
+		516C00000000000000000101 /* PlaybackSongLoopContinuation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516C00000000000000000103 /* PlaybackSongLoopContinuation.swift */; };
+		516B00000000000000000101 /* RuntimeLoopNativeDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516B00000000000000000103 /* RuntimeLoopNativeDelivery.swift */; };
 		K00000000000000000000017 /* PlaybackSongAdapter+Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000027 /* PlaybackSongAdapter+Diagnostics.swift */; };
 		K00000000000000000000018 /* PlaybackSongAdapter+PitchEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000028 /* PlaybackSongAdapter+PitchEffects.swift */; };
 		K00000000000000000000019 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */; };
@@ -191,6 +208,14 @@
 		K00000000000000000000034 /* PlaybackSongOfflineRender.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000024 /* PlaybackSongOfflineRender.swift */; };
 		K00000000000000000000035 /* PlaybackVolumeColumnDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */; };
 		K00000000000000000000036 /* RuntimeCMixerAdapterEventPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000026 /* RuntimeCMixerAdapterEventPlan.swift */; };
+		516A00000000000000000102 /* RuntimeLoopNativeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516A00000000000000000103 /* RuntimeLoopNativeChannel.swift */; };
+		516600000000000000000102 /* RuntimeLoopPlanningSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516600000000000000000103 /* RuntimeLoopPlanningSession.swift */; };
+		516900000000000000000102 /* RuntimeLoopNativeBatchStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516900000000000000000103 /* RuntimeLoopNativeBatchStorage.swift */; };
+		516F00000000000000000102 /* PlaybackSongLoopResetContinuation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516F00000000000000000103 /* PlaybackSongLoopResetContinuation.swift */; };
+		516E00000000000000000102 /* PlaybackSongUserLoopProducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516E00000000000000000103 /* PlaybackSongUserLoopProducer.swift */; };
+		516D00000000000000000102 /* PlaybackSongPendingRowPitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516D00000000000000000103 /* PlaybackSongPendingRowPitch.swift */; };
+		516C00000000000000000102 /* PlaybackSongLoopContinuation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516C00000000000000000103 /* PlaybackSongLoopContinuation.swift */; };
+		516B00000000000000000102 /* RuntimeLoopNativeDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516B00000000000000000103 /* RuntimeLoopNativeDelivery.swift */; };
 		K00000000000000000000037 /* PlaybackSongAdapter+Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000027 /* PlaybackSongAdapter+Diagnostics.swift */; };
 		K00000000000000000000038 /* PlaybackSongAdapter+PitchEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000028 /* PlaybackSongAdapter+PitchEffects.swift */; };
 		K00000000000000000000039 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */; };
@@ -283,6 +308,15 @@
 		D39E01000000000000000001 /* BxE9OrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BxE9OrderTests.swift; path = ../../../tests/vtx_render_bounded_xm/BxE9OrderTests.swift; sourceTree = "<group>"; };
 		D39F01000000000000000001 /* KeyOffVibratoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KeyOffVibratoTests.swift; path = ../../../tests/vtx_render_bounded_xm/KeyOffVibratoTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000008 /* RuntimeCMixerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerTests.swift; sourceTree = "<group>"; };
+		516700000000000000000103 /* RuntimeLoopNativeBatchStoragePCMTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopNativeBatchStoragePCMTests.swift; sourceTree = "<group>"; };
+		516150000000000000000103 /* RuntimeLoopSessionRapidDeadlineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopSessionRapidDeadlineTests.swift; sourceTree = "<group>"; };
+		516140000000000000000103 /* RuntimeLoopNativeOccurrenceTraceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopNativeOccurrenceTraceTests.swift; sourceTree = "<group>"; };
+		516130000000000000000103 /* LoopEngineLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopEngineLifecycleTests.swift; sourceTree = "<group>"; };
+		516120000000000000000103 /* RuntimeLoopNativeRawIDAccountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopNativeRawIDAccountingTests.swift; sourceTree = "<group>"; };
+		516110000000000000000103 /* RuntimeLoopNativeEarlyEditReleasePCMTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopNativeEarlyEditReleasePCMTests.swift; sourceTree = "<group>"; };
+		516100000000000000000103 /* RuntimeLoopNativeEarlyEditPCMTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopNativeEarlyEditPCMTests.swift; sourceTree = "<group>"; };
+		516090000000000000000103 /* RuntimeLoopNativeEarlyCutoverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopNativeEarlyCutoverTests.swift; sourceTree = "<group>"; };
+		516800000000000000000103 /* RenderCoreNativeLoopIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderCoreNativeLoopIntegrationTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000009 /* TrackerViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerViewportTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
 		A00000000000000000000024 /* TrackerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerTheme.swift; sourceTree = "<group>"; };
@@ -327,6 +361,14 @@
 		K00000000000000000000024 /* PlaybackSongOfflineRender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongOfflineRender.swift; sourceTree = "<group>"; };
 		K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackVolumeColumnDecoder.swift; sourceTree = "<group>"; };
 		K00000000000000000000026 /* RuntimeCMixerAdapterEventPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerAdapterEventPlan.swift; sourceTree = "<group>"; };
+		516A00000000000000000103 /* RuntimeLoopNativeChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopNativeChannel.swift; sourceTree = "<group>"; };
+		516600000000000000000103 /* RuntimeLoopPlanningSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopPlanningSession.swift; sourceTree = "<group>"; };
+		516900000000000000000103 /* RuntimeLoopNativeBatchStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopNativeBatchStorage.swift; sourceTree = "<group>"; };
+		516F00000000000000000103 /* PlaybackSongLoopResetContinuation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongLoopResetContinuation.swift; sourceTree = "<group>"; };
+		516E00000000000000000103 /* PlaybackSongUserLoopProducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongUserLoopProducer.swift; sourceTree = "<group>"; };
+		516D00000000000000000103 /* PlaybackSongPendingRowPitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongPendingRowPitch.swift; sourceTree = "<group>"; };
+		516C00000000000000000103 /* PlaybackSongLoopContinuation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongLoopContinuation.swift; sourceTree = "<group>"; };
+		516B00000000000000000103 /* RuntimeLoopNativeDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLoopNativeDelivery.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -424,6 +466,14 @@
 				K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */,
 				F00000000000000000000023 /* RuntimeCMixerCapture.swift */,
 				K00000000000000000000026 /* RuntimeCMixerAdapterEventPlan.swift */,
+				516A00000000000000000103 /* RuntimeLoopNativeChannel.swift */,
+				516600000000000000000103 /* RuntimeLoopPlanningSession.swift */,
+				516900000000000000000103 /* RuntimeLoopNativeBatchStorage.swift */,
+				516F00000000000000000103 /* PlaybackSongLoopResetContinuation.swift */,
+				516E00000000000000000103 /* PlaybackSongUserLoopProducer.swift */,
+				516D00000000000000000103 /* PlaybackSongPendingRowPitch.swift */,
+				516C00000000000000000103 /* PlaybackSongLoopContinuation.swift */,
+				516B00000000000000000103 /* RuntimeLoopNativeDelivery.swift */,
 				F00000000000000000000024 /* RuntimeCMixerDiagnostics.swift */,
 				F00000000000000000000025 /* RuntimeCMixerOutputRouteDiagnostics.swift */,
 				F00000000000000000000026 /* RuntimeCMixerRenderCore.swift */,
@@ -484,6 +534,15 @@
 				D39E01000000000000000001 /* BxE9OrderTests.swift */,
 				D39F01000000000000000001 /* KeyOffVibratoTests.swift */,
 				T00000000000000000000008 /* RuntimeCMixerTests.swift */,
+				516700000000000000000103 /* RuntimeLoopNativeBatchStoragePCMTests.swift */,
+				516150000000000000000103 /* RuntimeLoopSessionRapidDeadlineTests.swift */,
+				516140000000000000000103 /* RuntimeLoopNativeOccurrenceTraceTests.swift */,
+				516130000000000000000103 /* LoopEngineLifecycleTests.swift */,
+				516120000000000000000103 /* RuntimeLoopNativeRawIDAccountingTests.swift */,
+				516110000000000000000103 /* RuntimeLoopNativeEarlyEditReleasePCMTests.swift */,
+				516100000000000000000103 /* RuntimeLoopNativeEarlyEditPCMTests.swift */,
+				516090000000000000000103 /* RuntimeLoopNativeEarlyCutoverTests.swift */,
+				516800000000000000000103 /* RenderCoreNativeLoopIntegrationTests.swift */,
 				T00000000000000000000009 /* TrackerViewportTests.swift */,
 				A00000000000000000000022 /* VoodooTrackerXTests.swift */,
 			);
@@ -684,6 +743,14 @@
 				A00000000000000000000030 /* PlaybackTypes.swift in Sources */,
 				F00000000000000000000035 /* RuntimeCMixerCapture.swift in Sources */,
 				K00000000000000000000016 /* RuntimeCMixerAdapterEventPlan.swift in Sources */,
+				516A00000000000000000101 /* RuntimeLoopNativeChannel.swift in Sources */,
+				516600000000000000000101 /* RuntimeLoopPlanningSession.swift in Sources */,
+				516900000000000000000101 /* RuntimeLoopNativeBatchStorage.swift in Sources */,
+				516F00000000000000000101 /* PlaybackSongLoopResetContinuation.swift in Sources */,
+				516E00000000000000000101 /* PlaybackSongUserLoopProducer.swift in Sources */,
+				516D00000000000000000101 /* PlaybackSongPendingRowPitch.swift in Sources */,
+				516C00000000000000000101 /* PlaybackSongLoopContinuation.swift in Sources */,
+				516B00000000000000000101 /* RuntimeLoopNativeDelivery.swift in Sources */,
 				F00000000000000000000037 /* RuntimeCMixerDiagnostics.swift in Sources */,
 				F00000000000000000000039 /* RuntimeCMixerOutputRouteDiagnostics.swift in Sources */,
 				F0000000000000000000003B /* RuntimeCMixerRenderCore.swift in Sources */,
@@ -751,6 +818,14 @@
 				A0000000000000000000004B /* PlaybackTypes.swift in Sources */,
 				F00000000000000000000036 /* RuntimeCMixerCapture.swift in Sources */,
 				K00000000000000000000036 /* RuntimeCMixerAdapterEventPlan.swift in Sources */,
+				516A00000000000000000102 /* RuntimeLoopNativeChannel.swift in Sources */,
+				516600000000000000000102 /* RuntimeLoopPlanningSession.swift in Sources */,
+				516900000000000000000102 /* RuntimeLoopNativeBatchStorage.swift in Sources */,
+				516F00000000000000000102 /* PlaybackSongLoopResetContinuation.swift in Sources */,
+				516E00000000000000000102 /* PlaybackSongUserLoopProducer.swift in Sources */,
+				516D00000000000000000102 /* PlaybackSongPendingRowPitch.swift in Sources */,
+				516C00000000000000000102 /* PlaybackSongLoopContinuation.swift in Sources */,
+				516B00000000000000000102 /* RuntimeLoopNativeDelivery.swift in Sources */,
 				F00000000000000000000038 /* RuntimeCMixerDiagnostics.swift in Sources */,
 				F0000000000000000000003A /* RuntimeCMixerOutputRouteDiagnostics.swift in Sources */,
 				F0000000000000000000003C /* RuntimeCMixerRenderCore.swift in Sources */,
@@ -815,6 +890,15 @@
 				D39E01000000000000000002 /* BxE9OrderTests.swift in Sources */,
 				D39F01000000000000000002 /* KeyOffVibratoTests.swift in Sources */,
 				T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */,
+				516700000000000000000101 /* RuntimeLoopNativeBatchStoragePCMTests.swift in Sources */,
+				516150000000000000000101 /* RuntimeLoopSessionRapidDeadlineTests.swift in Sources */,
+				516140000000000000000101 /* RuntimeLoopNativeOccurrenceTraceTests.swift in Sources */,
+				516130000000000000000101 /* LoopEngineLifecycleTests.swift in Sources */,
+				516120000000000000000101 /* RuntimeLoopNativeRawIDAccountingTests.swift in Sources */,
+				516110000000000000000101 /* RuntimeLoopNativeEarlyEditReleasePCMTests.swift in Sources */,
+				516100000000000000000101 /* RuntimeLoopNativeEarlyEditPCMTests.swift in Sources */,
+				516090000000000000000101 /* RuntimeLoopNativeEarlyCutoverTests.swift in Sources */,
+				516800000000000000000101 /* RenderCoreNativeLoopIntegrationTests.swift in Sources */,
 				T00000000000000000000109 /* TrackerViewportTests.swift in Sources */,
 				A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */,
 				CAFE00000000000000000107 /* module_types.c in Sources */,

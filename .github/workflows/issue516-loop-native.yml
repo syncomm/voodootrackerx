@@ -8,8 +8,8 @@ jobs:
   host-progress-control:
     name: Standalone CoreAudio arm64 progress control
     runs-on: macos-latest
-    # Three fixed matrices retain separate 10-second deadlines for all 60 targets.
-    timeout-minutes: 15
+    # Four fixed matrices retain separate 10-second deadlines for all 80 targets.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
@@ -37,11 +37,13 @@ jobs:
           vtx_rapid_result=$?
           "$vtx_probe_root/host-progress" --idle-restart > "$vtx_probe_root/idle-progress.log" 2>&1
           vtx_idle_result=$?
-          printf 'baselineExit=%s rapidExit=%s idleExit=%s\n' "$vtx_probe_result" "$vtx_rapid_result" "$vtx_idle_result" > "$vtx_probe_root/results.txt"
-          /usr/bin/log show --last 15m --style compact \
+          "$vtx_probe_root/host-progress" --guarded-idle-restart > "$vtx_probe_root/guarded-progress.log" 2>&1
+          vtx_guarded_result=$?
+          printf 'baselineExit=%s rapidExit=%s idleExit=%s guardedExit=%s\n' "$vtx_probe_result" "$vtx_rapid_result" "$vtx_idle_result" "$vtx_guarded_result" > "$vtx_probe_root/results.txt"
+          /usr/bin/log show --last 20m --style compact \
             --predicate 'process == "coreaudiod" OR process == "host-progress"' \
             > "$vtx_probe_root/host-system.log" 2>&1
-          test "$vtx_probe_result" = 0 && test "$vtx_rapid_result" = 0 && test "$vtx_idle_result" = 0
+          test "$vtx_probe_result" = 0 && test "$vtx_rapid_result" = 0 && test "$vtx_idle_result" = 0 && test "$vtx_guarded_result" = 0
       - name: Preserve standalone host evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -51,6 +53,10 @@ jobs:
           if-no-files-found: warn
   continuation:
     name: Loop continuation arm64 ASan and Release
+    # Give the small diagnostic first access to scarce hosted runners. Qualification
+    # still runs after its failure, on a separate VM with its own initial audio state.
+    needs: host-progress-control
+    if: ${{ !cancelled() }}
     runs-on: macos-latest
     timeout-minutes: 90
     steps:

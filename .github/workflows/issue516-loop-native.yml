@@ -17,6 +17,13 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           vtx_probe_root=$(mktemp -d /private/tmp/vtx-host-progress.XXXXXX)
+          sw_vers > "$vtx_probe_root/driver-provenance.txt"
+          vtx_driver=/System/Library/Audio/Plug-Ins/HAL/AppleVirtIOSound.driver/Contents
+          if test -f "$vtx_driver/MacOS/AppleVirtIOSound"; then
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$vtx_driver/Info.plist" >> "$vtx_probe_root/driver-provenance.txt"
+            shasum -a 256 "$vtx_driver/MacOS/AppleVirtIOSound" >> "$vtx_probe_root/driver-provenance.txt"
+            dwarfdump --uuid "$vtx_driver/MacOS/AppleVirtIOSound" >> "$vtx_probe_root/driver-provenance.txt"
+          fi
           clang -arch arm64 -std=c11 -Wall -Wextra -Werror \
             .github/scripts/issue554-host-progress.c \
             -framework AudioToolbox -framework CoreAudio \
@@ -25,10 +32,13 @@ jobs:
           set +e
           "$vtx_probe_root/host-progress" > "$vtx_probe_root/progress.log" 2>&1
           vtx_probe_result=$?
+          "$vtx_probe_root/host-progress" --rapid-restart > "$vtx_probe_root/rapid-progress.log" 2>&1
+          vtx_rapid_result=$?
+          printf 'baselineExit=%s rapidExit=%s\n' "$vtx_probe_result" "$vtx_rapid_result" > "$vtx_probe_root/results.txt"
           /usr/bin/log show --last 10m --style compact \
             --predicate 'process == "coreaudiod" OR process == "host-progress"' \
             > "$vtx_probe_root/host-system.log" 2>&1
-          exit "$vtx_probe_result"
+          test "$vtx_probe_result" = 0 && test "$vtx_rapid_result" = 0
       - name: Preserve standalone host evidence
         if: always()
         uses: actions/upload-artifact@v4

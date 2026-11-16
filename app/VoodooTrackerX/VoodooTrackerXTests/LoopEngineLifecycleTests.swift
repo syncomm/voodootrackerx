@@ -616,6 +616,15 @@ final class LoopEngineLifecycleTests: XCTestCase {
 
     @MainActor
     func testBlockedActualProducerStopsAfterNativeRetirementAndRejectsLateWork() throws {
+        // Fixed stress matrix: every iteration retains the original deadline and
+        // assertions. Failures remain failures even if a later iteration passes.
+        for iteration in 1...20 {
+            try checkBlockedProducerRetirement(iteration: iteration)
+        }
+    }
+
+    @MainActor
+    private func checkBlockedProducerRetirement(iteration: Int) throws {
         let queue = DispatchQueue(label: "public.loop.blocked.producer")
         let scheduler = DispatchQueueRuntimeAdapterPlanPrewarmScheduler(workerQueue: queue)
         let output = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1)
@@ -641,7 +650,16 @@ final class LoopEngineLifecycleTests: XCTestCase {
         // and native frames the same origin, so row end is the fault boundary.
         let retirementDeadline = Date(timeIntervalSinceNow: 10)
         var completedRetirement: RuntimeLoopNativeFollowSnapshot?
+        // Off-audio atomics distinguish absent host delivery from an active/stuck
+        // callback or a sticky host fault without contending with the render lock.
+        var progress = ["start=\(output.hostProgressForTesting())"]
+        var nextProgress = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
         while Date() < retirementDeadline {
+            let now = DispatchTime.now().uptimeNanoseconds
+            if now >= nextProgress {
+                progress.append("follow=\(String(describing: output.runtimeUserLoopPosition())); host=\(output.hostProgressForTesting())")
+                nextProgress = now + 1_000_000_000
+            }
             if let position = output.runtimeUserLoopPosition(), position.isTerminal,
                position.rowEndFrame >= 0,
                position.nativeFrame >= UInt64(position.rowEndFrame) + 240 {
@@ -650,8 +668,13 @@ final class LoopEngineLifecycleTests: XCTestCase {
             }
             Thread.sleep(forTimeInterval: 0.001)
         }
+        progress.append("completed=\(String(describing: completedRetirement)); end=\(output.hostProgressForTesting())")
+        let attachment = XCTAttachment(string: progress.joined(separator: "\n"))
+        attachment.name = "blocked-producer-native-retirement-progress-\(iteration)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         XCTAssertNotNil(completedRetirement,
-            "Native retirement did not complete: \(String(describing: output.runtimeUserLoopPosition()))")
+            "Native retirement did not complete: \(String(describing: output.runtimeUserLoopPosition())); progress=\(output.hostProgressForTesting())")
         release.signal(); didRelease = true
         engine.advanceOneTick()
         XCTAssertEqual(engine.state.mode, .stopped)

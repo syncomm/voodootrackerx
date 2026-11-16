@@ -1094,6 +1094,13 @@ struct RuntimeCMixerThreadDiagnostics: Equatable {
     }
 }
 
+/// First completed C render on the actual host callback path, never a DAC timestamp.
+struct RuntimeCMixerFirstHostOutputObservation: Equatable, Sendable {
+    let generation: UInt64
+    let completedUptimeNanoseconds: UInt64
+    let runtimeEndFrame: UInt64
+}
+
 struct RuntimeCMixerRealtimeState: Equatable {
     let requestedFrameCount: Int
     let callbackThread: RuntimeCMixerThreadDiagnostics
@@ -1151,6 +1158,10 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
     private let audioUnitLifecycleCallWhileCallbackActiveCounter = Atomic(UInt64(0))
     private let lastCallbackOutputFrameCountAtomic = Atomic(UInt64(0))
     private let realtimeCurrentFrameCounter = Atomic(UInt64(0))
+    private let playbackTimingEnabled: Bool
+    private let hostOutputTimingGeneration = Atomic(UInt64(1))
+    private let firstHostOutputCompletedUptime = Atomic(UInt64(0))
+    private let firstHostOutputEndFrame = Atomic(UInt64(0))
     private let mixer: CSoftwareMixer
     private let captureBuffer: RuntimeCMixerCaptureBuffer?
     private let callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration
@@ -1291,13 +1302,15 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
         updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
         captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil,
         callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration = .defaultConfiguration,
-        songEndTailPolicy: RuntimeCMixerSongEndTailPolicy = .defaultPolicy
+        songEndTailPolicy: RuntimeCMixerSongEndTailPolicy = .defaultPolicy,
+        playbackTimingEnabled: Bool = PlaybackTimingTraceConfiguration.isEnabled()
     ) {
         self.config = config
         self.outputPolicy = outputPolicy
         self.updatePolicy = updatePolicy
         self.callbackDiagnostics = callbackDiagnostics
         self.songEndTailPolicy = songEndTailPolicy
+        self.playbackTimingEnabled = playbackTimingEnabled
         runtimeTailFrames = songEndTailPolicy.tailFrames(sampleRate: config.sampleRate)
         self.maximumRenderFrames = max(1, maximumRenderFrames)
         let configuredMixer = CSoftwareMixer(config: config)
@@ -1312,7 +1325,7 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
         burstDiagnosticScratch = Array(repeating: nil, count: Self.callbackBurstScratchCapacity)
     }
 
-    /// Installs the Loop-only delivery owner before host start, never during a callback.
+    /// Installs prepared native delivery before host start, never during a callback.
     /// keepingAlive retains generation PCM cache through host quiescence and C reset.
     func configureNativeLoopDelivery(channel: RuntimeLoopNativeTwoSlotChannel, scope: RuntimeLoopNativeScope,
         trackerChannelCount: Int, keepingAlive: AnyObject, recordsOccurrences: Bool = false) {
@@ -1370,6 +1383,11 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
         nativeLoopCursor?.takeCompletedFault()
     }
 
+    /// Exactly one successful finite tail-stop receipt, published by actual rendering.
+    func consumeRuntimeSongContinuationCompletion() -> RuntimeLoopNativeSongCompletion? {
+        nativeLoopCursor?.takeCompletedSong()
+    }
+
     /// Main/backend reads only fixed atomic fields, never a borrowed batch or C voice.
     func nativeLoopFollowPosition() -> RuntimeLoopNativeFollowSnapshot? { nativeLoopFollow?.read() }
 
@@ -1403,6 +1421,21 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
     func didAdmitNativeLoopScope(_ scope: RuntimeLoopNativeScope) {
         // Callback-only until a sticky host failure publishes the final scalar scope.
         nativeLoopScope = scope
+    }
+
+    /// Records the exact musical boundary without changing existing C voice state.
+    func reachNativeSongEnd(atRuntimeFrame frame: UInt64) {
+        plannedSongEndFrame = Int(exactly: frame)
+        plannedSongEndRuntimeFrame = frame
+        recordPlannedSongEndBoundaryLocked(runtimeFrame: frame)
+    }
+
+    /// Clears C at the ordinary tail deadline before native storage can retire.
+    func finishNativeSong(atRuntimeFrame frame: UInt64) {
+        songEndStopFrame = Int(exactly: frame)
+        songEndStopRuntimeFrame = frame
+        // Reuse ordinary song-tail clearing, before publishing native retirement.
+        recordSongEndTailStopBoundaryLocked(runtimeFrame: frame)
     }
 
     func renderNativeLoopFrames(outputOffset: Int, frameCount: Int) {
@@ -4086,6 +4119,8 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
     }
 
     private func resetLocked() {
+        firstHostOutputCompletedUptime.store(0, ordering: .releasing)
+        firstHostOutputEndFrame.store(0, ordering: .relaxed)
         mixer.clearVoices()
         mixer.reset()
         // Existing stop/reset caller has quiesced host; native PCM refs die before generation owner.
@@ -4144,6 +4179,7 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
         latePlannedEventCount = 0
         maxPlannedVsAppliedDelta = 0
         admissionGeneration &+= 1
+        hostOutputTimingGeneration.store(admissionGeneration, ordering: .releasing)
         admissionFault = nil
         admissionFaultConsumed = false
         // Host is stopped and the cached callback was invalidated above before reopening audio.
@@ -4380,6 +4416,19 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
         realtimeCurrentFrameCounter.load(ordering: .relaxed)
     }
 
+    /// Off-audio, bounded read. Concurrent transport reset returns nil rather than
+    /// combining generations; formatting and timing-session publication belong off audio.
+    func firstHostOutputObservation() -> RuntimeCMixerFirstHostOutputObservation? {
+        guard playbackTimingEnabled else { return nil }
+        let generation = hostOutputTimingGeneration.load(ordering: .acquiring)
+        let completed = firstHostOutputCompletedUptime.load(ordering: .acquiring)
+        guard completed > 0 else { return nil }
+        let frame = firstHostOutputEndFrame.load(ordering: .relaxed)
+        guard hostOutputTimingGeneration.load(ordering: .acquiring) == generation,
+              firstHostOutputCompletedUptime.load(ordering: .acquiring) == completed else { return nil }
+        return .init(generation: generation, completedUptimeNanoseconds: completed, runtimeEndFrame: frame)
+    }
+
     func recordAudioUnitLifecycleCallIfCallbackActive() {
         if isRenderCallbackActive {
             audioUnitLifecycleCallWhileCallbackActiveCounter.wrappingAdd(1, ordering: .relaxed)
@@ -4598,6 +4647,12 @@ final class RuntimeCMixerRenderCore: RuntimeLoopNativeDeliverySink, @unchecked S
         outputMetrics: RuntimeCMixerOutputMetrics,
         callbackThread: RuntimeCMixerThreadDiagnostics? = nil
     ) {
+        if playbackTimingEnabled, callbackThread != nil, succeeded, renderedFrames > 0,
+           callbackEndFrame > callbackStartFrame,
+           firstHostOutputCompletedUptime.load(ordering: .relaxed) == 0 {
+            firstHostOutputEndFrame.store(callbackEndFrame, ordering: .relaxed)
+            firstHostOutputCompletedUptime.store(DispatchTime.now().uptimeNanoseconds, ordering: .releasing)
+        }
         let callbackIndex = renderCallbackCount &+ 1
         renderCallbackCount &+= 1
         if let callbackThread {

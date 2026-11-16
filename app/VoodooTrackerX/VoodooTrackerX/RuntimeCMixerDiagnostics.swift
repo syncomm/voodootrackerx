@@ -275,6 +275,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let adapterEventCategoriesConsumed: [String]?
     let runtimeEventCategory: String?
     let plannedEventID: Int?
+    let nativeTransportKind: String?
     let loopOccurrence: RuntimeLoopNativeTraceOccurrence?
     let loopOccurrenceSummary: RuntimeLoopNativeTraceSummary?
     let plannedSourceOrderIndex: Int?
@@ -693,6 +694,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         adapterEventCategoriesConsumed: [String]? = nil,
         runtimeEventCategory: String? = nil,
         plannedEventID: Int? = nil,
+        nativeTransportKind: String? = nil,
         loopOccurrence: RuntimeLoopNativeTraceOccurrence? = nil,
         loopOccurrenceSummary: RuntimeLoopNativeTraceSummary? = nil,
         plannedSourceOrderIndex: Int? = nil,
@@ -1084,6 +1086,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.adapterEventCategoriesConsumed = adapterEventCategoriesConsumed
         self.runtimeEventCategory = runtimeEventCategory
         self.plannedEventID = plannedEventID
+        self.nativeTransportKind = nativeTransportKind
         self.loopOccurrence = loopOccurrence
         self.loopOccurrenceSummary = loopOccurrenceSummary
         self.plannedSourceOrderIndex = plannedSourceOrderIndex

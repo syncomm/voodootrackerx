@@ -1,5 +1,6 @@
 import Foundation
 import os
+import Synchronization
 
 @MainActor
 protocol PlaybackTraceWriting: AnyObject {
@@ -201,6 +202,10 @@ final class PlaybackTimingTraceSession {
         clock.nowNanoseconds()
     }
 
+    /// Allows same-host input automation to correlate UI entry without including
+    /// AX lookup or trace-reading overhead in the application's request duration.
+    var startUptimeNanoseconds: UInt64 { startedAtNanoseconds }
+
     func recordPhase(
         _ phase: String,
         startedAt startNanoseconds: UInt64?,
@@ -234,6 +239,14 @@ final class PlaybackTimingTraceSession {
             elapsedMS: elapsedMS,
             fields: fields
         ))
+    }
+
+    /// Records a monotonic observation relative to UI lifecycle entry. The host
+    /// supplies its completed-render stamp; polling latency is not onset latency.
+    func recordMilestone(_ phase: String, at uptimeNanoseconds: UInt64,
+                         fields: [PlaybackTimingTraceField] = []) {
+        recordMeasuredPhase(phase,
+            elapsedMS: milliseconds(from: startedAtNanoseconds, to: uptimeNanoseconds), fields: fields)
     }
 
     func measure<T>(
@@ -301,6 +314,11 @@ final class PlaybackTimingTraceRecorder {
 enum PlaybackTimingTraceConfiguration {
     static let enabledEnvironmentKey = "VTX_PLAYBACK_TIMING_TRACE"
 
+    /// Resolve the existing opt-in flag off audio; callbacks never inspect environment.
+    static func isEnabled(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        flagEnabled(enabledEnvironmentKey, environment: environment)
+    }
+
     @MainActor
     static func makeRecorder(
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -308,7 +326,7 @@ enum PlaybackTimingTraceConfiguration {
         sink: PlaybackTimingTraceSinking = StandardErrorPlaybackTimingTraceSink.shared
     ) -> PlaybackTimingTraceRecorder {
         PlaybackTimingTraceRecorder(
-            isEnabled: flagEnabled(enabledEnvironmentKey, environment: environment),
+            isEnabled: isEnabled(environment: environment),
             clock: clock,
             sink: sink
         )
@@ -321,6 +339,102 @@ enum PlaybackTimingTraceConfiguration {
         }
         return rawValue == "1" || rawValue == "true" || rawValue == "yes" || rawValue == "on"
     }
+}
+
+/// Completed probes measure Main dispatch delay; an outstanding probe contributes
+/// its age at finish as a lower bound, so a blocked handler cannot hide its wait.
+struct PlaybackMainThreadHeartbeatMeasurement {
+    let enqueuedProbeCount: UInt64
+    let completedProbeCount: UInt64
+    let maximumDispatchDelayNanoseconds: UInt64
+    let outstandingWaitNanoseconds: UInt64
+
+    var maximumDispatchDelayMS: Double { Double(maximumDispatchDelayNanoseconds) / 1_000_000 }
+    var fields: [PlaybackTimingTraceField] {
+        [.init("main_probe_enqueued_count", enqueuedProbeCount),
+         .init("main_probe_completed_count", completedProbeCount),
+         .init("main_dispatch_max_delay_ms", milliseconds: maximumDispatchDelayMS),
+         .init("main_outstanding_probe_wait_ms", milliseconds: Double(outstandingWaitNanoseconds) / 1_000_000)]
+    }
+}
+
+/// Opt-in off-Main timer with at most one outstanding Main-queue probe. No audio
+/// callback, file output, or musical transport service participates in measurement.
+final class PlaybackMainThreadHeartbeatProbe: @unchecked Sendable {
+    private let active = Atomic(true)
+    private let pendingSince = Atomic(UInt64(0))
+    private let enqueued = Atomic(UInt64(0)), completed = Atomic(UInt64(0))
+    private let maximumDelay = Atomic(UInt64(0)), finalOutstandingWait = Atomic(UInt64(0))
+    private let timer: DispatchSourceTimer
+
+    private init() {
+        let queue = DispatchQueue(label: "com.syncomm.VoodooTrackerX.playback-timing-heartbeat", qos: .userInitiated)
+        timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in self?.enqueueProbe() }
+        timer.resume()
+    }
+
+    deinit { active.store(false, ordering: .releasing); timer.cancel() }
+
+    /// Begin at UI Play entry, before snapshot work. Production uses the existing flag.
+    @MainActor
+    static func begin(isEnabled: Bool = PlaybackTimingTraceConfiguration.isEnabled()) -> PlaybackMainThreadHeartbeatProbe? {
+        isEnabled ? PlaybackMainThreadHeartbeatProbe() : nil
+    }
+
+    /// Stop at request completion on Main; repeated finish preserves the same result.
+    @MainActor
+    func finish() -> PlaybackMainThreadHeartbeatMeasurement {
+        if active.exchange(false, ordering: .acquiringAndReleasing) {
+            timer.cancel()
+            let pending = pendingSince.exchange(0, ordering: .acquiringAndReleasing)
+            if pending > 0 {
+                let now = DispatchTime.now().uptimeNanoseconds
+                let wait = now >= pending ? now - pending : 0
+                finalOutstandingWait.store(wait, ordering: .relaxed)
+                recordMaximum(wait)
+            }
+        }
+        return .init(enqueuedProbeCount: enqueued.load(ordering: .acquiring),
+            completedProbeCount: completed.load(ordering: .acquiring),
+            maximumDispatchDelayNanoseconds: maximumDelay.load(ordering: .acquiring),
+            outstandingWaitNanoseconds: finalOutstandingWait.load(ordering: .acquiring))
+    }
+
+    private func enqueueProbe() {
+        guard active.load(ordering: .acquiring) else { return }
+        let started = DispatchTime.now().uptimeNanoseconds
+        guard pendingSince.compareExchange(expected: 0, desired: started,
+            ordering: .acquiringAndReleasing).exchanged else { return }
+        guard active.load(ordering: .acquiring) else {
+            _ = pendingSince.compareExchange(expected: started, desired: 0, ordering: .acquiringAndReleasing)
+            return
+        }
+        enqueued.wrappingAdd(1, ordering: .releasing)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.active.load(ordering: .acquiring) else { return }
+            let pending = self.pendingSince.load(ordering: .acquiring)
+            guard pending > 0 else { return }
+            let now = DispatchTime.now().uptimeNanoseconds
+            self.recordMaximum(now >= pending ? now - pending : 0)
+            self.completed.wrappingAdd(1, ordering: .releasing)
+            _ = self.pendingSince.compareExchange(expected: pending, desired: 0, ordering: .acquiringAndReleasing)
+        }
+    }
+
+    private func recordMaximum(_ delay: UInt64) {
+        var previous = maximumDelay.load(ordering: .acquiring)
+        while delay > previous {
+            let updated = maximumDelay.compareExchange(expected: previous, desired: delay, ordering: .acquiringAndReleasing)
+            if updated.exchanged { return }
+            previous = updated.original
+        }
+    }
+
+#if DEBUG
+    var hasOutstandingProbeForTesting: Bool { pendingSince.load(ordering: .acquiring) > 0 }
+#endif
 }
 
 enum PlaybackTimingTraceFields {

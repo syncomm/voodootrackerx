@@ -9,6 +9,57 @@ final class RuntimeLoopNativeOccurrenceTraceTests: XCTestCase {
             "{\"runtimeAction\":\"control\",\"runtimeAudioBackend\":\"c_mixer\",\"schemaVersion\":1,\"targetScope\":\"none\",\"targetedAllVoices\":false}\n")
     }
 
+    func testScopeEncodingPreservesLoopV1BytesAndDistinguishesFiniteTransport() throws {
+        let scope = RuntimeLoopNativeScope(documentHigh: 1, documentLow: 2, sourceGeneration: 3,
+            transportEpoch: 4, sampleRateBits: 5, semanticVersion: 1, linearFrequencyMode: true,
+            order: 0, pattern: 0, firstRow: 0, lastRow: 3)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let original = "{\"documentHigh\":1,\"documentLow\":2,\"firstRow\":0,\"lastRow\":3,\"linearFrequencyMode\":true,\"order\":0,\"pattern\":0,\"sampleRateBits\":5,\"semanticVersion\":1,\"sourceGeneration\":3,\"transportEpoch\":4}"
+        XCTAssertEqual(String(decoding: try encoder.encode(scope), as: UTF8.self), original)
+        var finite = scope; finite.transportKind = .finiteSong
+        XCTAssertNotEqual(finite, scope)
+        let expected = String(original.dropLast()) + ",\"transportKind\":\"finite_song\"}"
+        XCTAssertEqual(String(decoding: try encoder.encode(finite), as: UTF8.self), expected)
+    }
+
+    func testOrdinaryV2EnvelopeKeepsBatchNumbersAndOriginalCarriedBirth() throws {
+        let scope = RuntimeLoopNativeScope(documentHigh: 1, documentLow: 2, sourceGeneration: 4,
+            transportEpoch: 9, sampleRateBits: 48_000.0.bitPattern, semanticVersion: 1,
+            linearFrequencyMode: true, order: 0, pattern: 0, firstRow: 0, lastRow: 3,
+            transportKind: .finiteSong)
+        let birth = RuntimeLoopNativeSourceIdentity(sourceGeneration: 3, transportEpoch: 9,
+            birthSequence: 1, birthEventIndex: 17)
+        let occurrence = RuntimeLoopNativeOccurrence(scope: scope, sequence: 2, eventID: 7,
+            eventOrdinal: 8, localSourceIndex: 0,
+            source: .init(orderIndex: 1, patternIndex: 2, rowIndex: 5), tick: 1, channel: 0,
+            opcode: 2, plannedFrame: 512, appliedFrame: 512, targetBirth: birth,
+            sourceBefore: birth, sourceAfter: birth, nativeVoiceIndex: 5, disposition: 0)
+        let event = RuntimeCMixerTraceEvent(schemaVersion: 2, runtimeAction: "ordinary_native_occurrence",
+            runtimeAudioBackend: "c_mixer", plannedEventID: 7, nativeTransportKind: "finite_song",
+            loopOccurrence: .init(occurrence), adapterActiveEventIndex: 0)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: RuntimeCMixerTraceJSONLFormatter.line(for: event)) as? [String: Any])
+        XCTAssertEqual(object["schemaVersion"] as? Int, 2)
+        XCTAssertEqual(object["nativeTransportKind"] as? String, "finite_song")
+        XCTAssertEqual(object["plannedEventID"] as? Int, 7)
+        XCTAssertEqual(object["adapterActiveEventIndex"] as? Int, 0)
+        let capsule = try XCTUnwrap(object["loopOccurrence"] as? [String: Any])
+        XCTAssertEqual(capsule["eventID"] as? Int, 7)
+        XCTAssertEqual(capsule["sourceOrder"] as? Int, 1)
+        let encodedScope = try XCTUnwrap(capsule["scope"] as? [String: Any])
+        XCTAssertEqual(encodedScope["transportKind"] as? String, "finite_song")
+        let target = try XCTUnwrap(capsule["targetBirth"] as? [String: Any])
+        XCTAssertEqual(target["sourceGeneration"] as? Int, 3)
+        XCTAssertEqual(target["birthEventIndex"] as? Int, 17)
+        let summary = RuntimeCMixerTraceEvent(schemaVersion: 2, runtimeAction: "ordinary_native_summary",
+            runtimeAudioBackend: "c_mixer", nativeTransportKind: "finite_song",
+            loopOccurrenceSummary: .init(attemptedOccurrences: 1, appliedOccurrences: 1,
+                suppressedOccurrences: 0, failedOccurrences: 0, recordedOccurrences: 1, droppedOccurrences: 0))
+        let totals = try XCTUnwrap(JSONSerialization.jsonObject(with: RuntimeCMixerTraceJSONLFormatter.line(for: summary)) as? [String: Any])
+        XCTAssertEqual(totals["schemaVersion"] as? Int, 2)
+        XCTAssertEqual(totals["nativeTransportKind"] as? String, "finite_song")
+        XCTAssertNotNil(totals["loopOccurrenceSummary"])
+    }
+
     func testOccurrenceKeepsOriginalNumbersAndDistinguishesImportedBirthScope() throws {
         let scope = RuntimeLoopNativeScope(documentHigh: 1, documentLow: 2, sourceGeneration: 4,
             transportEpoch: 9, sampleRateBits: 48_000.0.bitPattern, semanticVersion: 1,
@@ -79,6 +130,57 @@ final class RuntimeLoopNativeOccurrenceTraceTests: XCTestCase {
         output.stopAll()
         XCTAssertEqual(recorder.events.compactMap(\.loopOccurrence).count, count)
         XCTAssertEqual(recorder.events.compactMap(\.loopOccurrenceSummary).count, 1)
+    }
+
+    @MainActor
+    func testFiniteStoppedBackendScopesOccurrencesWithoutImportingLegacyConsumedIDs() throws {
+        let recorder = NativeOccurrenceTraceRecorder(), metrics = TestRuntimeMixerMetricsTraceWriter()
+        let output = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1,
+            startsOutputHostOnDemand: false, traceWriter: recorder, runtimeMixerMetricsTraceWriter: metrics)
+        let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125, -0.125], baseSampleRate: 8363,
+            loopStart: 0, loopLength: 4, loopType: 1)
+        let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1), makePlaybackRow(index: 1)]],
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+            initialTiming: .init(speed: 3, bpm: 125))
+        let scope = RuntimeLoopNativeScope(documentHigh: 1, documentLow: 2, sourceGeneration: 3,
+            transportEpoch: 9, sampleRateBits: 48_000.0.bitPattern, semanticVersion: 1,
+            linearFrequencyMode: song.usesLinearFrequencyTable, order: 0, pattern: 0, firstRow: 0, lastRow: 1,
+            transportKind: .finiteSong)
+        let session = RuntimeLoopPlanningSession(song: song,
+            origin: .init(orderIndex: 0, patternIndex: 0, rowIndex: 0), scope: scope,
+            workerQueue: .init(label: "public.finite.trace.stop"), horizonFrames: 512, maximumRows: 8)
+        defer { output.stopAll(); session.cancelAndWait() }
+        guard case let .ready(prepared) = session.waitForPreparation(timeout: 5) else {
+            return XCTFail("Expected public finite preparation")
+        }
+        XCTAssertTrue(output.configureRuntimeUserLoop(session, preparation: prepared))
+        XCTAssertTrue(output.renderForTesting(frameCount: 128).contains { $0 != 0 })
+        let follow = try XCTUnwrap(output.runtimePlaybackHead()).follow
+        output.recordPublishedPlaybackFollowPosition(timerContext: nil, publishedPosition: follow,
+            publicationDisabled: false, consumedByUI: true, duplicateSuppressed: false, resolverFailureReason: nil)
+        XCTAssertNil(recorder.events.last { $0.runtimeAction == "playback_follow_position_published" }?.consumedPlannedEventCount)
+        output.stopAll(context: nil, reason: "public_finite_trace_stop")
+        XCTAssertFalse(session.consumedRawEventIDsAfterShutdown().isEmpty, "Actual batch-local IDs executed")
+        let occurrences = recorder.events.filter { $0.loopOccurrence != nil }
+        XCTAssertFalse(occurrences.isEmpty)
+        XCTAssertTrue(occurrences.allSatisfy {
+            $0.schemaVersion == 2 && $0.nativeTransportKind == "finite_song" &&
+                $0.runtimeAction == "ordinary_native_occurrence" && $0.loopOccurrence?.scope.transportKind == .finiteSong
+        })
+        let summary = try XCTUnwrap(recorder.events.first { $0.loopOccurrenceSummary != nil })
+        XCTAssertEqual(summary.schemaVersion, 2)
+        XCTAssertEqual(summary.nativeTransportKind, "finite_song")
+        XCTAssertEqual(summary.runtimeAction, "ordinary_native_summary")
+        XCTAssertEqual(summary.loopOccurrenceSummary?.recordedOccurrences, occurrences.count)
+        XCTAssertNil(summary.consumedPlannedEventCount)
+        let cleared = try XCTUnwrap(recorder.events.first { $0.runtimeAction == "c_mixer_clear_all" })
+        XCTAssertEqual(cleared.consumedPlannedEventCount, 0, "Finite local IDs never become a full-plan consumed count")
+        let metric = try XCTUnwrap(metrics.records.first { $0.phase == "ordinary_native_summary" })
+        let fields = Dictionary(uniqueKeysWithValues: metric.fields.map { ($0.key, $0.value) })
+        XCTAssertEqual(fields["native_transport_kind"], "finite_song")
+        XCTAssertEqual(fields["recorded_occurrences"], String(occurrences.count))
+        XCTAssertFalse(metrics.records.contains { $0.phase == "user_loop_native_summary" })
     }
 }
 

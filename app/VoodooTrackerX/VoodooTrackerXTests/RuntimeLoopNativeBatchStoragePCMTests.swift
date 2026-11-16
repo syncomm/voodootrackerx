@@ -35,6 +35,58 @@ private func render(_ core: RuntimeCMixerRenderCore, count: Int) -> [Float] {
 /// Uses the existing normal full-plan Core as PCM oracle; only production continuation
 /// chooses/interprets each bounded batch and prepares the native commands.
 final class RuntimeLoopNativeBatchStoragePCMTests: XCTestCase {
+    func testFiniteStorageValidatesCrossOrderArrayIndicesAndPreservesSourceLabelsThroughTail() throws {
+        for linear in [true, false] {
+            func source(swappedOrders: Bool = false) -> PlaybackSong {
+                func row(_ label: Int, note: UInt8 = 0, instrument: UInt8 = 0) -> PlaybackRow {
+                    .init(index: label, cells: [.init(note: note, instrument: instrument,
+                        volumeColumn: 0, effectType: 0, effectParam: 0)])
+                }
+                let patterns = [2: PlaybackPattern(index: 2, rows: [row(10, note: 49, instrument: 1), row(20)]),
+                                3: PlaybackPattern(index: 3, rows: [row(30), row(40)])]
+                let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25, -0.25],
+                    volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8363,
+                    loopStart: 0, loopLength: 2, loopType: 1)
+                return .init(title: "Public finite labelled native rows", orders: [
+                    .init(orderIndex: 0, patternIndex: swappedOrders ? 3 : 2),
+                    .init(orderIndex: 1, patternIndex: swappedOrders ? 2 : 3)], patternsByIndex: patterns,
+                    instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
+                    restartOrderIndex: 0, endBehavior: .stopAtEnd,
+                    initialTiming: .init(speed: 1, bpm: 125), usesLinearFrequencyTable: linear)
+            }
+            let song = source()
+            let producer = try PlaybackSongUserLoopProducer(song: song,
+                initialPosition: .init(orderIndex: 0, patternIndex: 2, rowIndex: 0),
+                sampleRate: 48_000, sourceGeneration: 3, transportEpoch: 4,
+                mode: .finiteSong, terminalTailFrames: 240)
+            let batch = try producer.next(minimumHorizonFrames: Int.max, maximumRows: 16)
+            let scope = RuntimeLoopNativeScope(documentHigh: 1, documentLow: 2, sourceGeneration: 3,
+                transportEpoch: 4, sampleRateBits: Double(48_000).bitPattern, semanticVersion: 2,
+                linearFrequencyMode: linear, order: 0, pattern: 2, firstRow: 0, lastRow: 1,
+                transportKind: .finiteSong)
+            let cache = CSoftwareMixerSharedSamplePayloadCache()
+            let storage = try RuntimeLoopNativeBatchStorage(batch: batch, scope: scope,
+                trackerChannelCount: 1, cache: cache, sourceSong: song)
+            XCTAssertEqual(storage.rowTimings.map { $0.source.orderIndex }, [0, 0, 1, 1])
+            XCTAssertEqual(storage.rowTimings.map { $0.source.rowIndex }, [10, 20, 30, 40])
+            XCTAssertEqual(batch.rowArrayIndices, [0, 1, 0, 1])
+            XCTAssertEqual(storage.header.finiteSongEndFrame, UInt64(batch.endFrame))
+            XCTAssertEqual(storage.header.runtimeEndFrame, UInt64(batch.endFrame + 240))
+            XCTAssertEqual(storage.rowTimings.last.map { $0.rowStartFrame + $0.rowDurationFrames }, batch.endFrame)
+            XCTAssertThrowsError(try RuntimeLoopNativeBatchStorage(batch: batch, scope: scope,
+                trackerChannelCount: 1, cache: cache), "Finite rows require their exact song geometry")
+            XCTAssertThrowsError(try RuntimeLoopNativeBatchStorage(batch: batch, scope: scope,
+                trackerChannelCount: 1, cache: cache, sourceSong: source(swappedOrders: true)))
+            var invalid = batch
+            invalid.rowArrayIndices[1] = 0
+            XCTAssertThrowsError(try RuntimeLoopNativeBatchStorage(batch: invalid, scope: scope,
+                trackerChannelCount: 1, cache: cache, sourceSong: song))
+            invalid = batch; invalid.rowArrayIndices.removeLast()
+            XCTAssertThrowsError(try RuntimeLoopNativeBatchStorage(batch: invalid, scope: scope,
+                trackerChannelCount: 1, cache: cache, sourceSong: song))
+        }
+    }
+
     func testProductionStorageAndCoreMatchExpandedPCMAtBothRatesModesAndRowCaps() throws {
         for rate in [44_100.0, 48_000] { for linear in [true, false] { for cap in [1, 3, 7] {
             for globalVolume in [false, true] {

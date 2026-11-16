@@ -1,6 +1,6 @@
 import Foundation
 
-/// Bounded lookup/state input for the existing explicit-loop row interpreter.
+/// Bounded lookup/state input for the shared executed-row interpreter.
 /// A checkpoint owns scalar channel/provenance values and selected immutable source
 /// lookup payloads; it never owns a parent plan, context, row capture, or history.
 struct PlaybackSongLoopContinuation {

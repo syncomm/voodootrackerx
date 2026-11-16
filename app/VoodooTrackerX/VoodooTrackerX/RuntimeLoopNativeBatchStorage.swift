@@ -24,32 +24,50 @@ final class RuntimeLoopNativeBatchStorage {
 
     /// Converts only after the producer reserved a channel slot. All allocations, cache
     /// lookups, native envelope preparation and ordering validation happen on that producer.
+    /// Finite source geometry is borrowed during validation, never retained here.
     init(batch: PlaybackSongUserLoopProducer.Batch, scope: RuntimeLoopNativeScope,
          trackerChannelCount: Int, cache: CSoftwareMixerSharedSamplePayloadCache,
-         recordsCategories: Bool = false, earlyCutover: RuntimeLoopNativeEarlyCutover? = nil) throws {
+         recordsCategories: Bool = false, earlyCutover: RuntimeLoopNativeEarlyCutover? = nil,
+         sourceSong: PlaybackSong? = nil) throws {
         let runtime = batch.adapterPlan
+        let finite = scope.transportKind == .finiteSong
+        let finiteTerminal = finite && batch.terminalStopReason != nil
         guard batch.sequence > 0, batch.predecessorSequence == batch.sequence - 1,
               trackerChannelCount > 0, trackerChannelCount <= Int(UInt32.max),
               runtime.generated, runtime.sampleRate.isFinite, runtime.sampleRate > 0,
               runtime.sampleRate.bitPattern == scope.sampleRateBits,
               scope.sourceGeneration > 0, scope.transportEpoch > 0,
               scope.firstRow >= 0, scope.lastRow >= scope.firstRow else { throw Failure.invalidScope }
+        guard !finite || (sourceSong != nil && earlyCutover == nil &&
+            sourceSong?.usesLinearFrequencyTable == scope.linearFrequencyMode),
+              finite || batch.terminalStopReason == nil else { throw Failure.invalidScope }
         guard batch.startFrame >= 0, batch.endFrame > batch.startFrame,
+              batch.runtimeEndFrame >= batch.endFrame,
+              finiteTerminal || batch.runtimeEndFrame == batch.endFrame,
               batch.importedSourceCount >= 0, let plan = runtime.plan,
               batch.importedSourceCount <= plan.pattern.events.count else { throw Failure.invalidFrames }
         let rows = plan.diagnostics.rowTiming
         guard !rows.isEmpty, rows[0].rowStartFrame == batch.startFrame else { throw Failure.invalidRows }
+        guard !finite || batch.rowArrayIndices.count == rows.count else { throw Failure.invalidRows }
         var expectedStart = batch.startFrame
-        for row in rows {
+        for (ordinal, row) in rows.enumerated() {
             let end = row.rowStartFrame.addingReportingOverflow(row.rowDurationFrames)
             let cycles = row.patternDelayCycles.addingReportingOverflow(1)
             guard row.rowStartFrame == expectedStart, row.rowDurationFrames > 0, !end.overflow,
                   end.partialValue <= batch.endFrame, row.rowStartExactFrame.isFinite,
                   row.rowEndExactFrame.isFinite, row.effectiveBPM > 0, row.effectiveSpeed > 0,
                   row.patternDelayCycles >= 0, !cycles.overflow,
-                  !row.effectiveSpeed.multipliedReportingOverflow(by: cycles.partialValue).overflow,
-                  row.source.orderIndex == scope.order, row.source.patternIndex == scope.pattern,
-                  (scope.firstRow...scope.lastRow).contains(row.source.rowIndex) else { throw Failure.invalidRows }
+                  !row.effectiveSpeed.multipliedReportingOverflow(by: cycles.partialValue).overflow
+                else { throw Failure.invalidRows }
+            if finite {
+                let arrayIndex = batch.rowArrayIndices[ordinal]
+                guard let pattern = sourceSong?.pattern(for: row.source.orderIndex),
+                      pattern.index == row.source.patternIndex, pattern.rows.indices.contains(arrayIndex),
+                      pattern.rows[arrayIndex].index == row.source.rowIndex else { throw Failure.invalidRows }
+            } else {
+                guard row.source.orderIndex == scope.order, row.source.patternIndex == scope.pattern,
+                      (scope.firstRow...scope.lastRow).contains(row.source.rowIndex) else { throw Failure.invalidRows }
+            }
             expectedStart = end.partialValue
         }
         guard expectedStart == batch.endFrame else { throw Failure.invalidRows }
@@ -87,8 +105,11 @@ final class RuntimeLoopNativeBatchStorage {
                   (0...6).contains(entry.priority) else { throw Failure.invalidOrdering }
             seen[entry.eventIndex] = true
             let event = events[entry.eventIndex]
+            let inOwnedFrames = (batch.startFrame..<batch.runtimeEndFrame).contains(event.scheduledFrame) ||
+                (finiteTerminal && batch.runtimeEndFrame == batch.endFrame &&
+                    event.scheduledFrame == batch.runtimeEndFrame)
             guard entry.scheduledFrame == event.scheduledFrame, entry.eventID == event.id, event.id >= 0,
-                  (batch.startFrame..<batch.endFrame).contains(event.scheduledFrame),
+                  inOwnedFrames,
                   (0..<trackerChannelCount).contains(event.channelIndex), event.syntheticTick >= 0 else {
                 throw Failure.invalidCommand(entry.eventIndex)
             }
@@ -227,14 +248,15 @@ final class RuntimeLoopNativeBatchStorage {
         header = .init(scope: scope, sequence: batch.sequence, predecessorSequence: batch.predecessorSequence,
             predecessorStateToken: earlyCutover?.boundaryStateToken ?? batch.predecessorSequence, terminalStateToken: batch.sequence,
             firstIteration: batch.firstIteration, runtimeStartFrame: UInt64(batch.startFrame),
-            runtimeEndFrame: UInt64(batch.endFrame), localStartFrame: batch.startFrame,
+            runtimeEndFrame: UInt64(batch.runtimeEndFrame), localStartFrame: batch.startFrame,
             commands: commandPointer.map(UnsafeRawPointer.init), commandCount: payloads.count,
             commandStride: MemoryLayout<RuntimeLoopNativeCommandDescriptor>.stride,
             bindings: bindingPointer.map { UnsafePointer($0) }, bindingCount: bindings.count,
             followRows: UnsafePointer(followPointer), followRowCount: rows.count,
             executedRawIDWords: executedPointer, executedRawIDWordCount: executedWordCount,
             naturalBoundaries: naturalPointer.map { UnsafePointer($0) }, naturalBoundaryCount: batch.naturalBoundaries.count,
-            earlyCutover: earlyCutover)
+            earlyCutover: earlyCutover,
+            finiteSongEndFrame: finiteTerminal ? UInt64(batch.endFrame) : nil)
         payloadStorage = payloadPointer; commandStorage = commandPointer; bindingStorage = bindingPointer
         followStorage = followPointer; executedIDStorage = executedPointer; naturalBoundaryStorage = naturalPointer
         naturalBoundaries = batch.naturalBoundaries

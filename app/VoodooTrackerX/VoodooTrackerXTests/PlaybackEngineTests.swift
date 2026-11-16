@@ -1131,6 +1131,26 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(sink.lines[2].contains("elapsed_ms=4.000"))
     }
 
+    @MainActor
+    func testPlaybackTimingMilestoneUsesObservedHostStampInsteadOfDelayedPollTime() throws {
+        let sink = TestPlaybackTimingTraceSink(), clock = TestPlaybackTimingTraceClock()
+        clock.advance(milliseconds: 50)
+        let recorder = PlaybackTimingTraceRecorder(isEnabled: true, clock: clock, sink: sink)
+        let session = try XCTUnwrap(recorder.beginLifecycle("play"))
+        XCTAssertEqual(session.startUptimeNanoseconds, 50_000_000)
+        clock.advance(milliseconds: 2.5)
+        let hostCompletion = clock.nowNanoseconds()
+        clock.advance(milliseconds: 400) // A delayed Main poll cannot inflate the stored host observation.
+        session.recordMilestone("first_host_c_render", at: hostCompletion,
+            fields: [.init("runtime_end_frame", UInt64(128))])
+        XCTAssertEqual(session.startUptimeNanoseconds, 50_000_000, "Delayed polling preserves the original UI lifecycle stamp")
+        session.finish()
+        XCTAssertEqual(timingPhases(in: sink.lines), ["first_host_c_render", "total"])
+        XCTAssertTrue(sink.lines[0].contains("elapsed_ms=2.500"))
+        XCTAssertTrue(sink.lines[0].contains("runtime_end_frame=128"))
+        XCTAssertTrue(sink.lines[1].contains("elapsed_ms=402.500"))
+    }
+
     func testPlaybackTimingTraceFormattingRedactsLocalPaths() {
         let pathLikeValue = ["", "Use" + "rs", "example", "Desk" + "top", "private.xm"].joined(separator: "/")
         let line = PlaybackTimingTraceFormatter.line(for: PlaybackTimingTraceRecord(
@@ -4099,6 +4119,377 @@ extension SelectedOriginConsumerTests {
         XCTAssertEqual(scheduler.requests.count, 3)
         XCTAssertNotEqual(scheduler.requests[2].key.sourceGeneration, scheduler.requests[1].key.sourceGeneration)
         engine.load(song: nil)
+    }
+}
+
+@MainActor
+private func makeBlockedNormalPlayScheduler(
+    hooks: RuntimeAdapterPlanPreparationHooks = .init()
+) -> (DispatchQueueRuntimeAdapterPlanPrewarmScheduler, PreparationOwnerTestGate) {
+    let worker = DispatchQueue(label: "public.normal-play.admission.worker")
+    let gate = PreparationOwnerTestGate()
+    worker.async { _ = gate.enterAndWait() }
+    XCTAssertTrue(gate.waitUntilEntered())
+    return (DispatchQueueRuntimeAdapterPlanPrewarmScheduler(workerQueue: worker, hooks: hooks), gate)
+}
+
+private func makeAsyncNormalPlaySong() -> PlaybackSong {
+    let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125, -0.125], baseSampleRate: 8363,
+        loopStart: 0, loopLength: 4, loopType: 1)
+    return makePlaybackSong(orderPatternIndices: [0, 1], patternRowsByIndex: [
+        0: [makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1, note: 52, instrument: 1),
+            makePlaybackRow(index: 2, effectType: 15, effectParam: 4)],
+        1: [makePlaybackRow(index: 0, note: 55, instrument: 1), makePlaybackRow(index: 1)]],
+        instrumentsByIndex: [1: .init(index: 1, samples: [sample],
+            noteSampleMap: Array(repeating: 0, count: 96))],
+        initialTiming: .init(speed: 3, bpm: 125))
+}
+
+private func makeZeroTailFiniteSong() -> PlaybackSong {
+    func cell(_ effect: UInt8 = 0, _ parameter: UInt8 = 0,
+              note: UInt8 = 0, instrument: UInt8 = 0) -> PlaybackCell {
+        .init(note: note, instrument: instrument, volumeColumn: 0,
+            effectType: effect, effectParam: parameter)
+    }
+    let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125, -0.125], baseSampleRate: 8363,
+        loopStart: 0, loopLength: 4, loopType: 1)
+    let envelope = PlaybackVolumeEnvelope(enabled: true, points: [.init(tick: 0, value: 64)],
+        sustainPointIndex: nil, loopStartPointIndex: nil, loopEndPointIndex: nil,
+        typeFlags: 1, fadeout: 0)
+    let instrument = PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope,
+        noteSampleMap: Array(repeating: 0, count: 96))
+    return makePlaybackSong(orderPatternIndices: [0, 1], patternRowsByIndex: [
+        0: [PlaybackRow(index: 0, cells: [cell(), cell(14, 0x60), cell()]),
+            PlaybackRow(index: 1, cells: [cell(1, 1), cell(), cell()]),
+            PlaybackRow(index: 2, cells: [cell(note: 49, instrument: 1), cell(14, 0x61), cell(17, 1)]),
+            PlaybackRow(index: 3, cells: [cell(11, 1), cell(13, 1), cell()])],
+        1: [PlaybackRow(index: 0, cells: [cell(), cell(), cell()]),
+            PlaybackRow(index: 1, cells: [cell(1, 0), cell(15, 3), cell(17, 0)]),
+            PlaybackRow(index: 2, cells: [cell(note: 53, instrument: 1), cell(), cell()]),
+            PlaybackRow(index: 3, cells: [cell(), cell(), cell(17, 0)])]],
+        instrumentsByIndex: [1: instrument], initialTiming: .init(speed: 3, bpm: 125))
+}
+
+extension SelectedOriginConsumerTests {
+    func testFiniteZeroTailCoreExecutesEndWriterBeforeClearAndMatchesPCM() throws {
+        let rate = 48_000.0, input = makeZeroTailFiniteSong()
+        let origin = PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 2)
+        let oracle = RuntimeCMixerAdapterEventPlan.make(song: input, sampleRate: rate,
+            initialPosition: origin)
+        let end = try XCTUnwrap(oracle.plannedSongEndFrame)
+        let endEvents = oracle.events.filter { $0.scheduledFrame == end }
+        XCTAssertFalse(endEvents.isEmpty)
+        let zeroTail = RuntimeCMixerSongEndTailPolicy(tailSeconds: 0,
+            tailPolicy: "test_zero_tail", configurationWarning: nil)
+        let full = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1),
+            songEndTailPolicy: zeroTail)
+        _ = full.configureAdapterEventSchedule(oracle.eventStorage, runtimeFrameOffset: 0,
+            plannedSongEndFrame: end)
+        var expected = [Float](), applied = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+        while expected.count < end + 1 {
+            let frames = min(257, end + 1 - expected.count)
+            var block = [Float](repeating: 0, count: frames)
+            XCTAssertTrue(block.withUnsafeMutableBufferPointer { full.render(into: $0, frameCount: frames) })
+            expected += block
+            applied += full.drainAppliedAdapterEventDiagnostics()
+        }
+        XCTAssertEqual(applied.filter { $0.event.scheduledFrame == end }.map { $0.event.id },
+            endEvents.map(\.id), "Full Core applies the end writer before its zero-tail clear")
+        XCTAssertTrue(expected.dropLast().contains { $0 != 0 })
+        XCTAssertEqual(expected.last, 0)
+
+        let scope = RuntimeLoopNativeScope(documentHigh: 1, documentLow: 2,
+            sourceGeneration: 7, transportEpoch: 9, sampleRateBits: rate.bitPattern,
+            semanticVersion: 2, linearFrequencyMode: true, order: 0, pattern: 0,
+            firstRow: 0, lastRow: 3, transportKind: .finiteSong)
+        let session = RuntimeLoopPlanningSession(song: input, origin: origin,
+            scope: scope, workerQueue: .init(label: "public.finite.zero-tail.core"),
+            horizonFrames: Int.max, maximumRows: 128, finiteSongTailFrames: 0)
+        guard case let .ready(ready) = session.waitForPreparation(timeout: 5) else {
+            session.cancelAndWait(); return XCTFail("Finite zero-tail preparation must be ready")
+        }
+        let native = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1),
+            songEndTailPolicy: zeroTail)
+        native.configureNativeLoopDelivery(channel: ready.channel, scope: scope,
+            trackerChannelCount: ready.trackerChannelCount, keepingAlive: session, recordsOccurrences: true)
+        defer { native.stopAll(); session.cancelAndWait() }
+        var actual = [Float]()
+        while actual.count < end + 1 {
+            let frames = min(257, end + 1 - actual.count)
+            var block = [Float](repeating: 0, count: frames)
+            XCTAssertTrue(block.withUnsafeMutableBufferPointer { native.render(into: $0, frameCount: frames) })
+            actual += block
+        }
+        XCTAssertEqual(actual, expected)
+        let completed = try XCTUnwrap(native.consumeRuntimeSongContinuationCompletion())
+        XCTAssertEqual(completed.musicalEndFrame, UInt64(end))
+        XCTAssertEqual(completed.runtimeEndFrame, UInt64(end))
+        let atEnd = native.drainNativeLoopOccurrences().events.filter { $0.plannedFrame == UInt64(end) }
+        XCTAssertEqual(atEnd.count, endEvents.count)
+        XCTAssertTrue(atEnd.allSatisfy { $0.appliedFrame == UInt64(end) })
+    }
+
+    @MainActor
+    func testNormalPlayRequestKeepsMainResponsiveWhileSharedWorkerIsBlocked() async {
+        let (scheduler, gate) = makeBlockedNormalPlayScheduler()
+        let native = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1,
+            startsOutputHostOnDemand: false)
+        let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        defer { gate.release(); engine.stop(); engine.load(song: nil) }
+        let song = makeAsyncNormalPlaySong()
+        let context = PlaybackStartContext(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 1)
+        engine.load(song: song, startContext: context)
+        let completed = expectation(description: "finite normal Play admitted after worker release")
+        var started = false
+        let begin = DispatchTime.now().uptimeNanoseconds
+        engine.requestPlay(from: context, loopEnabled: false, timingSession: nil) { value in
+            started = value; completed.fulfill()
+        }
+        XCTAssertLessThan(DispatchTime.now().uptimeNanoseconds - begin, 1_000_000_000)
+        let heartbeat = expectation(description: "Main run loop remains responsive")
+        DispatchQueue.main.async { heartbeat.fulfill() }
+        await fulfillment(of: [heartbeat], timeout: 2)
+        XCTAssertTrue(engine.isPreparingPlayback)
+        XCTAssertFalse(engine.state.isPlaying)
+        XCTAssertFalse(native.hasRuntimeUserLoop)
+        gate.release()
+        await fulfillment(of: [completed], timeout: 5)
+        XCTAssertTrue(started)
+        XCTAssertTrue(engine.state.isPlaying)
+        XCTAssertFalse(engine.isPreparingPlayback)
+        XCTAssertTrue(native.hasRuntimeUserLoop)
+    }
+
+    @MainActor
+    func testNormalPlayStopCancelsBlockedPreparationExactlyOnce() async throws {
+        let (scheduler, gate) = makeBlockedNormalPlayScheduler()
+        let native = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1,
+            startsOutputHostOnDemand: false)
+        let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        defer { gate.release(); engine.load(song: nil) }
+        let song = makeAsyncNormalPlaySong()
+        engine.load(song: song)
+        let completed = expectation(description: "Stop rejects pending Play")
+        var results = [Bool]()
+        engine.requestPlay(from: .init(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 1),
+            loopEnabled: false, timingSession: nil) { value in results.append(value); completed.fulfill() }
+        XCTAssertTrue(engine.isPreparingPlayback)
+        engine.stop()
+        await fulfillment(of: [completed], timeout: 2)
+        XCTAssertEqual(results, [false])
+        gate.release()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(results, [false])
+        XCTAssertFalse(engine.isPreparingPlayback)
+        XCTAssertFalse(engine.state.isPlaying)
+        XCTAssertFalse(native.hasRuntimeUserLoop)
+    }
+
+    @MainActor
+    func testNormalPlayRejectsStaleAdmissionGuardAndReplacementSource() async throws {
+        for replaceSource in [false, true] {
+            let (scheduler, gate) = makeBlockedNormalPlayScheduler()
+            let native = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1,
+                startsOutputHostOnDemand: false)
+            let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false,
+                runtimeAdapterPlanPrewarmScheduler: scheduler)
+            defer { gate.release(); engine.load(song: nil) }
+            let song = makeAsyncNormalPlaySong()
+            engine.load(song: song)
+            let completed = expectation(description: "stale Play rejected")
+            var admissionIsCurrent = true, results = [Bool]()
+            engine.requestPlay(from: .init(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 1),
+                loopEnabled: false, timingSession: nil,
+                admissionIsCurrent: { admissionIsCurrent }) { value in
+                    results.append(value); completed.fulfill()
+                }
+            XCTAssertTrue(engine.isPreparingPlayback)
+            if replaceSource { engine.load(song: makeAsyncNormalPlaySong()) }
+            else { admissionIsCurrent = false }
+            gate.release()
+            await fulfillment(of: [completed], timeout: 5)
+            try await Task.sleep(nanoseconds: 50_000_000)
+            XCTAssertEqual(results, [false])
+            XCTAssertFalse(engine.isPreparingPlayback)
+            XCTAssertFalse(engine.state.isPlaying)
+            XCTAssertFalse(native.hasRuntimeUserLoop)
+        }
+    }
+
+    @MainActor
+    func testNormalPlayAdmissionPredicateCannotInstallReenteredSource() {
+        let (scheduler, gate) = makeBlockedNormalPlayScheduler()
+        let native = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1,
+            startsOutputHostOnDemand: false)
+        let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        defer { gate.release(); engine.load(song: nil) }
+        let song = makeAsyncNormalPlaySong()
+        engine.load(song: song)
+        var predicateCalls = 0, results = [Bool]()
+        engine.requestPlay(from: .init(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 1),
+            loopEnabled: false, timingSession: nil, admissionIsCurrent: {
+                predicateCalls += 1
+                engine.load(song: makeAsyncNormalPlaySong())
+                return true
+            }) { results.append($0) }
+        XCTAssertEqual(predicateCalls, 1)
+        XCTAssertEqual(results, [false])
+        XCTAssertFalse(engine.isPreparingPlayback)
+        XCTAssertFalse(engine.state.isPlaying)
+        XCTAssertFalse(native.hasRuntimeUserLoop)
+    }
+
+    @MainActor
+    func testNormalPlayPositionObserverReplacementStartsNewestNativeGeneration() async {
+        let probe = ProductionPreparationTestProbe()
+        var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
+        let (scheduler, gate) = makeBlockedNormalPlayScheduler(hooks: hooks)
+        let native = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1,
+            startsOutputHostOnDemand: false)
+        let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        defer { gate.release(); engine.stop(); engine.load(song: nil) }
+        let song = makeAsyncNormalPlaySong()
+        let original = PlaybackStartContext(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 1)
+        let replacement = PlaybackStartContext(moduleTitle: song.title, songPosition: 1, patternIndex: 1, row: 0)
+        engine.load(song: song, startContext: original)
+        let oldFinished = expectation(description: "superseded Play completes false once")
+        let newFinished = expectation(description: "observer replacement Play starts")
+        var oldResults = [Bool](), newResults = [Bool](), observerCalls = 0
+        engine.positionDidChange = { _ in
+            observerCalls += 1
+            engine.positionDidChange = nil
+            engine.requestPlay(from: replacement, loopEnabled: false, timingSession: nil) { started in
+                newResults.append(started); newFinished.fulfill()
+            }
+        }
+        engine.requestPlay(from: original, loopEnabled: false, timingSession: nil) { started in
+            oldResults.append(started); oldFinished.fulfill()
+        }
+        XCTAssertTrue(engine.isPreparingPlayback)
+        gate.release()
+        await fulfillment(of: [oldFinished, newFinished], timeout: 5)
+        XCTAssertEqual(observerCalls, 1)
+        XCTAssertEqual(oldResults, [false])
+        XCTAssertEqual(newResults, [true])
+        XCTAssertEqual(engine.currentPosition, song.position(orderIndex: 1, rowIndex: 0))
+        XCTAssertTrue(engine.state.isPlaying)
+        XCTAssertTrue(native.hasRuntimeUserLoop)
+        XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 0)
+    }
+
+    @MainActor
+    func testNormalPlayReadyPredicateReentryCannotAdmitSupersededPreparation() async {
+        let (scheduler, gate) = makeBlockedNormalPlayScheduler()
+        let native = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1,
+            startsOutputHostOnDemand: false)
+        let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        defer { gate.release(); engine.stop(); engine.load(song: nil) }
+        let song = makeAsyncNormalPlaySong()
+        let firstContext = PlaybackStartContext(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 1)
+        let secondContext = PlaybackStartContext(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 2)
+        engine.load(song: song, startContext: firstContext)
+        let oldFinished = expectation(description: "ready-time predicate supersession rejects old Play")
+        let newFinished = expectation(description: "same-pattern new row starts")
+        var predicateCalls = 0, oldResults = [Bool](), newResults = [Bool]()
+        engine.requestPlay(from: firstContext, loopEnabled: false, timingSession: nil,
+            admissionIsCurrent: {
+                predicateCalls += 1
+                if predicateCalls == 2 {
+                    engine.requestPlay(from: secondContext, loopEnabled: false, timingSession: nil) { started in
+                        newResults.append(started); newFinished.fulfill()
+                    }
+                }
+                return true
+            }) { started in oldResults.append(started); oldFinished.fulfill() }
+        XCTAssertEqual(predicateCalls, 1)
+        gate.release()
+        await fulfillment(of: [oldFinished, newFinished], timeout: 5)
+        XCTAssertEqual(predicateCalls, 2)
+        XCTAssertEqual(oldResults, [false])
+        XCTAssertEqual(newResults, [true])
+        XCTAssertEqual(engine.currentPosition, song.position(orderIndex: 0, rowIndex: 2))
+        XCTAssertTrue(engine.state.isPlaying)
+        XCTAssertTrue(native.hasRuntimeUserLoop)
+    }
+
+    @MainActor
+    func testNormalPlayFiniteSelectedRowPCMMatchesFullOracleWithoutFullConstructorOnRestart() async throws {
+        let probe = ProductionPreparationTestProbe()
+        var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
+        let (scheduler, gate) = makeBlockedNormalPlayScheduler(hooks: hooks)
+        let policy = RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"])
+        let trace = TestRuntimeCMixerTraceWriter()
+        let native = RuntimeCMixerAudioEngine(sampleRate: 48_000, channelCount: 1,
+            outputPolicy: policy, startsOutputHostOnDemand: false, traceWriter: trace)
+        let engine = PlaybackEngine(audioEngine: native, startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: scheduler)
+        defer { gate.release(); engine.stop(); engine.load(song: nil) }
+        let song = makeAsyncNormalPlaySong()
+        let context = PlaybackStartContext(moduleTitle: song.title, songPosition: 0, patternIndex: 0, row: 1)
+        engine.load(song: song, startContext: context)
+        let first = expectation(description: "selected row finite Play")
+        var firstStarted = false
+        engine.requestPlay(from: context, loopEnabled: false, timingSession: nil) { value in
+            firstStarted = value; first.fulfill()
+        }
+        XCTAssertTrue(engine.isPreparingPlayback)
+        gate.release()
+        await fulfillment(of: [first], timeout: 5)
+        XCTAssertTrue(firstStarted)
+        XCTAssertEqual(engine.currentPosition, song.position(orderIndex: 0, rowIndex: 1))
+        XCTAssertTrue(native.hasRuntimeUserLoop)
+        XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 0)
+
+        let full = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000,
+            initialPosition: song.position(orderIndex: 0, rowIndex: 1))
+        XCTAssertTrue(full.generated)
+        let core = RuntimeCMixerRenderCore(config: .init(sampleRate: 48_000, channelCount: 1),
+            outputPolicy: policy)
+        _ = core.configureAdapterEventSchedule(full.eventStorage, runtimeFrameOffset: 0,
+            plannedSongEndFrame: full.plannedSongEndFrame)
+        let musicalEnd = try XCTUnwrap(full.plannedSongEndFrame)
+        let total = musicalEnd + RuntimeCMixerSongEndTailPolicy.defaultPolicy.tailFrames(sampleRate: 48_000) + 1
+        var frame = 0
+        while frame < total {
+            let count = min(257, total - frame)
+            let actual = native.renderForTesting(frameCount: count)
+            let expected = renderRuntimePCM(core, frames: count)
+            XCTAssertEqual(actual, expected, "finite PCM differs from full plan at frame \(frame)")
+            frame += count
+        }
+        engine.advanceOneTick()
+        XCTAssertEqual(engine.state, .stopped, "native finite completion must stop Engine")
+        XCTAssertFalse(native.hasRuntimeUserLoop)
+        engine.stop()
+        // Finite playback publishes versioned native occurrences after host quiescence.
+        let births = trace.events.compactMap { record -> RuntimeLoopNativeTraceOccurrence? in
+            guard record.schemaVersion == 2, record.nativeTransportKind == "finite_song",
+                  record.runtimeAction == "ordinary_native_occurrence",
+                  let occurrence = record.loopOccurrence, occurrence.opcode == 0 else { return nil }
+            return occurrence
+        }
+        let fullBirths = full.events.filter { if case .noteTrigger = $0.action { return true }; return false }
+        XCTAssertEqual(births.count, fullBirths.count)
+        XCTAssertEqual(births.map(\.sourceOrder), [0, 1])
+        XCTAssertEqual(births.map(\.sourceRow), [1, 0])
+        XCTAssertEqual(births.map(\.plannedRuntimeFrame), fullBirths.map { UInt64($0.scheduledFrame) })
+        XCTAssertTrue(births.allSatisfy { $0.plannedRuntimeFrame == $0.appliedRuntimeFrame &&
+            $0.disposition == 0 && $0.sourceAfter != nil })
+        let second = expectation(description: "finite restart")
+        var secondStarted = false
+        engine.requestPlay(from: context, loopEnabled: false, timingSession: nil) { value in
+            secondStarted = value; second.fulfill()
+        }
+        await fulfillment(of: [second], timeout: 5)
+        XCTAssertTrue(secondStarted)
+        XCTAssertTrue(native.hasRuntimeUserLoop)
+        XCTAssertEqual(probe.values.filter { $0.kind == "constructorStarted" }.count, 0)
     }
 }
 

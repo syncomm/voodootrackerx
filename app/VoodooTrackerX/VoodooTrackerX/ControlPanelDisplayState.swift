@@ -22,6 +22,7 @@ struct ControlPanelContent: Equatable {
     var isLoopEnabled = false
     var isEditModeEnabled = false
     var isPlaybackActive = false
+    var isPlaybackPreparing = false
     var isSongPositionEnabled = false
     var isPatternControlsEnabled = false
     var areInstrumentPlaceholdersEnabled = false

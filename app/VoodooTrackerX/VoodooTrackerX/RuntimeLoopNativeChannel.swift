@@ -2,6 +2,11 @@ import Synchronization
 
 /// Equality is exact and independent of callback/UI notification timing.
 struct RuntimeLoopNativeScope: Equatable, Sendable, Encodable {
+    enum TransportKind: String, Sendable {
+        case explicitLoop = "explicit_loop"
+        case finiteSong = "finite_song"
+    }
+
     let documentHigh: UInt64
     let documentLow: UInt64
     let sourceGeneration: UInt64
@@ -13,6 +18,31 @@ struct RuntimeLoopNativeScope: Equatable, Sendable, Encodable {
     let pattern: Int
     let firstRow: Int
     let lastRow: Int
+    var transportKind: TransportKind = .explicitLoop
+
+    private enum CodingKeys: String, CodingKey {
+        case documentHigh, documentLow, sourceGeneration, transportEpoch, sampleRateBits
+        case semanticVersion, linearFrequencyMode, order, pattern, firstRow, lastRow, transportKind
+    }
+
+    /// Preserve the existing explicit-Loop v1 scope bytes; finite mode is explicit.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(documentHigh, forKey: .documentHigh)
+        try container.encode(documentLow, forKey: .documentLow)
+        try container.encode(sourceGeneration, forKey: .sourceGeneration)
+        try container.encode(transportEpoch, forKey: .transportEpoch)
+        try container.encode(sampleRateBits, forKey: .sampleRateBits)
+        try container.encode(semanticVersion, forKey: .semanticVersion)
+        try container.encode(linearFrequencyMode, forKey: .linearFrequencyMode)
+        try container.encode(order, forKey: .order)
+        try container.encode(pattern, forKey: .pattern)
+        try container.encode(firstRow, forKey: .firstRow)
+        try container.encode(lastRow, forKey: .lastRow)
+        if transportKind != .explicitLoop {
+            try container.encode(transportKind.rawValue, forKey: .transportKind)
+        }
+    }
 }
 
 /// Original source numbers stay local to their immutable birth plan.
@@ -103,7 +133,7 @@ struct RuntimeLoopNativeBatchHeader: @unchecked Sendable {
     let terminalStateToken: UInt64
     let firstIteration: UInt64
     let runtimeStartFrame: UInt64
-    let runtimeEndFrame: UInt64 // Exclusive; acknowledge even when commands end earlier.
+    let runtimeEndFrame: UInt64 // Exclusive for audio; zero-tail finite end writers may run here before acknowledgement.
     let localStartFrame: Int
     let commands: UnsafeRawPointer?
     let commandCount: Int
@@ -118,6 +148,8 @@ struct RuntimeLoopNativeBatchHeader: @unchecked Sendable {
     var naturalBoundaries: UnsafePointer<RuntimeLoopNativeIterationBoundary>? = nil
     var naturalBoundaryCount: Int = 0
     var earlyCutover: RuntimeLoopNativeEarlyCutover? = nil
+    // A finite terminal owns its musical boundary and the tail through runtimeEndFrame.
+    var finiteSongEndFrame: UInt64? = nil
 
     var hasValidShape: Bool {
         sequence > 0 && terminalStateToken > 0 && runtimeEndFrame > runtimeStartFrame &&
@@ -126,7 +158,9 @@ struct RuntimeLoopNativeBatchHeader: @unchecked Sendable {
             (bindingCount == 0 || bindings != nil) && followRowCount >= 0 &&
             (followRowCount == 0 || followRows != nil) && executedRawIDWordCount >= 0 &&
             (executedRawIDWordCount == 0 || executedRawIDWords != nil) && naturalBoundaryCount >= 0 &&
-            (naturalBoundaryCount == 0 || naturalBoundaries != nil)
+            (naturalBoundaryCount == 0 || naturalBoundaries != nil) &&
+            (finiteSongEndFrame.map { scope.transportKind == .finiteSong &&
+                $0 >= runtimeStartFrame && $0 <= runtimeEndFrame && earlyCutover == nil } ?? true)
     }
 }
 
@@ -138,10 +172,18 @@ struct RuntimeLoopNativeBatchLease: @unchecked Sendable {
 
 enum RuntimeLoopNativeAdmission {
     case admitted(RuntimeLoopNativeBatchLease)
+    case completed(RuntimeLoopNativeSongCompletion)
     case missingSuccessor
     case revoked
     case invalidBoundary
     case invalidSuccessor
+}
+
+/// Successful finite delivery, published only after its exact C tail-stop boundary.
+struct RuntimeLoopNativeSongCompletion: Equatable, Sendable {
+    let scope: RuntimeLoopNativeScope
+    let musicalEndFrame: UInt64
+    let runtimeEndFrame: UInt64
 }
 
 /// Single serial producer + one serialized render consumer; revoke may run elsewhere.
@@ -173,6 +215,7 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
     private let scope: RuntimeLoopNativeScope
     private let slots = [Slot(), Slot()] // Allocate once, outside rendering.
     private let revoked = Atomic(false)
+    private let terminalPublished = Atomic(false)
     private let mailbox = Atomic<UInt64>(0) // 0 none, 1/2 published slot, max closed.
     private let executedSequence = Atomic<UInt64>(0)
     private let executionFrontier = RuntimeLoopNativeFrontierPublication()
@@ -191,7 +234,8 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
     /// Call only on the one serial off-audio producer.
     func reserve() -> Reservation? {
         let word = mailbox.load(ordering: .acquiring)
-        guard !revoked.load(ordering: .acquiring), word != Self.closed, word != Self.claiming else { return nil }
+        guard !revoked.load(ordering: .acquiring), !terminalPublished.load(ordering: .acquiring),
+              word != Self.closed, word != Self.claiming else { return nil }
         for index in 0..<2 {
             let slot = slots[index]
             guard slot.state.compareExchange(expected: State.free, desired: State.preparing,
@@ -210,7 +254,8 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
     func publish(_ reservation: Reservation, header: RuntimeLoopNativeBatchHeader,
                  retaining owner: AnyObject) -> Bool {
         guard validReservation(reservation) else { return false }
-        guard !revoked.load(ordering: .acquiring) else { discard(reservation); return false }
+        guard !revoked.load(ordering: .acquiring), !terminalPublished.load(ordering: .acquiring)
+            else { discard(reservation); return false }
         let slot = slots[reservation.slot]
         guard compatibleTransport(header.scope), header.hasValidShape, publishableScope(header) else {
             discard(reservation)
@@ -226,7 +271,10 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
         slot.firstBoundaryToken.store(word, ordering: .relaxed)
         slot.state.store(State.ready, ordering: .relaxed)
         if mailbox.compareExchange(expected: 0, desired: word,
-            ordering: .releasing).exchanged { return true }
+            ordering: .releasing).exchanged {
+            if header.finiteSongEndFrame != nil { terminalPublished.store(true, ordering: .releasing) }
+            return true
+        }
         // Failed CAS means this slot was never published or visible to the callback.
         slot.owner = nil
         slot.header = nil
@@ -255,7 +303,7 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
     /// Serial producer only. A callback that won mailbox ownership may still show ready
     /// briefly; losing this CAS therefore grants no permission to touch its slot/header.
     func retractReady() -> Reservation? {
-        guard !revoked.load(ordering: .acquiring) else { return nil }
+        guard scope.transportKind == .explicitLoop, !revoked.load(ordering: .acquiring) else { return nil }
         let word = mailbox.load(ordering: .acquiring)
         guard let index = slotIndex(for: word),
               mailbox.compareExchange(expected: word, desired: 0, ordering: .acquiringAndReleasing).exchanged else { return nil }
@@ -274,7 +322,7 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
     /// Optional natural boundary. No candidate or a retraction race continues old active
     /// playback. Only a successfully claimed immutable header can authorize a scope change.
     func tryAdmitEarlyCutover(at frame: UInt64, stateToken: UInt64) -> RuntimeLoopNativeBatchLease? {
-        guard !revoked.load(ordering: .acquiring), activeSlot >= 0,
+        guard scope.transportKind == .explicitLoop, !revoked.load(ordering: .acquiring), activeSlot >= 0,
               let old = slots[activeSlot].header,
               matchesNaturalBoundary(old, frame: frame, token: stateToken) else { return nil }
         let word = mailbox.load(ordering: .acquiring)
@@ -336,7 +384,8 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
     }
 
     /// Render the complete active interval first, including silent/held frames.
-    /// At its exclusive end this advances execution, then claims the exact successor.
+    /// At its exclusive end acknowledge execution and claim the exact successor,
+    /// or complete a finite terminal whose C voices the cursor already cleared.
     func finishBoundary(at runtimeFrame: UInt64) -> RuntimeLoopNativeAdmission {
         guard activeSlot >= 0, let old = slots[activeSlot].header,
               runtimeFrame == old.runtimeEndFrame else { return seal(.invalidBoundary) }
@@ -344,7 +393,19 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
         activeSlot = -1
         let next = old.sequence.addingReportingOverflow(1)
         let result: RuntimeLoopNativeAdmission
-        if next.overflow { result = seal(.invalidSuccessor) }
+        if let musicalEnd = old.finiteSongEndFrame {
+            // The cursor clears C voices before calling this method. Closing and
+            // releasing the old owner must never precede that last PCM borrow.
+            let word = mailbox.exchange(Self.closed, ordering: .acquiringAndReleasing)
+            if revoked.load(ordering: .acquiring) { result = .revoked }
+            else if word == 0 {
+                result = .completed(.init(scope: old.scope, musicalEndFrame: musicalEnd,
+                                          runtimeEndFrame: runtimeFrame))
+            } else {
+                if let index = slotIndex(for: word) { slots[index].state.store(State.retired, ordering: .releasing) }
+                result = seal(.invalidSuccessor)
+            }
+        } else if next.overflow { result = seal(.invalidSuccessor) }
         else { result = claimReady(sequence: next.partialValue, predecessor: old.sequence,
             stateToken: old.terminalStateToken, frame: runtimeFrame, expectedScope: old.scope) }
         let admitted: RuntimeLoopNativeBatchHeader?
@@ -404,6 +465,7 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
 
     private func compatibleTransport(_ value: RuntimeLoopNativeScope) -> Bool {
         value.documentHigh == scope.documentHigh && value.documentLow == scope.documentLow &&
+            value.transportKind == scope.transportKind &&
             value.transportEpoch == scope.transportEpoch && value.sampleRateBits == scope.sampleRateBits &&
             value.semanticVersion == scope.semanticVersion && value.linearFrequencyMode == scope.linearFrequencyMode &&
             value.order == scope.order && value.pattern == scope.pattern &&
@@ -424,7 +486,7 @@ final class RuntimeLoopNativeTwoSlotChannel: @unchecked Sendable {
     private func publishableScope(_ header: RuntimeLoopNativeBatchHeader) -> Bool {
         let admitted = admittedScopeGeneration.load(ordering: .acquiring)
         guard let edit = header.earlyCutover else { return header.scope.sourceGeneration == admitted }
-        return compatibleTransport(edit.previousScope) && edit.previousScope.sourceGeneration == admitted &&
+        return scope.transportKind == .explicitLoop && compatibleTransport(edit.previousScope) && edit.previousScope.sourceGeneration == admitted &&
             header.scope.sourceGeneration > admitted && edit.requestSerial > 0 &&
             edit.requestSerial == authorizedRefreshSerial.load(ordering: .acquiring)
     }

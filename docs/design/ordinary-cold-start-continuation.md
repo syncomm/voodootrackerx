@@ -1,108 +1,132 @@
-# Ordinary cold-start continuation spike
+# Ordinary cold-start continuation
 
-## Status and boundary
+## Status and authority
 
-**PROPOSED proof of concept for PR #552.** Gregory authorized investigation of a
-bounded cold-start continuation after a reproducible changed-row Stop→Play wait.
-This note does not accept ADR 015, change the current runtime path, or waive any
-semantic, source-ID, PCM, memory, planning, or native-host gate. The first proof
-must use public in-memory fixtures and remain reversible.
+**CLOSED on the PR branch; acceptance gates remain explicit.** This bounded PR #552 repair
+prepares a changed ordinary Play origin off Main through the existing native
+two-slot channel. Gregory approved its versioned finite-song diagnostic IDs,
+conditioned on source, timing, ordering and PCM preservation. That decision is
+accepted; compatibility, semantic/PCM controls and local Debug/Release workflow
+qualification are complete. Acceptance requires green final submitted-head
+normal/native CI and Gregory's composition/listening review and merge.
+ADR 015 remains PROPOSED. No memory waiver, backend freeze or wider release
+closure follows from this contract.
 
-The observed large-song Debug path correctly changes cold origin from the played
-start to the C-head row captured at Stop, then waits on another full-song plan.
-Keeping the old plan would execute history from rows the new cold start skipped.
-The same-origin admitted plan remains valid and should be reused unchanged.
+An unchanged admitted full plan remains reusable at its compatible cold origin.
+A different order/row needs fresh cold semantics, including only the accepted
+same-pattern structural E60 seam. Reusing unplayed history to force a cache hit
+is not permitted. Navigation and editor focus preserve an unchanged editable
+snapshot's identity; a real content edit leaves the snapshot stale.
 
-## Proposed narrow path
+Total-duration presentation remains limited: `runtimeAdapterPlanDurationSeconds`
+still comes from the full plan, so changed-origin finite continuation can show
+the existing `--:--` SONG TIME placeholder. The bounded path does not invent a
+future duration or perform an extra full traversal for display metadata. Current
+rows and ticks still come from the exact C playback head. This visible limitation
+requires Gregory's manual review; it is not an accepted human UX outcome. No
+duration-metadata subsystem is added, and all qualification gates remain in force.
 
-1. A normal Play request selects an exact document/source generation, order, row,
-   rate, and mode before work starts. A different cold origin starts with fresh
-   musical state, including only the accepted structural E60 seam. Stop, seek,
-   replacement, and edits revoke stale requests by the existing intent/epoch key.
-2. The existing serial preparation worker builds a bounded first interval with
-   `PlaybackSongTraversalPlanner`'s position reducer, the existing row interpreter,
-   timing reducer, semantic folds, adapter assembly, and native batch converter.
-   It prepares a successor before admitting output; Main receives only a ready
-   notification and never joins a full-song constructor. This is a distinct
-   normal-song transport mode of the existing two-slot native channel, not an
-   explicit pattern Loop or a second effect interpreter.
-3. A finite traversal follows B/D/E6/EE outcomes across order and pattern
-   boundaries, including backward targets and the existing global row/cycle
-   guards. An order boundary is not a musical-state reset. Each batch retains
-   exact fractional timing, held channels, source-birth bindings, envelope and
-   output state in the existing bounded checkpoint. Only native acknowledged
-   execution advances the durable frontier. A speculative future cannot seed a
-   cold seek or an edit.
-4. A normal terminal batch carries an explicit successful end marker. It does
-   not wrap to the selected pattern and does not ask for a successor. The C host
-   completes the current song-end/tail retirement before Stop, using the current
-   C-head follow authority. Missing a required nonterminal successor follows
-   the already established 5 ms native retirement and reports a distinct fault;
-   the test must prove no such fault in qualified ordinary workloads.
-5. The current full plan remains the reference oracle and the same-origin cache
-   path. No product cutover occurs until bounded batches match full-plan
-   semantics, source identity, native frames, PCM, and exposed numeric event IDs.
-   The family-batched ID allocator depends on future event counts. No silent
-   renumbering or diagnostic compatibility change is allowed.
+## Preparation and admission
 
-## Proven numeric-ID constraint
+Product `requestPlay` resolves document/source generation, cold order/row, rate
+and mode before scheduling the existing serial preparation worker. Main returns
+while the bounded first interval and successor are prepared. A finite terminal
+first batch needs no successor. The UI exposes preparation and keeps Stop
+available; it does not synchronously join a full-song constructor for a changed
+ordinary origin.
+
+Request identity, transport epoch, source generation and the current document
+admission predicate protect the asynchronous result. Stop, seek, replacement,
+newer Play and content changes reject stale work. Reentrant callbacks cannot let
+an older request cancel a newer admitted source. An installed but superseded
+native generation is quiesced before its replacement session is prepared.
+Ordinary same-origin full-plan reuse and explicit user Loop retain their
+established paths.
+
+The existing traversal reducer, row interpreter, timing reducer and semantic
+folds execute finite B/D/E6/EE/Fxx traversal across orders, including backward
+targets and the existing row/cycle guards. An order boundary is not a musical
+state reset. Bounded checkpoints carry fractional frames, held channel/global
+state, modulation, envelopes and original source-birth bindings. Only native
+acknowledged execution advances the durable frontier.
+
+## Native rows, ownership and successful end
+
+`RuntimeLoopNativeScope.transportKind` distinguishes `explicitLoop` from
+`finiteSong`. Scope/generation/epoch/rate/mode and predecessor/frame continuity
+remain exact. Explicit Loop retains its current-pattern validation and wrap;
+finite delivery validates each row against the exact source order and pattern.
+The producer supplies one bounded row-array index per executed row. Storage
+checks that index against the corresponding source row label, preserving
+nonidentity labels without a second song graph or a full-song label index.
+
+`Batch.endFrame` is the exclusive musical/checkpoint boundary.
+`Batch.runtimeEndFrame` adds the explicitly supplied existing song-tail duration
+only for a finite terminal batch. Its native `finiteSongEndFrame` marker keeps
+those boundaries distinct. Final prepared commands include the musical-end
+writer and any admitted tail writers; follow holds the final musical coordinate
+through the tail. The default tail remains three seconds, with the existing
+configuration policy unchanged.
+
+At the actual tail deadline, Core uses the ordinary song-end/tail-stop operation
+to clear C voices **before** the channel publishes retirement and permits PCM
+owner reclamation. Admission reports `.completed`, separately from successor
+failure. `consumeRuntimeSongContinuationCompletion()` yields one scalar scope /
+musical-end / runtime-end receipt off audio. Cleared-C silence continues the
+normal sample clock after that boundary; the final follow survives payload
+retirement. No new end-of-song fade is introduced.
+
+A missing required nonterminal successor still seals admission, performs the
+existing five-millisecond C retirement and reports a fault. Successful finite
+completion never enters that fault path. All command preparation, allocation,
+source-domain validation and payload disposal stay off the callback. The same
+one-active / one-successor ownership bound remains in force.
+
+## Approved diagnostic compatibility
 
 The public
 [`testUnchangedEarlyOutputTargetIDDependsOnLaterNoteCount`](../../app/VoodooTrackerX/VoodooTrackerXTests/RuntimeCMixerTests.swift)
-constructs two songs with identical early rows, routing, sample, event source,
-frame, action and categories. One song has an extra later note. Their *early*
-audible-output-target numeric IDs differ under the current whole-song planner.
-The focused ordinary Debug test passes. A producer that sees only the early
-prefix therefore cannot assign both legacy IDs exactly. This proof does not
-measure the cost of a separate count pass.
+pins why a bounded prefix cannot reproduce every legacy whole-song numeric ID:
+identical early output targets receive different legacy IDs when a later note
+changes family counts. The accepted resolution is explicit versioning, not a
+silent rewrite of the existing ID domain or a second future-counting pass.
 
-The current ID is an ordering tie in adapter storage, a planned-event trace
-field, and a raw-unique consumption key in the backend. Native Loop uses its
-batch-local ID for an executed-ID bitset and combines scope, batch sequence and
-event ordinal for occurrence identity. Runtime trace tests and correlators join
-normal `plannedEventID` to full-plan events; Loop tooling rejects an unscoped
-join. The Loop birth scope already protects native source causality, but does
-not make its batch-local numeric ID equal the normal whole-song ID.
+Finite continuation records use `schemaVersion: 2` and
+`nativeTransportKind: "finite_song"`, with exact scoped occurrence and source-birth
+keys. Numeric event IDs remain immutable within their bounded plan; full scope,
+batch sequence and original event ordinal distinguish occurrences. A carried
+source keeps its original generation/epoch/birth-sequence/index, independently
+of the successor's local lookup. No synthetic trigger or identity substitution
+is allowed.
 
-An exact pre-count would need the future family counts, including executed
-note/route outcomes, semantic publications and G32 reservations. B/D/E6
-traversal and effect/semantic state influence these counts; a metadata-only
-count is insufficient. Its runtime cost remains unmeasured and must be tested
-against the first-output goal. A versioned scoped diagnostic ID policy for
-ordinary continuation needs Gregory's explicit approval, reader audit,
-`docs/format-changes.md` design entry, and compatibility tests. Product cutover
-waits at this decision gate.
+Legacy full-plan records and explicit Loop v1 records remain unchanged. The
+scope transport-kind field is omitted for explicit Loop. Readers partition the
+versioned finite domain and reject an unscoped full-plan identity oracle for it;
+raw numeric IDs alone cannot join those domains. Source routing, effect writers,
+command order, actual native frames and PCM retain their existing contracts.
+See [format compatibility](../format-changes.md) and
+[trace interpretation](../playback-trace.md).
 
-## Minimal proof and decision gates
+## Qualification and acceptance
 
-The no-cutover finite traversal proof now extends the existing traversal state
-and splits a public two-order song into one-, two-, and three-row batches.
-[`UserLoopTraversalContinuationTests`](../../tests/vtx_render_bounded_xm/UserLoopTraversalContinuationTests.swift)
-compares visited source positions, B/D/E6 diagnostics, exact Fxx frames, stop
-reason, and cycle/row guards with the existing whole-song planner. It also
-checks that explicit user Loop still wraps at its old boundary. The focused
-SwiftPM Debug suite passes all 12 tests, including the two new finite cases.
-This proves only traversal/timing parity for these public fixtures. Empty-order
-diagnostics, semantic folds, native frames/PCM, event IDs, and product admission
-remain unproven; no playback path or diagnostic ID policy changes here.
+Public in-memory controls compare finite traversal, exact Fxx/fractional timing,
+per-tick semantic state, source births, event payload/order and PCM with the
+existing full-plan oracle. Producer controls include both rates and pitch modes,
+irregular row caps, E60/E61, B/D, carried pitch/global memory and the terminal
+writer through the default tail. Native controls cover terminal versus underrun,
+exact C clearing before owner retirement, post-deadline silence/clock, retained
+terminal follow and cross-order labelled-row rejection controls.
 
-Only after that parity passes should a second proof run the existing producer's
-row interpreter/folds over a cross-order batch and compare per-tick state and
-native PCM with the full-plan oracle. Production admission additionally needs:
+Local qualification covers repeated actual-app workflows on ordinary Debug and
+optimized Release, responsive Main during preparation, constructor/cache evidence,
+first actual C-host output timing, finite automatic tail Stop after a real edit,
+and absence of native delivery faults. The unchanged Release workflow includes
+at least ten cached replays. Codex owns final submitted-head native arm64
+ASan/optimized Release with protected expected traps and normal CI; Gregory owns
+physical composition/listening acceptance, including the duration-placeholder UX. Existing 972 / 1,000 / 2,333 ms planning and First Play
+API p50 gates remain unchanged; API return is not audible output or a DAC clock.
+Component ownership bounds do not establish an absolute whole-app memory budget
+or erase the provisionally disclosed mixed resource profile.
 
-- a finite scope and native row validator that accept exact order transitions
-  without relaxing generation, sample, or source-birth checks;
-- an acknowledged terminal success distinct from successor underrun, with
-  current song-end/tail and Stop/Pause behavior;
-- bounded first-frame and successor readiness measurements on Debug, optimized
-  Release, and native arm64 ASan, with Main stall duration and actual host frames;
-- unchanged same-origin constructor count, exact source/event IDs, semantic and
-  PCM controls, no normal underruns, and no regression to the existing fixed
-  planning gates;
-- ownership evidence that two native slots and their bounded checkpoints do not
-  accumulate a hidden full-song graph or materially worsen the provisional
-  process memory profile.
-
-The practical first-patch limit is traversal parity and a no-cutover producer
-proof. Crossing native mode, terminal, and ID boundaries before these pass would
-turn this regression repair into an unqualified runtime redesign.
+Gregory retains final hands-on composition/listening acceptance and the merge
+decision. Those obligations remain open after automated qualification.

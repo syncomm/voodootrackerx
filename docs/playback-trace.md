@@ -1047,6 +1047,23 @@ index separately. Schedule fields report descriptor stride/sort count,
 shared plan storage, and zero full queued-event copies/full-event queue sorts.
 These counters and timings are recorded during preparation, outside rendering.
 
+With `VTX_PLAYBACK_TIMING_TRACE=1`, product Play also records `play_admission`
+and `first_actual_host_output` relative to UI handler entry. The latter uses a
+monotonic stamp captured at the first successful CoreAudio C render with positive
+frame progress, then reads it off audio for formatting. It describes completion
+of a host buffer, which can contain silence; it is neither DAC time nor audible
+onset. Offline, zero-frame and failed renders cannot produce this stamp. A
+transport-epoch change ends observation rather than attributing a later Play.
+
+`main_dispatch_delay` uses an off-Main timer with at most one outstanding Main
+probe. It reports completed-probe delay plus any outstanding probe's age at
+finish, so a blocked handler cannot hide its wait. The trace retains enqueue and
+completion counts; no-probe observations cannot establish a zero stall. Both
+instruments use the existing opt-in flag and are disabled by default. `total`
+includes asynchronous preparation and the final observation/poll, while the
+host milestone excludes polling latency. `app_delegate_play_request_return`
+separately measures the synchronous request handler.
+
 Runtime snapshot rows may include:
 
 - `runtimeRenderedFrameCount`: cumulative C mixer frames rendered by the
@@ -1248,8 +1265,20 @@ retired-batch acknowledgements, while final Stop includes partial active work.
 
 `correlate-window` preserves scoped keys for audio/frame inspection and rejects
 `--offline-diagnostics-json` for these traces until an explicitly scoped
-execution oracle is supplied by a qualified workflow. Normal trace rows omit
+execution oracle is supplied by a qualified workflow. Existing full-plan rows omit
 the new objects, and existing full-song event fields and JSON remain unchanged.
+
+Bounded ordinary-song observations use schema version 2 with required
+`nativeTransportKind: "finite_song"` and matching scope kind. They retain the
+historical scoped envelope fields for conservative older-reader behavior;
+updated readers report `ordinary_native` separately from user Loop and include
+transport kind in occurrence identity. Their batch-local ID union is not a
+whole-song consumed count: `consumedPlannedEventCount` is omitted while finite
+playback is active, and finite IDs do not enter that legacy counter on Stop.
+The scoped attempted/applied/suppressed/failed/recorded/dropped occurrence totals
+remain authoritative, including Release metrics under `ordinary_native_summary`.
+See the [version 2 identity and reader policy](format-changes.md#version-2-finite-song-native-diagnostic-ids)
+for compatibility limits and unscoped-oracle refusal.
 
 ### Native playback head and transport follow
 
@@ -1281,6 +1310,9 @@ Full runtime JSON trace export remains Debug-only. The supported Release
 `*_occurrences` fields, and `stop_summary` reports `stop_reason`, render counts
 and host delivery. Scalar totals remain distinct from full scoped occurrence
 coverage; missing JSON or dropped capsules do not become complete trace proof.
+Finite ordinary playback uses `ordinary_native_summary` with
+`native_transport_kind=finite_song` and the same occurrence fields. These values
+count scoped command occurrences, not globally unique full-plan numeric IDs.
 
 When a full or near-full runtime live-output capture is compared with a full
 offline C mixer WAV, use the window correlation helper to connect whole-song

@@ -3,6 +3,22 @@ import XCTest
 
 @MainActor
 final class ControlPanelViewTests: XCTestCase {
+    func testPendingPlayCanBeStoppedWithoutClaimingActivePlayback() {
+        let view = ControlPanelView(frame: .zero)
+        var content = ControlPanelContent()
+        content.isPlaybackPreparing = true
+        content.isSongPositionEnabled = true
+        view.apply(content)
+        XCTAssertFalse(content.isPlaybackActive)
+        XCTAssertFalse(view.playButton.isEnabled)
+        XCTAssertTrue(view.stopButton.isEnabled)
+        XCTAssertTrue(view.songPositionStepper.isEnabled)
+        content.isPlaybackPreparing = false
+        view.apply(content)
+        XCTAssertTrue(view.playButton.isEnabled)
+        XCTAssertFalse(view.stopButton.isEnabled)
+    }
+
     func testMainControlTooltipsAreSpecificAndNonPlaceholder() {
         let view = ControlPanelView(frame: .zero)
         let tooltips = [

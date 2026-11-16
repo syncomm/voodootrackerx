@@ -8,6 +8,23 @@ private func ensure(_ value: @autoclosure () -> Bool, _ reason: String,
     XCTAssertTrue(value(), reason, file: file, line: line)
 }
 private final class Clock: @unchecked Sendable { let frame = Atomic<UInt64>(0) }
+private final class InitialPreparationCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var values = [String]()
+    let arrived = DispatchSemaphore(value: 0)
+    func record(_ result: RuntimeLoopPlanningSession.PreparationResult) {
+        let value: String
+        switch result {
+        case .ready: value = "ready"
+        case .failed: value = "failed"
+        case .cancelled: value = "cancelled"
+        case .pending: value = "pending"
+        }
+        lock.lock(); values.append(value); lock.unlock()
+        arrived.signal()
+    }
+    func snapshot() -> [String] { lock.lock(); defer { lock.unlock() }; return values }
+}
 private func song(_ note: UInt8) -> PlaybackSong {
     let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25, -0.25, 0.125, -0.125],
         volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 4, loopType: 1)
@@ -44,6 +61,100 @@ private func waitPublished(_ session: RuntimeLoopPlanningSession, serial: UInt64
     XCTFail("edit publication timeout"); return 0
 }
 final class RuntimeLoopSessionRapidDeadlineTests: XCTestCase {
+    func testInitialPreparationCallbackPublishesReadyOnce() {
+        let capture = InitialPreparationCapture()
+        let session = RuntimeLoopPlanningSession(song: song(49),
+            origin: .init(orderIndex: 0, patternIndex: 0, rowIndex: 0), scope: scope(48_000, 3),
+            workerQueue: .init(label: "public.session.ready.callback"), horizonFrames: 512,
+            onInitialPreparation: { capture.record($0) })
+        XCTAssertEqual(capture.arrived.wait(timeout: .now() + 5), .success)
+        guard case .ready = session.waitForPreparation() else {
+            session.cancelAndWait(); return XCTFail("Ready callback must follow published state")
+        }
+        session.cancelAndWait()
+        XCTAssertEqual(capture.snapshot(), ["ready"])
+    }
+
+    func testExplicitLoopWarmupIgnoresFiniteSongTailPolicy() {
+        let rate = 48_000.0
+        let session = RuntimeLoopPlanningSession(song: song(49),
+            origin: .init(orderIndex: 0, patternIndex: 0, rowIndex: 0), scope: scope(rate, 3),
+            workerQueue: .init(label: "public.session.explicit-loop.tail-isolation"), horizonFrames: 512,
+            finiteSongTailFrames: RuntimeCMixerSongEndTailPolicy.defaultPolicy.tailFrames(sampleRate: rate))
+        guard case let .ready(ready) = session.waitForPreparation(timeout: 5),
+              let active = ready.channel.currentLease() else {
+            session.cancelAndWait(); return XCTFail("Explicit Loop must ignore finite-song tail policy")
+        }
+        XCTAssertNil(active.header.finiteSongEndFrame)
+        XCTAssertEqual(active.header.runtimeEndFrame, UInt64(ready.firstBatchEndFrame))
+        session.cancelAndWait()
+    }
+
+    func testInitialPreparationCallbackPublishesCancellationOnceBeforeWarmup() {
+        let capture = InitialPreparationCapture()
+        let queue = DispatchQueue(label: "public.session.cancel.callback")
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        queue.async { entered.signal(); release.wait() }
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+        let session = RuntimeLoopPlanningSession(song: song(49),
+            origin: .init(orderIndex: 0, patternIndex: 0, rowIndex: 0), scope: scope(48_000, 3),
+            workerQueue: queue, horizonFrames: 512,
+            onInitialPreparation: { capture.record($0) })
+        session.cancel()
+        XCTAssertEqual(capture.arrived.wait(timeout: .now() + 5), .success)
+        release.signal()
+        session.cancelAndWait()
+        XCTAssertEqual(capture.snapshot(), ["cancelled"])
+    }
+
+    func testInitialPreparationCallbackPublishesValidationFailureOnce() {
+        let capture = InitialPreparationCapture()
+        let invalid = RuntimeLoopNativeScope(documentHigh: 1, documentLow: 2, sourceGeneration: 3,
+            transportEpoch: 9, sampleRateBits: 48_000.0.bitPattern, semanticVersion: 1,
+            linearFrequencyMode: true, order: 0, pattern: 0, firstRow: -1, lastRow: 4)
+        let session = RuntimeLoopPlanningSession(song: song(49),
+            origin: .init(orderIndex: 0, patternIndex: 0, rowIndex: 0), scope: invalid,
+            workerQueue: .init(label: "public.session.failure.callback"), horizonFrames: 512,
+            onInitialPreparation: { capture.record($0) })
+        XCTAssertEqual(capture.arrived.wait(timeout: .now() + 5), .success)
+        guard case .failed = session.waitForPreparation() else {
+            session.cancelAndWait(); return XCTFail("Failure callback must follow published state")
+        }
+        session.cancelAndWait()
+        XCTAssertEqual(capture.snapshot(), ["failed"])
+    }
+
+    func testFiniteSongSingleTerminalWarmupPublishesReadyWithoutSuccessor() {
+        let rate = 48_000.0, input = song(49), capture = InitialPreparationCapture()
+        var finiteScope = scope(rate, 3)
+        finiteScope.transportKind = .finiteSong
+        let tailFrames = Int(rate * 3)
+        let session = RuntimeLoopPlanningSession(song: input,
+            origin: .init(orderIndex: 0, patternIndex: 0, rowIndex: 0), scope: finiteScope,
+            workerQueue: .init(label: "public.session.finite.terminal"), horizonFrames: Int.max,
+            maximumRows: 8, finiteSongTailFrames: tailFrames,
+            onInitialPreparation: { capture.record($0) })
+        XCTAssertEqual(capture.arrived.wait(timeout: .now() + 5), .success)
+        guard case let .ready(ready) = session.waitForPreparation(),
+              let active = ready.channel.currentLease() else {
+            session.cancelAndWait(); return XCTFail("Single terminal finite batch must be ready")
+        }
+        XCTAssertEqual(ready.preparedThroughFrame, ready.firstBatchEndFrame)
+        XCTAssertEqual(active.header.finiteSongEndFrame.map { $0 + UInt64(tailFrames) },
+            active.header.runtimeEndFrame)
+        XCTAssertEqual(active.header.scope.transportKind, .finiteSong)
+        var nextScope = scope(rate, 4)
+        nextScope.transportKind = .finiteSong
+        let serial = session.requestEditableRefresh(song: input, scope: nextScope)
+        guard case let .refused(refused, reason) = session.latestEditableRefreshStatus() else {
+            session.cancelAndWait(); return XCTFail("Finite live refresh must ask for stopped reload")
+        }
+        XCTAssertEqual(refused, serial)
+        XCTAssertEqual(reason, .stoppedReloadRequired)
+        session.cancelAndWait()
+        XCTAssertEqual(capture.snapshot(), ["ready"])
+    }
+
     func testSupersededCandidateRecoversFreeSlotAndFinalQuiescedReceipt() {
         for rate in [44_100.0, 48_000] { qualify(rate) }
     }

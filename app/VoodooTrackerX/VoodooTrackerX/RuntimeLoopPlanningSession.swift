@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 import Synchronization
 
-/// Serial off-audio owner of one explicit Loop transport generation. The caller
+/// Serial off-audio owner of one native transport generation. The caller
 /// supplies the existing playback-preparation queue and pins this owner in Core
 /// until host quiescence and native C reset precede cancelAndWait().
 final class RuntimeLoopPlanningSession: @unchecked Sendable {
@@ -144,7 +144,9 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
     private let horizonFrames: Int
     private let maximumRows: Int
     private let refreshPublicationGuardFrames: Int
+    private let finiteSongTailFrames: Int
     private let diagnostics: Diagnostics?
+    private let onInitialPreparation: (@Sendable (PreparationResult) -> Void)?
     private let cancellation = Atomic(false)
     private let shutdownComplete = Atomic(false)
     private let acknowledgedRawUniqueIDCount = Atomic(UInt64(0))
@@ -169,13 +171,19 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
 
     /// Starts asynchronous warmup on the supplied serial playback-preparation queue.
     /// horizonFrames is an explicit caller policy; maximumRows remains bounded to 512.
+    /// The optional initial result fires once after unlocking. Its caller must
+    /// weakly capture its owner and revalidate transport intent before admission.
     init(song: PlaybackSong, origin: PlaybackPosition, scope: RuntimeLoopNativeScope,
          workerQueue: DispatchQueue, horizonFrames: Int, maximumRows: Int = 128,
-         refreshPublicationGuardFrames: Int = 0, diagnostics: Diagnostics? = nil) {
+         refreshPublicationGuardFrames: Int = 0, finiteSongTailFrames: Int = 0,
+         diagnostics: Diagnostics? = nil,
+         onInitialPreparation: (@Sendable (PreparationResult) -> Void)? = nil) {
         self.song = song; self.origin = origin; self.scope = scope
         self.workerQueue = workerQueue; self.horizonFrames = horizonFrames
         self.maximumRows = maximumRows; self.diagnostics = diagnostics
         self.refreshPublicationGuardFrames = refreshPublicationGuardFrames
+        self.finiteSongTailFrames = finiteSongTailFrames
+        self.onInitialPreparation = onInitialPreparation
         channel = RuntimeLoopNativeTwoSlotChannel(scope: scope)
         workerQueue.setSpecific(key: workerKey, value: 1)
         workerQueue.async { [self] in warmupOnWorker() }
@@ -203,10 +211,14 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
         if proposed.documentHigh != scope.documentHigh || proposed.documentLow != scope.documentLow ||
             proposed.transportEpoch != scope.transportEpoch || proposed.sampleRateBits != scope.sampleRateBits ||
             proposed.semanticVersion != scope.semanticVersion || proposed.linearFrequencyMode != scope.linearFrequencyMode ||
+            proposed.transportKind != scope.transportKind ||
             proposed.order != scope.order || proposed.pattern != scope.pattern ||
             proposed.firstRow != scope.firstRow || proposed.lastRow != scope.lastRow {
             refreshRequest = nil
             refreshStatus = .refused(serial: serial, reason: .incompatibleScope)
+        } else if scope.transportKind == .finiteSong {
+            refreshRequest = nil
+            refreshStatus = .refused(serial: serial, reason: .stoppedReloadRequired)
         } else if proposed.sourceGeneration <= max(scope.sourceGeneration, latestRequestedSourceGeneration) {
             refreshRequest = nil
             refreshStatus = .refused(serial: serial, reason: .reusedSourceGeneration)
@@ -317,9 +329,12 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
         cancellation.store(true, ordering: .releasing)
         channel.revoke() // Atomic publication revocation; borrowed owners remain pinned.
         condition.lock()
+        let wasPending: Bool
+        if case .pending = preparationResult { wasPending = true } else { wasPending = false }
         preparationResult = .cancelled
         condition.broadcast()
         condition.unlock()
+        if wasPending { onInitialPreparation?(.cancelled) }
     }
 
     /// Call after the host is quiescent and Core has reset C voices. Joining the
@@ -342,6 +357,7 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
         do {
             let rate = Double(bitPattern: scope.sampleRateBits)
             guard horizonFrames > 0, (1...512).contains(maximumRows), refreshPublicationGuardFrames >= 0,
+                  finiteSongTailFrames >= 0,
                   rate.isFinite, rate > 0, scope.sourceGeneration > 0, scope.transportEpoch > 0,
                   scope.firstRow >= 0, scope.lastRow >= scope.firstRow,
                   origin.orderIndex == scope.order, origin.patternIndex == scope.pattern,
@@ -350,9 +366,13 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
                   pattern.rows.indices.contains(origin.rowIndex),
                   !pattern.rows.isEmpty,
                   pattern.rows.allSatisfy({ (scope.firstRow...scope.lastRow).contains($0.index) }) else {
-                throw Failure(stage: .validation, message: "Invalid explicit Loop preparation scope")
+                throw Failure(stage: .validation, message: "Invalid native preparation scope")
             }
-            trackerChannelCount = pattern.rows.reduce(0) { max($0, $1.cells.count) }
+            trackerChannelCount = scope.transportKind == .finiteSong
+                ? song.patternsByIndex.values.reduce(0) { count, pattern in
+                    max(count, pattern.rows.reduce(0) { max($0, $1.cells.count) })
+                }
+                : pattern.rows.reduce(0) { max($0, $1.cells.count) }
             guard trackerChannelCount > 0 else {
                 throw Failure(stage: .validation, message: "Selected pattern has no tracker channels")
             }
@@ -360,7 +380,9 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
             cache = CSoftwareMixerSharedSamplePayloadCache()
             do {
                 producer = try PlaybackSongUserLoopProducer(song: song, initialPosition: origin,
-                    sampleRate: rate, sourceGeneration: scope.sourceGeneration, transportEpoch: scope.transportEpoch)
+                    sampleRate: rate, sourceGeneration: scope.sourceGeneration, transportEpoch: scope.transportEpoch,
+                    mode: scope.transportKind == .finiteSong ? .finiteSong : .explicitLoop,
+                    terminalTailFrames: scope.transportKind == .finiteSong ? finiteSongTailFrames : 0)
             } catch {
                 throw Failure(stage: .producer, message: String(describing: error))
             }
@@ -374,18 +396,23 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
             guard case .admitted = channel.begin(at: 0) else {
                 throw Failure(stage: .initialAdmission, message: "Initial Loop batch was not admitted at frame zero")
             }
-            guard let secondReservation = channel.reserve() else {
-                throw Failure(stage: .publication, message: "Successor Loop slot unavailable")
+            var preparedThrough = firstEnd
+            if producer?.exportResumeState().terminalStopReason == nil {
+                guard let secondReservation = channel.reserve() else {
+                    throw Failure(stage: .publication, message: "Successor Loop slot unavailable")
+                }
+                preparedThrough = try produceAndPublishOnWorker(secondReservation, warmup: true)
             }
-            let secondEnd = try produceAndPublishOnWorker(secondReservation, warmup: true)
             guard !isCancelled else { return }
             let ready = Preparation(channel: channel, scope: scope,
                 trackerChannelCount: trackerChannelCount, firstBatchEndFrame: firstEnd,
-                preparedThroughFrame: secondEnd)
+                preparedThroughFrame: preparedThrough)
             condition.lock()
-            if !isCancelled { preparationResult = .ready(ready) }
+            let publish = !isCancelled
+            if publish { preparationResult = .ready(ready) }
             condition.broadcast()
             condition.unlock()
+            if publish { onInitialPreparation?(.ready(ready)) }
         } catch {
             if !isCancelled { failOnWorker(error, afterStart: false) }
         }
@@ -407,6 +434,7 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
                 try restoreOrdinarySuccessorOnWorker(active: active, reservation: reservation)
                 return
             }
+            if producer?.exportResumeState().terminalStopReason != nil { return }
             guard let reservation = channel.reserve() else { return }
             if let active = activeStartOnWorker(), let producer {
                 let state = producer.exportResumeState()
@@ -454,7 +482,8 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
         let storage: RuntimeLoopNativeBatchStorage
         do {
             storage = try .init(batch: batch, scope: scope, trackerChannelCount: trackerChannelCount,
-                cache: cache, recordsCategories: diagnostics != nil)
+                cache: cache, recordsCategories: diagnostics != nil,
+                sourceSong: scope.transportKind == .finiteSong ? song : nil)
         } catch { throw Failure(stage: .nativePreparation, message: String(describing: error)) }
         guard !isCancelled else { throw Failure(stage: .nativePreparation, message: "Loop construction cancelled") }
         guard channel.publish(reservation, header: storage.header, retaining: storage) else {
@@ -560,6 +589,7 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
               request.scope.transportEpoch == active.scope.transportEpoch,
               request.scope.sampleRateBits == active.scope.sampleRateBits,
               request.scope.semanticVersion == active.scope.semanticVersion,
+              request.scope.transportKind == active.scope.transportKind,
               request.scope.linearFrequencyMode == active.scope.linearFrequencyMode,
               request.scope.order == active.scope.order, request.scope.pattern == active.scope.pattern,
               request.song.usesLinearFrequencyTable == active.song.usesLinearFrequencyTable else {
@@ -838,9 +868,14 @@ final class RuntimeLoopPlanningSession: @unchecked Sendable {
         let failure = error as? Failure ?? Failure(stage: .producer, message: String(describing: error))
         condition.lock()
         failureSnapshot = failure
-        if !afterStart { preparationResult = .failed(failure) }
+        let publish: Bool
+        if !afterStart, case .pending = preparationResult {
+            preparationResult = .failed(failure)
+            publish = true
+        } else { publish = false }
         condition.broadcast()
         condition.unlock()
+        if publish { onInitialPreparation?(.failed(failure)) }
         // Preserve the active/ready owners. The actual native boundary determines
         // missing-successor failure and completes the established C retirement.
         diagnostics?(.failed(failure, afterStart: afterStart))

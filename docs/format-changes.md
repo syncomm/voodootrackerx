@@ -5,7 +5,7 @@ compatibility boundary. It is not a claim of arbitrary XM round-trip support.
 
 ## Native C playback-head diagnostics
 
-Normal full-plan and explicit user-Loop transport follow now uses one C-head
+Normal full-plan, finite continuation and explicit user-Loop transport follow use one C-head
 observation. The raw runtime frame is the next unrendered C sample, not the
 CoreAudio device or audible clock; exact row boundaries select the next interval
 without subtracting a frame. Normal
@@ -14,8 +14,10 @@ from the raw C frame. Existing event/source numeric IDs are not redefined.
 
 Playback-follow diagnostics add `terminal` and `capture_unavailable` status
 values. `terminal` explicitly clamps the last musical row/tick during fault
-retirement or silence while retaining the observed raw head. C reaches the
-retirement end, then further silence buffers do not advance its frame. The
+retirement or silence while retaining the observed raw head. Fault retirement
+stops advancing C at its retirement end. Successful finite song completion
+clears voices at the existing tail deadline and continues the normal silent C
+sample clock until host Stop; it does not enter fault retirement. The
 control-side result distinguishes captured, notRendered and unavailable.
 `capture_unavailable` means a last-known coordinate could not be refreshed when
 host quiescence or head capture fails; its stored frame is not a claim of current
@@ -32,7 +34,7 @@ stored-document migration is required.
 ## Native user-Loop runtime trace scope
 
 Runtime trace `schemaVersion: 1` gains optional `loopOccurrence` and
-`loopOccurrenceSummary` objects for explicit user Loop. Normal trace rows omit
+`loopOccurrenceSummary` objects for explicit user Loop. Existing full-plan rows omit
 both objects; existing event/source ID meanings and full-plan control fixtures
 are unchanged.
 The new occurrence key is exact document/source/transport/rate/mode/loop scope
@@ -51,6 +53,52 @@ full-plan application counts. Window correlation rejects an unscoped offline
 identity/effect oracle for a scoped Loop trace; audio/frame-only inspection
 remains available. MOD/XM bytes, parsing and editable persistence are unchanged;
 no stored-document migration is required.
+
+## Version 2 finite-song native diagnostic IDs
+
+Bounded ordinary-song occurrence and summary records use `schemaVersion: 2`
+with required `nativeTransportKind: "finite_song"`. They reuse the existing
+`loopOccurrence` and `loopOccurrenceSummary` envelope fields. These historical
+wire names identify scoped native data; they do not make ordinary playback a
+user-pattern Loop. Occurrence scope also requires `transportKind: "finite_song"`.
+Explicit user Loop remains version 1 and omits both kind fields, preserving its
+existing encoded scope. Full-plan runtime and offline numeric IDs and JSON retain
+their established meanings.
+
+Version 2 numeric event IDs and source lookup indices are immutable batch-local
+keys. Occurrence identity includes transport kind, exact document/source/transport/
+rate/frequency-mode scope, batch sequence, event ordinal and numeric ID. Imported
+commands retain their original full birth-generation/transport/sequence/index
+binding; a later batch does not fabricate a new note or redirect its sample.
+Ordinary scope's order/pattern/row-range fields describe the admitted launch
+selection, not bounds on later cross-order source coordinates. Each occurrence
+retains its actual source order, pattern and row.
+
+Updated readers require the version/kind combination and matching finite scope,
+reject unknown or missing discriminators without a legacy-ID fallback, and keep
+`ordinary_native` separate from `user_loop_native` summaries. Their canonical
+keys include the explicit transport kind even for version 1 Loop input. Raw
+unique-ID consumption, executed occurrence totals, and dropped observations remain
+distinct; no raw ID alone may be joined to a whole-song offline event.
+Finite playback omits the legacy `consumedPlannedEventCount` while active and
+does not merge its local ID union into that counter on Stop. Scoped occurrence
+totals are its progress evidence; explicit Loop's existing raw-ID counter remains
+unchanged.
+
+The existing scoped envelope fields keep older readers conservative: readers
+that recognize those fields continue excluding scoped rows from legacy planned
+application counts and rejecting unscoped offline identity/effect correlation.
+Older readers do not fully understand version 2: they label the shared envelope
+as Loop and may omit transport kind from their keys. Use updated readers for
+ordinary or mixed-mode interpretation. Audio/frame-only window inspection remains
+available; a complete scoped execution oracle is still required for identity joins.
+
+This is a diagnostic identity change, not permission to reorder equal-frame
+musical writers or alter sample/source ownership. Compatibility tests pin version
+1 encoding, version 2 scope and birth identity, mode separation, exact UInt64s,
+drop accounting and refusal of unscoped joins. Full-plan semantic/native-frame/PCM
+parity remains a separate required gate. MOD/XM bytes, parsing, editable persistence
+and audio encoding do not change; no stored-document migration is required.
 
 ## XM pattern-local looping (G38B)
 

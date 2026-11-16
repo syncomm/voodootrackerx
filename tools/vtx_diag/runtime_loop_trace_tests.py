@@ -1,3 +1,4 @@
+import copy
 import json
 import struct
 import tempfile
@@ -20,6 +21,14 @@ def occurrence(sequence=1, disposition=0):
         loopOccurrence=dict(scope=scope, batchSequence=sequence, eventOrdinal=8, eventID=7,
             localSourceIndex=0, opcode=2, disposition=disposition, plannedRuntimeFrame=sequence + 3,
             appliedRuntimeFrame=sequence + 3, targetBirth=birth, sourceBefore=birth, sourceAfter=birth))
+
+
+def ordinary_occurrence(sequence=1, disposition=0):
+    event = occurrence(sequence, disposition)
+    event.update(schemaVersion=2, nativeTransportKind="finite_song",
+        runtimeAction="ordinary_native_occurrence", runtimeEventCategory="ordinary_native_occurrence")
+    event["loopOccurrence"]["scope"]["transportKind"] = "finite_song"
+    return event
 
 
 class RuntimeLoopTraceReaderTests(unittest.TestCase):
@@ -78,6 +87,95 @@ class RuntimeLoopTraceReaderTests(unittest.TestCase):
             sample = report["windows"][0]["runtime_trace_correlation"]["event_order_sample"][0]
             self.assertEqual(sample["loop_occurrence"]["key"]["scope"]["documentHigh"], 2**63 + 3)
             self.assertEqual(sample["loop_occurrence"]["key"]["eventID"], 7)
+
+
+class RuntimeOrdinaryTraceReaderTests(unittest.TestCase):
+    def test_versioned_batch_local_ids_keep_exact_carried_birth_and_integer_scope(self):
+        events = [ordinary_occurrence(1), ordinary_occurrence(2, 2)]
+        result = runtime_loop_trace.scoped_finite_song_summary(events)
+        self.assertEqual(result["identity_policy"], "scoped_ordinary_occurrence_v2")
+        self.assertEqual(result["scoped_occurrence_key_count"], 2)
+        self.assertEqual(result["raw_numeric_id_count"], 1)
+        self.assertEqual(result["duplicate_scoped_key_count"], 0)
+        example = result["examples"][1]
+        self.assertEqual(example["key"]["nativeTransportKind"], "finite_song")
+        self.assertEqual(example["key"]["scope"]["documentHigh"], 2**63 + 3)
+        self.assertEqual(example["key"]["scope"]["transportKind"], "finite_song")
+        self.assertEqual(example["targetBirth"]["sourceGeneration"], 3)
+        self.assertEqual(example["targetBirth"]["birthEventIndex"], 17)
+        self.assertEqual(example["sourceBefore"], example["sourceAfter"])
+
+    def test_identical_raw_scope_row_and_ids_are_separate_across_transport_modes(self):
+        loop, song = occurrence(), ordinary_occurrence()
+        loop_key = runtime_loop_trace.loop_observation(loop)["key"]
+        song_key = runtime_loop_trace.loop_observation(song)["key"]
+        self.assertEqual(loop_key["nativeTransportKind"], "explicit_loop")
+        self.assertEqual(song_key["nativeTransportKind"], "finite_song")
+        self.assertNotEqual(loop_key, song_key)
+        self.assertEqual({key: value for key, value in song_key["scope"].items() if key != "transportKind"}, loop_key["scope"])
+        summary = runtime_trace_summary.build_summary([loop, song])
+        self.assertEqual(summary["user_loop_native"]["scoped_occurrence_key_count"], 1)
+        self.assertEqual(summary["ordinary_native"]["scoped_occurrence_key_count"], 1)
+        self.assertEqual(summary["sample_time_alignment"]["applied_planned_event_count"], 0)
+        markdown = runtime_trace_summary.build_markdown(summary)
+        self.assertIn("Scoped Ordinary Song Observations", markdown)
+        self.assertIn("Scoped User Loop Observations", markdown)
+
+    def test_missing_unknown_conflicting_version_kind_and_float_scope_fail_closed(self):
+        good = ordinary_occurrence()
+        invalid = []
+        for field, value in [("nativeTransportKind", None), ("nativeTransportKind", "unknown"),
+                             ("schemaVersion", 1), ("schemaVersion", 3), ("schemaVersion", "2")]:
+            event = copy.deepcopy(good); event[field] = value; invalid.append(event)
+        event = copy.deepcopy(good); del event["nativeTransportKind"]; invalid.append(event)
+        event = copy.deepcopy(good); del event["loopOccurrence"]["scope"]["transportKind"]; invalid.append(event)
+        event = copy.deepcopy(good); event["loopOccurrence"]["scope"]["transportKind"] = "explicit_loop"; invalid.append(event)
+        event = copy.deepcopy(good); event["loopOccurrence"]["scope"]["documentHigh"] = float(2**63 + 3); invalid.append(event)
+        event = copy.deepcopy(good); event["plannedEventID"] = 8; invalid.append(event)
+        event = copy.deepcopy(good); del event["loopOccurrence"]; invalid.append(event)
+        for event in invalid:
+            with self.subTest(event=event), self.assertRaises(runtime_trace_summary.TraceSummaryError):
+                runtime_trace_summary.build_summary([event])
+            self.assertFalse(runtime_trace_summary.is_planned_adapter_event_application(event))
+
+    def test_summary_preserves_legacy_counts_and_separates_finite_drops_and_raw_ids(self):
+        legacy = dict(runtimeAction="c_mixer_add_voice", plannedEventID=7,
+            eventAppliedFrame=1, plannedRuntimeFrame=1, eventApplicationTiming="exact_frame")
+        totals = dict(schemaVersion=2, nativeTransportKind="finite_song", runtimeAction="ordinary_native_summary",
+            loopOccurrenceSummary=dict(attemptedOccurrences=3, appliedOccurrences=1, suppressedOccurrences=2,
+                failedOccurrences=0, recordedOccurrences=2, droppedOccurrences=1))
+        result = runtime_trace_summary.build_summary([legacy, ordinary_occurrence(1), ordinary_occurrence(2, 2), totals])
+        self.assertEqual(result["sample_time_alignment"]["applied_planned_event_count"], 1)
+        self.assertNotIn("user_loop_native", result)
+        self.assertEqual(result["ordinary_native"]["observed_occurrence_count"], 2)
+        self.assertEqual(result["ordinary_native"]["raw_numeric_id_count"], 1)
+        self.assertEqual(result["ordinary_native"]["dropped_occurrence_count"], 1)
+        self.assertFalse(result["ordinary_native"]["complete_observed_trace"])
+        bad = copy.deepcopy(totals); del bad["nativeTransportKind"]
+        with self.assertRaises(runtime_trace_summary.TraceSummaryError):
+            runtime_trace_summary.build_summary([bad])
+
+    def test_window_rejects_unscoped_oracle_and_preserves_finite_audio_only_keys(self):
+        event = ordinary_occurrence()
+        self.assertTrue(runtime_loop_trace.has_scoped_loop_data(event))
+        with self.assertRaisesRegex(runtime_loop_trace.ScopedLoopTraceError, "plan-local"):
+            runtime_loop_trace.require_unscoped_offline_correlation([event], True)
+        with tempfile.TemporaryDirectory(prefix="vtx-finite-trace-", dir="/private/tmp") as temporary:
+            root = Path(temporary)
+            for name in ["runtime.wav", "offline.wav"]:
+                with wave.open(str(root / name), "wb") as output:
+                    output.setnchannels(1); output.setsampwidth(2); output.setframerate(48_000)
+                    output.writeframes(bytes(32))
+            trace = root / "trace.jsonl"; trace.write_text(json.dumps(event) + "\n", encoding="utf-8")
+            report = runtime_trace_correlate_window.build_report(runtime_wav=root / "runtime.wav",
+                offline_wav=root / "offline.wav", runtime_trace=trace, windows=[],
+                window_frames=["0:8"], alignment_search_frames=0)
+            correlation = report["windows"][0]["runtime_trace_correlation"]
+            self.assertNotIn("user_loop_native", correlation)
+            self.assertEqual(correlation["ordinary_native"]["scoped_occurrence_key_count"], 1)
+            sample = correlation["event_order_sample"][0]
+            self.assertNotIn("loop_occurrence", sample)
+            self.assertEqual(sample["ordinary_occurrence"]["key"]["nativeTransportKind"], "finite_song")
 
 
 if __name__ == "__main__":

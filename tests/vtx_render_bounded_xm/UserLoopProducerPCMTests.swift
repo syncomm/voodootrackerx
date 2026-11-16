@@ -3,6 +3,59 @@ import Foundation
 import XCTest
 
 final class UserLoopProducerPCMTests: XCTestCase {
+    func testFiniteZeroTailRetainsFullPlanEndFrameWriter() throws {
+        let rate = 48_000.0, input = FiniteSongProducerProofFixture.make(linear: true)
+        let oracle = RuntimeCMixerAdapterEventPlan.make(song: input, sampleRate: rate,
+            initialPosition: FiniteSongProducerProofFixture.origin)
+        let end = try XCTUnwrap(oracle.plannedSongEndFrame)
+        let endEvents = oracle.events.filter { $0.scheduledFrame == end }
+        XCTAssertFalse(endEvents.isEmpty, "This fixture must exercise a real end-frame writer")
+        let producer = try PlaybackSongUserLoopProducer(song: input,
+            initialPosition: FiniteSongProducerProofFixture.origin, sampleRate: rate,
+            sourceGeneration: 7, transportEpoch: 9, mode: .finiteSong, terminalTailFrames: 0)
+        let batch = try producer.next(minimumHorizonFrames: Int.max, maximumRows: 128)
+        XCTAssertEqual(batch.terminalStopReason, .songEnd)
+        XCTAssertEqual(batch.endFrame, end)
+        XCTAssertEqual(batch.runtimeEndFrame, end)
+        XCTAssertEqual(batch.adapterPlan.events.filter { $0.scheduledFrame == end }.map(\.action),
+            endEvents.map(\.action))
+        XCTAssertEqual(writers(batch.adapterPlan), writers(oracle))
+    }
+
+    func testFiniteSongCrossOrderPCMMatchesFullColdPlan() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for cap in [1, 3] {
+            let input = FiniteSongProducerProofFixture.make(linear: linear)
+            let oracle = RuntimeCMixerAdapterEventPlan.make(song: input, sampleRate: rate,
+                initialPosition: FiniteSongProducerProofFixture.origin)
+            let end = try XCTUnwrap(oracle.plannedSongEndFrame)
+            let tailFrames = Int(rate * 3) // App's default runtime song-end tail.
+            let stopFrame = end + tailFrames
+            XCTAssertTrue(oracle.events.contains { $0.scheduledFrame == end },
+                "Fixture must exercise a terminal-frame writer")
+            let producer = try PlaybackSongUserLoopProducer(song: input,
+                initialPosition: FiniteSongProducerProofFixture.origin,
+                sampleRate: rate, sourceGeneration: 7, transportEpoch: 9, mode: .finiteSong,
+                terminalTailFrames: tailFrames)
+            var batches = [PlaybackSongUserLoopProducer.Batch]()
+            for _ in 0..<16 {
+                let batch = try producer.next(minimumHorizonFrames: Int.max, maximumRows: cap)
+                batches.append(batch)
+                if batch.terminalStopReason != nil { break }
+            }
+            XCTAssertEqual(batches.last?.terminalStopReason, .songEnd)
+            XCTAssertEqual(batches.last?.endFrame, end)
+            XCTAssertEqual(batches.last?.runtimeEndFrame, stopFrame)
+            XCTAssertTrue(batches.dropLast().allSatisfy { $0.runtimeEndFrame == $0.endFrame })
+            XCTAssertTrue(batches.last?.adapterPlan.events.contains { $0.scheduledFrame == end } == true)
+            XCTAssertEqual(batches.flatMap { writers($0.adapterPlan) }, writers(oracle))
+            let expected = try Consumer(rate: rate).render([(oracle, stopFrame)], partitions: [1, 127, 31, 509])
+            let actual = try Consumer(rate: rate).render(batches.map { ($0.adapterPlan, $0.runtimeEndFrame) },
+                partitions: [1, 127, 31, 509])
+            XCTAssertTrue(expected.contains { $0 != 0 }, "Fixture must actually sound")
+            XCTAssertEqual(actual, expected, "finite cold PCM, rate=\(rate), linear=\(linear), cap=\(cap)")
+        } } }
+    }
+
     func testExecutedContinuationFixesFrozenFrame18241CounterexampleAgainstExpandedPCM() throws {
         let visits = [2, 3] + (0..<3).flatMap { _ in [0, 1, 2, 3] }
         for rate in [44_100.0, 48_000] { for linear in [true, false] { for cap in [1, 3, 7] {

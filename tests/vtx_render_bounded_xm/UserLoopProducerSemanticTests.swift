@@ -96,6 +96,106 @@ final class UserLoopProducerSemanticTests: XCTestCase {
         } } }
     }
 
+    func testFiniteSongCrossOrderSemanticEventsMatchFullColdPlan() throws {
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for cap in [1, 3] {
+            let input = FiniteSongProducerProofFixture.make(linear: linear)
+            let oracle = RuntimeCMixerAdapterEventPlan.make(song: input, sampleRate: rate,
+                initialPosition: FiniteSongProducerProofFixture.origin)
+            let expected = try XCTUnwrap(oracle.plan)
+            XCTAssertEqual(expected.diagnostics.traversalStopReason, .songEnd)
+            let producer = try Producer(song: input, initialPosition: FiniteSongProducerProofFixture.origin,
+                sampleRate: rate, sourceGeneration: 11, transportEpoch: 17, mode: .finiteSong)
+            var rowOffset = 0, bindings = [BirthBinding](), points = [NativePoint]()
+            var firstBirth: RuntimeLoopNativeSourceIdentity?
+            while rowOffset < expected.diagnostics.rowTiming.count {
+                let batch = try producer.next(minimumHorizonFrames: Int.max, maximumRows: cap)
+                let plan = try XCTUnwrap(batch.adapterPlan.plan)
+                XCTAssertEqual(plan.diagnostics.requestedStartOrderIndex, 0)
+                XCTAssertEqual(plan.diagnostics.requestedOrderCount, input.orders.count)
+                XCTAssertTrue(batch.naturalBoundaries.isEmpty)
+                for event in batch.adapterPlan.events {
+                    guard case let .noteTrigger(index, _, _) = event.action else { continue }
+                    let identity = try XCTUnwrap(batch.sourceIdentities[index])
+                    XCTAssertGreaterThanOrEqual(index, batch.importedSourceCount)
+                    XCTAssertEqual(identity.birthSequence, batch.sequence)
+                    XCTAssertEqual(identity.birthEventIndex, index)
+                    let reference = try XCTUnwrap(oracle.events.first {
+                        guard case .noteTrigger = $0.action else { return false }
+                        return $0.scheduledFrame == event.scheduledFrame && $0.channelIndex == event.channelIndex
+                    })
+                    let expectedIndex = try XCTUnwrap(reference.activeEventIndex)
+                    XCTAssertFalse(bindings.contains { $0.actual == identity }, "No checkpoint pseudo-birth")
+                    bindings.append(.init(actual: identity, expected: expectedIndex))
+                    if firstBirth == nil { firstBirth = identity }
+                }
+                for local in plan.diagnostics.rowTiming.indices {
+                    let a = plan.diagnostics.rowTiming[local]
+                    let b = expected.diagnostics.rowTiming[rowOffset + local]
+                    XCTAssertEqual(a.source, b.source)
+                    XCTAssertEqual(a.rowStartExactFrame, b.rowStartExactFrame)
+                    XCTAssertEqual(a.rowDurationFrames, b.rowDurationFrames)
+                    XCTAssertEqual(a.actualTickCount, b.actualTickCount)
+                    for tick in 0..<a.actualTickCount { for channel in 0..<3 {
+                        let lhs = try XCTUnwrap(plan.semanticPitch(row: local, tick: tick, channel: channel))
+                        let rhs = try XCTUnwrap(expected.semanticPitch(row: rowOffset + local,
+                            tick: tick, channel: channel))
+                        XCTAssertEqual(lhs.base, rhs.base)
+                        XCTAssertEqual(lhs.output, rhs.output)
+                        XCTAssertEqual(lhs.incoming, rhs.incoming)
+                        XCTAssertEqual(lhs.semanticInstrument, rhs.semanticInstrument)
+                        XCTAssertEqual(lhs.semanticSample, rhs.semanticSample)
+                        XCTAssertEqual(lhs.carriedInstrument, rhs.carriedInstrument)
+                        XCTAssertEqual(try resolved(lhs.associatedGeneration, batch: batch, bindings: bindings,
+                            file: #filePath, line: #line),
+                            rhs.associatedGeneration)
+                        let coordinate = try XCTUnwrap(plan.canonicalTickClock.coordinate(
+                            syntheticRow: local, tick: tick, channel: channel))
+                        let reference = try XCTUnwrap(expected.canonicalTickClock.coordinate(
+                            syntheticRow: rowOffset + local, tick: tick, channel: channel))
+                        XCTAssertEqual(coordinate.absoluteFrame, reference.absoluteFrame)
+                        XCTAssertEqual(coordinate.canonicalTickOrdinal, reference.canonicalTickOrdinal)
+                        let actualGlobal = try plan.diagnostics.voiceStateUpdates.filter {
+                            $0.channelIndex == channel && $0.scheduledFrame == coordinate.absoluteFrame && isGlobal($0.command)
+                        }.map { globalPoint($0, source: try resolved($0.activeEventIndex,
+                            batch: batch, bindings: bindings, file: #filePath, line: #line)) }
+                        let expectedGlobal = expected.diagnostics.voiceStateUpdates.filter {
+                            $0.channelIndex == channel && $0.scheduledFrame == reference.absoluteFrame && isGlobal($0.command)
+                        }.map { globalPoint($0, source: $0.activeEventIndex) }
+                        XCTAssertEqual(actualGlobal, expectedGlobal)
+                    } }
+                }
+                for entry in batch.adapterPlan.eventStorage.ordering {
+                    let event = batch.adapterPlan.events[entry.eventIndex]
+                    points.append(point(event, source: try resolved(event.activeEventIndex,
+                        batch: batch, bindings: bindings, file: #filePath, line: #line)))
+                }
+                rowOffset += plan.diagnostics.rowTiming.count
+                XCTAssertEqual(batch.terminalStopReason == nil, rowOffset < expected.diagnostics.rowTiming.count)
+            }
+            let end = try XCTUnwrap(oracle.plannedSongEndFrame)
+            let terminalWriters = oracle.events.filter { $0.scheduledFrame == end }
+            XCTAssertFalse(terminalWriters.isEmpty,
+                "This finite fixture must prove parity for a real end-frame writer")
+            let expectedPoints = oracle.eventStorage.ordering.compactMap { entry -> NativePoint? in
+                let event = oracle.events[entry.eventIndex]
+                return event.scheduledFrame <= end ? point(event, source: event.activeEventIndex) : nil
+            }
+            for channel in 0..<3 {
+                let actual = points.filter { $0.channel == channel }
+                let expected = expectedPoints.filter { $0.channel == channel }
+                XCTAssertEqual(actual.count, expected.count, "channel \(channel) event count")
+                for index in 0..<min(actual.count, expected.count) where actual[index] != expected[index] {
+                    XCTFail("channel \(channel) first event mismatch at \(index): actual frame \(actual[index].frame) categories \(actual[index].categories), expected frame \(expected[index].frame) categories \(expected[index].categories)")
+                    break
+                }
+            }
+            XCTAssertGreaterThanOrEqual(bindings.count, 3)
+            XCTAssertNotNil(firstBirth)
+            XCTAssertEqual(producer.exportResumeState().terminalStopReason, .songEnd)
+            XCTAssertThrowsError(try producer.next(minimumHorizonFrames: Int.max, maximumRows: cap))
+        } } }
+    }
+
     private func assertProductionMatchesExpanded(_ input: PlaybackSong, rate: Double, cap: Int,
         targetRows: Int, expectNoBirths: Bool = false, oracleInput: PlaybackSong? = nil,
         expectedSourceRows: [Int]? = nil, minimumBirths: Int = 5,

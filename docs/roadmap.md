@@ -140,16 +140,20 @@ bounded contracts; they do not establish full command or audible parity.
   ASan/Release CI (Codex) and Gregory's Loop-on review/merge. Normal Play/seek prepare the chosen cold
   origin; explicit Loop carries actual executed state and source births
   through one active and at most one successor batch. Compatible live edits enter
-  at an acknowledged natural boundary. Original numeric IDs, full-plan gates and
-  ordinary non-Loop planning remain protected. Gregory owns final composition,
+  at an acknowledged natural boundary. Original full-plan/offline numeric IDs,
+  source births and full-plan planning gates remain protected. Gregory owns final composition,
   listening and merge acceptance; this does not close the issue or release gates.
 - PR #552 also requires unchanged Stop→Play, end-to-middle navigation, editable
   navigation/real-edit and explicit-Loop responsiveness qualification in ordinary
-  Debug and optimized Release. Changed-origin full-plan waits on Main remain an
-  OPEN merge blocker owned by Codex; the [cold-start proposal](design/ordinary-cold-start-continuation.md)
-  has no runtime cutover or approved diagnostic-ID change. First C output and Main
-  starvation evidence are required alongside existing planning gates, followed by
-  Gregory's physical composition/listening acceptance.
+  Debug and optimized Release. The [cold-start contract](design/ordinary-cold-start-continuation.md)
+  prepares finite ordinary batches off Main and uses approved version 2 scoped
+  diagnostic IDs while preserving full-plan/offline IDs. The bounded repair is
+  CLOSED on the PR branch after local control and ordinary Debug/Release workflow
+  qualification, including actual C-host output and Main dispatch observations.
+  Acceptance still requires final submitted-head normal/native CI (Codex) and
+  Gregory's physical composition/listening review and merge, including the known
+  SONG TIME placeholder when future duration has not been planned. Existing
+  planning and broader release gates remain unchanged.
 - The same bounded contract uses the native C head for normal/Loop live position,
   Stop/Pause capture and resume context. End timers wait for the actual mapped
   song/tail deadline. UI polling is not a second musical clock; AUv3 remains

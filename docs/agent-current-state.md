@@ -32,11 +32,18 @@ host.
   preparation. Reuse requires the same origin, source generation, rate and mode;
   full traversal bounds preserve later backward jumps. Stopped loaded navigation
   updates speculative intent. Unchanged editable revisions reuse their snapshot.
-- Ordinary changed-origin Stop→Play still waits on full-song preparation on Main;
-  responsiveness is an OPEN merge blocker. Navigation-only editable changes
-  preserve a fresh snapshot, and transport reset reuses the immutable row resolver,
-  but neither removes that wait. The [bounded cold-start proposal](design/ordinary-cold-start-continuation.md)
-  remains a proof of concept; it does not enable a new runtime or ID policy.
+- Product Play prepares a new ordinary cold origin asynchronously through the
+  existing bounded native channel; a compatible admitted full plan is reused.
+  Pending Play is cancellable, and source/revision/intent checks reject stale
+  admission. Navigation-only editable changes preserve a fresh snapshot; transport
+  reset reuses the immutable row resolver. Finite batches retain musical state
+  across orders and finish at the existing C-owned song/tail boundary. The
+  [cold-start contract](design/ordinary-cold-start-continuation.md) uses approved
+  version 2 scoped diagnostic IDs; full-plan/offline IDs and source births remain
+  unchanged. This bounded repair is CLOSED on the PR branch after local control
+  and ordinary Debug/Release workflow qualification. Acceptance requires green
+  final submitted-head CI and Gregory's physical review/merge. Finite playback can
+  show the existing unknown SONG TIME placeholder; exact rows/ticks still use C.
 - Explicit user-pattern Loop interprets the cold selected-row suffix and later
   iterations through the existing row interpreter and semantic folds. Bounded
   terminal state and original source-birth bindings continue across immutable
@@ -49,7 +56,8 @@ host.
   CI only. Acceptance requires green final submitted-head native arm64
   ASan/Release CI (Codex) and Gregory's Loop-on composition/listening review and
   merge. Low-end-memory qualification and Phase 2 release gates remain OPEN.
-  ADR 015 remains PROPOSED; ordinary song playback retains full-song planning.
+  ADR 015 remains PROPOSED. The focused ordinary cold-start contract does not
+  accept that broader architecture or waive its release gates.
 - Compatible editable Loop revisions coalesce and enter at the first safe
   eligible natural boundary under measured readiness/fallback guards, retaining
   actual executed state. Native acknowledgement owns the admitted revision;
@@ -59,7 +67,7 @@ host.
   the existing C-owned 5 ms retirement, then silences and reports planning-underrun
   Stop asynchronously. Late work is rejected. Qualified ordinary workloads have
   zero unintended underruns; this fault policy grants no dropout allowance.
-- Normal full-plan and explicit user-Loop playback use one C sample-head
+- Normal full-plan, finite continuation and explicit user-Loop playback use one C sample-head
   observation for transport position, effective timing and follow presentation.
   UI timers poll that observation; they do not advance a second musical clock.
   Stop/Pause quiesce the host and capture before Core reset. Pause retains the

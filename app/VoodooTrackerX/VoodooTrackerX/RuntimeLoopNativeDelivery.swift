@@ -199,10 +199,14 @@ protocol RuntimeLoopNativeDeliverySink: AnyObject {
         header: RuntimeLoopNativeBatchHeader, target: RuntimeLoopNativeSourceBinding?) -> Bool
     func beginNativeLoopRetirement()
     func didAdmitNativeLoopScope(_ scope: RuntimeLoopNativeScope)
+    func reachNativeSongEnd(atRuntimeFrame frame: UInt64)
+    func finishNativeSong(atRuntimeFrame frame: UInt64)
 }
 
 extension RuntimeLoopNativeDeliverySink {
     func didAdmitNativeLoopScope(_ scope: RuntimeLoopNativeScope) {}
+    func reachNativeSongEnd(atRuntimeFrame frame: UInt64) {}
+    func finishNativeSong(atRuntimeFrame frame: UInt64) {}
 }
 
 /// One callback-owned cursor over two producer-owned batches. No payload owner is copied.
@@ -219,6 +223,9 @@ final class RuntimeLoopNativeDeliveryCursor: @unchecked Sendable {
     private var lastFollow: RuntimeLoopNativeFollowSnapshot?
     private let completed = Atomic(false)
     private let consumed = Atomic(false)
+    private var songCompletion: RuntimeLoopNativeSongCompletion?
+    private let songCompleted = Atomic(false), songCompletionConsumed = Atomic(false)
+    private var reachedSongEnd = false
 
     init(channel: RuntimeLoopNativeTwoSlotChannel, scope: RuntimeLoopNativeScope,
          retirementFrames: Int) {
@@ -235,6 +242,12 @@ final class RuntimeLoopNativeDeliveryCursor: @unchecked Sendable {
         while offset < frameCount {
             if revoked {
                 sink.silenceNativeLoopFrames(outputOffset: offset, frameCount: frameCount - offset)
+                return
+            }
+            if songCompletion != nil {
+                // The exact stop hook already cleared C voices. Keep normal-song
+                // silent sample-clock advancement after its deadline.
+                sink.renderNativeLoopFrames(outputOffset: offset, frameCount: frameCount - offset)
                 return
             }
             if let failure = fault {
@@ -273,6 +286,9 @@ final class RuntimeLoopNativeDeliveryCursor: @unchecked Sendable {
             }
             if settleBoundary(at: frame, sink: sink) { continue }
             var nextFrame = header.runtimeEndFrame
+            if let musicalEnd = header.finiteSongEndFrame, !reachedSongEnd, musicalEnd > frame {
+                nextFrame = min(nextFrame, musicalEnd)
+            }
             if nextNaturalBoundary < header.naturalBoundaryCount {
                 guard let boundaries = header.naturalBoundaries,
                       let boundary = runtimeFrame(boundaries[nextNaturalBoundary].localFrame, in: header),
@@ -285,7 +301,9 @@ final class RuntimeLoopNativeDeliveryCursor: @unchecked Sendable {
             if nextCommand < header.commandCount {
                 guard let commands = header.commands?.assumingMemoryBound(to: RuntimeLoopNativeCommandDescriptor.self),
                       let target = runtimeFrame(commands[nextCommand].localFrame, in: header),
-                      target >= frame, target < header.runtimeEndFrame else {
+                      target >= frame,
+                      target < header.runtimeEndFrame ||
+                          (header.finiteSongEndFrame == header.runtimeEndFrame && target == header.runtimeEndFrame) else {
                     fail(.invalidCommand, at: frame, sequence: header.sequence, sink: sink)
                     continue
                 }
@@ -342,6 +360,13 @@ final class RuntimeLoopNativeDeliveryCursor: @unchecked Sendable {
         return fault
     }
 
+    /// One successful finite Stop receipt, independent of the fault consumer.
+    func takeCompletedSong() -> RuntimeLoopNativeSongCompletion? {
+        guard songCompleted.load(ordering: .acquiring),
+              !songCompletionConsumed.exchange(true, ordering: .acquiringAndReleasing) else { return nil }
+        return songCompletion
+    }
+
     /// Serialized render-owner query, also permitted after host quiescence. A
     /// terminal interval holds its last musical coordinate as raw silence advances.
     func follow(at runtimeFrame: UInt64, sampleRate: Double) -> RuntimeLoopNativeFollowSnapshot? {
@@ -385,6 +410,14 @@ final class RuntimeLoopNativeDeliveryCursor: @unchecked Sendable {
     private func settleBoundary<S: RuntimeLoopNativeDeliverySink>(at frame: UInt64, sink: borrowing S) -> Bool {
         guard let active = lease else { return false }
         let header = active.header
+        if let musicalEnd = header.finiteSongEndFrame, !reachedSongEnd, frame >= musicalEnd {
+            guard frame == musicalEnd else {
+                fail(.invalidBoundary, at: frame, sequence: header.sequence, sink: sink); return true
+            }
+            captureTerminalFollow(at: frame)
+            sink.reachNativeSongEnd(atRuntimeFrame: frame)
+            reachedSongEnd = true
+        }
         while nextNaturalBoundary < header.naturalBoundaryCount {
             guard let boundaries = header.naturalBoundaries,
                   let boundaryFrame = runtimeFrame(boundaries[nextNaturalBoundary].localFrame, in: header),
@@ -403,12 +436,24 @@ final class RuntimeLoopNativeDeliveryCursor: @unchecked Sendable {
             }
             nextNaturalBoundary += 1
         }
-        if frame == header.runtimeEndFrame { finish(at: frame, sink: sink); return true }
+        if frame == header.runtimeEndFrame {
+            let hasZeroTailEndWriter: Bool
+            if header.finiteSongEndFrame == frame, nextCommand < header.commandCount,
+               let commands = header.commands?.assumingMemoryBound(to: RuntimeLoopNativeCommandDescriptor.self) {
+                hasZeroTailEndWriter = runtimeFrame(commands[nextCommand].localFrame, in: header) == frame
+            } else { hasZeroTailEndWriter = false }
+            if !hasZeroTailEndWriter { finish(at: frame, sink: sink); return true }
+        }
         return false
     }
 
     private func finish<S: RuntimeLoopNativeDeliverySink>(at frame: UInt64, sink: borrowing S) {
         captureTerminalFollow(at: frame)
+        if lease?.header.finiteSongEndFrame != nil {
+            // C may still borrow generation PCM. Clear it before channel retirement
+            // lets the serial producer release the final batch/cache owner.
+            sink.finishNativeSong(atRuntimeFrame: frame)
+        }
         lease = nil // POD only. Do not access old pointers after channel retirement publishes.
         nextCommand = 0
         accept(channel.finishBoundary(at: frame), at: frame, sink: sink)
@@ -420,7 +465,12 @@ final class RuntimeLoopNativeDeliveryCursor: @unchecked Sendable {
         case let .admitted(next):
             terminalFollow = nil
             lease = next; nextCommand = 0; nextNaturalBoundary = 0; scope = next.header.scope
+            reachedSongEnd = false
             sink.didAdmitNativeLoopScope(next.header.scope)
+        case let .completed(value):
+            lease = nil
+            songCompletion = value
+            songCompleted.store(true, ordering: .releasing)
         case .missingSuccessor: fail(.missingSuccessor, at: frame, sequence: channel.acknowledgedSequence, sink: sink)
         case .invalidBoundary: fail(.invalidBoundary, at: frame, sequence: channel.acknowledgedSequence, sink: sink)
         case .invalidSuccessor: fail(.invalidSuccessor, at: frame, sequence: channel.acknowledgedSequence, sink: sink)

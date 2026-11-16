@@ -207,6 +207,64 @@ final class RenderCoreNativeLoopIntegrationTests: XCTestCase {
         }
     }
 
+    func testFiniteSongTailUsesOrdinaryClearBeforeRetirementAndPublishesOneCompletion() throws {
+        for rate in [44_100.0, 48_000] {
+            let owner = GenerationOwner(), core = core(rate)
+            var scope = scope(rate); scope.transportKind = .finiteSong
+            let sample = MixerSampleBuffer(monoPCM: [0.25, -0.5, 0.75, -0.125])
+            let loop = MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: 4)
+            let prepared = try birth(owner, sample: sample, loop: loop)
+            let batch = NativeBatch([(7, 0, 0, 0, payload(.birth(prepared.birth))),
+                                     (8, 0, 17, 0, payload(.gainPan(0.5, nil)))],
+                bindings: [binding(0)], retained: [prepared])
+            var header = batch.header(scope, sequence: 1, start: 0, end: 41)
+            header.finiteSongEndFrame = 17
+            let rows = UnsafeMutablePointer<RuntimeLoopNativeFollowRow>.allocate(capacity: 1)
+            rows.initialize(to: .init(source: position, syntheticRow: 0, rowStartExactFrame: 0,
+                rowStartFrame: 0, rowEndFrame: 17, effectiveSpeed: 1, effectiveBPM: 125, actualTickCount: 1))
+            header.followRows = UnsafePointer(rows); header.followRowCount = 1
+            let channel = RuntimeLoopNativeTwoSlotChannel(scope: scope)
+            try publish(batch, header, channel)
+            core.configureNativeLoopDelivery(channel: channel, scope: scope, trackerChannelCount: 1,
+                keepingAlive: owner, recordsOccurrences: true)
+            let reference = CSoftwareMixer(config: core.config)
+            defer {
+                core.stopAll(); channel.shutdownAfterCallbackQuiescence()
+                rows.deinitialize(count: 1); rows.deallocate()
+            }
+            let voice = try XCTUnwrap(reference.addVoice(sample: sample, gain: 0.7,
+                playbackStep: 0.875, loop: loop, sourceOnsetElapsedFrames: 0))
+            reference.setChannelTag(0, forVoiceAt: voice)
+            XCTAssertTrue(reference.scheduleVoiceGainPanUpdate(voiceIndex: voice,
+                scheduledFrame: 17, gain: 0.5).wasAccepted)
+            var actual = renderCoreAudioRuntimePCM(core, frames: 17)
+            XCTAssertEqual(core.snapshot().runtimeFrameAtPlannedSongEnd, 17)
+            XCTAssertNil(core.consumeRuntimeSongContinuationCompletion())
+            actual += renderCoreAudioRuntimePCM(core, frames: 24)
+            let completion = try XCTUnwrap(core.consumeRuntimeSongContinuationCompletion())
+            XCTAssertEqual(completion.musicalEndFrame, 17)
+            XCTAssertEqual(completion.runtimeEndFrame, 41)
+            XCTAssertNil(core.consumeRuntimeSongContinuationCompletion())
+            XCTAssertNil(core.consumeNativeLoopPlanningFailure())
+            XCTAssertEqual(channel.reclaimRetired { _ in
+                let snapshot = core.snapshot()
+                XCTAssertEqual(snapshot.activeVoiceCount, 0)
+                XCTAssertEqual(snapshot.runtimeFrameAtSongEndTailStop, 41)
+            }, 1)
+            var expected = reference.render(frames: 41).interleavedPCM
+            reference.clearVoices()
+            expected += reference.render(frames: 38).interleavedPCM
+            actual += renderCoreAudioRuntimePCM(core, frames: 38)
+            XCTAssertEqual(actual, expected)
+            XCTAssertTrue(actual.suffix(38).allSatisfy { $0 == 0 })
+            XCTAssertEqual(core.realtimeCurrentFrame, 79)
+            XCTAssertTrue(try XCTUnwrap(core.nativeLoopFollowPosition()).isTerminal)
+            let events = core.drainNativeLoopOccurrences().events
+            XCTAssertEqual(events.map(\.eventID), [7, 8])
+            XCTAssertEqual(events.map(\.appliedFrame), [0, 17])
+        }
+    }
+
     private var position: PlaybackPosition { .init(orderIndex: 0, patternIndex: 0, rowIndex: 0) }
     private func payload(_ action: RuntimeLoopPreparedCommandPayload.Action) -> RuntimeLoopPreparedCommandPayload {
         .init(source: position, tick: 0, action: action)
@@ -233,5 +291,70 @@ final class RenderCoreNativeLoopIntegrationTests: XCTestCase {
                        step: Double = 0.875, loop: MixerSampleLoop = .none) throws -> CSoftwareMixerPreparedLoopBirthStorage {
         try XCTUnwrap(CSoftwareMixerPreparedLoopBirthStorage(cache: owner.cache,
             sample: sample, gain: gain, pan: 0, playbackStep: step, loop: loop))
+    }
+}
+
+final class RuntimeHostOutputTimingTests: XCTestCase {
+    func testFirstHostTimingIgnoresOfflineZeroFailedAndDisabledRenders() {
+        let core = timingCore(enabled: true), disabled = timingCore(enabled: false)
+        defer { core.stopAll(); disabled.stopAll() }
+        _ = renderRuntimePCM(core, frames: 8)
+        XCTAssertNil(core.firstHostOutputObservation(), "Offline/test render is not host output")
+        _ = renderCoreAudioRuntimePCM(core, frames: 0)
+        XCTAssertNil(core.firstHostOutputObservation())
+        _ = renderCoreAudioRuntimePCM(core, frames: 33)
+        XCTAssertNil(core.firstHostOutputObservation(), "Oversized unsuccessful callbacks cannot stamp")
+        _ = renderCoreAudioRuntimePCM(disabled, frames: 4)
+        XCTAssertNil(disabled.firstHostOutputObservation(), "Disabled diagnostics never stamp")
+    }
+
+    func testFirstSuccessfulHostTimingIsImmutableAndResetsWithTransportGeneration() throws {
+        let core = timingCore(enabled: true)
+        defer { core.stopAll() }
+        _ = renderCoreAudioRuntimePCM(core, frames: 4)
+        let first = try XCTUnwrap(core.firstHostOutputObservation())
+        XCTAssertGreaterThan(first.completedUptimeNanoseconds, 0)
+        XCTAssertEqual(first.runtimeEndFrame, 4)
+        _ = renderCoreAudioRuntimePCM(core, frames: 8)
+        XCTAssertEqual(core.firstHostOutputObservation(), first)
+        core.stopAll()
+        XCTAssertNil(core.firstHostOutputObservation())
+        _ = renderCoreAudioRuntimePCM(core, frames: 1)
+        let replay = try XCTUnwrap(core.firstHostOutputObservation())
+        XCTAssertGreaterThan(replay.generation, first.generation)
+        XCTAssertGreaterThanOrEqual(replay.completedUptimeNanoseconds, first.completedUptimeNanoseconds)
+        XCTAssertEqual(replay.runtimeEndFrame, 1)
+    }
+
+    @MainActor
+    func testMainHeartbeatUsesOnlyTheExistingOptInFlag() {
+        XCTAssertFalse(PlaybackTimingTraceConfiguration.isEnabled(environment: [:]))
+        XCTAssertTrue(PlaybackTimingTraceConfiguration.isEnabled(environment: ["VTX_PLAYBACK_TIMING_TRACE": "1"]))
+        XCTAssertNil(PlaybackMainThreadHeartbeatProbe.begin(isEnabled: false))
+    }
+
+    @MainActor
+    func testMainHeartbeatFinishIncludesOneOutstandingBlockedProbe() throws {
+        let probe = try XCTUnwrap(PlaybackMainThreadHeartbeatProbe.begin(isEnabled: true))
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while !probe.hasOutstandingProbeForTesting && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        XCTAssertTrue(probe.hasOutstandingProbeForTesting)
+        // Main is deliberately held. More timer firings cannot queue a second probe.
+        Thread.sleep(forTimeInterval: 0.02)
+        let measurement = probe.finish()
+        XCTAssertEqual(measurement.enqueuedProbeCount, 1)
+        XCTAssertEqual(measurement.completedProbeCount, 0)
+        XCTAssertGreaterThan(measurement.outstandingWaitNanoseconds, 0)
+        XCTAssertGreaterThanOrEqual(measurement.maximumDispatchDelayNanoseconds, measurement.outstandingWaitNanoseconds)
+        XCTAssertEqual(probe.finish().maximumDispatchDelayNanoseconds, measurement.maximumDispatchDelayNanoseconds)
+        XCTAssertEqual(Set(measurement.fields.map(\.key)), ["main_probe_enqueued_count", "main_probe_completed_count",
+            "main_dispatch_max_delay_ms", "main_outstanding_probe_wait_ms"])
+    }
+
+    private func timingCore(enabled: Bool) -> RuntimeCMixerRenderCore {
+        .init(config: .init(sampleRate: 48_000, channelCount: 1), maximumRenderFrames: 32,
+            playbackTimingEnabled: enabled)
     }
 }

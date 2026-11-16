@@ -37,8 +37,9 @@ private func storage(_ batch: PlaybackSongUserLoopProducer.Batch, ids: [(Int, In
         categories: ["note_cut"], plan: batch.adapterPlan.plan)
     let modified = PlaybackSongUserLoopProducer.Batch(sequence: batch.sequence,
         predecessorSequence: batch.predecessorSequence, firstIteration: batch.firstIteration,
-        startFrame: batch.startFrame, endFrame: batch.endFrame, importedSourceCount: batch.importedSourceCount,
-        sourceIdentities: batch.sourceIdentities, adapterPlan: runtime)
+        startFrame: batch.startFrame, endFrame: batch.endFrame, runtimeEndFrame: batch.endFrame,
+        importedSourceCount: batch.importedSourceCount,
+        sourceIdentities: batch.sourceIdentities, adapterPlan: runtime, terminalStopReason: nil)
     return try .init(batch: modified, scope: scope, trackerChannelCount: 1, cache: cache)
 }
 private func publish(_ storage: RuntimeLoopNativeBatchStorage, _ channel: RuntimeLoopNativeTwoSlotChannel) {

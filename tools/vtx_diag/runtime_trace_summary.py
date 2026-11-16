@@ -11,7 +11,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from .runtime_loop_trace import ScopedLoopTraceError, has_scoped_loop_data, scoped_loop_summary
+from .runtime_loop_trace import (
+    ScopedLoopTraceError, has_scoped_loop_data, scoped_finite_song_summary, scoped_loop_summary,
+)
 
 
 FLOAT_DIGITS = 9
@@ -2828,6 +2830,7 @@ def build_summary(
     }
     try:
         native_loop = scoped_loop_summary(events)
+        native_song = scoped_finite_song_summary(events)
     except ScopedLoopTraceError as error:
         raise TraceSummaryError(str(error)) from error
     if native_loop is not None:
@@ -2836,6 +2839,16 @@ def build_summary(
         summary["event_stream"]["assessment"] = (
             "native Loop numeric IDs are plan-local and excluded from legacy planned-event application counts; "
             "use user_loop_native occurrence keys and full birth bindings, not an unscoped full-plan ID join"
+        )
+    if native_song is not None:
+        summary["ordinary_native"] = native_song
+        summary["event_stream"]["runtime_driver"] = (
+            "ordinary native prepared batches; inspect scoped occurrences" if native_loop is None
+            else "ordinary and explicit user-Loop native prepared batches; inspect separate scoped occurrences"
+        )
+        summary["event_stream"]["assessment"] = (
+            "native numeric IDs are plan-local and excluded from legacy planned-event application counts; "
+            "use transport-kind occurrence keys and full birth bindings, not an unscoped full-plan ID join"
         )
     return summary
 
@@ -3169,6 +3182,12 @@ def build_markdown(summary: dict[str, Any]) -> str:
             f"- Observed occurrences: {native_loop['observed_occurrence_count']}; scoped keys: {native_loop['scoped_occurrence_key_count']}; raw numeric IDs: {native_loop['raw_numeric_id_count']}",
             f"- Dropped capsules: {native_loop['dropped_occurrence_count']}; complete observed trace: {native_loop['complete_observed_trace']}",
             "- Numeric IDs are plan-local. JSON examples retain exact scope, batch/ordinal/ID and full source-birth bindings; do not join them to unscoped full-plan IDs.", ""])
+    native_song = summary.get("ordinary_native")
+    if native_song is not None:
+        lines.extend(["## Scoped Ordinary Song Observations", "",
+            f"- Observed occurrences: {native_song['observed_occurrence_count']}; scoped keys: {native_song['scoped_occurrence_key_count']}; raw numeric IDs: {native_song['raw_numeric_id_count']}",
+            f"- Dropped capsules: {native_song['dropped_occurrence_count']}; complete observed trace: {native_song['complete_observed_trace']}",
+            "- Schema v2 numeric IDs are plan-local. Keys include finite_song transport kind and exact source-birth bindings; no unscoped full-plan ID join is valid.", ""])
     return "\n".join(lines)
 
 

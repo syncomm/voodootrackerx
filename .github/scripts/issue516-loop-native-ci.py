@@ -87,6 +87,30 @@ APP = [
     'RuntimeLoopNativeRawIDAccountingTests/testExplicitStopIncludesOnlyExecutedPrefixAndSessionFinalCopy',
     'RuntimeLoopNativeRawIDAccountingTests/testFailedCommandDoesNotMarkFailedOrLaterIDs',
     'RuntimeLoopSessionRapidDeadlineTests/testSupersededCandidateRecoversFreeSlotAndFinalQuiescedReceipt',
+    'ControlPanelViewTests/testPendingPlayCanBeStoppedWithoutClaimingActivePlayback',
+    'PlaybackEngineTests/testPlaybackTimingMilestoneUsesObservedHostStampInsteadOfDelayedPollTime',
+    'SelectedOriginConsumerTests/testNormalPlayRequestKeepsMainResponsiveWhileSharedWorkerIsBlocked',
+    'SelectedOriginConsumerTests/testNormalPlayStopCancelsBlockedPreparationExactlyOnce',
+    'SelectedOriginConsumerTests/testNormalPlayRejectsStaleAdmissionGuardAndReplacementSource',
+    'SelectedOriginConsumerTests/testNormalPlayFiniteSelectedRowPCMMatchesFullOracleWithoutFullConstructorOnRestart',
+    'SelectedOriginConsumerTests/testNormalPlayAdmissionPredicateCannotInstallReenteredSource',
+    'SelectedOriginConsumerTests/testNormalPlayPositionObserverReplacementStartsNewestNativeGeneration',
+    'SelectedOriginConsumerTests/testNormalPlayReadyPredicateReentryCannotAdmitSupersededPreparation',
+    'SelectedOriginConsumerTests/testFiniteZeroTailCoreExecutesEndWriterBeforeClearAndMatchesPCM',
+    'RenderCoreNativeLoopIntegrationTests/testFiniteSongTailUsesOrdinaryClearBeforeRetirementAndPublishesOneCompletion',
+    'RuntimeHostOutputTimingTests/testFirstHostTimingIgnoresOfflineZeroFailedAndDisabledRenders',
+    'RuntimeHostOutputTimingTests/testFirstSuccessfulHostTimingIsImmutableAndResetsWithTransportGeneration',
+    'RuntimeHostOutputTimingTests/testMainHeartbeatUsesOnlyTheExistingOptInFlag',
+    'RuntimeHostOutputTimingTests/testMainHeartbeatFinishIncludesOneOutstandingBlockedProbe',
+    'RuntimeLoopNativeBatchStoragePCMTests/testFiniteStorageValidatesCrossOrderArrayIndicesAndPreservesSourceLabelsThroughTail',
+    'RuntimeLoopNativeOccurrenceTraceTests/testScopeEncodingPreservesLoopV1BytesAndDistinguishesFiniteTransport',
+    'RuntimeLoopNativeOccurrenceTraceTests/testOrdinaryV2EnvelopeKeepsBatchNumbersAndOriginalCarriedBirth',
+    'RuntimeLoopNativeOccurrenceTraceTests/testFiniteStoppedBackendScopesOccurrencesWithoutImportingLegacyConsumedIDs',
+    'RuntimeLoopSessionRapidDeadlineTests/testInitialPreparationCallbackPublishesReadyOnce',
+    'RuntimeLoopSessionRapidDeadlineTests/testExplicitLoopWarmupIgnoresFiniteSongTailPolicy',
+    'RuntimeLoopSessionRapidDeadlineTests/testInitialPreparationCallbackPublishesCancellationOnceBeforeWarmup',
+    'RuntimeLoopSessionRapidDeadlineTests/testInitialPreparationCallbackPublishesValidationFailureOnce',
+    'RuntimeLoopSessionRapidDeadlineTests/testFiniteSongSingleTerminalWarmupPublishesReadyWithoutSuccessor',
 ]
 PACKAGE_ASAN = [
     'CatalogPCMLeaseTests/testRevokedCandidatesReuseOnePayloadForPreviouslyUnplayedCatalogSample',
@@ -146,6 +170,13 @@ PACKAGE_ASAN = [
     'XMContinuingFoldTests/testPlainReleaseContinuesThroughBlankRowsWithoutNewGlobalOrReleaseWriter',
     'XMContinuingFoldTests/testRetainedSourceRemapsToCompactScratchIndexWithoutBirthOrOldRows',
     'XMContinuingFoldTests/testSourceFreeReleaseSilentResetAndLaterSourceKeepExactTickState',
+    'UserLoopProducerPCMTests/testFiniteSongCrossOrderPCMMatchesFullColdPlan',
+    'UserLoopProducerSemanticTests/testFiniteSongCrossOrderSemanticEventsMatchFullColdPlan',
+    'RuntimeSongNativeDeliveryTests/testFiniteTerminalExecutesMusicalEndWriterClearsBeforeAcknowledgementAndKeepsSilentClock',
+    'RuntimeSongNativeDeliveryTests/testFiniteNonterminalStillRequiresSuccessorAndRetiresAsFault',
+    'RuntimeSongNativeDeliveryTests/testTerminalMarkerCannotChangeLoopOrEscapeItsNativeInterval',
+    'UserLoopProducerPCMTests/testFiniteZeroTailRetainsFullPlanEndFrameWriter',
+    'RuntimeSongNativeDeliveryTests/testZeroTailRunsEndWriterBeforeClearingCAndAcknowledging',
 ]
 GUARD_SOURCE = 'import Foundation\n@testable import VoodooTrackerXPlaybackSupport\n\n@main enum GuardProbe {\n    static func main() throws {\n        let path = CommandLine.arguments[1], mode = CommandLine.arguments[2]\n        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: path), modulePath: path)\n        var plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000,\n            rowCaptureRetention: .runtimeFinalized).plan!\n        switch mode {\n        case "read": print(plan.xmChannelRows.count)\n        case "fold": plan.playbackStateEvents = []\n        case "tail": _ = plan.extendingEnvelopeTail(throughFrame: 0)\n        case "assemble": _ = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000, preparedPlan: plan)\n        default: fatalError("Unknown guard test")\n        }\n        print("GUARD_WAS_BYPASSED")\n        exit(86)\n    }\n}\n'
 GUARD_SHA = '16ab0b11cb6bc27ee34a305e6c5492bdb1e0e20636518bf709c150868b8927c1'
@@ -537,7 +568,7 @@ def main():
             'inherited sanitizer options')
     emit({'head': head, 'architecture': 'arm64', 'Xcode': output(['xcodebuild', '-version']),
           'Swift': output(['swift', '--version']), 'evidenceRoot': str(root)})
-    require(len(APP) == len(set(APP)) == 70 and len(PACKAGE_ASAN) == len(set(PACKAGE_ASAN)) == 57,
+    require(len(APP) == len(set(APP)) == 94 and len(PACKAGE_ASAN) == len(set(PACKAGE_ASAN)) == 64,
             'selector manifest counts')
     base = ['xcodebuild', '-project', 'app/VoodooTrackerX/VoodooTrackerX.xcodeproj', '-scheme',
             'VoodooTrackerX', '-destination', 'platform=macOS,arch=arm64', '-derivedDataPath', 'build',
@@ -554,7 +585,7 @@ def main():
         ['-only-testing:VoodooTrackerXTests/' + selector for selector in APP] + ['test'], options, True,
         separate_stderr=True)
     image(product, True)
-    result_cases(result, 70, APP)
+    result_cases(result, 94, APP)
     attribution, removed = app_case_attribution_text(text, result)
     attribution_log = root / 'app-asan-case-attribution.log'
     attribution_log.write_text(attribution)
@@ -590,7 +621,7 @@ def main():
     options = runtime_context('package-asan', package)
     text = run('package-asan', ['swift', 'test', '--skip-build', '-c', 'debug', '--sanitize', 'address',
         '--filter', '|'.join(re.escape(selector) + '$' for selector in PACKAGE_ASAN)], options, True)
-    cases = package_cases(text, 57, PACKAGE_ASAN)
+    cases = package_cases(text, 64, PACKAGE_ASAN)
     # SwiftPM omits case PIDs. Require one actual mapped XCTest runner for this
     # exact workload; there is no ambiguous multi-process attribution fallback.
     matched = [pid for pid, observation in APP_RUNTIME['observations'].items() if observation['bundleMatched']]
@@ -604,7 +635,7 @@ def main():
         '-resultBundlePath', str(result), 'test'])
     release_compiler(text, 'VoodooTrackerX', True)
     image('build/Build/Products/Release/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests', False)
-    result_cases(result, 1875)
+    result_cases(result, 1899)
     build = run('package-release-build', ['swift', 'build', '--build-tests', '-c', 'release',
         '--disable-code-coverage', '-v', '-Xswiftc', '-enable-testing'])
     release_compiler(build, 'VoodooTrackerXPlaybackSupport', False)
@@ -612,7 +643,7 @@ def main():
     package = package_image('release', False)
     before = sha(package)
     text = run('package-release', ['swift', 'test', '--skip-build', '-c', 'release'])
-    package_cases(text, 963)
+    package_cases(text, 970)
     require(sha(package) == before, 'package Release image changed during execution')
     require(hashlib.sha256(GUARD_SOURCE.encode()).hexdigest() == GUARD_SHA, 'guard source changed')
     source, probe = root / 'GuardProbe.swift', root / 'guard-probe'
@@ -642,8 +673,8 @@ def main():
     image('build/Build/Products/Release/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX', False)
     require(output(['git', 'rev-parse', 'HEAD']) == head and
             output(['git', 'status', '--porcelain=v1', '-uall']) == '', 'source changed during qualification')
-    emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 70, 'packageASan': 57,
-          'optimizedAppRelease': 1875, 'optimizedPackageRelease': 963, 'expectedReleaseTraps': 4,
+    emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 94, 'packageASan': 64,
+          'optimizedAppRelease': 1899, 'optimizedPackageRelease': 970, 'expectedReleaseTraps': 4,
           'failed': 0, 'skipped': 0})
 
 

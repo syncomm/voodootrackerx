@@ -79,6 +79,12 @@ protocol RuntimeCMixerUserLoopConsuming: AnyObject {
     func consumeRuntimeUserLoopFailure() -> RuntimeUserLoopPlaybackFailure?
     /// Sample-time follow is a fixed atomic capsule and takes no render lock.
     func runtimeUserLoopPosition() -> RuntimeLoopNativeFollowSnapshot?
+    /// Finite playback completes only after its native song-tail deadline.
+    func consumeRuntimeSongContinuationCompletion() -> RuntimeLoopNativeSongCompletion?
+}
+
+extension RuntimeCMixerUserLoopConsuming {
+    func consumeRuntimeSongContinuationCompletion() -> RuntimeLoopNativeSongCompletion? { nil }
 }
 
 /// One clock observation. Normal sampleTimeFrame retains its mapped plan meaning;
@@ -590,6 +596,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     func runtimeUserLoopPosition() -> RuntimeLoopNativeFollowSnapshot? { renderCore.nativeLoopFollowPosition() }
+
+    func consumeRuntimeSongContinuationCompletion() -> RuntimeLoopNativeSongCompletion? {
+        renderCore.consumeRuntimeSongContinuationCompletion()
+    }
+
+    /// Reads the opt-in first successful C-host render stamp off audio.
+    func firstHostOutputObservation() -> RuntimeCMixerFirstHostOutputObservation? {
+        renderCore.firstHostOutputObservation()
+    }
 
     var hasRuntimePlaybackHead: Bool {
         nativeLoopSession != nil || (adapterEventPlan.generated && adapterEventScheduleConfigured)
@@ -1321,8 +1336,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     /// Reads fixed native capsules only after host stop, before Core reset destroys
     /// their ring. This never changes the legacy raw-unique-ID counter or source IDs.
     private func drainNativeLoopOccurrencesAfterHostStop(reason: String) {
-        guard nativeLoopSession != nil, !coreAudioOutputHost.isRunning,
+        guard let session = nativeLoopSession, !coreAudioOutputHost.isRunning,
               traceWriter.isEnabled || runtimeMixerMetricsTraceWriter.isEnabled else { return }
+        let finite = session.scope.transportKind == .finiteSong
         let drained = renderCore.drainNativeLoopOccurrences()
         guard drained.attempts > 0 || drained.drops > 0 || !drained.events.isEmpty else { return }
         if traceWriter.isEnabled {
@@ -1330,10 +1346,12 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 let delta = occurrence.appliedFrame >= occurrence.plannedFrame
                     ? Int(clamping: occurrence.appliedFrame - occurrence.plannedFrame)
                     : -Int(clamping: occurrence.plannedFrame - occurrence.appliedFrame)
-                traceWriter.record(.init(runtimeAction: "user_loop_native_occurrence",
+                traceWriter.record(.init(schemaVersion: finite ? 2 : 1,
+                    runtimeAction: finite ? "ordinary_native_occurrence" : "user_loop_native_occurrence",
                     runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
                     runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
-                    runtimeEventCategory: "user_loop_native_occurrence", plannedEventID: occurrence.eventID,
+                    runtimeEventCategory: finite ? "ordinary_native_occurrence" : "user_loop_native_occurrence",
+                    plannedEventID: occurrence.eventID, nativeTransportKind: finite ? "finite_song" : nil,
                     loopOccurrence: .init(occurrence),
                     plannedSourceOrderIndex: occurrence.source.orderIndex,
                     plannedSourcePatternIndex: occurrence.source.patternIndex,
@@ -1345,22 +1363,26 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                     eventAppliedFrame: occurrence.appliedFrame, plannedVsAppliedDelta: delta,
                     adapterActiveEventIndex: occurrence.localSourceIndex >= 0 ? occurrence.localSourceIndex : nil,
                     cMixerCallSucceeded: occurrence.disposition == 0 ? true : occurrence.disposition == 3 ? false : nil,
-                    reason: "runtime_user_loop_stopped_occurrence_drain"))
+                    reason: finite ? "runtime_ordinary_song_stopped_occurrence_drain" : "runtime_user_loop_stopped_occurrence_drain"))
             }
             let summary = RuntimeLoopNativeTraceSummary(attemptedOccurrences: drained.attempts,
                 appliedOccurrences: drained.applied, suppressedOccurrences: drained.suppressed,
                 failedOccurrences: drained.failures, recordedOccurrences: drained.events.count,
                 droppedOccurrences: drained.drops)
-            traceWriter.record(.init(runtimeAction: "user_loop_native_summary",
+            traceWriter.record(.init(schemaVersion: finite ? 2 : 1,
+                runtimeAction: finite ? "ordinary_native_summary" : "user_loop_native_summary",
                 runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
+                nativeTransportKind: finite ? "finite_song" : nil,
                 loopOccurrenceSummary: summary, reason: reason))
         }
         if runtimeMixerMetricsTraceWriter.isEnabled {
-            runtimeMixerMetricsTraceWriter.record(.init(phase: "user_loop_native_summary", fields: [
-                .init("attempted_occurrences", drained.attempts), .init("applied_occurrences", drained.applied),
+            var fields = [RuntimeMixerMetricsTraceField("attempted_occurrences", drained.attempts), .init("applied_occurrences", drained.applied),
                 .init("suppressed_occurrences", drained.suppressed), .init("failed_occurrences", drained.failures),
                 .init("recorded_occurrences", drained.events.count), .init("dropped_occurrences", drained.drops)
-            ]))
+            ]
+            if finite { fields.append(.init("native_transport_kind", "finite_song")) }
+            runtimeMixerMetricsTraceWriter.record(.init(
+                phase: finite ? "ordinary_native_summary" : "user_loop_native_summary", fields: fields))
         }
     }
 
@@ -1732,7 +1754,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         // C sources and tails no longer reference the generation's shared PCM.
         // Join its serial producer before dropping the final native buffer owners.
         loopSession?.cancelAndWait()
-        if let loopSession {
+        if let loopSession, loopSession.scope.transportKind == .explicitLoop {
             consumedAdapterEventIDs.formUnion(loopSession.consumedRawEventIDsAfterShutdown())
             eventCounters.consumedPlannedEventCount = UInt64(consumedAdapterEventIDs.count)
         }
@@ -2186,8 +2208,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
             adapterPlanGenerated: adapterEventPlan.generated,
             plannedEventCount: adapterEventPlan.plannedEventCount,
-            consumedPlannedEventCount: Int(min(nativeLoopSession?.acknowledgedRawUniqueEventCount ??
-                eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
+            consumedPlannedEventCount: nativeLoopSession?.scope.transportKind == .finiteSong ? nil :
+                Int(min(nativeLoopSession?.acknowledgedRawUniqueEventCount ??
+                    eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
             skippedUnmatchedPlannedEventCount: Int(min(eventCounters.skippedUnmatchedPlannedEventCount, UInt64(Int.max))),
             runtimeRowOrderMapping: runtimeRowOrderMapping(for: context),
             adapterEventCategoriesConsumed: consumedAdapterEventCategories.sorted(),
@@ -2393,8 +2416,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             adapterPlanGenerated: adapterEventPlan.generated,
             adapterPlanGenerationMS: adapterPlanGenerationMS,
             plannedEventCount: adapterEventPlan.plannedEventCount,
-            consumedPlannedEventCount: Int(min(nativeLoopSession?.acknowledgedRawUniqueEventCount ??
-                eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
+            consumedPlannedEventCount: nativeLoopSession?.scope.transportKind == .finiteSong ? nil :
+                Int(min(nativeLoopSession?.acknowledgedRawUniqueEventCount ??
+                    eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
             skippedUnmatchedPlannedEventCount: Int(min(eventCounters.skippedUnmatchedPlannedEventCount, UInt64(Int.max))),
             runtimeRowOrderMapping: runtimeRowOrderMapping(for: context),
             adapterEventCategory: adapterEventCategory,

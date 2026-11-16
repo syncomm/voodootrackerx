@@ -1,24 +1,29 @@
 import Foundation
 
-/// One serial off-audio owner of explicit user-pattern Loop semantic production.
-/// Ordinary song playback never constructs this producer.
+/// One serial off-audio owner of bounded executed-row semantic production.
+/// The finite-song mode remains a no-cutover proof until native admission qualifies.
 final class PlaybackSongUserLoopProducer {
     typealias Adapter = PlaybackSongSyntheticAdapter
     typealias Scratch = PlaybackSongLoopContinuation
     typealias Semantic = PlaybackSongSemanticPitchProjection
     typealias Automatic = PlaybackSongInstrumentAutovibratoPublication
 
+    enum Mode { case explicitLoop, finiteSong }
+
     struct Batch {
         let sequence: UInt64
         let predecessorSequence: UInt64
         let firstIteration: UInt64
         let startFrame: Int
-        let endFrame: Int
+        let endFrame: Int // Exclusive musical end; checkpoint boundary.
+        let runtimeEndFrame: Int // Includes only a finite terminal's configured tail.
         let importedSourceCount: Int
         let sourceIdentities: [Int: RuntimeLoopNativeSourceIdentity]
         let adapterPlan: RuntimeCMixerAdapterEventPlan
+        let terminalStopReason: PlaybackSongSyntheticTraversalStopReason?
         var naturalBoundaries: [NaturalBoundary] = []
         var authorizedCarriedBirths: Set<RuntimeLoopNativeSourceIdentity> = []
+        var rowArrayIndices: [Int] = [] // Exact bounded row lookup; source retains labels.
     }
 
     struct NaturalBoundary {
@@ -83,13 +88,16 @@ final class PlaybackSongUserLoopProducer {
         fileprivate let sampleKeys: [SampleIdentity: Adapter.MixerSampleBufferCacheKey]
         fileprivate let automaticEnabled: Bool
         fileprivate let catalogSource: CatalogSource
+        fileprivate let mode: Mode
         let sourceGeneration: UInt64
         let transportEpoch: UInt64
         let sampleRate: Double
+        fileprivate let terminalTailFrames: Int
         let sequence: UInt64
         let usesLinearFrequencyTable: Bool
         var startFrame: Int { Int(timing.nextExactFrame.rounded(.down)) }
         var isNaturalBoundary: Bool { traversal.pendingBoundary != nil }
+        var terminalStopReason: PlaybackSongSyntheticTraversalStopReason? { traversal.terminalStopReason }
     }
 
     fileprivate struct SampleIdentity: Hashable { let instrument: Int, sample: Int }
@@ -141,7 +149,7 @@ final class PlaybackSongUserLoopProducer {
                                   sourceGeneration: UInt64) throws -> RefreshCatalogProof {
         let started = DispatchTime.now().uptimeNanoseconds
         let old = state.catalogSource
-        guard sourceGeneration > state.sourceGeneration,
+        guard state.mode == .explicitLoop, sourceGeneration > state.sourceGeneration,
               state.sampleRate.isFinite, state.sampleRate > 0,
               old.linear == state.usesLinearFrequencyTable,
               old.order == state.traversal.orderIndex, old.pattern == state.traversal.patternIndex,
@@ -183,6 +191,8 @@ final class PlaybackSongUserLoopProducer {
     private let sampleRate: Double
     private let sourceGeneration: UInt64
     private let transportEpoch: UInt64
+    private let mode: Mode
+    private let terminalTailFrames: Int
     private let automaticEnabled: Bool
     private var traversal: PlaybackSongTraversalPlanner.UserLoopState
     private var timing: PlaybackSongFxxTimingPlanner.State
@@ -195,11 +205,18 @@ final class PlaybackSongUserLoopProducer {
     private var trustedResetOriginScopes = Set<Scratch.Scope>()
 
     init(song: PlaybackSong, initialPosition: PlaybackPosition, sampleRate: Double,
-         sourceGeneration: UInt64, transportEpoch: UInt64) throws {
-        guard let state = PlaybackSongTraversalPlanner.makeUserLoopState(song, initialPosition: initialPosition),
+         sourceGeneration: UInt64, transportEpoch: UInt64, mode: Mode = .explicitLoop,
+         terminalTailFrames: Int = 0) throws {
+        let state = mode == .finiteSong
+            ? PlaybackSongTraversalPlanner.makeFiniteSongState(song, initialPosition: initialPosition)
+            : PlaybackSongTraversalPlanner.makeUserLoopState(song, initialPosition: initialPosition)
+        guard let state, terminalTailFrames >= 0,
+              (mode == .finiteSong || terminalTailFrames == 0),
               sampleRate.isFinite, sampleRate > 0 else { throw Failure.invalidScope }
         self.song = song; self.sampleRate = sampleRate
         self.sourceGeneration = sourceGeneration; self.transportEpoch = transportEpoch
+        self.mode = mode
+        self.terminalTailFrames = terminalTailFrames
         traversal = state
         let config = SyntheticTrackerTimingConfig(speed: song.initialTiming.speed,
             bpm: song.initialTiming.bpm, sampleRate: sampleRate)
@@ -217,13 +234,15 @@ final class PlaybackSongUserLoopProducer {
               sourceGeneration >= state.sourceGeneration else { throw Failure.incompatibleRefresh }
         self.song = song; sampleRate = state.sampleRate; transportEpoch = state.transportEpoch
         self.sourceGeneration = sourceGeneration
+        mode = state.mode
+        terminalTailFrames = state.terminalTailFrames
         timing = state.timing; sequence = state.sequence; checkpoint = state.checkpoint
         automaticEnabled = state.automaticEnabled
         if sourceGeneration == state.sourceGeneration {
             traversal = state.traversal; sampleBuffers = state.sampleBuffers; sampleKeys = state.sampleKeys
             catalogSource = state.catalogSource
         } else {
-            guard let previousSong, previousSong.instrumentsByIndex == song.instrumentsByIndex,
+            guard mode == .explicitLoop, let previousSong, previousSong.instrumentsByIndex == song.instrumentsByIndex,
                   state.catalogSource.instruments == song.instrumentsByIndex,
                   let entry = PlaybackSongTraversalPlanner.resumeUserLoopAtNaturalEntry(song, previous: state.traversal)
                 else { throw Failure.incompatibleRefresh }
@@ -249,7 +268,7 @@ final class PlaybackSongUserLoopProducer {
     /// Consumes a prevalidated exact source at its actual natural boundary.
     /// Identity checks are scalar/reference-only; catalog/PCM equality is not repeated.
     init(resuming state: ResumeState, validatedRefresh proof: RefreshCatalogProof) throws {
-        guard proof.previousCatalog === state.catalogSource,
+        guard state.mode == .explicitLoop, proof.previousCatalog === state.catalogSource,
               proof.previousGeneration == state.sourceGeneration,
               proof.transportEpoch == state.transportEpoch,
               proof.sampleRateBits == state.sampleRate.bitPattern,
@@ -259,6 +278,8 @@ final class PlaybackSongUserLoopProducer {
                 proof.nextSong, previous: state.traversal) else { throw Failure.incompatibleRefresh }
         song = proof.nextSong; sampleRate = state.sampleRate; transportEpoch = state.transportEpoch
         sourceGeneration = proof.nextGeneration; automaticEnabled = state.automaticEnabled
+        mode = state.mode
+        terminalTailFrames = state.terminalTailFrames
         catalogSource = proof.nextCatalog; sampleKeys = proof.nextKeys
         traversal = entry; timing = state.timing; sequence = state.sequence; checkpoint = state.checkpoint
         for (identity, old) in state.sampleKeys {
@@ -275,8 +296,9 @@ final class PlaybackSongUserLoopProducer {
     func exportResumeState() -> ResumeState {
         .init(checkpoint: checkpoint, traversal: traversal, timing: timing, sampleBuffers: sampleBuffers,
             sampleKeys: sampleKeys, automaticEnabled: automaticEnabled, catalogSource: catalogSource,
-            sourceGeneration: sourceGeneration,
-            transportEpoch: transportEpoch, sampleRate: sampleRate, sequence: sequence,
+            mode: mode,
+            sourceGeneration: sourceGeneration, transportEpoch: transportEpoch,
+            sampleRate: sampleRate, terminalTailFrames: terminalTailFrames, sequence: sequence,
             usesLinearFrequencyTable: song.usesLinearFrequencyTable)
     }
 
@@ -323,13 +345,21 @@ final class PlaybackSongUserLoopProducer {
         var prepared = try interpret(visits, sequence: nextSequence, nextRowOverride: nextRowOverride, isCancelled: isCancelled)
         let start = visits.timing.rowTimings[0].rowStartFrame
         let end = visits.timing.rowTimings.last!.rowEndFrame
+        let tail = mode == .finiteSong && visits.terminalTraversal.terminalStopReason != nil
+            ? terminalTailFrames : 0
+        let runtimeEnd = end.addingReportingOverflow(tail)
+        guard !runtimeEnd.overflow else { throw Failure.unavailable }
+        // A zero-tail finite stop still applies writers scheduled exactly at
+        // the musical end before C clears voices at that same frame.
+        let inclusiveStop = mode == .finiteSong && visits.terminalTraversal.terminalStopReason != nil && tail == 0
+        let admissionEnd = runtimeEnd.partialValue.addingReportingOverflow(inclusiveStop ? 1 : 0)
         // Full row captures retire before wide native event assembly. All checkpoint
         // extraction above completed while those captures were deliberately available.
         prepared.plan.$xmChannelRows.finalizeForRuntime()
         let bounded = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: sampleRate,
             preparedPlan: prepared.plan, rowCaptureRetention: .runtimeFinalized,
             isCancelled: isCancelled, lookupOnlySourceCount: prepared.importedSourceCount,
-            admittedFrames: start..<end)
+            admittedFrames: admissionEnd.overflow ? nil : start..<admissionEnd.partialValue)
         guard bounded.generated, isCancelled?() != true else { throw Failure.cancelled }
         var boundaries = [NaturalBoundary]()
         for index in visits.iterationByRow.indices {
@@ -345,9 +375,12 @@ final class PlaybackSongUserLoopProducer {
         }
         let result = Batch(sequence: nextSequence, predecessorSequence: sequence,
             firstIteration: visits.iterationByRow[0], startFrame: start, endFrame: end,
+            runtimeEndFrame: runtimeEnd.partialValue,
             importedSourceCount: prepared.importedSourceCount, sourceIdentities: prepared.identities,
-            adapterPlan: bounded, naturalBoundaries: boundaries,
-            authorizedCarriedBirths: Set(prepared.identities.values.filter { $0.sourceGeneration != sourceGeneration }))
+            adapterPlan: bounded, terminalStopReason: visits.terminalTraversal.terminalStopReason,
+            naturalBoundaries: boundaries,
+            authorizedCarriedBirths: Set(prepared.identities.values.filter { $0.sourceGeneration != sourceGeneration }),
+            rowArrayIndices: visits.traversal.rows.map(\.rowArrayIndex))
         checkpoint = prepared.checkpoint
         traversal = visits.terminalTraversal; timing = visits.timing.terminalState
         sequence = nextSequence
@@ -437,15 +470,21 @@ final class PlaybackSongUserLoopProducer {
                                       isCancelled: (() -> Bool)?) throws -> Prepared {
         let rows = visits.traversal.rows, framePlan = visits.timing
         let start = framePlan.rowTimings[0].rowStartFrame, end = framePlan.rowTimings.last!.rowEndFrame
-        // A batch boundary never invokes the terminal song-tail reducer.
+        let isFiniteTerminal = mode == .finiteSong && visits.terminalTraversal.terminalStopReason != nil
+        if isFiniteTerminal && automaticEnabled {
+            Adapter.finishInstrumentAutovibratoTail(context: &context, builder: &scratch.automatic)
+        }
         var global = Adapter.GlobalVolumeProjectionCheckpoint()
         Adapter.planGlobalVolumeChannelTargets(timingPlan: framePlan, context: &context,
-            initialState: checkpoint?.global, includeTerminalTail: false, terminalCheckpoint: { global = $0 })
+            initialState: checkpoint?.global, includeTerminalTail: isFiniteTerminal,
+            terminalCheckpoint: { global = $0 })
         var folds: Adapter.ContinuationFoldOutput?
         let input = Adapter.ContinuationFoldInput(batchStartFrame: start,
             importedEventIndices: Set(0..<context.importedSourceCount), envelope: checkpoint?.envelope,
             audible: checkpoint?.audible, pitch: scratch.imported.pitchSeed)
-        guard var plan = Adapter.finishAdaptation(song: song, startOrderIndex: traversal.orderIndex, orderCount: 1,
+        guard var plan = Adapter.finishAdaptation(song: song,
+            startOrderIndex: mode == .finiteSong ? 0 : traversal.orderIndex,
+            orderCount: mode == .finiteSong ? song.orders.count : 1,
             timingPlan: framePlan, traversalPlan: visits.traversal,
             timingConfig: .init(speed: framePlan.initialSpeed, bpm: framePlan.initialBPM, sampleRate: sampleRate),
             rowMappings: scratch.mappings, clockRuns: scratch.runs, canonicalTickCount: scratch.ordinal, context: &context,

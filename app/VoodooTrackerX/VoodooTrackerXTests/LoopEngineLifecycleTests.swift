@@ -12,7 +12,15 @@ final class LoopEngineLifecycleTests: XCTestCase {
             _dyld_get_image_name(index).map { String(cString: $0) }
         }
         XCTAssertTrue(images.contains { $0.contains("libclang_rt.asan_osx_dynamic") })
-        print("VTX_LOOP_ASAN_RUNTIME_ACTIVE pid=\(ProcessInfo.processInfo.processIdentifier)")
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let marker = "VTX_LOOP_ASAN_RUNTIME_ACTIVE pid=\(pid)"
+        print(marker)
+        if let directory = ProcessInfo.processInfo.environment["VTX_LOOP_ASAN_EVIDENCE_ROOT"] {
+            // Successful parallel XCTest output may be omitted from xcodebuild's
+            // console; retain the same checked-runtime marker for PID correlation.
+            let file = URL(fileURLWithPath: directory).appendingPathComponent("loop-\(pid).txt")
+            try marker.write(to: file, atomically: true, encoding: .utf8)
+        }
     }
 
     private func song(note: UInt8 = 49, bpm: Int = 125) -> PlaybackSong {
@@ -604,7 +612,23 @@ final class LoopEngineLifecycleTests: XCTestCase {
         XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
         // Both initial batches execute, then the real deadline owns its C fade.
         // MainActor neither acknowledges nor services the failure during this interval.
-        Thread.sleep(forTimeInterval: 1.6)
+        // Sanitizer/host scheduling can delay delivery; qualify actual native
+        // retirement completion while the worker remains blocked, not wall time.
+        // This cold session has no rebase: production batch storage gives local
+        // and native frames the same origin, so row end is the fault boundary.
+        let retirementDeadline = Date(timeIntervalSinceNow: 10)
+        var completedRetirement: RuntimeLoopNativeFollowSnapshot?
+        while Date() < retirementDeadline {
+            if let position = output.runtimeUserLoopPosition(), position.isTerminal,
+               position.rowEndFrame >= 0,
+               position.nativeFrame >= UInt64(position.rowEndFrame) + 240 {
+                completedRetirement = position
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        XCTAssertNotNil(completedRetirement,
+            "Native retirement did not complete: \(String(describing: output.runtimeUserLoopPosition()))")
         release.signal(); didRelease = true
         engine.advanceOneTick()
         XCTAssertEqual(engine.state.mode, .stopped)

@@ -2568,15 +2568,23 @@ extension PlaybackSongSyntheticAdapter {
         let instrumentStateUpdated = instrumentStateAfter != nil
         let channelVolumeBefore = instrumentStateBefore?.baseChannelVolume
         let channelVolumeAfter = instrumentStateAfter?.baseChannelVolume
-        let gainBefore = instrumentStateBefore?.activeSampleVolume.map { _ in
-            songGain(
+        // Keep these scalar projections out of closures that capture full channel
+        // snapshots on the sanitizer-instrumented preparation worker stack.
+        let gainBefore: Float?
+        if instrumentStateBefore?.activeSampleVolume != nil {
+            gainBefore = songGain(
                 outputChannelVolume: instrumentStateBefore?.outputChannelVolume ?? 64
             )
+        } else {
+            gainBefore = nil
         }
-        let gainAfter = instrumentStateAfter?.activeSampleVolume.map { _ in
-            songGain(
+        let gainAfter: Float?
+        if instrumentStateAfter?.activeSampleVolume != nil {
+            gainAfter = songGain(
                 outputChannelVolume: instrumentStateAfter?.outputChannelVolume ?? 64
             )
+        } else {
+            gainAfter = nil
         }
 
         if cell.effectType == 0x03, cell.effectParam > 0 {

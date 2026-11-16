@@ -389,6 +389,8 @@ def runtime_proof(label, mapping, expected):
     context['bundleSHA256'] = sha(context['bundleImage'])
     logs = []
     for path in pathlib.Path(context['directory']).iterdir():
+        if path.name in context.get('validatedLoopMarkerFiles', []):
+            continue
         match = re.fullmatch(r'asan\.(\d+)', path.name)
         safe, content, digest = False, '', None
         try:
@@ -433,6 +435,53 @@ def release_compiler(text, module, debug):
     emit({'stage': 'release-compiler', 'module': module, 'optimization': '-O', 'DEBUG': debug, 'asan': False})
 
 
+def app_case_pid_mapping(text):
+    """Retain the default Xcode runner's independent passed-case/PID attribution."""
+    return [(cls + '/' + name, int(pid)) for cls, name, pid in re.findall(
+        r"'(\w+)\.(test\w+)\(\)' passed on '[^'\n]*\((\d+)\)'", text) if cls + '/' + name in APP]
+
+
+def loop_marker_pids(text, console):
+    """Join Loop markers from stdout and target console content to case PIDs."""
+    pids = {int(pid) for pid in re.findall(r'VTX_LOOP_ASAN_RUNTIME_ACTIVE pid=(\d+)', text)}
+    def visit(node):
+        if isinstance(node, dict):
+            if node.get('adaptorType') == 'target' and isinstance(node.get('content'), str):
+                observed = {int(pid) for pid in re.findall(
+                    r'VTX_LOOP_ASAN_RUNTIME_ACTIVE pid=(\d+)', node['content'])}
+                metadata = node.get('logData')
+                if observed and isinstance(metadata, dict) and type(metadata.get('pid')) is int:
+                    require(observed == {metadata['pid']}, 'Loop console marker/PID metadata mismatch')
+                pids.update(observed)
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+    visit(console)
+    return pids
+
+
+def loop_file_marker_pids(context):
+    """Validate CI-only Loop marker files before excluding them from ASan logs."""
+    pids, validated = set(), []
+    for path in pathlib.Path(context['directory']).glob('loop-*.txt'):
+        match = re.fullmatch(r'loop-([1-9][0-9]*)\.txt', path.name)
+        metadata = path.lstat()
+        require(bool(match) and stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                and metadata.st_uid == os.getuid() and not metadata.st_mode & 0o022
+                and 0 < metadata.st_size <= 1024
+                and context['started'] <= metadata.st_mtime <= context['ended'] + 1,
+                'unsafe Loop marker file')
+        pid = int(match[1])
+        require(re.fullmatch(rb'VTX_LOOP_ASAN_RUNTIME_ACTIVE pid=' + str(pid).encode() + rb'\n?',
+                             path.read_bytes()) is not None, 'Loop marker filename/payload mismatch')
+        pids.add(pid)
+        validated.append(path.name)
+    context['validatedLoopMarkerFiles'] = validated
+    return pids
+
+
 def main():
     global root
     root = pathlib.Path(tempfile.mkdtemp(prefix='vtx-loop-native-ci-', dir='/private/tmp'))
@@ -449,20 +498,31 @@ def main():
             'selector manifest counts')
     base = ['xcodebuild', '-project', 'app/VoodooTrackerX/VoodooTrackerX.xcodeproj', '-scheme',
             'VoodooTrackerX', '-destination', 'platform=macOS,arch=arm64', '-derivedDataPath', 'build',
-            'CODE_SIGNING_ALLOWED=NO', '-parallel-testing-enabled', 'NO']
+            'CODE_SIGNING_ALLOWED=NO']
     product = pathlib.Path('build/Build/Products/Debug/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests')
     options = runtime_context('app-asan', product)
-    options.update({'VTX_REQUIRE_LOOP_ASAN': '1', 'TEST_RUNNER_VTX_REQUIRE_LOOP_ASAN': '1'})
+    options.update({'VTX_REQUIRE_LOOP_ASAN': '1', 'TEST_RUNNER_VTX_REQUIRE_LOOP_ASAN': '1',
+                    'VTX_LOOP_ASAN_EVIDENCE_ROOT': APP_RUNTIME['directory'],
+                    'TEST_RUNNER_VTX_LOOP_ASAN_EVIDENCE_ROOT': APP_RUNTIME['directory']})
     result = root / 'asan.xcresult'
     text = run('app-asan', base + ['-configuration', 'Debug', '-enableAddressSanitizer', 'YES',
         '-enableThreadSanitizer', 'NO', '-resultBundlePath', str(result)] +
         ['-only-testing:VoodooTrackerXTests/' + selector for selector in APP] + ['test'], options, True)
     image(product, True)
     result_cases(result, 70, APP)
-    mapping = [(cls + '/' + name, int(pid)) for cls, name, pid in re.findall(
-        r"'(\w+)\.(test\w+)\(\)' passed on '[^'\n]*\((\d+)\)'", text) if cls + '/' + name in APP]
+    mapping = app_case_pid_mapping(text)
+    file_marker_pids = loop_file_marker_pids(APP_RUNTIME)
     app_pids = runtime_proof('app-asan', mapping, APP)
-    marker_pids = {int(pid) for pid in re.findall(r'VTX_LOOP_ASAN_RUNTIME_ACTIVE pid=(\d+)', text)}
+    console_query = subprocess.run(['xcrun', 'xcresulttool', 'get', 'log', '--type', 'console',
+                                   '--path', str(result)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    (root / 'app-asan-console-query.log').write_bytes(console_query.stdout + console_query.stderr)
+    console = None
+    if console_query.returncode == 0:
+        (root / 'app-asan-console.json').write_bytes(console_query.stdout)
+        console = json.loads(console_query.stdout)
+    emit({'stage': 'app-asan-console', 'available': console_query.returncode == 0,
+          'exitCode': console_query.returncode})
+    marker_pids = loop_marker_pids(text, console) | file_marker_pids
     loop_pids = {pid for name, pid in mapping if name.startswith('LoopEngineLifecycleTests/')}
     require(bool(loop_pids) and marker_pids == loop_pids and loop_pids <= app_pids,
             'Loop marker is not correlated to initialized executed-test PID')

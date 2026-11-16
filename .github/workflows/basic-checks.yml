@@ -45,6 +45,13 @@ jobs:
               xcrun xcresulttool get test-results summary --path "$vtx_test_result"
             fi
           done
+      - name: Preserve native Debug test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-debug-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/Logs/Test/*.xcresult
+          if-no-files-found: warn
       - name: Run core parser tests
         run: swift test --filter ModuleCoreTests
       - name: Run render tool tests

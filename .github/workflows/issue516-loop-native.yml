@@ -5,6 +5,37 @@ on:
     branches: [main]
 
 jobs:
+  host-progress-control:
+    name: Standalone CoreAudio arm64 progress control
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Exercise DefaultOutput without VTX code
+        run: |
+          test "$(uname -m)" = arm64
+          vtx_probe_root=$(mktemp -d /private/tmp/vtx-host-progress.XXXXXX)
+          clang -arch arm64 -std=c11 -Wall -Wextra -Werror \
+            .github/scripts/issue554-host-progress.c \
+            -framework AudioToolbox -framework CoreAudio \
+            -o "$vtx_probe_root/host-progress"
+          file "$vtx_probe_root/host-progress" > "$vtx_probe_root/image.txt"
+          set +e
+          "$vtx_probe_root/host-progress" > "$vtx_probe_root/progress.log" 2>&1
+          vtx_probe_result=$?
+          /usr/bin/log show --last 10m --style compact \
+            --predicate 'process == "coreaudiod" OR process == "host-progress"' \
+            > "$vtx_probe_root/host-system.log" 2>&1
+          exit "$vtx_probe_result"
+      - name: Preserve standalone host evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-host-progress-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /private/tmp/vtx-host-progress.*
+          if-no-files-found: warn
   continuation:
     name: Loop continuation arm64 ASan and Release
     runs-on: macos-latest

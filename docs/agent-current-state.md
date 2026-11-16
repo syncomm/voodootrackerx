@@ -49,7 +49,7 @@ host.
 - Valid song-authored Bxx cycles continue with ordinary Loop off through the same
   bounded native channel. Global volume, Hxy/H00 memory and source births carry
   across successors; zero volume does not end transport. Finite analysis retains
-  cycle guards and SONG TIME remains `--:--`. A cycle-truncated cached plan cannot
+  cycle guards and SONG TIME remains `--:--`. A guarded cached analysis plan cannot
   install a natural-ending tail; genuine finite songs keep their end/tail and cache.
 - Explicit user-pattern Loop interprets the cold selected-row suffix and later
   iterations through the existing row interpreter and semantic folds. Bounded

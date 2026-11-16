@@ -103,14 +103,29 @@ final class AuthoredBxxContinuationTests: XCTestCase {
         let input = try AuthoredBxxProofFixture.make()
         XCTAssertNil(PlaybackSongDuration.seconds(for: input))
         let full = RuntimeCMixerAdapterEventPlan.make(song: input, sampleRate: 48_000)
-        XCTAssertTrue(full.requiresAuthoredCycleContinuation)
+        XCTAssertTrue(full.requiresLiveContinuation)
         XCTAssertEqual(full.plan?.diagnostics.rowTiming.count, 5)
         XCTAssertEqual(full.plan?.diagnostics.traversalStopReason, .traversalGuardHit)
         let finite = RuntimeCMixerAdapterEventPlan.make(song: try AuthoredBxxProofFixture.make(passes: 3), sampleRate: 48_000)
-        XCTAssertFalse(finite.requiresAuthoredCycleContinuation)
+        XCTAssertFalse(finite.requiresLiveContinuation)
         XCTAssertEqual(finite.plannedSongEndFrame, 13 * 1920)
         XCTAssertEqual(finite.plan?.diagnostics.traversalStopReason, .songEnd)
         XCTAssertEqual(PlaybackSongDuration.seconds(for: try AuthoredBxxProofFixture.make(passes: 3)), 0.52)
+
+        // A valid Bxx can lie beyond the analysis row budget. That prefix is
+        // equally nonterminal, even though no Bxx cycle diagnostic exists yet.
+        let repeated = PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 14, effectParam: 0x6F)
+        var rows = (0..<128).map { PlaybackRow(index: $0, cells: [repeated]) }
+        rows.append(.init(index: 128, cells: [.init(note: 0, instrument: 0, volumeColumn: 0, effectType: 11, effectParam: 1)]))
+        let long = PlaybackSong(title: input.title, orders: input.orders,
+            patternsByIndex: [0: input.patternsByIndex[0]!, 1: .init(index: 1, rows: rows)],
+            instrumentsByIndex: input.instrumentsByIndex, restartOrderIndex: 0, endBehavior: .stopAtEnd,
+            initialTiming: input.initialTiming, usesLinearFrequencyTable: true)
+        let guarded = RuntimeCMixerAdapterEventPlan.make(song: long, sampleRate: 48_000)
+        XCTAssertTrue(guarded.generated)
+        XCTAssertTrue(guarded.requiresLiveContinuation)
+        XCTAssertFalse(guarded.plan!.diagnostics.traversalDiagnostics.contains { $0.kind == .bxxPositionJump })
+        XCTAssertNil(PlaybackSongDuration.seconds(for: long))
     }
 
     func testBxxReturnStartsFreshPatternLocalE6ButRetainsActualFxxH00State() throws {

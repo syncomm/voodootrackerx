@@ -52,8 +52,9 @@ folds execute B/D/E6/EE/Fxx traversal across orders, including valid authored
 Bxx cycles with user Loop off. Live traversal has a distinct mode: its row cap
 ends each preparation invocation without declaring song end or keeping visited
 position history. Duration and full-plan/offline traversal retain their finite
-row/cycle guards. A cached analysis prefix ending at a Bxx cycle cannot supply a
-live end/tail; Play and reset-seek use the bounded native channel instead.
+row/cycle guards. A guarded cached analysis prefix cannot supply a live end/tail,
+including when its row budget ends before Bxx. Play and reset-seek use the
+bounded native channel instead.
 An order boundary is not a musical state reset. Bounded checkpoints carry
 fractional frames, held channel/global state, modulation, envelopes and original
 source-birth bindings. Only native

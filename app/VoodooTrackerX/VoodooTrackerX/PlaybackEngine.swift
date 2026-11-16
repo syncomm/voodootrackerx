@@ -1057,7 +1057,7 @@ final class PlaybackEngine: PlaybackTransport {
               currentSourceGeneration == admissionGeneration,
               pendingPlay == nil, !state.isPlaying else { completion(false); return }
         let compatibleFullPlan = runtimeAdapterEventPlan.generated &&
-            !runtimeAdapterEventPlan.requiresAuthoredCycleContinuation &&
+            !runtimeAdapterEventPlan.requiresLiveContinuation &&
             runtimeAdapterPlanKey?.sourceGeneration == currentSourceGeneration &&
             runtimeAdapterPlanKey?.origin == .cold(order: position.orderIndex, row: position.rowIndex) &&
             runtimeAdapterPlanKey?.sampleRateBits == audioEngine.audioBufferSampleRate.bitPattern &&
@@ -1256,7 +1256,7 @@ final class PlaybackEngine: PlaybackTransport {
                 logger.error("Unable to prepare runtime adapter event plan; playback start aborted")
                 return
             }
-            if runtimeAdapterEventPlan.requiresAuthoredCycleContinuation, supportsExecutedUserLoop {
+            if runtimeAdapterEventPlan.requiresLiveContinuation, supportsExecutedUserLoop {
                 guard let selectedPosition,
                       let session = scheduleUserLoopPreparation(song: song, position: selectedPosition, transportKind: .finiteSong),
                       let preparation = awaitUserLoopPreparation(session, epoch: playAdmissionEpoch, intent: playAdmissionIntent),
@@ -1389,7 +1389,7 @@ final class PlaybackEngine: PlaybackTransport {
                 } else { prepared = false }
             } else {
                 let fullReady = prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession)
-                if fullReady, runtimeAdapterEventPlan.requiresAuthoredCycleContinuation, supportsExecutedUserLoop {
+                if fullReady, runtimeAdapterEventPlan.requiresLiveContinuation, supportsExecutedUserLoop {
                     if let session = scheduleUserLoopPreparation(song: song, position: resolvedStart.position, transportKind: .finiteSong),
                        let preparation = awaitUserLoopPreparation(session, epoch: admissionEpoch, intent: seekAdmissionIntent) {
                         prepared = (audioEngine as? RuntimeCMixerUserLoopConsuming)?

@@ -418,11 +418,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
     private let semanticPlanStorage: RuntimeCMixerSemanticPlanStorage?
     var plan: PlaybackSongSyntheticPlan? { semanticPlanStorage?.value }
 
-    /// A finite analysis prefix of an authored cycle cannot be a live song end.
-    var requiresAuthoredCycleContinuation: Bool {
-        plan?.diagnostics.traversalDiagnostics.contains {
-            $0.kind == .bxxPositionJump && $0.status == .loopLimitHit
-        } == true
+    /// An analysis guard bounds construction; it cannot declare a live song end.
+    var requiresLiveContinuation: Bool {
+        plan?.diagnostics.traversalGuardHit == true
     }
 #if DEBUG
     var semanticPlanOwnerForTesting: AnyObject? { semanticPlanStorage }

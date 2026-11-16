@@ -2,10 +2,12 @@ import contextlib
 import copy
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -24,14 +26,26 @@ class NativeOutputCollectionTests(unittest.TestCase):
         self.selector = "RuntimeLoopNativeEarlyCutoverTests/testOptionalNaturalBoundaryCoalescingAndUnchangedMandatoryDelivery"
         self.case_row = "Test case '%s()' passed on 'My Mac - xctest (123)' (0.004 seconds)\n" % self.selector.replace("/", ".")
 
-    def collect(self, source):
+    def collect(self, source, observe=True):
         context = {"label": "app-asan", "bundleImage": self.root / "no-test-image"}
         with mock.patch.object(HELPER, "root", self.root), \
                 mock.patch.dict(HELPER.APP_RUNTIME, context, clear=True), \
                 mock.patch.object(HELPER, "runner_pids", return_value=set()), \
                 contextlib.redirect_stdout(io.StringIO()):
             return HELPER.run("app-asan", [sys.executable, "-c", source],
-                              observe=True, separate_stderr=True)
+                              observe=observe, separate_stderr=True)
+
+    def test_non_observed_debug_release_preserve_separate_streams(self):
+        source = "import os\nos.write(1, %r)\nos.write(2, b'completion diagnostics\\n')\n" % self.case_row.encode()
+        text = self.collect(source, observe=False)
+        self.assertEqual(HELPER.app_case_pid_mapping(text), [(self.selector, 123)])
+        self.assertEqual((self.root / "app-asan.stderr.log").read_text(), "completion diagnostics\n")
+
+    def test_non_observed_failure_cannot_be_replaced_by_passed_case_stdout(self):
+        source = "import os\nos.write(1, %r)\nos.write(2, b'teardown failure\\n')\nraise SystemExit(7)\n" % self.case_row.encode()
+        with self.assertRaisesRegex(AssertionError, "app-asan failed"):
+            self.collect(source, observe=False)
+        self.assertEqual((self.root / "app-asan.stderr.log").read_text(), "teardown failure\n")
 
     def test_stderr_between_partial_stdout_writes_cannot_split_case_identity(self):
         split = self.case_row.index("Coalescing") + len("Coalesc")
@@ -158,6 +172,112 @@ class NativeCaseAttributionTests(unittest.TestCase):
         for name, raw in cases.items():
             with self.subTest(name=name), self.assertRaises(AssertionError):
                 HELPER.app_case_attribution_text(raw, self.result)
+
+
+class HostedClockFixtureProofTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="vtx-clock-proof-", dir="/private/tmp")
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.expected = HELPER.APP[:2]
+        self.mapping = [(name, 123) for name in self.expected]
+        self.started = time.time() - 1
+        self.ready = dict(version=1, pid=123, phase="ready", stage="app-debug", device=81,
+                          started=100, second=1000, deadline=10100, reached=1100,
+                          readyFrames=48128, frames=48128, callbacks=94, entries=95,
+                          active=1, nilBuffers=0, testCount=0,
+                          statuses={key: 0 for key in ["create", "format", "callback", "initialize",
+                                                     "device", "start", "running", "current device"]})
+        self.ready["class"] = "LoopEngineLifecycleTests"
+        self.stopped = copy.deepcopy(self.ready)
+        self.stopped.update(phase="stopped", frames=96000, callbacks=188, entries=188, active=0, testCount=2)
+        self.stopped["statuses"].update(stop=0, uninitialize=0, dispose=0)
+        self.write()
+
+    def write(self):
+        for data in [self.ready, self.stopped]:
+            (self.root / ("clock-%s-%s.json" % (data["pid"], data["phase"]))).write_text(json.dumps(data))
+
+    def verify(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            HELPER.verify_clock_fixture(self.root, "app-debug", self.mapping, self.expected,
+                                        self.started, time.time())
+
+    def test_live_ready_snapshot_and_quiescent_final_receipt_match_independent_test_pid(self):
+        self.verify()  # Ready may legitimately have an active callback.
+        self.mapping.append(self.mapping[0])
+        with self.assertRaisesRegex(AssertionError, "attribution"):
+            self.verify()
+
+    def test_missing_extra_and_foreign_receipts_never_supply_test_attribution(self):
+        path = self.root / "clock-123-stopped.json"
+        content = path.read_text()
+        path.unlink()
+        with self.assertRaisesRegex(AssertionError, "missing or unexpected"):
+            self.verify()
+        path.write_text(content)
+        extra = self.root / "clock-456-stopped.json"
+        extra.write_text(content)
+        with self.assertRaisesRegex(AssertionError, "missing or unexpected"):
+            self.verify()
+        extra.unlink()
+        self.mapping = [(name, 456) for name in self.expected]
+        with self.assertRaisesRegex(AssertionError, "missing or unexpected"):
+            self.verify()
+
+    def test_each_of_two_executed_pids_requires_its_own_complete_fixture(self):
+        self.stopped["testCount"] = 1
+        self.write()
+        self.ready["pid"] = self.stopped["pid"] = 456
+        self.write()
+        self.mapping = [(self.expected[0], 123), (self.expected[1], 456)]
+        self.verify()
+
+    def test_late_readiness_health_identity_and_teardown_fail_closed(self):
+        original = copy.deepcopy(self.stopped)
+        for key, value in [("reached", 10101), ("deadline", 20100), ("readyFrames", 47000),
+                           ("nilBuffers", 1), ("device", 82), ("frames", 48128),
+                           ("active", 1), ("entries", 189), ("testCount", 1),
+                           ("pid", 456), ("stage", "other"), ("class", "OtherTests"),
+                           ("version", True), ("failure", "startup failed"), ("statuses", {"stop": -1})]:
+            with self.subTest(key=key):
+                data = copy.deepcopy(original)
+                data[key] = value
+                (self.root / "clock-123-stopped.json").write_text(json.dumps(data))
+                with self.assertRaises(AssertionError):
+                    self.verify()
+
+    def test_duplicate_fields_and_unsafe_or_stale_files_are_rejected(self):
+        path = self.root / "clock-123-stopped.json"
+        content = path.read_text()
+        path.write_text(content[:-1] + ', "pid": 123}')
+        with self.assertRaisesRegex(AssertionError, "duplicate JSON"):
+            self.verify()
+        path.write_text(content)
+        os.utime(path, (self.started - 1, self.started - 1))
+        with self.assertRaisesRegex(AssertionError, "unsafe"):
+            self.verify()
+        path.unlink()
+        path.symlink_to(self.root / "clock-123-ready.json")
+        with self.assertRaisesRegex(AssertionError, "unsafe"):
+            self.verify()
+        path.unlink()
+        os.link(self.root / "clock-123-ready.json", path)
+        with self.assertRaisesRegex(AssertionError, "unsafe"):
+            self.verify()
+        path.unlink()
+        path.write_text(content + " " * 8192)
+        with self.assertRaisesRegex(AssertionError, "unsafe"):
+            self.verify()
+        path.write_text(content)
+        path.chmod(0o666)
+        with self.assertRaisesRegex(AssertionError, "unsafe"):
+            self.verify()
+
+    def test_fixture_cannot_be_enabled_outside_hosted_ci(self):
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "self-hosted"}):
+            with self.assertRaisesRegex(AssertionError, "requires hosted CI"):
+                HELPER.clock_fixture_options("app-debug")
 
 
 if __name__ == "__main__":

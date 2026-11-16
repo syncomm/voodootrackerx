@@ -43,7 +43,10 @@ jobs:
           /usr/bin/log show --last 20m --style compact \
             --predicate 'process == "coreaudiod" OR process == "host-progress"' \
             > "$vtx_probe_root/host-system.log" 2>&1
-          test "$vtx_probe_result" = 0 && test "$vtx_rapid_result" = 0 && test "$vtx_idle_result" = 0 && test "$vtx_guarded_result" = 0
+          # Explicitly approved driver diagnostic: retain its raw failure without
+          # crediting it as globally idle-device qualification. Other arms gate.
+          printf '::notice::Unguarded idle-restart diagnostic exit=%s (non-voting; raw evidence retained)\n' "$vtx_idle_result"
+          test "$vtx_probe_result" = 0 && test "$vtx_rapid_result" = 0 && test "$vtx_guarded_result" = 0
       - name: Preserve standalone host evidence
         if: always()
         uses: actions/upload-artifact@v4

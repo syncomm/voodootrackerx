@@ -28,15 +28,7 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
           build
       - name: Run unit tests
-        run: >
-          xcodebuild
-          -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj
-          -scheme VoodooTrackerX
-          -configuration Debug
-          -destination 'platform=macOS'
-          -derivedDataPath build
-          CODE_SIGNING_ALLOWED=NO
-          test
+        run: python3 .github/scripts/issue516-loop-native-ci.py --hosted-debug
       - name: Report unit test failures
         if: failure()
         run: |
@@ -50,7 +42,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-debug-tests-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build/Logs/Test/*.xcresult
+          path: |
+            build/Logs/Test/*.xcresult
+            /private/tmp/vtx-loop-native-debug-*
           if-no-files-found: warn
       - name: Run core parser tests
         run: swift test --filter ModuleCoreTests

@@ -252,9 +252,16 @@ and final integrated gate. Semantic/output closure precedes callback hardening;
 both precede the freeze and later product phases. Effects, DSP, host, real-time
 safety, and editor contracts remain separate PRs.
 
-[#516](https://github.com/syncomm/voodootrackerx/issues/516) remains open for
-Codex's required green final submitted-head native CI and Gregory's Loop-on
-hands-on acceptance and merge of its locally qualified bounded contract.
+[#516](https://github.com/syncomm/voodootrackerx/issues/516) is closed following
+the merged [#552](https://github.com/syncomm/voodootrackerx/pull/552) contract.
+The separate [#554](https://github.com/syncomm/voodootrackerx/issues/554)
+[hosted lifecycle fixture](design/hosted-native-lifecycle-clock-fixture.md)
+qualifies target-owned native retirement with an active device clock. It does not
+qualify globally idle-device startup or fully cold process audio-context latency.
+That native arm64 device/driver qualification remains **OPEN before backend
+freeze**: Codex owns unassisted progress, lifecycle and equivalent latency evidence
+on an unaffected device/driver; Gregory owns acceptance. Guarded CI and non-voting
+driver diagnostics cannot close this residual.
 The cross-family planning/performance/memory audit still owns wider resource
 work, including high variable process RSS and Q2 copied-payload pressure.
 Measured reusable VM pages do not resolve that separate residual. Phase 2/v0.5

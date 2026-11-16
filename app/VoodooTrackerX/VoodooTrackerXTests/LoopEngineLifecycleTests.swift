@@ -1,9 +1,24 @@
+import AudioToolbox
 import Darwin
 import Foundation
+import Synchronization
 import XCTest
 
 final class LoopEngineLifecycleTests: XCTestCase {
+    private static let hostedClock = HostedLifecycleClockFixture()
+
+    override class func setUp() {
+        super.setUp()
+        hostedClock.startIfRequested()
+    }
+
+    override class func tearDown() {
+        hostedClock.finish()
+        super.tearDown()
+    }
+
     override func setUpWithError() throws {
+        try Self.hostedClock.checkReady()
         guard ProcessInfo.processInfo.environment["VTX_REQUIRE_LOOP_ASAN"] == "1" else { return }
         let handle = try XCTUnwrap(dlopen(nil, RTLD_NOW))
         defer { dlclose(handle) }
@@ -831,4 +846,182 @@ private final class LoopRestartTraceRecorder: RuntimeCMixerTraceWriting {
     var events = [RuntimeCMixerTraceEvent]()
     func record(_ event: RuntimeCMixerTraceEvent) { events.append(event) }
     func flush() {}
+}
+
+/// Keeps the hosted virtual device's clock alive only for this XCTest class.
+/// Target units retain their own counters/lifecycles; this does not qualify a
+/// globally idle device or change production playback. See issue #554.
+private final class HostedLifecycleClockFixture: @unchecked Sendable {
+    // XCTest serializes class setup/teardown and its instance setup. Only State's
+    // atomics cross into audio callbacks; the class owner survives failed cleanup.
+    private final class State {
+        let frames = Atomic<UInt64>(0), callbacks = Atomic<UInt64>(0), entries = Atomic<UInt64>(0)
+        let active = Atomic<UInt32>(0), nilBuffers = Atomic<UInt32>(0)
+        let reached = Atomic<UInt64>(0), lastCallback = Atomic<UInt64>(0)
+    }
+    private struct Failure: Error { let reason: String }
+    private let state = State()
+    private var unit: AudioUnit?
+    private var directory: URL?
+    private var stage = ""
+    private var statuses = [String: OSStatus]()
+    private var device: AudioDeviceID = 0
+    private var startupFailure: Error?
+    private var started: UInt64 = 0, deadline: UInt64 = 0, second: UInt64 = 0
+    private var readyFrames: UInt64 = 0, testCount = 0
+    private var requested = false
+
+    func startIfRequested() {
+        guard !requested else {
+            startupFailure = Failure(reason: "repeated fixture startup in one process")
+            recordFailure(startupFailure!)
+            return
+        }
+        let environment = ProcessInfo.processInfo.environment
+        requested = environment["VTX_HOSTED_LIFECYCLE_CLOCK"] == "1"
+        guard requested else { return }
+        do {
+            try require(environment["GITHUB_ACTIONS"] == "true" &&
+                environment["RUNNER_ENVIRONMENT"] == "github-hosted", "fixture requires hosted CI")
+            guard let path = environment["VTX_HOSTED_LIFECYCLE_CLOCK_ROOT"] else {
+                throw Failure(reason: "missing fixture receipt directory")
+            }
+            let root = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+            try require(root.path.hasPrefix("/private/tmp/vtx-"), "invalid fixture receipt directory")
+            directory = root
+            guard let stage = environment["VTX_HOSTED_LIFECYCLE_CLOCK_STAGE"], !stage.isEmpty else {
+                throw Failure(reason: "missing fixture stage")
+            }
+            self.stage = stage
+            var timebase = mach_timebase_info_data_t()
+            try require(mach_timebase_info(&timebase) == KERN_SUCCESS, "missing monotonic clock")
+            second = 1_000_000_000 * UInt64(timebase.denom) / UInt64(timebase.numer)
+            var description = AudioComponentDescription(componentType: kAudioUnitType_Output,
+                componentSubType: kAudioUnitSubType_DefaultOutput,
+                componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0)
+            guard let component = AudioComponentFindNext(nil, &description) else {
+                throw Failure(reason: "missing DefaultOutput component")
+            }
+            try status(AudioComponentInstanceNew(component, &unit), "create")
+            guard let unit else { throw Failure(reason: "missing unit") }
+            var format = AudioStreamBasicDescription(mSampleRate: 48_000, mFormatID: kAudioFormatLinearPCM,
+                mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked |
+                    kAudioFormatFlagsNativeEndian | kAudioFormatFlagIsNonInterleaved,
+                mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4,
+                mChannelsPerFrame: 1, mBitsPerChannel: 32, mReserved: 0)
+            try status(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input,
+                0, &format, UInt32(MemoryLayout.size(ofValue: format))), "format")
+            var callback = AURenderCallbackStruct(inputProc: { context, _, _, _, frames, data in
+                let state = Unmanaged<State>.fromOpaque(context).takeUnretainedValue()
+                state.entries.wrappingAdd(1, ordering: .relaxed)
+                state.active.wrappingAdd(1, ordering: .relaxed)
+                if let data {
+                    for buffer in UnsafeMutableAudioBufferListPointer(data) {
+                        if let bytes = buffer.mData { memset(bytes, 0, Int(buffer.mDataByteSize)) }
+                    }
+                    let count = state.frames.wrappingAdd(UInt64(frames), ordering: .relaxed)
+                    if count.oldValue < 48_000 && count.newValue >= 48_000 {
+                        state.reached.store(mach_absolute_time(), ordering: .releasing)
+                    }
+                } else { state.nilBuffers.wrappingAdd(1, ordering: .relaxed) }
+                state.lastCallback.store(mach_absolute_time(), ordering: .releasing)
+                state.callbacks.wrappingAdd(1, ordering: .relaxed)
+                state.active.wrappingSubtract(1, ordering: .releasing)
+                return noErr
+            }, inputProcRefCon: Unmanaged.passUnretained(state).toOpaque())
+            try status(AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input,
+                0, &callback, UInt32(MemoryLayout.size(ofValue: callback))), "callback")
+            try status(AudioUnitInitialize(unit), "initialize")
+            var size = UInt32(MemoryLayout.size(ofValue: device))
+            try status(AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global,
+                0, &device, &size), "device")
+            started = mach_absolute_time()
+            deadline = started + 10 * second
+            try status(AudioOutputUnitStart(unit), "start")
+            while mach_absolute_time() < deadline && state.reached.load(ordering: .acquiring) == 0 {
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+            let reached = state.reached.load(ordering: .acquiring)
+            try require(reached > 0 && reached <= deadline, "fixture missed 48,000 frames / 10 seconds")
+            try checkHealth()
+            readyFrames = state.frames.load(ordering: .relaxed)
+            try receipt(phase: "ready")
+        } catch {
+            startupFailure = error
+            recordFailure(error)
+        }
+    }
+
+    func checkReady() throws {
+        guard requested else { return }
+        if let startupFailure { throw startupFailure }
+        try checkHealth()
+        testCount += 1
+    }
+
+    func finish() {
+        guard requested else { return }
+        do {
+            try checkHealth()
+            guard let unit else { throw Failure(reason: "missing fixture at teardown") }
+            try status(AudioOutputUnitStop(unit), "stop")
+            try status(AudioUnitUninitialize(unit), "uninitialize")
+            try status(AudioComponentInstanceDispose(unit), "dispose")
+            self.unit = nil
+            try require(state.active.load(ordering: .acquiring) == 0, "callback still active after disposal")
+            try require(state.entries.load(ordering: .relaxed) == state.callbacks.load(ordering: .relaxed),
+                "unbalanced fixture callbacks after disposal")
+            try require(state.frames.load(ordering: .relaxed) > readyFrames, "fixture made no subsequent progress")
+            if let startupFailure { throw startupFailure }
+            try receipt(phase: "stopped")
+        } catch {
+            // Never release an unretained callback owner after failed teardown.
+            // XCTest class methods cannot record instance assertions: fail the run.
+            recordFailure(error)
+            fatalError("Hosted lifecycle clock fixture teardown failed: \(error)")
+        }
+    }
+
+    private func checkHealth() throws {
+        guard let unit else { throw Failure(reason: "fixture not prepared") }
+        var running: UInt32 = 0, currentDevice: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout.size(ofValue: running))
+        try status(AudioUnitGetProperty(unit, kAudioOutputUnitProperty_IsRunning, kAudioUnitScope_Global,
+            0, &running, &size), "running")
+        size = UInt32(MemoryLayout.size(ofValue: currentDevice))
+        try status(AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global,
+            0, &currentDevice, &size), "current device")
+        let last = state.lastCallback.load(ordering: .acquiring)
+        try require(running == 1 && currentDevice == device && device != 0, "fixture stopped or device changed")
+        try require(last > 0 && mach_absolute_time() - last < 10 * second, "fixture callback progress stopped")
+        try require(state.nilBuffers.load(ordering: .relaxed) == 0, "fixture received nil buffers")
+    }
+
+    private func receipt(phase: String, failure: String = "") throws {
+        guard let directory else { throw Failure(reason: "missing receipt directory") }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let data = try JSONSerialization.data(withJSONObject: ["version": 1, "pid": pid,
+            "class": "LoopEngineLifecycleTests", "stage": stage, "statuses": statuses, "failure": failure,
+            "phase": phase, "device": device, "started": started, "second": second, "deadline": deadline,
+            "reached": state.reached.load(ordering: .acquiring), "readyFrames": readyFrames,
+            "frames": state.frames.load(ordering: .relaxed), "callbacks": state.callbacks.load(ordering: .relaxed),
+            "entries": state.entries.load(ordering: .relaxed),
+            "active": state.active.load(ordering: .acquiring), "nilBuffers": state.nilBuffers.load(ordering: .relaxed),
+            "testCount": testCount], options: [.sortedKeys])
+        try data.write(to: directory.appendingPathComponent("clock-\(pid)-\(phase).json"), options: .atomic)
+    }
+
+    private func recordFailure(_ error: Error) {
+        let message = "Hosted lifecycle clock failure: startup=\(String(describing: startupFailure)); current=\(error)"
+        FileHandle.standardError.write(Data((message + "\n").utf8))
+        try? receipt(phase: "failed", failure: message)
+    }
+
+    private func require(_ condition: Bool, _ reason: String) throws {
+        if !condition { throw Failure(reason: reason) }
+    }
+    private func status(_ value: OSStatus, _ operation: String) throws {
+        statuses[operation] = value
+        try require(value == noErr, "\(operation) failed: \(value)")
+    }
 }

@@ -12,6 +12,7 @@ import signal
 import stat
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -371,13 +372,13 @@ def run(label, command, extra=None, observe=False, separate_stderr=False):
     env.update(extra or {})
     log = root / (label + '.log')
     stderr_log = root / (label + '.stderr.log') if separate_stderr else None
-    require(not separate_stderr or observe, 'separate stderr requires observed process collection')
     with log.open('x') as handle:
         if stderr_log is not None:
             # Xcode writes runner case rows to stdout and completion diagnostics to
             # stderr. A shared descriptor can splice stderr into a partial case row.
             with stderr_log.open('x') as stderr_handle:
-                code = observe_app_command(command, env, handle, stderr_handle)
+                code = observe_app_command(command, env, handle, stderr_handle) if observe else subprocess.call(
+                    command, env=env, stdout=handle, stderr=stderr_handle)
         else:
             code = observe_app_command(command, env, handle) if observe else subprocess.call(
                 command, env=env, stdout=handle, stderr=subprocess.STDOUT)
@@ -563,6 +564,90 @@ def loop_file_marker_pids(context):
     return pids
 
 
+def clock_fixture_options(stage):
+    """Enable only the hosted lifecycle class, with receipts outside ASan logs."""
+    require(os.environ.get('GITHUB_ACTIONS') == 'true' and
+            os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted', 'clock fixture requires hosted CI')
+    directory = root / (stage + '-clock')
+    directory.mkdir()
+    values = {'VTX_HOSTED_LIFECYCLE_CLOCK': '1', 'VTX_HOSTED_LIFECYCLE_CLOCK_ROOT': str(directory),
+              'VTX_HOSTED_LIFECYCLE_CLOCK_STAGE': stage, 'GITHUB_ACTIONS': 'true',
+              'RUNNER_ENVIRONMENT': 'github-hosted'}
+    return directory, {**values, **{'TEST_RUNNER_' + key: value for key, value in values.items()}}
+
+
+def verify_clock_fixture(directory, stage, mapping, expected, started, ended):
+    """Require both receipts from every independently attributed lifecycle PID."""
+    expected = sorted(name for name in expected if name.startswith('LoopEngineLifecycleTests/'))
+    mapping = [(name, pid) for name, pid in mapping if name.startswith('LoopEngineLifecycleTests/')]
+    require(bool(expected) and sorted(name for name, pid in mapping) == expected and
+            len(expected) == len(set(expected)) and all(type(pid) is int and pid > 0 for name, pid in mapping),
+            'clock fixture incomplete or duplicate test/PID attribution')
+    counts = {pid: sum(other == pid for name, other in mapping) for name, pid in mapping}
+    paths = {path.name: path for path in pathlib.Path(directory).iterdir()}
+    require(set(paths) == {f'clock-{pid}-{phase}.json' for pid in counts for phase in ['ready', 'stopped']},
+            'clock fixture missing or unexpected receipt')
+    def unique_object(pairs):
+        require(len(pairs) == len(dict(pairs)), 'clock fixture duplicate JSON field')
+        return dict(pairs)
+    statuses = {'create', 'format', 'callback', 'initialize', 'device', 'start', 'running', 'current device'}
+    integer_fields = ['version', 'pid', 'device', 'started', 'second', 'deadline', 'reached',
+                      'readyFrames', 'frames', 'callbacks', 'entries', 'active', 'nilBuffers', 'testCount']
+    for pid, count in counts.items():
+        snapshots = {}
+        for phase in ['ready', 'stopped']:
+            path = paths[f'clock-{pid}-{phase}.json']
+            metadata = path.lstat()
+            require(stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1 and
+                    metadata.st_uid == os.getuid() and not metadata.st_mode & 0o022 and
+                    0 < metadata.st_size <= 8192 and started <= metadata.st_mtime <= ended + 1,
+                    'unsafe clock fixture receipt')
+            data = json.loads(path.read_text(), object_pairs_hook=unique_object)
+            require(all(type(data.get(key)) is int and data[key] >= 0 for key in integer_fields),
+                    'clock fixture invalid numeric fields')
+            require(data['version'] == 1 and data['pid'] == pid and data.get('phase') == phase and
+                    data.get('class') == 'LoopEngineLifecycleTests' and data.get('stage') == stage and
+                    not data.get('failure'),
+                    'clock fixture identity mismatch')
+            required_statuses = statuses | ({'stop', 'uninitialize', 'dispose'} if phase == 'stopped' else set())
+            require(isinstance(data.get('statuses'), dict) and set(data['statuses']) == required_statuses and
+                    all(type(value) is int and value == 0 for value in data['statuses'].values()),
+                    'clock fixture OS operation failed or missing')
+            require(data['device'] > 0 and data['second'] > 0 and data['started'] > 0 and
+                    data['deadline'] - data['started'] == 10 * data['second'] and
+                    data['started'] <= data['reached'] <= data['deadline'] and
+                    data['frames'] >= data['readyFrames'] >= 48000 and data['callbacks'] > 0 and
+                    data['nilBuffers'] == 0 and data['active'] <= 1,
+                    'clock fixture readiness or health failed')
+            snapshots[phase] = data
+        ready, stopped = snapshots['ready'], snapshots['stopped']
+        require(all(ready[key] == stopped[key] for key in
+                    ['device', 'started', 'second', 'deadline', 'reached', 'readyFrames']) and
+                ready['testCount'] == 0 and stopped['testCount'] == count and
+                stopped['frames'] > ready['frames'] and stopped['callbacks'] > ready['callbacks'] and
+                stopped['active'] == 0 and stopped['entries'] == stopped['callbacks'],
+                'clock fixture continuity, attribution or teardown failed')
+    emit({'stage': stage + '-clock', 'testPIDs': sorted(counts), 'tests': len(expected),
+          'receipts': {name: sha(path) for name, path in sorted(paths.items())}, 'passed': True})
+
+
+def hosted_debug():
+    """Run the existing full Debug workload with explicit hosted-class activation."""
+    global root
+    root = pathlib.Path(tempfile.mkdtemp(prefix='vtx-loop-native-debug-', dir='/private/tmp'))
+    require(platform.machine() == 'arm64', 'host is not native arm64')
+    directory, options = clock_fixture_options('app-debug')
+    result = root / 'debug-app.xcresult'
+    started = time.time()
+    text = run('app-debug', ['xcodebuild', '-project', 'app/VoodooTrackerX/VoodooTrackerX.xcodeproj',
+        '-scheme', 'VoodooTrackerX', '-configuration', 'Debug', '-destination', 'platform=macOS',
+        '-derivedDataPath', 'build', 'CODE_SIGNING_ALLOWED=NO', '-resultBundlePath', str(result), 'test'],
+        options, separate_stderr=True)
+    cases = result_cases(result, 1906)
+    attribution, _ = app_case_attribution_text(text, result)
+    verify_clock_fixture(directory, 'app-debug', app_case_pid_mapping(attribution), cases, started, time.time())
+
+
 def main():
     global root
     root = pathlib.Path(tempfile.mkdtemp(prefix='vtx-loop-native-ci-', dir='/private/tmp'))
@@ -586,6 +671,8 @@ def main():
     options.update({'VTX_REQUIRE_LOOP_ASAN': '1', 'TEST_RUNNER_VTX_REQUIRE_LOOP_ASAN': '1',
                     'VTX_LOOP_ASAN_EVIDENCE_ROOT': APP_RUNTIME['directory'],
                     'TEST_RUNNER_VTX_LOOP_ASAN_EVIDENCE_ROOT': APP_RUNTIME['directory']})
+    clock_directory, clock_options = clock_fixture_options('app-asan')
+    options.update(clock_options)
     result = root / 'asan.xcresult'
     text = run('app-asan', base + ['-configuration', 'Debug', '-enableAddressSanitizer', 'YES',
         '-enableThreadSanitizer', 'NO', '-resultBundlePath', str(result)] +
@@ -618,6 +705,7 @@ def main():
     loop_pids = {pid for name, pid in mapping if name.startswith('LoopEngineLifecycleTests/')}
     require(bool(loop_pids) and marker_pids == loop_pids and loop_pids <= app_pids,
             'Loop marker is not correlated to initialized executed-test PID')
+    verify_clock_fixture(clock_directory, 'app-asan', mapping, APP, APP_RUNTIME['started'], APP_RUNTIME['ended'])
 
     build = run('package-asan-build', ['swift', 'build', '--build-tests', '-c', 'debug',
                 '--sanitize', 'address', '--disable-code-coverage', '-v'])
@@ -637,12 +725,17 @@ def main():
     require(sha(package) == before, 'package ASan image changed during execution')
 
     result = root / 'release-app.xcresult'
+    clock_directory, clock_options = clock_fixture_options('app-release')
+    clock_started = time.time()
     text = run('release-app', base + ['-configuration', 'Release', '-enableAddressSanitizer', 'NO',
         '-enableThreadSanitizer', 'NO', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG',
-        '-resultBundlePath', str(result), 'test'])
+        '-resultBundlePath', str(result), 'test'], clock_options, separate_stderr=True)
     release_compiler(text, 'VoodooTrackerX', True)
     image('build/Build/Products/Release/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests', False)
-    result_cases(result, 1906)
+    release_cases = result_cases(result, 1906)
+    attribution, _ = app_case_attribution_text(text, result)
+    verify_clock_fixture(clock_directory, 'app-release', app_case_pid_mapping(attribution),
+                         release_cases, clock_started, time.time())
     build = run('package-release-build', ['swift', 'build', '--build-tests', '-c', 'release',
         '--disable-code-coverage', '-v', '-Xswiftc', '-enable-testing'])
     release_compiler(build, 'VoodooTrackerXPlaybackSupport', False)
@@ -687,7 +780,11 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        if sys.argv[1:] == ['--hosted-debug']:
+            hosted_debug()
+        else:
+            require(len(sys.argv) == 1, 'unexpected qualification arguments')
+            main()
     except Exception as error:
         if root is not None:
             (root / 'failure.txt').write_text(repr(error))

@@ -887,7 +887,10 @@ private final class HostedLifecycleClockFixture: @unchecked Sendable {
                 throw Failure(reason: "missing fixture receipt directory")
             }
             let root = URL(fileURLWithPath: path).resolvingSymlinksInPath()
-            try require(root.path.hasPrefix("/private/tmp/vtx-"), "invalid fixture receipt directory")
+            // Foundation may normalize /private/tmp to its /tmp alias. Compare
+            // both sides after the same resolution instead of spelling the prefix.
+            let allowed = URL(fileURLWithPath: "/private/tmp").resolvingSymlinksInPath().path
+            try require(root.path.hasPrefix(allowed + "/vtx-"), "invalid fixture receipt directory")
             directory = root
             guard let stage = environment["VTX_HOSTED_LIFECYCLE_CLOCK_STAGE"], !stage.isEmpty else {
                 throw Failure(reason: "missing fixture stage")

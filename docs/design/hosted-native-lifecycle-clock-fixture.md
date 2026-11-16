@@ -49,6 +49,10 @@ unit for three short primers, require their completion within 260 ms, then wait 
 least 500 ms before a fresh target. Missing timing/device/callback preconditions
 are incomplete evidence, never a passing witness. Guard readiness, independent
 progress and teardown also gate the guarded mode.
+The serial probe caller explicitly requests and verifies user-interactive QoS in
+every mode, and records Stop-call entry separately from return. This controls a
+scheduling hypothesis about long stop-return delays; it does not establish the
+XCTest caller's QoS or relax the interleaving criteria.
 
 The unguarded idle mode remains explicitly non-voting driver evidence, with raw
 failures and clock logs retained. Its result must not be reported as successful

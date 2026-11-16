@@ -1,6 +1,7 @@
 // Public standalone host-delivery witness: no VTX mixer, planner or test runner.
 #include <AudioToolbox/AudioToolbox.h>
 #include <mach/mach_time.h>
+#include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -87,6 +88,13 @@ static AudioUnit prepare(AudioComponent component, Progress *progress, OSStatus 
 
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
+    // Fix only the serial caller's scheduling for the bounded interleaving
+    // witness; neither the render code nor any timing/delivery bound changes.
+    const unsigned initial_qos = (unsigned)qos_class_self();
+    const int qos_status = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    printf("callerQoSBefore=%u callerQoS=%u callerQoSStatus=%d\n",
+           initial_qos, (unsigned)qos_class_self(), qos_status);
+    if (qos_status != 0 || qos_class_self() != QOS_CLASS_USER_INTERACTIVE) _Exit(1);
     const int rapid = argc == 2 && strcmp(argv[1], "--rapid-restart") == 0;
     const int guarded = argc == 2 && strcmp(argv[1], "--guarded-idle-restart") == 0;
     const int idle = guarded || (argc == 2 && strcmp(argv[1], "--idle-restart") == 0);
@@ -198,16 +206,18 @@ int main(int argc, char **argv) {
             while (mach_absolute_time() - start_returned < minimum ||
                    (atomic_load(&progress->frames) == initial_frames && mach_absolute_time() - start_returned < second / 20))
                 usleep(1000);
+            const uint64_t stop_called = mach_absolute_time();
             status = AudioOutputUnitStop(unit);
             prelude_stopped = mach_absolute_time();
-            printf("iteration=%u prelude=1 start=%llu startReturned=%llu stopped=%llu stopStatus=%d frames=%llu entries=%llu callbacks=%llu active=%u\n",
+            printf("iteration=%u prelude=1 start=%llu startReturned=%llu stopCalled=%llu stopped=%llu callerQoS=%u stopStatus=%d frames=%llu entries=%llu callbacks=%llu active=%u\n",
                    iteration, (unsigned long long)start, (unsigned long long)start_returned,
-                   (unsigned long long)prelude_stopped,
+                   (unsigned long long)stop_called, (unsigned long long)prelude_stopped, (unsigned)qos_class_self(),
                    (int)status, (unsigned long long)(atomic_load(&progress->frames) - initial_frames),
                    (unsigned long long)(atomic_load(&progress->entries) - initial_entries),
                    (unsigned long long)(atomic_load(&progress->callbacks) - initial_callbacks), atomic_load(&progress->active));
             if (atomic_load(&progress->frames) == initial_frames || atomic_load(&progress->active) != 0 ||
-                atomic_load(&progress->entries) != atomic_load(&progress->callbacks)) incomplete = 1;
+                atomic_load(&progress->entries) != atomic_load(&progress->callbacks) ||
+                qos_class_self() != QOS_CLASS_USER_INTERACTIVE) incomplete = 1;
             if (status != noErr) _Exit(1);
             if (!idle || cycle % span == primers) {
                 if (AudioUnitUninitialize(unit) != noErr || AudioComponentInstanceDispose(unit) != noErr) _Exit(1);

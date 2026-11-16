@@ -67,7 +67,9 @@ static void observe(unsigned iteration, const char *phase, Progress *p, AudioUni
 
 int main(int argc, char **argv) {
     const int rapid = argc == 2 && strcmp(argv[1], "--rapid-restart") == 0;
-    if (argc != 1 && !rapid) return 2;
+    const int idle = argc == 2 && strcmp(argv[1], "--idle-restart") == 0;
+    if (argc != 1 && !rapid && !idle) return 2;
+    const unsigned primers = idle ? 3 : rapid ? 1 : 0, span = primers + 1;
     mach_timebase_info_data_t timebase;
     if (mach_timebase_info(&timebase) != KERN_SUCCESS) return 1;
     const uint64_t second = (uint64_t)1000000000 * timebase.denom / timebase.numer;
@@ -77,20 +79,21 @@ int main(int argc, char **argv) {
     AudioComponent component = AudioComponentFindNext(NULL, &description);
     if (!component) return 1;
     int failed = 0, incomplete = 0;
-    uint64_t prelude_start = 0, prelude_stopped = 0;
+    uint64_t first_prelude_start = 0, prelude_start = 0, prelude_stopped = 0;
     AudioDeviceID prelude_device = 0;
-    printf("pid=%d timebaseNumer=%u timebaseDenom=%u iterations=20 requiredFrames=48000 deadlineSeconds=10 rapidRestart=%d\n",
-           getpid(), timebase.numer, timebase.denom, rapid);
-    for (unsigned cycle = 1; cycle <= (rapid ? 40U : 20U); ++cycle) {
-        const unsigned iteration = rapid ? (cycle + 1) / 2 : cycle;
-        const int prelude = rapid && cycle % 2 == 1;
+    printf("pid=%d timebaseNumer=%u timebaseDenom=%u iterations=20 requiredFrames=48000 deadlineSeconds=10 rapidRestart=%d idleRestart=%d primers=%u\n",
+           getpid(), timebase.numer, timebase.denom, rapid, idle, primers);
+    for (unsigned cycle = 1; cycle <= 20 * span; ++cycle) {
+        const unsigned iteration = (cycle - 1) / span + 1;
+        const int prelude = (cycle - 1) % span < primers;
         Progress progress = {0};
         if (!atomic_is_lock_free(&progress.frames) || !atomic_is_lock_free(&progress.active)) return 1;
         AudioUnit unit = NULL;
         OSStatus status = AudioComponentInstanceNew(component, &unit);
         AudioStreamBasicDescription format = { .mSampleRate = 48000,
             .mFormatID = kAudioFormatLinearPCM,
-            .mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagsNativeEndian,
+            .mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked |
+                kAudioFormatFlagsNativeEndian | kAudioFormatFlagIsNonInterleaved,
             .mBytesPerPacket = 4, .mFramesPerPacket = 1, .mBytesPerFrame = 4,
             .mChannelsPerFrame = 1, .mBitsPerChannel = 32 };
         AURenderCallbackStruct callback = { render, &progress };
@@ -133,11 +136,17 @@ int main(int argc, char **argv) {
             return 1; // Process exit retains the callback's stack owner.
         }
         if (prelude) {
-            // Exercise a real Stop/Start inside the virtual device's 260 ms first-timer window.
+            // Stop each primer inside the virtual device's 260 ms first-timer window.
             // Avoid property queries/logging between Start and Stop so they cannot mask it.
             prelude_start = start;
-            prelude_device = device;
-            while (mach_absolute_time() - start_returned < second / 20) usleep(1000);
+            if (cycle % span == 1) {
+                first_prelude_start = start;
+                prelude_device = device;
+            } else if (device != prelude_device) incomplete = 1;
+            const uint64_t minimum = idle ? second / 100 : second / 20;
+            while (mach_absolute_time() - start_returned < minimum ||
+                   (atomic_load(&progress.frames) == 0 && mach_absolute_time() - start_returned < second / 20))
+                usleep(1000);
             status = AudioOutputUnitStop(unit);
             prelude_stopped = mach_absolute_time();
             printf("iteration=%u prelude=1 start=%llu startReturned=%llu stopped=%llu stopStatus=%d frames=%llu entries=%llu callbacks=%llu active=%u\n",
@@ -146,16 +155,25 @@ int main(int argc, char **argv) {
                    (int)status, (unsigned long long)atomic_load(&progress.frames),
                    (unsigned long long)atomic_load(&progress.entries),
                    (unsigned long long)atomic_load(&progress.callbacks), atomic_load(&progress.active));
-            if (atomic_load(&progress.frames) == 0 || atomic_load(&progress.active) != 0) incomplete = 1;
+            if (atomic_load(&progress.frames) == 0 || atomic_load(&progress.active) != 0 ||
+                atomic_load(&progress.entries) != atomic_load(&progress.callbacks)) incomplete = 1;
             if (status != noErr || AudioUnitUninitialize(unit) != noErr ||
                 AudioComponentInstanceDispose(unit) != noErr) return 1;
+            if (idle && cycle % span == primers) {
+                // Historical failure followed several short sessions and an idle gap.
+                // Let pending first timers fire against the stopped device before restarting.
+                while (mach_absolute_time() - prelude_stopped < second / 2) usleep(1000);
+            }
             continue;
         }
         printf("iteration=%u startStatus=%d\n", iteration, (int)status);
-        if (rapid) {
-            const int within_window = start_returned - prelude_start < second * 260 / 1000;
-            printf("iteration=%u rapidWindowMet=%d preludeStart=%llu preludeStopped=%llu targetStart=%llu targetStartReturned=%llu restartMilliseconds=%.3f\n",
-                   iteration, within_window, (unsigned long long)prelude_start,
+        if (primers) {
+            const int within_window = idle
+                ? prelude_stopped - first_prelude_start < second * 260 / 1000 && start - prelude_stopped >= second / 2
+                : start_returned - prelude_start < second * 260 / 1000;
+            printf("iteration=%u %sWindowMet=%d firstPreludeStart=%llu preludeStart=%llu preludeStopped=%llu targetStart=%llu targetStartReturned=%llu restartMilliseconds=%.3f\n",
+                   iteration, idle ? "idle" : "rapid", within_window,
+                   (unsigned long long)first_prelude_start, (unsigned long long)prelude_start,
                    (unsigned long long)prelude_stopped, (unsigned long long)start,
                    (unsigned long long)start_returned,
                    (double)(start_returned - prelude_start) * 1000 / second);

@@ -1,39 +1,66 @@
-# Native CI workload recommendation
+# Native CI workload policy
 
-**PROPOSED — follow-up CI contract, not workflow policy.** PR #556 preserves the
-existing workflow triggers and qualification gates. Its necessary evidence
-integration correction does not change scheduling or relax proof requirements.
+The `issue516-loop-native` workflow always creates its `continuation` job named
+**Loop continuation arm64 ASan and Release** for PRs targeting main. Classification
+happens inside that job; there are no workflow path filters or job-level skips.
+Ordinary checks and ROWSTACK1 remain unchanged. No branch protection is modified.
 
-The issue516 workflow introduced by #552 runs its expensive native ASan and
-optimized qualification on every PR. Recommend retaining ordinary build, unit,
-parser, fixture and hygiene checks on every PR while classifying when the full
-native workload is required:
-
-| Change or event | Recommended native workload |
+| Change or event | Native workload |
 | --- | --- |
-| Playback, preparation, transport, audio host/mixer, module model/parser, sample ownership or their integration/tests/fixtures | Full submitted-head qualification. Start with conservative `app/`, `core/`, `tests/`, package/build and relevant diagnostic-tool dependencies; narrow only with classifier tests. |
-| Native workflow, helper, process-attribution or sanitizer/trap controls | Full submitted-head qualification, including classifier changes. |
-| Clearly unrelated prose, artwork or tooling | Explicit recorded classifier decision; retain the ordinary PR checks. Unknown dependencies require full native qualification. |
-| Weekly schedule and manual dispatch | Full native qualification to detect runner, Xcode and host-environment drift. |
-| Release candidate or release gate | Full native qualification of the exact candidate commit, independent of the PR classifier. |
+| Only `README.md` or canonical `docs/**/*.md` paths | `NATIVE_NOT_REQUIRED` after verified complete PR-file acquisition; only the expensive step is skipped. No native tests are claimed. |
+| App, core/parser/mixer, tests/fixtures, packages, `.github`, classifier/tests, scripts, tooling, artwork, configuration or any other path | Full qualification. Markdown outside the explicit allowlist also requires full qualification. |
+| Mixed changes or rename crossing the allowlist | Full qualification; both old and new names are checked. Deletes retain their original path. |
+| Missing, partial, duplicate, malformed, raced or unavailable change-list data | Full qualification; classification/publication failures cannot make the job green. |
+| Weekly Monday 07:23 UTC schedule | Full qualification of the event's exact default-branch SHA, regardless of changed paths. |
+| Manual dispatch / release candidate | Full qualification of the required explicit 40-character lowercase `candidate_sha`. A branch or tag name is refused. |
 
-Keep a stable required-check name on every PR. A lightweight classifier and final
-gate can record an explicit not-required result; excluding the entire workflow
-with path filters can leave required branch-protection checks pending. Relevant
-changes must still require the full job's success. The final gate must run even
-after a dependency fails and explicitly validate its required results; see
-[GitHub's required-check guidance](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
-Preserve exact source-head,
-selector/count, process/image/options, sanitizer initialization, native delivery,
-retirement and optimized trap assertions. A scheduled run on another commit
-cannot replace a required submitted-head run.
+The dependency-free classifier requests every page of the PR files, not the last
+commit's diff. It requires the API's independent file count and unchanged head,
+base and count before/after acquisition. More than the API's 3,000-file limit is
+full qualification. Before skipping, the file records must also match an immutable
+base/head comparison, closing a live-head-away-and-back race. Its 300-file or
+commit-list truncation limits require full qualification. Unknowns never expand
+the allowlist. JSON records event, source SHA, reason, completeness, count and paths.
 
-Deduplicate superseded PR heads with an explicit concurrency group. Run focused
-checks before submitting a stable candidate; avoid repeatedly restarting the full
-qualification for the same unclassified failure. Capture stage durations and
-classifier decisions so workload reduction is measurable. #554's host-retirement
-investigation remains separate; scheduling must not turn a failure into a skip.
+The existing native helper is unchanged: 103 app ASan / 69 package ASan /
+1,908 optimized app / 975 optimized package cases and four expected traps, with
+the same source, sanitizer, process/image/options, progress/retirement and trap
+assertions. `pipefail` preserves native failures while retaining `native.log`.
+Evidence upload uses `always()`, including source and classification receipts.
+#554 remains an independent open host-progress issue; a relevant failure is never
+converted to a documentation skip.
 
-Implement this recommendation in a separately reviewed CI change with branch
-protection verification and positive/negative dependency-classifier tests. This
-note authorizes no workflow disablement or release-gate waiver.
+PR checkout uses the submitted head, schedule uses `github.sha`, and dispatch
+uses `candidate_sha`. An independent workflow step verifies the full SHA against
+the real event/input and actual Git HEAD before executing repository Python.
+The legacy helper accepts only `pull_request.head.sha`; a clearly marked derived
+`helper-event.json` supplies that same verified SHA without changing its assertion.
+`source.json` retains the actual event kind, event/workflow SHAs and original event
+hash. The compatibility envelope does not represent manual/scheduled runs as PRs.
+
+Concurrency cancels duplicate PR runs only for the **same PR and head**. Distinct
+heads are isolated: rerunning an old head cannot cancel the current required check.
+Cross-head cancellation is deferred rather than risking that counterexample.
+Manual and scheduled runs each have a unique run-ID group and are never canceled
+by this policy. They cannot replace a required PR check.
+
+For an exact release candidate, resolve a reviewed candidate commit or tag locally
+and dispatch the workflow definition from main after this policy is merged:
+
+```sh
+vtx_rc_ref='example-release-candidate'
+vtx_rc_sha="$(git rev-parse --verify "${vtx_rc_ref}^{commit}")"
+gh workflow run issue516-loop-native.yml --ref main -f "candidate_sha=$vtx_rc_sha"
+```
+
+Require the run to succeed, download its `issue516-native-evidence-<run>-<attempt>`
+artifact to an explicit `/private/tmp/vtx-.../` destination, and verify
+`source.json.source_sha` and the `ISSUE516_NATIVE_PASS` record's `head` in
+`native.log` both equal the candidate SHA, with all expected counts and no
+failures/skips. Do not use the dispatch run's `headSha` as candidate attestation:
+it identifies the workflow ref, which can differ from the tested candidate.
+Scheduled main qualification is never a substitute for this exact-candidate gate.
+
+See GitHub's [required-check behavior](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks),
+[event/source semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows),
+and [PR file pagination](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests-files).

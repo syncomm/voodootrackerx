@@ -3,22 +3,84 @@ name: issue516-loop-native
 on:
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact full lowercase commit SHA to qualify (including release candidates)
+        required: true
+        type: string
+  schedule:
+    - cron: '23 7 * * 1'
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   continuation:
     name: Loop continuation arm64 ASan and Release
     runs-on: macos-latest
     timeout-minutes: 90
+    # Different heads stay isolated: rerunning an old head must not cancel current checks.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}-{1}', github.event.pull_request.number, github.event.pull_request.head.sha) || format('full-{0}', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    env:
+      NATIVE_SOURCE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
+      NATIVE_POLICY_DIR: /private/tmp/vtx-native-policy
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.NATIVE_SOURCE_SHA }}
+      - name: Verify exact source and retain original event identity
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, subprocess
+          raw = pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_bytes()
+          event, kind = json.loads(raw), os.environ['GITHUB_EVENT_NAME']
+          if kind == 'pull_request':
+              expected = event['pull_request']['head']['sha']
+          elif kind == 'workflow_dispatch':
+              expected = event['inputs']['candidate_sha']
+          elif kind == 'schedule':
+              expected = os.environ['GITHUB_SHA']
+          else:
+              raise ValueError('unsupported source event')
+          actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          if not isinstance(expected, str) or not re.fullmatch('[0-9a-f]{40}', expected) or expected != os.environ['NATIVE_SOURCE_SHA'] or actual != expected:
+              raise ValueError('not the exact event/candidate commit')
+          root = pathlib.Path(os.environ['NATIVE_POLICY_DIR'])
+          root.mkdir(parents=True, exist_ok=True)
+          proof = {'event': kind, 'source_sha': actual, 'event_sha': os.environ['GITHUB_SHA'],
+                   'workflow_sha': os.environ['GITHUB_WORKFLOW_SHA'], 'original_event_sha256': hashlib.sha256(raw).hexdigest()}
+          (root / 'source.json').write_text(json.dumps(proof, sort_keys=True) + '\n')
+          # The unchanged legacy helper consumes only pull_request.head.sha.
+          envelope = {'pull_request': {'head': {'sha': actual}}, 'native_source': proof}
+          (root / 'helper-event.json').write_text(json.dumps(envelope, sort_keys=True) + '\n')
+          report = dict(proof, schema=1, status='NATIVE_REQUIRED', required=True, reason='event-always-full',
+                        files_complete=False, changed_file_count=None, changed_files=[])
+          (root / 'classification.json').write_text(json.dumps(report, sort_keys=True) + '\n')
+          print(json.dumps(proof, sort_keys=True))
+          PY
+      - name: Classify complete PR change list
+        id: policy
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/native-workload-policy.py
       - name: Qualify submitted native workload and optimized guards
-        run: python3 .github/scripts/issue516-loop-native-ci.py
+        if: github.event_name != 'pull_request' || steps.policy.outputs.required != 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          env GITHUB_EVENT_PATH="$NATIVE_POLICY_DIR/helper-event.json" \
+            python3 .github/scripts/issue516-loop-native-ci.py | tee "$NATIVE_POLICY_DIR/native.log"
       - name: Preserve public synthetic CI evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: issue516-native-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: /private/tmp/vtx-loop-native-ci-*
+          path: |
+            /private/tmp/vtx-loop-native-ci-*
+            /private/tmp/vtx-native-policy
           if-no-files-found: warn

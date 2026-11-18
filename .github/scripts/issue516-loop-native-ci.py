@@ -8,6 +8,7 @@ import os
 import pathlib
 import platform
 import re
+import shlex
 import signal
 import stat
 import struct
@@ -483,6 +484,36 @@ def package_image(configuration, asan):
     return image(paths[0], asan)
 
 
+def package_asan_compiler_modes(text):
+    """Require unoptimized Swift ASan driver arguments and Clang ASan evidence."""
+    if '-fsanitize=address' not in text:
+        return False
+    wrappers = {'builtin-SwiftDriver', 'builtin-Swift-Compilation',
+                'builtin-Swift-Compilation-Requirements'}
+    for line in text.splitlines():
+        if '-sanitize' not in line or '-Onone' not in line:
+            continue
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        try:
+            command = list(lexer)
+        except ValueError:
+            continue
+        if len(command) >= 3 and command[0] in wrappers and command[1] == '--':
+            command = command[2:]
+        if not command or pathlib.PurePath(command[0]).name != 'swiftc':
+            continue
+        flags = set()
+        for previous, argument in zip(command, command[1:]):
+            if argument == '--' or re.fullmatch(r'[();<>|&]+', argument):
+                break
+            if previous not in ('-Xcc', '-Xfrontend', '-Xlinker', '-Xllvm'):
+                flags.add(argument)
+        if {'-sanitize=address', '-Onone'} <= flags:
+            return True
+    return False
+
+
 def release_compiler(text, module, debug):
     lines = [line for line in text.splitlines() if re.search(r'\bswiftc\b', line)
              and re.search(r'-module-name\s+' + re.escape(module) + r'\b', line)]
@@ -630,8 +661,7 @@ def main():
 
     build = run('package-asan-build', ['swift', 'build', '--build-tests', '-c', 'debug',
                 '--sanitize', 'address', '--disable-code-coverage', '-v'])
-    require('-sanitize=address' in build and '-fsanitize=address' in build and '-Onone' in build,
-            'ASan build/compiler modes')
+    require(package_asan_compiler_modes(build), 'ASan build/compiler modes')
     package = package_image('debug', True)
     before = sha(package)
     options = runtime_context('package-asan', package)

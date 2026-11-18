@@ -60,7 +60,7 @@ Start here for what each command does. A Closed status covers its named bounded 
 | `8xx` | Set panning | Implemented | Closed | None | Not applicable | Places the sound between left and right. The FT2 comparison profile uses the verified reference pan law; VTX keeps its documented linear-pan default ([scope](ft2-xm-closure-matrix.md#g40-bounded-opt-in-ft2-static-pan-law)). |
 | `9xx` | Sample offset | Implemented | Partial | Remembers the offset; `900` reuses it | Not applicable | Starts a sample partway through instead of at its beginning. Broader loop/end integration and unavailable historical-input checks remain unqualified ([bounded offset/loop proof](ft2-xm-closure-matrix.md#g41-bounded-offset-admission-and-shared-ping-pong-geometry)). |
 | `Axy` | Volume slide | Implemented | Closed | Volume amount shared with `5xy`/`6xy`; unseeded `A00` restores output | Not applicable | Gradually raises or lowers note volume on later ticks. A row with no later ticks does not seed or apply the slide. |
-| `Bxx` | Position jump | Implemented | Closed | None | Not applicable | Jumps to another song order. The bounded traversal policy keeps invalid targets and endless cycles visible rather than claiming indefinite replay parity. |
+| `Bxx` | Position jump | Implemented | Closed | None | Not applicable | Jumps to another song order, including valid authored cycles with user Loop off. Live preparation stays bounded; analysis/offline keep finite guards and cyclic SONG TIME stays `--:--`. |
 | `Cxx` | Set volume | Implemented | Closed | None | Not applicable | Sets the note’s channel volume immediately, within the tracker volume range. Sample-header volume supplies the default rather than a second multiplier. |
 | `Dxx` | Pattern break | Implemented | Closed | None | Not applicable | Ends this pattern and continues at the chosen row of the next order. Decimal/short-pattern behavior is verified; unusual values follow the documented [safe traversal policy](#bounded-g38b-pattern-local-loop-and-traversal-policy). |
 | `E0x` | Inert in FT2 XM | FT2-inert | Closed | None | Not applicable | Does nothing in the chosen FT2 XM target. It does not enable a MOD hardware filter. |
@@ -137,7 +137,7 @@ Instrument defaults, ongoing notes and envelopes also interact. A cut can silenc
 | `8xx` | Merged [PR #533](https://github.com/syncomm/voodootrackerx/pull/533) closes bounded G40: exact tick-zero byte/precedence and opt-in byte-indexed Q16 coefficients at scale 0.3125. VTX linear/unity defaults remain intentional; [G06/G07 and tail exclusions](ft2-xm-closure-matrix.md#g40-bounded-opt-in-ft2-static-pan-law) remain. Reference memory: None. |
 | `9xx` | Merged G41B pins 256 decoded frames per unit, channel memory, canonical-empty memory commitment and G03 refused-source retirement. Bounded G41C is CLOSED for shared endpoint/continuation geometry; [evidence](ft2-xm-closure-matrix.md#g41-bounded-offset-admission-and-shared-ping-pong-geometry) retains historical-input and integration limits. Reference memory: Own; `900` supported. |
 | `Axy` | Recorded scope: G14 cold restoration and seeded replay. Nonzero-tick slides and cold base-to-output restoration use causal local publication. Speed 1 is inert; tremolo/E7 state and real seeded provenance are preserved. Broader output interactions remain separate. Reference memory: Shared with `5xy`/`6xy`; cold `A00` executes implicit zero without seeding. |
-| `Bxx` | Recorded scope: bounded G38. G38A ordered pending-row writes/EE holds; G38B preserves visible out-of-range and finite cycle stops. Indefinite replay and clone security fixes are not parity claims. Reference memory: None. |
+| `Bxx` | Recorded scope: bounded G38 plus authored live continuation. G38A ordered pending-row writes/EE holds and G38B visible invalid targets remain. Valid authored cycles continue through bounded native successors with user Loop off, preserving executed musical state. Full analysis/offline and duration retain finite cycle guards; cyclic SONG TIME is `--:--`. Header restart and clone security fixes remain separate. Reference memory: None. |
 | `Cxx` | Bounded tick-zero channel-volume state/clamp is supported; audible header/gain/ramp obligations remain separate. Reference memory: None. |
 | `Dxx` | Recorded scope: bounded G38. Ordered BCD D00...D63/short-pattern fallback is FT2-qualified. G38B retains diagnosed non-BCD row 0 and existing decimal D64...D99 long-target/short-clamp behavior as explicit non-parity scope. Reference memory: None. |
 | `E0x` | Dummy dispatch. VTX's no-op needs no audible XM filter; MOD hardware-filter semantics are a separate target. Reference memory: None. |
@@ -343,7 +343,10 @@ non-BCD Dxx is diagnosed and targets 0; decimal D64...D99 retains its represente
 long-pattern target or clamps to the short destination's last row. FT2 instead
 uses 0 above 63. This retained extension is not FT2 parity, and long-pattern
 support is preserved. Out-of-range B stops visibly; position cycles and E6
-cycles retain existing finite guards. Pinned-clone overflow/short-destination
+cycles retain existing finite analysis guards. Ordinary live playback executes
+valid authored Bxx returns through bounded successors without a natural-ending
+tail; see the [ordinary playback contract](design/ordinary-cold-start-continuation.md).
+Pinned-clone overflow/short-destination
 security fixes are not original FT2 evidence for unsafe accesses.
 
 Bounded adapter/offline traversal stops after one selected pass, including with

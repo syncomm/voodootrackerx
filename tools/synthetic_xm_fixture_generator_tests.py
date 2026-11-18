@@ -69,6 +69,7 @@ ALL_FIXTURES = [
     "glissando-tone-output.xm",
     "volume-lxx-loop-end.xm",
     "cold-volume-envelope-start.xm",
+    "authored-bxx-fade-v1.xm",
 ]
 
 
@@ -767,6 +768,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     (output_dir / "generated" / "glissando-tone-output.xm").resolve(),
                     (output_dir / "generated" / "volume-lxx-loop-end.xm").resolve(),
                     (output_dir / "generated" / "cold-volume-envelope-start.xm").resolve(),
+                    (output_dir / "generated" / "authored-bxx-fade-v1.xm").resolve(),
                 ],
             )
             self.assertEqual(
@@ -777,6 +779,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/amiga-portamento-up.xm",
                     "generated/amiga-tone-portamento-consumers.xm",
                     "generated/amiga-vibrato.xm",
+                    "generated/authored-bxx-fade-v1.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/bounded-pitch-conversion-amiga.xm",
                     "generated/bounded-pitch-conversion-linear.xm",
@@ -893,6 +896,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "generated/amiga-portamento-up.xm",
                     "generated/amiga-tone-portamento-consumers.xm",
                     "generated/amiga-vibrato.xm",
+                    "generated/authored-bxx-fade-v1.xm",
                     "generated/basic-instrument-sample.xm",
                     "generated/bounded-pitch-conversion-amiga.xm",
                     "generated/bounded-pitch-conversion-linear.xm",
@@ -1050,6 +1054,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
                     "xm:glissando-tone-output.xm": "generated/glissando-tone-output.xm",
                     "xm:volume-lxx-loop-end.xm": "generated/volume-lxx-loop-end.xm",
                     "xm:cold-volume-envelope-start.xm": "generated/cold-volume-envelope-start.xm",
+                    "xm:authored-bxx-fade-v1.xm": "generated/authored-bxx-fade-v1.xm",
                     "xm:extreme-pitch-state-linear.xm": "generated/extreme-pitch-state-linear.xm",
                     "xm:cold-tone-portamento-initialization.xm": "generated/cold-tone-portamento-initialization.xm",
                     "xm:tone-portamento-retained-source-reset.xm": "generated/tone-portamento-retained-source-reset.xm",

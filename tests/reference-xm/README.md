@@ -1050,3 +1050,14 @@ volume-envelope control with points `(3,48),(10,16)`. Channel 1 starts audible
 PCM on ED1; channel 2 starts zero-header PCM; channel 3 selects an exact empty
 slot, while channel 0 stays uninitialized. Before the first point, the source
 advances with a zero envelope. Warm reset/seek and pan semantics are separate.
+
+`authored-bxx-fade-v1.xm` is an original, MIT-licensed version 1 control (1,191
+bytes), SHA-256 `1e1d4f6b4638079d88fda025c78a4fe33b81117bac1b88c4979540672f8ed6d9`.
+Its complete recipe is the `authored-bxx-fade-v1` entry in
+`source/basic-instrument-sample.manifest.json`. Regenerate and verify with
+`python3 scripts/generate-synthetic-xm-fixtures.py --fixture authored-bxx-fade-v1.xm --write-xm --verify`.
+Order 0 introduces the source; order 1 executes H04/H00/H08/H00 and B01.
+At speed 2 each pass subtracts 24 global units: 64 → 40 → 16 → 0. Live transport
+continues silently; finite analysis stops at the known cycle and TIME is `--:--`.
+The native tests compare twelve live passes against explicitly expanded finite
+execution at both rates/modes, including exact PCM and original source bindings.

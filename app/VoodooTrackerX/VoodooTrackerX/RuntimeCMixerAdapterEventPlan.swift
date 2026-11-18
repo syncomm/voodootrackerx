@@ -417,6 +417,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
     let categories: [String]
     private let semanticPlanStorage: RuntimeCMixerSemanticPlanStorage?
     var plan: PlaybackSongSyntheticPlan? { semanticPlanStorage?.value }
+
+    /// An analysis guard bounds construction; it cannot declare a live song end.
+    var requiresLiveContinuation: Bool {
+        plan?.diagnostics.traversalGuardHit == true
+    }
 #if DEBUG
     var semanticPlanOwnerForTesting: AnyObject? { semanticPlanStorage }
 #endif

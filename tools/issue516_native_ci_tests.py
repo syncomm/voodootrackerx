@@ -109,6 +109,52 @@ class NativeRuntimeProofTests(unittest.TestCase):
                 self.assertFalse(self.verdict(logs=logs)["proven"])
 
 
+class PackageASanCompilerModeTests(unittest.TestCase):
+    clang = "/toolchain/bin/clang -O0 -fsanitize=address -c MixerCore.c\n"
+    swift = "/toolchain/bin/swiftc -module-name PlaybackSupport -Onone"
+
+    def test_unescaped_swift_driver_option_passes(self):
+        log = self.clang + self.swift + " -sanitize=address -c Playback.swift\n"
+        self.assertTrue(HELPER.package_asan_compiler_modes(log))
+
+    def test_xcode_escaped_swift_driver_option_passes(self):
+        clang = "    -fmodules -gmodules -O0 -DSWIFT_PACKAGE '-fsanitize=address'\n"
+        for wrapper in ("builtin-SwiftDriver", "builtin-Swift-Compilation",
+                        "builtin-Swift-Compilation-Requirements"):
+            with self.subTest(wrapper=wrapper):
+                log = clang + f"    {wrapper} -- '/Xcode Toolchain/bin/swiftc' "
+                log += r"-module-name PlaybackSupport -Onone -sanitize\=address @Sources.SwiftFileList"
+                self.assertTrue(HELPER.package_asan_compiler_modes(log))
+
+    def test_requires_swift_asan(self):
+        self.assertFalse(HELPER.package_asan_compiler_modes(self.clang + self.swift))
+
+    def test_requires_clang_asan(self):
+        log = self.clang.replace("-fsanitize=address ", "") + self.swift + r" -sanitize\=address"
+        self.assertFalse(HELPER.package_asan_compiler_modes(log))
+
+    def test_requires_unoptimized_swift_in_same_command(self):
+        optimized = self.swift.replace("-Onone", "-O") + r" -sanitize\=address"
+        for extra in ("", "\nwarning: -Onone omitted", "\n" + self.swift):
+            with self.subTest(extra=extra):
+                self.assertFalse(HELPER.package_asan_compiler_modes(self.clang + optimized + extra))
+
+    def test_rejects_swift_asan_outside_compiler_arguments(self):
+        for flag in ("-sanitize=address", r"-sanitize\=address"):
+            for line in (f"# {self.swift} {flag}", f"{self.swift} # expected {flag}",
+                         f"{self.swift} /sources/{flag}.swift", f"warning: expected {self.swift} {flag}",
+                         f"echo {self.swift} {flag}", f"{self.swift} && echo {flag}",
+                         f"{self.swift} -- {flag}", f"{self.swift} -Xcc {flag}"):
+                with self.subTest(line=line):
+                    self.assertFalse(HELPER.package_asan_compiler_modes(self.clang + line))
+
+    def test_rejects_partial_or_malformed_swift_asan_options(self):
+        for flag in ("-sanitize=addr", r"-sanitize\=address-extra", "-sanitize address",
+                     "--sanitize=address", r"-sanitize\\=address", '"-sanitize=address'):
+            with self.subTest(flag=flag):
+                self.assertFalse(HELPER.package_asan_compiler_modes(self.clang + self.swift + " " + flag))
+
+
 class NativeCaseAttributionTests(unittest.TestCase):
     result = Path("/private/tmp/vtx-native-case-control/asan.xcresult")
     selector = "RuntimeLoopNativeEarlyCutoverTests/testOptionalNaturalBoundaryCoalescingAndUnchangedMandatoryDelivery"
@@ -134,6 +180,31 @@ class NativeCaseAttributionTests(unittest.TestCase):
                 derived, removed = HELPER.app_case_attribution_text(raw, self.result)
                 self.assertEqual(derived, raw)
                 self.assertEqual(removed, [])
+
+    def test_footer_at_every_class_and_method_identifier_split_preserves_exact_attribution(self):
+        for split in range(len("Test case '"), self.row.index("()'") + 1):
+            with self.subTest(split=split):
+                raw = self.row[:split] + self.footer + self.row[split:]
+                self.assertEqual(HELPER.app_case_pid_mapping(raw), [])
+                derived, removed = HELPER.app_case_attribution_text(raw, self.result)
+                self.assertEqual(derived, self.row)
+                self.assertEqual(HELPER.app_case_pid_mapping(derived), [(self.selector, 123)])
+                self.assertEqual(removed, [{"SHA256": HELPER.hashlib.sha256(self.footer.encode()).hexdigest(),
+                                            "byteCount": len(self.footer.encode())}])
+
+    def test_class_split_with_verified_result_path_alias_keeps_existing_identity_check(self):
+        with tempfile.TemporaryDirectory(prefix="vtx-native-ci-alias-", dir="/private/tmp") as directory:
+            root = Path(directory)
+            result = root / "real" / "asan.xcresult"
+            result.mkdir(parents=True)
+            alias = root / "alias"
+            alias.symlink_to(result.parent, target_is_directory=True)
+            footer = self.footer.replace(str(self.result), str(alias / result.name))
+            split = self.row.index("EarlyCutover")
+            derived, removed = HELPER.app_case_attribution_text(self.row[:split] + footer + self.row[split:], result)
+            self.assertEqual(derived, self.row)
+            self.assertEqual(HELPER.app_case_pid_mapping(derived), [(self.selector, 123)])
+            self.assertEqual(removed[0]["SHA256"], HELPER.hashlib.sha256(footer.encode()).hexdigest())
 
     def test_native5_mixed_stderr_timing_stanza_is_not_generically_deleted(self):
         timing = ("2026-11-16 07:17:28.143 xcodebuild[321:456] [MT] IDETestOperationsObserverDebug: "

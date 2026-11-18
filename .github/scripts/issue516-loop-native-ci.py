@@ -8,6 +8,7 @@ import os
 import pathlib
 import platform
 import re
+import shlex
 import signal
 import stat
 import struct
@@ -76,6 +77,8 @@ APP = [
     'RuntimeCMixerColdPlanAssemblyTests/testSingleOwnerPermutationRemainsValidAfterConstructionScopeIsReleased',
     'RuntimeCMixerColdPlanAssemblyTests/testTriggerPayloadRemainsCompactAndSharesPCMThroughPermutation',
     'RuntimeLoopNativeBatchStoragePCMTests/testProductionStorageAndCoreMatchExpandedPCMAtBothRatesModesAndRowCaps',
+    'RuntimeLoopNativeBatchStoragePCMTests/testAuthoredBxxNativeSequencePCMAndOwnershipThroughTwelvePassesWithLoopOffAndOn',
+    'SelectedOriginConsumerTests/testCachedCycleAnalysisCannotBecomeLiveEndAndTransportControlsStillWin',
     'RuntimeLoopNativeEarlyCutoverTests/testConcurrentReadyRetractionPreservesClaimedHeaderAndOwner',
     'RuntimeLoopNativeEarlyCutoverTests/testOptionalNaturalBoundaryCoalescingAndUnchangedMandatoryDelivery',
     'RuntimeLoopNativeEarlyEditPCMTests/testWarmEarlyEditMatchesExpandedPCMAtBothRatesAndModes',
@@ -120,6 +123,11 @@ APP = [
     'SongDurationTests/testReplacementIdentityRejectsBlockedStaleResultAndFileNewClearsDuration',
 ]
 PACKAGE_ASAN = [
+    'AuthoredBxxContinuationTests/testBoundedLiveBxxCarriesEveryHxyTickAcrossAdversarialSplitsAndColdOrigins',
+    'AuthoredBxxContinuationTests/testLongSilentCyclesRemainBoundedAndCancellationDoesNotAdvanceCheckpoint',
+    'AuthoredBxxContinuationTests/testFullAnalysisStillTerminatesAtKnownCycleAndFiniteControlKeepsExactEnd',
+    'AuthoredBxxContinuationTests/testBxxReturnStartsFreshPatternLocalE6ButRetainsActualFxxH00State',
+    'UserLoopProducerPCMTests/testAuthoredBxxWindowsMatchFiniteExpandedPCMThroughTwelvePasses',
     'CatalogPCMLeaseTests/testRevokedCandidatesReuseOnePayloadForPreviouslyUnplayedCatalogSample',
     'CatalogProofTests/testChangedBytesStaleGenerationOtherLeaseAndEpochCannotUseProof',
     'CatalogProofTests/testPrevalidatedProofConsumesSameLeasePrefixAndReusesSanitizedPCMWithFreshRawStorage',
@@ -476,6 +484,36 @@ def package_image(configuration, asan):
     return image(paths[0], asan)
 
 
+def package_asan_compiler_modes(text):
+    """Require unoptimized Swift ASan driver arguments and Clang ASan evidence."""
+    if '-fsanitize=address' not in text:
+        return False
+    wrappers = {'builtin-SwiftDriver', 'builtin-Swift-Compilation',
+                'builtin-Swift-Compilation-Requirements'}
+    for line in text.splitlines():
+        if '-sanitize' not in line or '-Onone' not in line:
+            continue
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        try:
+            command = list(lexer)
+        except ValueError:
+            continue
+        if len(command) >= 3 and command[0] in wrappers and command[1] == '--':
+            command = command[2:]
+        if not command or pathlib.PurePath(command[0]).name != 'swiftc':
+            continue
+        flags = set()
+        for previous, argument in zip(command, command[1:]):
+            if argument == '--' or re.fullmatch(r'[();<>|&]+', argument):
+                break
+            if previous not in ('-Xcc', '-Xfrontend', '-Xlinker', '-Xllvm'):
+                flags.add(argument)
+        if {'-sanitize=address', '-Onone'} <= flags:
+            return True
+    return False
+
+
 def release_compiler(text, module, debug):
     lines = [line for line in text.splitlines() if re.search(r'\bswiftc\b', line)
              and re.search(r'-module-name\s+' + re.escape(module) + r'\b', line)]
@@ -508,8 +546,10 @@ def app_case_attribution_text(text, result):
             'Xcode footer result-bundle mismatch')
     left, right = text[:footer.start()], text[footer.end():]
     left_line, right_line = left.rsplit('\n', 1)[-1], right.split('\n', 1)[0]
-    prefix = re.fullmatch(r"Test case '(\w+)\.(test\w*)", left_line)
-    suffix = re.fullmatch(r"\w+\(\)' passed on '[^'\n]*\([1-9][0-9]*\)' \([0-9]+(?:\.[0-9]+)? seconds\)", right_line)
+    # Xcode can split the class identifier too. These are fragments only;
+    # the joined row below must still name one exact expected selector/PID.
+    prefix = re.fullmatch(r"Test case '[\w.]*", left_line)
+    suffix = re.fullmatch(r"[\w.]*\(\)' passed on '[^'\n]*\([1-9][0-9]*\)' \([0-9]+(?:\.[0-9]+)? seconds\)", right_line)
     if prefix is None and suffix is None:
         return text, []  # An ordinary standalone footer does not alter attribution.
     require(prefix is not None and suffix is not None, 'ambiguous interrupted Xcode case row')
@@ -575,7 +615,7 @@ def main():
             'inherited sanitizer options')
     emit({'head': head, 'architecture': 'arm64', 'Xcode': output(['xcodebuild', '-version']),
           'Swift': output(['swift', '--version']), 'evidenceRoot': str(root)})
-    require(len(APP) == len(set(APP)) == 101 and len(PACKAGE_ASAN) == len(set(PACKAGE_ASAN)) == 64,
+    require(len(APP) == len(set(APP)) == 103 and len(PACKAGE_ASAN) == len(set(PACKAGE_ASAN)) == 69,
             'selector manifest counts')
     base = ['xcodebuild', '-project', 'app/VoodooTrackerX/VoodooTrackerX.xcodeproj', '-scheme',
             'VoodooTrackerX', '-destination', 'platform=macOS,arch=arm64', '-derivedDataPath', 'build',
@@ -592,7 +632,7 @@ def main():
         ['-only-testing:VoodooTrackerXTests/' + selector for selector in APP] + ['test'], options, True,
         separate_stderr=True)
     image(product, True)
-    result_cases(result, 101, APP)
+    result_cases(result, 103, APP)
     attribution, removed = app_case_attribution_text(text, result)
     attribution_log = root / 'app-asan-case-attribution.log'
     attribution_log.write_text(attribution)
@@ -621,14 +661,13 @@ def main():
 
     build = run('package-asan-build', ['swift', 'build', '--build-tests', '-c', 'debug',
                 '--sanitize', 'address', '--disable-code-coverage', '-v'])
-    require('-sanitize=address' in build and '-fsanitize=address' in build and '-Onone' in build,
-            'ASan build/compiler modes')
+    require(package_asan_compiler_modes(build), 'ASan build/compiler modes')
     package = package_image('debug', True)
     before = sha(package)
     options = runtime_context('package-asan', package)
     text = run('package-asan', ['swift', 'test', '--skip-build', '-c', 'debug', '--sanitize', 'address',
         '--filter', '|'.join(re.escape(selector) + '$' for selector in PACKAGE_ASAN)], options, True)
-    cases = package_cases(text, 64, PACKAGE_ASAN)
+    cases = package_cases(text, 69, PACKAGE_ASAN)
     # SwiftPM omits case PIDs. Require one actual mapped XCTest runner for this
     # exact workload; there is no ambiguous multi-process attribution fallback.
     matched = [pid for pid, observation in APP_RUNTIME['observations'].items() if observation['bundleMatched']]
@@ -642,7 +681,7 @@ def main():
         '-resultBundlePath', str(result), 'test'])
     release_compiler(text, 'VoodooTrackerX', True)
     image('build/Build/Products/Release/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests', False)
-    result_cases(result, 1906)
+    result_cases(result, 1908)
     build = run('package-release-build', ['swift', 'build', '--build-tests', '-c', 'release',
         '--disable-code-coverage', '-v', '-Xswiftc', '-enable-testing'])
     release_compiler(build, 'VoodooTrackerXPlaybackSupport', False)
@@ -650,7 +689,7 @@ def main():
     package = package_image('release', False)
     before = sha(package)
     text = run('package-release', ['swift', 'test', '--skip-build', '-c', 'release'])
-    package_cases(text, 970)
+    package_cases(text, 975)
     require(sha(package) == before, 'package Release image changed during execution')
     require(hashlib.sha256(GUARD_SOURCE.encode()).hexdigest() == GUARD_SHA, 'guard source changed')
     source, probe = root / 'GuardProbe.swift', root / 'guard-probe'
@@ -680,8 +719,8 @@ def main():
     image('build/Build/Products/Release/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX', False)
     require(output(['git', 'rev-parse', 'HEAD']) == head and
             output(['git', 'status', '--porcelain=v1', '-uall']) == '', 'source changed during qualification')
-    emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 101, 'packageASan': 64,
-          'optimizedAppRelease': 1906, 'optimizedPackageRelease': 970, 'expectedReleaseTraps': 4,
+    emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 103, 'packageASan': 69,
+          'optimizedAppRelease': 1908, 'optimizedPackageRelease': 975, 'expectedReleaseTraps': 4,
           'failed': 0, 'skipped': 0})
 
 

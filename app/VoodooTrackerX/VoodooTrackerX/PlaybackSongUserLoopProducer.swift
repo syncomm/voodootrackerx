@@ -1,7 +1,7 @@
 import Foundation
 
 /// One serial off-audio owner of bounded executed-row semantic production.
-/// The finite-song mode remains a no-cutover proof until native admission qualifies.
+/// Ordinary songs and authored cycles share the existing native admission path.
 final class PlaybackSongUserLoopProducer {
     typealias Adapter = PlaybackSongSyntheticAdapter
     typealias Scratch = PlaybackSongLoopContinuation
@@ -208,7 +208,7 @@ final class PlaybackSongUserLoopProducer {
          sourceGeneration: UInt64, transportEpoch: UInt64, mode: Mode = .explicitLoop,
          terminalTailFrames: Int = 0) throws {
         let state = mode == .finiteSong
-            ? PlaybackSongTraversalPlanner.makeFiniteSongState(song, initialPosition: initialPosition)
+            ? PlaybackSongTraversalPlanner.makeSongPlaybackState(song, initialPosition: initialPosition)
             : PlaybackSongTraversalPlanner.makeUserLoopState(song, initialPosition: initialPosition)
         guard let state, terminalTailFrames >= 0,
               (mode == .finiteSong || terminalTailFrames == 0),

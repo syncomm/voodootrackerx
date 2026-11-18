@@ -30,8 +30,9 @@ pattern. G38A B/D/E6/EE writer precedence and same-row Fxx timing are unchanged.
 Same-order forward B/D targets remain represented. An outgoing order transition
 or existing finite traversal guard completes the selected user-loop iteration;
 explicit Loop then starts row 0. Original refusal/guard diagnostics remain
-visible. This transport policy does not broaden module-defined indefinite replay,
-header restart behavior or FT2 parity.
+visible. This explicit-pattern transport policy remains separate from ordinary
+authored Bxx continuation under the [ordinary playback contract](ordinary-cold-start-continuation.md).
+Header restart behavior and broader FT2 parity remain separate.
 
 ## Precise playback-head authority
 

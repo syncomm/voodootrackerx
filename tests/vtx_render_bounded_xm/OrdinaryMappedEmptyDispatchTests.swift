@@ -18,7 +18,7 @@ final class OrdinaryMappedEmptyDispatchTests: XCTestCase {
         for linear in [true, false] { for rate in [44_100.0, 48_000] { for delay in [0, 3, 6] {
             for destination in [0, 7, nil] as [Int?] {
                 let plan = A.adapt(song(delay: delay, linear: linear, destination: destination), orderIndex: 0, sampleRate: rate)
-                let starts = delay < 6 && destination != 7
+                let starts = delay < 6 && destination == 0
                 XCTAssertEqual(plan.pattern.events.count, starts ? 2 : 1)
                 XCTAssertTrue(plan.xmEmptyRoutes.isEmpty)
                 if starts {
@@ -27,12 +27,11 @@ final class OrdinaryMappedEmptyDispatchTests: XCTestCase {
                     XCTAssertEqual(mapping.sampleIndex, 0)
                     XCTAssertEqual(plan.pattern.events[1].scheduledStartFrame, (6 + delay) * Int(rate / 50))
                     XCTAssertEqual(plan.pattern.events[1].initialSourceFrame, 0)
-                    // Characterization only: ABSENT-KEYMAP-POLICY remains OPEN.
-                    // This pins the legacy adapter outcome without approving that policy.
-                    XCTAssertEqual(mapping.firstPlayableSampleFallbackUsed, destination == nil)
-                    XCTAssertEqual(mapping.sampleSelectionMethod, destination == nil ? .firstPlayableFallback : .sampleMap)
+                    XCTAssertFalse(mapping.firstPlayableSampleFallbackUsed)
+                    XCTAssertEqual(mapping.sampleSelectionMethod, .sampleMap)
                 } else {
                     XCTAssertTrue(plan.diagnostics.eventMappings.allSatisfy { !$0.firstPlayableSampleFallbackUsed })
+                    XCTAssertEqual(plan.xmChannelRows.last?.controls.activeEventIndex, 0)
                 }
             }
         } } }

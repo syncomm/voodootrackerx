@@ -160,9 +160,11 @@ final class FxxTimingTests: XCTestCase {
             let absent = facts([cc(instrument: 5), cc(note: 50)])
             XCTAssertEqual(absent.last?.role, .unavailableRoute); XCTAssertEqual(absent.last?.pitch, .unavailable)
             XCTAssertNil(absent.last?.mappedSample); XCTAssertNil(absent.last?.associatedGeneration)
-            let legacy = facts([cc(note: 49, instrument: 5), cc(note: 50)])
-            XCTAssertEqual(legacy.first?.selectionMethod, .firstPlayableFallback) // OPEN Policy B deviation only.
-            XCTAssertEqual(legacy.last?.role, .unavailableRoute); XCTAssertEqual(legacy.last?.associatedGeneration, 0)
+            let unavailable = facts([cc(note: 49, instrument: 5), cc(note: 50)])
+            XCTAssertEqual(unavailable.first?.selectionMethod, .skippedNoValidSample)
+            XCTAssertEqual(unavailable.first?.role, .unavailableRoute)
+            XCTAssertNil(unavailable.first?.mappedSample)
+            XCTAssertEqual(unavailable.last?.role, .unavailableRoute); XCTAssertNil(unavailable.last?.associatedGeneration)
             let missing = facts([cc(note: 49, instrument: 8)])
             XCTAssertEqual(missing.last?.mappedSample, 7); XCTAssertEqual(missing.last?.role, .unavailableRoute)
             XCTAssertEqual(missing.last?.pitch, .unavailable)
@@ -198,6 +200,8 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testNativeSelectionPhysicalBaseline() throws {
+        // Policy B removes only the nil-map sentinel's legacy source. The other
+        // mapped routes retain exact frozen event, PCM, timing and lifetime guards.
         // Ordinary ED admission restores the represented zero-volume header in the ED3 sentinel.
         // Pin its corrected gain/PCM; source, pitch, cursor and clock evidence stays exact.
         // Pin full output and the projection without retriggers independently.
@@ -205,24 +209,24 @@ final class FxxTimingTests: XCTestCase {
         // Output interpolation contracts multiply-add on arm64; keep separate full-PCM
         // hashes and exact shared source/pitch/clock guards.
         #if arch(arm64)
-        let expected = ["false-44100": "a0a75189adba476bcd87c386cf4f45005a6062f52fb9cb8a480835cae3f27b4d",
-            "false-48000": "6d57bf6415a70b007ed4de6afd6f538441e3034cc390f7f122c3aaf71bf965e5",
-            "true-44100": "df4eb81b0d584d17db4932ef5bb6ae716ea5fec0f3ad5e59957bcdabc66bb229",
-            "true-48000": "6edfa80b8f4f92f1ccd25f168dd8f4ec02615147168769a761f0cc0c733e38b3"]
+        let expected = ["false-44100": "0c953b5e80cf419c1804de7675065a6ab50cd0a1549560d9e2e998ba21d9da1e",
+            "false-48000": "e565423670c6073434e813aa3c5921899e8e2c236ef0b74fd0d57efc53e28f6e",
+            "true-44100": "d7c47439054433a4c3da9ede30cc7bca2bed1897d219a7183268a8a94c451876",
+            "true-48000": "5c0bce3e6e625fff3537fad56892b4bf50e544a3925b9fea568b10ab102a58a0"]
         #else
-        let expected = ["false-44100": "e81816039299ae5ef1a085d36dbb791ae69c460c4b341c08f67a8ea0e47e6262",
-            "false-48000": "7fb96a6821805a03cad1ef6267320bd5e773595314bdf0e63ccc503b23be76df",
-            "true-44100": "cf1de8d324fa06a14ead05a2ae6ea31bba33025caa78a53eb8b60988c7c1fec1",
-            "true-48000": "62443c07cd9cbc19898971c621c10f50c7c40578cbeeb6e027f9c0361ba9b4dd"]
+        let expected = ["false-44100": "b798183fbd78ae5a7d88b643544ca9cec2cc526d98286763806e2d8d39cf989e",
+            "false-48000": "0f7097ff5f09be8ed75fb2ce4f74ea256ce915d5849ad15dc66096c837129f07",
+            "true-44100": "3732e405c08797e1e9d8bc253a3354cbe3e8c81f4f3d5a094eaf5e419d433b18",
+            "true-48000": "977f7b53f4cf60068bcbd7801746ccf550169bebc76b880084454f61d3027414"]
         #endif
-        let expectedWithoutRetriggers = ["false-44100": "bc7a0e106f2e39674ad60664dc40c9b4012573586b443bd128151e6ba835d76c",
-            "false-48000": "c8ee2a851da1644b2484db64a6d3e9af38344174ee87b8908c34d372617fc1e9",
-            "true-44100": "875184385581e5250d8b66cd35755e28beb8913e446fbe11ebeb3b4b55f0345d",
-            "true-48000": "d7ec4153c6c6dfe5c27b4b9dd989885da1ed11839943e859abd02958e9a3948e"]
-        let expectedPhysical = ["false-44100": "389777bf94f2ea13e58016e121d3ec29b3e6303b69dd3930e5c8c59f4fcd387d",
-            "false-48000": "4371d3966517938920fb9755bf8b74377250ddc6b7ed3a02a6b468a454496736",
-            "true-44100": "d6a100e893de4241242515dc6676f3874a27c50920f9876d93ecddbee247c901",
-            "true-48000": "5fcb3fd41523065e0ded22dcc2f89fd0873328002a76de135482680c85af9d86"]
+        let expectedWithoutRetriggers = ["false-44100": "d0a7fdb5598025fac10219b905e0f3f139c48c75397859530dadeded791dd0c6",
+            "false-48000": "ea7c2ea11cb7704b19cda2e047b8d805891e39d15a788bc54b67e2019ae8dbfb",
+            "true-44100": "425730dc60c53faa0e3d7a6b5c7f681237247ef81d20624a377fcbe2f539fb07",
+            "true-48000": "9f3989c0a016cfaefb53c43387026dc1e7bf6b04dd1919f71a44eaa4e3fdaba4"]
+        let expectedPhysical = ["false-44100": "399c33cb362880aa581c2529ef2e78043bbfb7c0ee0168db3638542ce24a5ba6",
+            "false-48000": "9ee749ce2bc6a164fb2e768c058ba39656c5735752b3c31c4eeb535bd6a4c896",
+            "true-44100": "9466d31448cfe84f3e0e6f353ca30cd5c5b47bcc7710a2a5dd2c08dbb09e08dc",
+            "true-48000": "bd0fe2bc0e03788ad4321830209615bdb2e67e625c7fbbaf95a4e94a9dad0635"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data(), physical = Data(), unchanged = SHA256()
             for cells in clockSentinels + selectionSentinels {
@@ -306,30 +310,32 @@ final class FxxTimingTests: XCTestCase {
     }
 
     func testCanonicalClockPhysicalBaseline() throws {
+        // Policy B removes only the nil-map sentinel's legacy source. The other
+        // mapped routes retain exact frozen event, PCM, timing and lifetime guards.
         // Ordinary ED admission restores the represented zero-volume header in the ED3 sentinel.
         // Pin its corrected gain/PCM; source, pitch, cursor and clock evidence stays exact.
         // Full output, the projection without retriggers and the physical projection
         // independently pin the corrected gain and unchanged source/pitch/clock state.
         // Keep the same architecture-specific interpolation hashes as the selection guard.
         #if arch(arm64)
-        let expected = ["false44100": "660a14b8a4413c2ff15d8b3499c317ae94730e2f622913187565f1559035030c",
-            "false48000": "32a13ce637cb9324578e82a10f8757fc944018ce63044e12a7bda1f610d07d1e",
-            "true44100": "a412c1aa879ec745a37d192ca260577537f34fba93ce7889e919edea3c3c521a",
-            "true48000": "deec49cd0f77b1713937c39401a5517e50c69eb6016ac8f799a8179f43341bf6"]
+        let expected = ["false44100": "c5a8e56aec5381d657fd9fc521683830ab646dab88b23723332249934c1683e6",
+            "false48000": "c5b3e03dede71edfbe9d2f04b5c82d416cd3e77beb692fce9f04125b75ab641d",
+            "true44100": "21136ef6fb6ac08f8e53d2d7ea6176058842d1a8c3adc962d0090698d3267eed",
+            "true48000": "d3012314d47565e54321b13fd58b869f45f6e29dfdc7e25a95345233f1f18cc6"]
         #else
-        let expected = ["false44100": "ec9a71a2368b85048bb8da5f276b31140aa840eb099bc96147b2022d95e97452",
-            "false48000": "46689963e14972fa5605e54eeac70afd298e04774f75717310cb132fe1b36987",
-            "true44100": "dcc4b09f40dc38e7bbe357fca8481b2d0cf3b1210a3a704852a6d7635dd0f73b",
-            "true48000": "57fef7c52c9f97a1514cf8fe3a00fad25999fca8b8740119761362a43658a141"]
+        let expected = ["false44100": "e2edce54500dec7b04a9f67b133a9fe42137ad3d4a2ab36f1d0021d7a69c21ad",
+            "false48000": "ea2db6efccb14f5793ef7404f4afa70a168cdcf3d83f48f01975dd9812369bec",
+            "true44100": "0cd538a402246882a49884e3137509284332cd5d4cecd4c730a13f49422b9b40",
+            "true48000": "e156d85d79d8e345b4a8434eab49c1065f1334f8f159c653935a0355d1296c9b"]
         #endif
-        let expectedWithoutRetriggers = ["false44100": "d9799c3654c427f3825df36a9c44ba582b5efd1ffb553b7e526ff078f84d8001",
-            "false48000": "2d8c3aa27d63bd48d269467d39fef9b18871da4e3abe25ba51ccf97660510e81",
-            "true44100": "6ade8019280894726354fa4e43fd2306691aee841c3176f10a1f973afb488130",
-            "true48000": "5f5eb5003a203dc3e13fe15142a95eb0533b6d6524c2891492bed0e7b2ca7b43"]
-        let expectedPhysical = ["false44100": "569698ca6fac67df44881437d59256af2538d3ef2b27ddd62987aeea1ea41ec6",
-            "false48000": "a65d93f88d30e1c0b28d9ac798b8eff5f38ab81cae9a8463804d377506097a88",
-            "true44100": "de13be13dc9e17f48dfb1152ffe46d243414faff35f77cce15dad4f78556d29d",
-            "true48000": "65a6d531c25a96a7b77b2dd916c285ba98e6551df5e1f9c2c9c903304df92a0a"]
+        let expectedWithoutRetriggers = ["false44100": "bed40b1a6233215ce28decf3084c0ff54880ca81ff53449befaf88682659a810",
+            "false48000": "2210d7586cf29bdeb8a9de10d54d6ce3a361758438966bbb60021c48c69526a0",
+            "true44100": "455cb52abe4cedfe174ff9d695ffb1aeccd9d5161a4f0fe7d4a45e8e6c242a2a",
+            "true48000": "982a5dab7401718ab19e595b6ab1783789c8b50180430a982f49d3b83be79b82"]
+        let expectedPhysical = ["false44100": "70f3b04fafa8464f72bc5f77db27798a7f84ce233f5c834d8b562b0dea2bb48a",
+            "false48000": "c05cc415d1c9384dd345fbd871050868881d250b49ed6cf60b2313e05fc37c61",
+            "true44100": "26347da711e953dd22279063427f8dae52e3e8971169a63d32e416ba30218da8",
+            "true48000": "d37f821a73f191fd4027f137cd210afbfd3487d1e60efabcbac84c40c2cea58e"]
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             var evidence = Data(), physical = Data(), unchanged = SHA256()
             for cells in clockSentinels {
@@ -520,7 +526,7 @@ final class FxxTimingTests: XCTestCase {
     }
 
     private func clockSong(_ cells: [PlaybackCell], linear: Bool) -> PlaybackSong {
-        // Instruments 3...7 distinguish empty, refused, nil-map (OPEN Policy B gap), quiet PCM and zero pitch.
+        // Instruments 3...7 distinguish empty, refused, nil-map unavailable, quiet PCM and zero pitch.
         var instruments = [Int: PlaybackInstrument]()
         for i in 1...7 where i != 3 {
             let sample = PlaybackSample(instrumentIndex: i, sampleIndex: 0,

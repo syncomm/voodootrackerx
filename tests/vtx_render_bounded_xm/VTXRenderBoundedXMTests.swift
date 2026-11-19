@@ -1762,7 +1762,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                     PlaybackRow(index: 0, cells: []),
                 ]),
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [emptySample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [emptySample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -1934,7 +1934,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                     ]),
                 ]),
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -2058,8 +2058,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                 1: PlaybackInstrument(index: 1, samples: [
                     PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 100),
                     playableSample
-                ]),
-                2: PlaybackInstrument(index: 2, samples: [emptySample])
+                ], noteSampleMap: Array(repeating: 1, count: 96)),
+                2: PlaybackInstrument(index: 2, samples: [emptySample], noteSampleMap: Array(repeating: 0, count: 96))
             ],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
@@ -2081,21 +2081,21 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(coverage["normal_note_cells"] as? Int, 4)
         XCTAssertEqual(coverage["scheduled_note_events"] as? Int, 1)
         XCTAssertEqual(coverage["skipped_note_events"] as? Int, 3)
-        XCTAssertEqual(coverage["sample_map_selection_events"] as? Int, 0)
-        XCTAssertEqual(coverage["first_playable_sample_fallback_events"] as? Int, 1)
+        XCTAssertEqual(coverage["sample_map_selection_events"] as? Int, 1)
+        XCTAssertEqual(coverage["first_playable_sample_fallback_events"] as? Int, 0)
         XCTAssertEqual(coverage["fallback_after_invalid_sample_map_events"] as? Int, 0)
         XCTAssertEqual(coverage["skipped_no_valid_sample_events"] as? Int, 1)
         XCTAssertEqual(firstEvent["sample_index"] as? Int, 1)
         XCTAssertEqual(firstEvent["selected_sample_length"] as? Int, 2)
-        XCTAssertEqual(firstEvent["sample_map_keymap_present"] as? Bool, false)
-        XCTAssertTrue(firstEvent["mapped_sample_index"] is NSNull)
-        XCTAssertEqual(firstEvent["mapped_sample_valid"] as? Bool, false)
-        XCTAssertEqual(firstEvent["sample_selection_method"] as? String, "first_playable_fallback")
-        XCTAssertEqual(firstEvent["selected_sample_selection_method"] as? String, "first_playable_fallback")
-        XCTAssertEqual(firstEvent["sample_selection_strategy"] as? String, "first_playable_fallback")
-        XCTAssertEqual(firstEvent["first_playable_sample_fallback_used"] as? Bool, true)
-        XCTAssertEqual(firstEvent["sample_map_keymap_behavior_deferred"] as? Bool, true)
-        XCTAssertEqual(firstEvent["sample_map_keymap_missing_or_deferred"] as? Bool, true)
+        XCTAssertEqual(firstEvent["sample_map_keymap_present"] as? Bool, true)
+        XCTAssertEqual(firstEvent["mapped_sample_index"] as? Int, 1)
+        XCTAssertEqual(firstEvent["mapped_sample_valid"] as? Bool, true)
+        XCTAssertEqual(firstEvent["sample_selection_method"] as? String, "sample_map")
+        XCTAssertEqual(firstEvent["selected_sample_selection_method"] as? String, "sample_map")
+        XCTAssertEqual(firstEvent["sample_selection_strategy"] as? String, "sample_map")
+        XCTAssertEqual(firstEvent["first_playable_sample_fallback_used"] as? Bool, false)
+        XCTAssertEqual(firstEvent["sample_map_keymap_behavior_deferred"] as? Bool, false)
+        XCTAssertEqual(firstEvent["sample_map_keymap_missing_or_deferred"] as? Bool, false)
         XCTAssertEqual(ignored.map { $0["skip_reason"] as? String }, [
             "missing_instrument",
             "sample_pcm_empty",
@@ -2147,7 +2147,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
@@ -2304,7 +2304,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "capacity",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -2365,7 +2365,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "below-capacity",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -2472,7 +2472,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -2523,7 +2523,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "e5x-diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -2575,7 +2575,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -2628,7 +2628,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "diagnostics-sample-offset-memory",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -2679,7 +2679,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                     ])
                 ])
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
@@ -2774,7 +2774,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                     ])
                 ])
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
@@ -2879,7 +2879,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                     ]),
                 ])
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
@@ -2992,7 +2992,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "fine-volume-slides",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -3121,7 +3121,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "vibrato-volume-slide",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -3238,7 +3238,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "e4x-vibrato-control",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -3301,7 +3301,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "windowed-6xy",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -3397,7 +3397,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "pitch-modulation-diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -3560,7 +3560,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "focused-channel-diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 7)],
             patternsByIndex: [7: PlaybackPattern(index: 7, rows: rows)],
-            instrumentsByIndex: [23: PlaybackInstrument(index: 23, samples: [sample])],
+            instrumentsByIndex: [23: PlaybackInstrument(index: 23, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -3610,7 +3610,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "tone-portamento-diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -3665,7 +3665,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "same-cell-3xx-instrument-state",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
@@ -3726,7 +3726,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "portamento-slide-diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -3791,7 +3791,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "portamento-slide-memory-diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -3869,7 +3869,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "fine-portamento-down-diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -3941,7 +3941,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "fine-portamento-up-diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -4016,7 +4016,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             title: "xxy-extra-fine-portamento-diagnostics",
             orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
             patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -4085,7 +4085,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                     PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
                 ])
             ])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -4097,7 +4097,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                     PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x0B, effectParam: 0x01)
                 ])
             ])],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
         )
@@ -4155,7 +4155,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                     ])
                 ])
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -4246,7 +4246,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             instrumentsByIndex: [
                 1: PlaybackInstrument(index: 1, samples: [
                     PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1, 1, 1, 1], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 100)
-                ])
+                ], noteSampleMap: Array(repeating: 0, count: 96))
             ],
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
@@ -4802,8 +4802,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                 ])
             ],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [firstSample]),
-                2: PlaybackInstrument(index: 2, samples: [secondSample]),
+                1: PlaybackInstrument(index: 1, samples: [firstSample], noteSampleMap: Array(repeating: 0, count: 96)),
+                2: PlaybackInstrument(index: 2, samples: [secondSample], noteSampleMap: Array(repeating: 0, count: 96)),
             ],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
@@ -4837,7 +4837,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
                 ])
             ],
             instrumentsByIndex: [
-                2: PlaybackInstrument(index: 2, samples: [sample]),
+                2: PlaybackInstrument(index: 2, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96)),
             ],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,

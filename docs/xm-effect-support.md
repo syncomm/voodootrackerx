@@ -420,31 +420,31 @@ semantic reset follow that frame without creating PCM or a fallback voice.
 
 #### Absent-keymap compatibility gap
 
-Ordinary explicit-note adapter paths and some tone targets still request
-`.firstPlayableSample` when the map is nil. Successful selection is diagnosed as
-`firstPlayableFallback`; preservation controls do not approve an FT2 rule or pass
-a no-fallback gate. Note-only, E90, retained-source restart and the exact empty-ED
-classifier use `.fail`. Ordinary instrument-only cells restore cached state
-without selecting a sample; G23 nonzero instrument-only EDx resolves the retained
-note strictly at dispatch.
+Ordinary explicit-note sources (including ED0/in-row EDx) and tone targets
+now use the adapter's strict `.fail` default, matching note-only, E90,
+retained-source restart and the exact empty-ED classifier. A nil map admits no
+first-playable PCM, including reachable short/partial loaded XM headers. It
+creates no mapped-empty cut of a prior source and does not normalize loaded
+headers. Existing ignored-cell fields retain absent-map versus mapped-unavailable
+attribution; no fallback success is reported. Ordinary instrument-only cached
+state and nonzero instrument-only EDx retain their separate dispatch contracts.
 
-Noncanonical short/partial loaded headers can produce nil maps with represented
-PCM. Loader reachability is observed, but no read-only compatibility exception is
-verified or authorized. Pinned ft2-clone LUT source suggests direct-slot selection
-rather than first-playable scanning; this is inference, not actual FT2 execution
-of those abnormal files. [Accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
-is binding routing authority; legacy absent-map fallback remains an OPEN
-implementation gap. Production selection is unchanged and requires a separate
-approved, tested correction before backend freeze.
+The bounded ordinary correction is CLOSED on this branch after local SwiftPM,
+Xcode, Python, offline PCM and hygiene qualification. Acceptance requires final
+submitted-head native CI and Gregory's review/merge; this is not v0.5 release
+qualification. [Accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
+remains binding; no abnormal-file FT2 behavior or read-only exception is approved.
+The earlier ft2-clone LUT inference establishes no independent playback exception.
 
 Absent routing, a missing mapped identity, declared zero-payload header metadata,
-represented volume-zero PCM and refused pitch are distinct. This open gap changes
-neither their source/cut/reset contracts nor G23/G30/G31 closure. Represented ED
-note+instrument dispatch restores the selected header volume once: ED0 at row
+represented volume-zero PCM and refused pitch remain distinct. Exact mapped
+routes retain their source/cut/reset contracts and G23/G30/G31 closure. Represented
+ED note+instrument dispatch restores the selected header volume once: ED0 at row
 entry and in-row EDx at its trigger, before an explicit column volume setter.
 Quiet/zero headers remain represented; note-only volume carry and out-of-row
-admission are unchanged. [OrdinaryEDGainTests](../tests/vtx_render_bounded_xm/OrdinaryEDGainTests.swift)
-and runtime controls pin this gain boundary, preserving onset, cursor and retirement.
+admission are unchanged. [OrdinaryAbsentKeymapTests](../tests/vtx_render_bounded_xm/OrdinaryAbsentKeymapTests.swift),
+[OrdinaryMappedEmptyDispatchTests](../tests/vtx_render_bounded_xm/OrdinaryMappedEmptyDispatchTests.swift)
+and existing ordinary gain/runtime controls pin these boundaries.
 The [Clear Song Data
 and writer admission concerns](design/editable-document-save-export-model.md#export-xm)
 also remain separate decisions before claiming a coherent routing release boundary.

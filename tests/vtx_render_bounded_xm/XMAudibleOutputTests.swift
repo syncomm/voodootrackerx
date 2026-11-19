@@ -262,7 +262,7 @@ final class XMAudibleOutputTests: XCTestCase {
                     if first { cells.insert(writer, at: 0) } else { cells.append(writer) }
                 }
                 return .init(index: row, cells: cells)
-            })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: true)
     }
 }

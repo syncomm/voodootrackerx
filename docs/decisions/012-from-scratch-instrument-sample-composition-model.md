@@ -442,6 +442,14 @@ no reference compatibility. Pinned ft2-clone LUT
 source suggests direct-slot behavior rather than scanning, an inference without
 actual reference playback of those abnormal files.
 
+**Implementation superseding note:** the bounded ordinary adapter correction
+now uses strict routing for explicit notes and tone targets, including nil maps
+with represented PCM from loaded short/partial headers. The preceding paragraph
+records the pre-correction deviation. Nil routes create no source or mapped-empty
+cut, and source/header provenance is unchanged. The shared legacy resolver API
+and separate noncanonical admission/writer contracts are not redesigned here.
+See the [current qualification boundary](../xm-effect-support.md#absent-keymap-compatibility-gap).
+
 The known `VTX-J-002` Clear Song Data bridge can carry nil-plus-PCM into an
 editable palette, and the writer currently serializes that state as all-S01,
 which can change sparse routing on reopen. These remain separate admission and

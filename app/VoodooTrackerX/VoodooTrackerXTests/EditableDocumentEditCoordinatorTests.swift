@@ -1359,7 +1359,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
     }
 
     func testSampleRelativeNoteUsesOneUndoActionAndOnlyExistingPitchPaths() throws {
-        var before = documentWithInstrumentName("Playback", panning: 37, relativeNote: 0, finetune: 64)
+        var before = documentWithInstrumentName("Playback", panning: 37, relativeNote: 0, finetune: 64, noteSampleMap: Array(repeating: 0, count: 96))
         XCTAssertTrue(before.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
         let controller = InstrumentEditorWindowController(displayState: .editableDocument(before))
         let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
@@ -1473,7 +1473,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
     }
 
     func testSampleFinetuneUsesOneUndoActionAndChangesOnlyExistingAdaptedPitch() throws {
-        var before = documentWithInstrumentName("Playback", panning: 37, finetune: 0)
+        var before = documentWithInstrumentName("Playback", panning: 37, finetune: 0, noteSampleMap: Array(repeating: 0, count: 96))
         XCTAssertTrue(before.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
         let controller = InstrumentEditorWindowController(displayState: .editableDocument(before))
         let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
@@ -1660,7 +1660,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
     }
 
     func testSampleVolumeEditUndoRedoRestoresChannelDefaultAndSongGain() throws {
-        var before = documentWithInstrumentName("Playback", volume: 64, panning: 37)
+        var before = documentWithInstrumentName("Playback", volume: 64, panning: 37, noteSampleMap: Array(repeating: 0, count: 96))
         XCTAssertTrue(before.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
         let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
 

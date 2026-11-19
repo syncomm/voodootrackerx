@@ -104,9 +104,9 @@ final class OrdinaryDelayedVibratoTests: XCTestCase {
                     XCTAssertEqual(prefix.inactiveSourceStepUpdates.map(\.syntheticTick), [1, 2])
                     XCTAssertFalse(R.hasActiveSource(eventIndex: 0, at: n - 1, plan: plan))
                 } else if kind != "cold" {
-                    XCTAssertEqual(prefix.stepUpdates.map(\.syntheticTick), kind == "refused" ? [1] : kind == "missing" ? [1, 2, 3] : [1, 2])
+                    XCTAssertEqual(prefix.stepUpdates.map(\.syntheticTick), kind == "refused" ? [1] : ["missing", "absent"].contains(kind) ? [1, 2, 3] : [1, 2])
                 }
-                if ["normal", "completed", "released", "empty", "quiet", "absent"].contains(kind) {
+                if ["normal", "completed", "released", "empty", "quiet"].contains(kind) {
                     XCTAssertEqual(prefix.supersededDelayedBirth?.vibrato?.phaseBefore, 32)
                     XCTAssertEqual(prefix.supersededDelayedBirth?.vibrato?.phaseAfter, 48)
                 }
@@ -120,8 +120,10 @@ final class OrdinaryDelayedVibratoTests: XCTestCase {
                 }
                 if kind == "missing" || kind == "refused" { XCTAssertEqual(plan.pattern.events.count, 1) }
                 if kind == "absent" {
-                    // Retained implementation debt; this does not approve a Policy B exception.
-                    XCTAssertEqual(plan.diagnostics.eventMappings.last?.firstPlayableSampleFallbackUsed, true)
+                    XCTAssertEqual(plan.pattern.events.count, 1)
+                    XCTAssertTrue(plan.xmEmptyRoutes.isEmpty)
+                    XCTAssertTrue(plan.diagnostics.eventMappings.allSatisfy { !$0.firstPlayableSampleFallbackUsed })
+                    XCTAssertTrue(R.hasActiveSource(eventIndex: 0, at: n + 1, plan: plan))
                 }
                 XCTAssertFalse(runtime.events.contains { e in
                     guard e.source.rowIndex == row, case let .stepUpdate(event, _) = e.action else { return false }

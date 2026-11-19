@@ -107,7 +107,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 183)
         )
 
@@ -138,12 +138,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(mapping.note, 49)
         XCTAssertEqual(mapping.instrumentIndex, 1)
         XCTAssertEqual(mapping.sampleIndex, 0)
-        XCTAssertFalse(mapping.sampleMapKeymapPresent)
-        XCTAssertNil(mapping.mappedSampleIndex)
-        XCTAssertFalse(mapping.mappedSampleValid)
-        XCTAssertEqual(mapping.sampleSelectionMethod, .firstPlayableFallback)
-        XCTAssertEqual(mapping.sampleSelectionStrategy, "first_playable_fallback")
-        XCTAssertTrue(mapping.firstPlayableSampleFallbackUsed)
+        XCTAssertTrue(mapping.sampleMapKeymapPresent)
+        XCTAssertEqual(mapping.mappedSampleIndex, 0)
+        XCTAssertTrue(mapping.mappedSampleValid)
+        XCTAssertEqual(mapping.sampleSelectionMethod, .sampleMap)
+        XCTAssertEqual(mapping.sampleSelectionStrategy, "sample_map")
+        XCTAssertFalse(mapping.firstPlayableSampleFallbackUsed)
         XCTAssertFalse(mapping.sampleMapKeymapBehaviorDeferred)
         XCTAssertFalse(mapping.sampleMapKeymapMissingOrDeferred)
         XCTAssertEqual(mapping.syntheticRow, 1)
@@ -205,7 +205,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             return makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             )
         }
 
@@ -263,7 +263,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             let song = makePlaybackSong(
                 orderPatternIndices: [0],
                 patternRowsByIndex: [0: [row]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             )
             return try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).pattern.events.first)
         }
@@ -290,7 +290,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     1: PlaybackInstrument(
                         index: 1,
                         samples: [sample],
-                        autoVibrato: autoVibrato
+                        autoVibrato: autoVibrato,
+                        noteSampleMap: Array(repeating: 0, count: 96)
                     )
                 ]
             )
@@ -360,7 +361,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     1: PlaybackInstrument(
                         index: 1,
                         samples: [sample],
-                        panningEnvelope: panningEnvelope
+                        panningEnvelope: panningEnvelope,
+                        noteSampleMap: Array(repeating: 0, count: 96)
                     )
                 ]
             )
@@ -414,7 +416,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let event = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).pattern.events.first)
@@ -437,9 +439,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [row]],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample()]),
-                3: PlaybackInstrument(index: 3, samples: [silentSample]),
-                4: PlaybackInstrument(index: 4, samples: [zeroVolumeSample])
+                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample()], noteSampleMap: Array(repeating: 0, count: 96)),
+                3: PlaybackInstrument(index: 3, samples: [silentSample], noteSampleMap: Array(repeating: 0, count: 96)),
+                4: PlaybackInstrument(index: 4, samples: [zeroVolumeSample], noteSampleMap: nil)
             ]
         )
 
@@ -482,9 +484,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(index: 1, samples: [
                     makePlaybackSample(pcm: [], volume: 1),
                     playableSample
-                ]),
-                2: PlaybackInstrument(index: 2, samples: [emptySample]),
-                3: PlaybackInstrument(index: 3, samples: [zeroVolumeSample])
+                ], noteSampleMap: Array(repeating: 1, count: 96)),
+                2: PlaybackInstrument(index: 2, samples: [emptySample], noteSampleMap: Array(repeating: 0, count: 96)),
+                3: PlaybackInstrument(index: 3, samples: [zeroVolumeSample], noteSampleMap: nil)
             ]
         )
 
@@ -508,23 +510,23 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(coverage.scheduledNoteEvents, 1)
         XCTAssertEqual(coverage.skippedNoteEvents, 4)
         XCTAssertEqual(coverage.skippedNoteOffEventsNoActiveVoice, 1)
-        XCTAssertEqual(coverage.sampleMapSelectionEvents, 0)
-        XCTAssertEqual(coverage.firstPlayableSampleFallbackEvents, 1)
+        XCTAssertEqual(coverage.sampleMapSelectionEvents, 1)
+        XCTAssertEqual(coverage.firstPlayableSampleFallbackEvents, 0)
         XCTAssertEqual(coverage.fallbackAfterInvalidSampleMapEvents, 0)
         XCTAssertEqual(coverage.skippedNoValidSampleEvents, 2)
-        XCTAssertEqual(coverage.sampleMapKeymapDeferredEvents, 1)
+        XCTAssertEqual(coverage.sampleMapKeymapDeferredEvents, 0)
         XCTAssertEqual(scheduled.source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
         XCTAssertEqual(scheduled.channelIndex, 6)
         XCTAssertEqual(scheduled.sampleIndex, 1)
         XCTAssertEqual(scheduled.selectedSampleLength, 2)
-        XCTAssertFalse(scheduled.sampleMapKeymapPresent)
-        XCTAssertNil(scheduled.mappedSampleIndex)
-        XCTAssertFalse(scheduled.mappedSampleValid)
-        XCTAssertEqual(scheduled.sampleSelectionMethod, .firstPlayableFallback)
-        XCTAssertEqual(scheduled.sampleSelectionStrategy, "first_playable_fallback")
-        XCTAssertTrue(scheduled.firstPlayableSampleFallbackUsed)
-        XCTAssertTrue(scheduled.sampleMapKeymapBehaviorDeferred)
-        XCTAssertTrue(scheduled.sampleMapKeymapMissingOrDeferred)
+        XCTAssertTrue(scheduled.sampleMapKeymapPresent)
+        XCTAssertEqual(scheduled.mappedSampleIndex, 1)
+        XCTAssertTrue(scheduled.mappedSampleValid)
+        XCTAssertEqual(scheduled.sampleSelectionMethod, .sampleMap)
+        XCTAssertEqual(scheduled.sampleSelectionStrategy, "sample_map")
+        XCTAssertFalse(scheduled.firstPlayableSampleFallbackUsed)
+        XCTAssertFalse(scheduled.sampleMapKeymapBehaviorDeferred)
+        XCTAssertFalse(scheduled.sampleMapKeymapMissingOrDeferred)
         XCTAssertEqual(result.diagnostics.ignoredCells.map(\.skipReason), [
             .emptyCell,
             .noteOffKeyOffOnly,
@@ -737,7 +739,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let plan = PlaybackSongSyntheticAdapter.adapt(song, orderRange: 0..<2, sampleRate: 100)
@@ -760,13 +762,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let plainSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 125)
         )
         let volumeOnlySong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x20)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 125)
         )
         // Use an unimplemented opcode for ignored-effect isolation.
@@ -775,7 +777,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x20, effectType: 0x22, effectParam: 0x43)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 125)
         )
 
@@ -808,7 +810,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -839,7 +841,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -877,7 +879,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -915,7 +917,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -949,7 +951,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -986,7 +988,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     noteRow
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -1020,7 +1022,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 ]
             ],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)
+                1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
@@ -1054,7 +1056,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 61, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1095,7 +1097,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
@@ -1110,7 +1112,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -1132,7 +1134,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -1153,12 +1155,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let lowSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let highSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
@@ -1183,7 +1185,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             let song = makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: note, instrument: 1)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             )
             let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
             return try XCTUnwrap(plan.diagnostics.eventMappings.first).playbackStep
@@ -1363,7 +1365,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             let song = makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [row]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             )
 
             let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: pitchCase.outputSampleRate)
@@ -1405,7 +1407,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             let song = makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: note, instrument: 1)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             )
             return try XCTUnwrap(
                 PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 44_100)
@@ -1416,7 +1418,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
         }
 
         let highTransposed = try mapping(note: 96, relativeNote: 12)
-        let lowTransposed = try mapping(note: 1, relativeNote: -12)
+        // Conversion retains its lower clamp; source admission separately refuses
+        // this out-of-range real note when routing is explicit.
+        let lowTransposed = PlaybackSongSyntheticAdapter.playbackStepMapping(
+            note: 1, relativeNote: -12, finetune: 0, baseSampleRate: 8_363,
+            usesLinearFrequencyTable: true,
+            timingConfig: SyntheticTrackerTimingConfig(speed: 6, bpm: 125, sampleRate: 44_100))
+        XCTAssertEqual(PlaybackSongSyntheticAdapter.ordinaryPitchAdmission(note: 1, relativeNote: -12), .refused)
 
         XCTAssertEqual(highTransposed.effectiveNoteValue, 108)
         XCTAssertEqual(highTransposed.effectiveNoteIndex, 107)
@@ -1446,22 +1454,22 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let relativeSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [relativeSample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [relativeSample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let negativeRelativeSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [negativeRelativeSample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [negativeRelativeSample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let finetunedSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [finetunedSample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [finetunedSample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let negativeFinetunedSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [negativeFinetunedSample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [negativeFinetunedSample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let relative = PlaybackSongSyntheticAdapter.adapt(relativeSong, orderIndex: 0, sampleRate: 100)
@@ -1491,12 +1499,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let e5xSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x5F)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let baseline = PlaybackSongSyntheticAdapter.adapt(baselineSong, orderIndex: 0, sampleRate: 100)
@@ -1522,7 +1530,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             let song = makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: effectParam)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             )
             return try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.eventMappings.first)
         }
@@ -1545,7 +1553,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x5F),
                 makePlaybackRow(index: 1, note: 49, instrument: 1),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
@@ -1570,7 +1578,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x50),
                 makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x5F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1596,7 +1604,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x00, effectParam: 0x37),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -1629,14 +1637,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x00, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let noActiveSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, effectType: 0x00, effectParam: 0x37),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let noOpDiagnostics = PlaybackSongSyntheticAdapter.adapt(noOpSong, orderIndex: 0, sampleRate: 100).diagnostics
@@ -1662,7 +1670,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x00, effectParam: 0x37),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -1695,7 +1703,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [row]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
@@ -1730,7 +1738,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -1773,7 +1781,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let xxySong = makePlaybackSong(
             orderPatternIndices: [2],
@@ -1783,7 +1791,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x21, effectParam: 0x2F),
                 ])
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let baseline = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(baselineSong, orderIndex: 0, sampleRate: 100).diagnostics.eventMappings.first)
@@ -1828,8 +1836,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 5, note: 1, instrument: 2, effectType: 0x21, effectParam: 0x2F),
             ]],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [highSample]),
-                2: PlaybackInstrument(index: 2, samples: [lowSample]),
+                1: PlaybackInstrument(index: 1, samples: [highSample], noteSampleMap: Array(repeating: 0, count: 96)),
+                2: PlaybackInstrument(index: 2, samples: [lowSample], noteSampleMap: Array(repeating: 0, count: 96)),
             ]
         )
 
@@ -1854,7 +1862,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 2, note: 49, instrument: 1, effectType: 0x21, effectParam: 0x2F),
                 makePlaybackRow(index: 3, effectType: 0x21, effectParam: 0x11),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1881,12 +1889,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baseSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [baseSample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [baseSample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let higherBaseSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [higherBaseSample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [higherBaseSample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let base = PlaybackSongSyntheticAdapter.adapt(baseSong, orderIndex: 0, sampleRate: 100)
@@ -1908,13 +1916,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let linearSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             usesLinearFrequencyTable: true
         )
         let amigaSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             usesLinearFrequencyTable: false
         )
 
@@ -2035,7 +2043,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x5F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 8_363)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 8_363)], noteSampleMap: Array(repeating: 0, count: 96))],
             usesLinearFrequencyTable: false
         )
 
@@ -2055,7 +2063,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -2078,7 +2086,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: -1)
@@ -2095,7 +2103,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 44_100)
@@ -2122,7 +2130,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
@@ -2153,7 +2161,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let request = PlaybackSongOfflineRenderRequest(
             song: song,
@@ -2184,7 +2192,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -2210,7 +2218,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -2243,7 +2251,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01),
                 makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
@@ -2276,7 +2284,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [row0, row1]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let mappings = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.eventMappings
@@ -2299,7 +2307,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01),
                 makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let request = PlaybackSongOfflineRenderRequest(
             song: song,
@@ -2327,7 +2335,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)],
                 3: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x00)],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let plan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 1, orderCount: 1, sampleRate: 100)
@@ -2418,7 +2426,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -2439,7 +2447,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -2466,7 +2474,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             song: makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [offsetBeforeLoop])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [offsetBeforeLoop], noteSampleMap: Array(repeating: 0, count: 96))]
             ),
             orderIndex: 0,
             config: config,
@@ -2476,7 +2484,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             song: makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [offsetInsideLoop])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [offsetInsideLoop], noteSampleMap: Array(repeating: 0, count: 96))]
             ),
             orderIndex: 0,
             config: config,
@@ -2486,7 +2494,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             song: makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [offsetBeyondLoop])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [offsetBeyondLoop], noteSampleMap: Array(repeating: 0, count: 96))]
             ),
             orderIndex: 0,
             config: config,
@@ -2508,7 +2516,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -2530,7 +2538,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x02)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -2560,7 +2568,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x00)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -2599,7 +2607,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -2631,7 +2639,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let fast = makePlaybackSong(
@@ -2640,7 +2648,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x80),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -2666,7 +2674,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -2703,7 +2711,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 65, instrument: 1),
                 makePlaybackRow(index: 1, note: 67, instrument: 1, effectType: 0x03, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -2731,7 +2739,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let noActive = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x10)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -2741,7 +2749,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x03, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -2751,7 +2759,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -2779,7 +2787,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, note: 50, instrument: 1, effectType: 0x03, effectParam: 0xFF),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -2800,7 +2808,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 73, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x03, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -2820,7 +2828,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x03, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -2837,7 +2845,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -2857,7 +2865,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, note: 50, instrument: 1, effectType: 0x03, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -2877,7 +2885,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 49, instrument: 1),
                 makePlaybackRow(index: 2, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -2895,7 +2903,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x03, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -2920,7 +2928,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -2949,7 +2957,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -2972,7 +2980,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -3000,7 +3008,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 1, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0xFF),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 100, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -3023,7 +3031,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let fast = makePlaybackSong(
@@ -3032,7 +3040,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3056,7 +3064,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1),
                     makePlaybackRow(index: 1, effectType: effectType, effectParam: 0x00),
                 ]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
                 initialTiming: PlaybackTiming(speed: 4, bpm: 250)
             )
             let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
@@ -3095,7 +3103,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, effectType: item.effectType, effectParam: item.amount),
                     makePlaybackRow(index: 2, effectType: item.effectType, effectParam: 0x00),
                 ]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
                 initialTiming: PlaybackTiming(speed: 4, bpm: 250)
             )
             let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
@@ -3140,7 +3148,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             let song = makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: rows],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
                 initialTiming: PlaybackTiming(speed: 4, bpm: 250)
             )
             let row2Diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
@@ -3172,7 +3180,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 3, effectType: 0x01, effectParam: 0x00),
                 makePlaybackRow(index: 4, effectType: 0x02, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3202,7 +3210,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 3, effectType: 0x02, effectParam: 0x10),
                 makePlaybackRow(index: 4, effectType: 0x02, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 800, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 800, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -3231,7 +3239,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 2, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x10),
                 makePlaybackRow(index: 3, effectType: 0x03, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 800, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 800, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -3265,7 +3273,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x10),
                 makePlaybackRow(index: 2, effectType: 0x03, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -3303,7 +3311,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -3328,7 +3336,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0x00),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -3356,7 +3364,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, effectType: 0x02, effectParam: 0x20)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3374,7 +3382,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, effectType: 0x02, effectParam: 0x20)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -3396,7 +3404,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
             instrumentsByIndex: [
                 1: PlaybackInstrument(
                     index: 1,
-                    samples: [makeRampPlaybackSample(frameCount: 600, relativeNote: 23, baseSampleRate: 100)]
+                    samples: [makeRampPlaybackSample(frameCount: 600, relativeNote: 23, baseSampleRate: 100)],
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
@@ -3421,7 +3430,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3442,7 +3451,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 49, instrument: 1),
                 makePlaybackRow(index: 2, effectType: 0x01, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -3460,7 +3469,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x01, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -3485,7 +3494,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250),
             usesLinearFrequencyTable: false
         )
@@ -3508,7 +3517,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x12),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3544,7 +3553,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1),
                     makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x10 | amount),
                 ]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
                 initialTiming: PlaybackTiming(speed: 4, bpm: 250)
             )
         }
@@ -3564,7 +3573,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x10),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3593,7 +3602,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x1F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3617,7 +3626,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let e1x = makePlaybackSong(
@@ -3625,7 +3634,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x1F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3657,7 +3666,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x11),
                 makePlaybackRow(index: 2, effectType: 0x0E, effectParam: 0x1F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -3683,7 +3692,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x22),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3718,7 +3727,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1),
                     makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x20 | amount),
                 ]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
                 initialTiming: PlaybackTiming(speed: 4, bpm: 250)
             )
         }
@@ -3738,7 +3747,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x20),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3767,7 +3776,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x2F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3791,7 +3800,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let e2x = makePlaybackSong(
@@ -3799,7 +3808,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x2F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3831,7 +3840,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x21),
                 makePlaybackRow(index: 2, effectType: 0x0E, effectParam: 0x2F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -3857,7 +3866,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3890,7 +3899,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3922,7 +3931,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 49, instrument: 1),
                 makePlaybackRow(index: 2, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3950,7 +3959,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let rampSong = makePlaybackSong(
@@ -3960,7 +3969,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x41),
                 makePlaybackRow(index: 2, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3988,7 +3997,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 49, instrument: 1),
                 makePlaybackRow(index: 2, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4013,7 +4022,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x44),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4045,7 +4054,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 2, effectType: 0x04, effectParam: 0x48),
                 makePlaybackRow(index: 3, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -4070,7 +4079,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4091,7 +4100,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4116,7 +4125,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4146,7 +4155,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
                 makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4174,7 +4183,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x40),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4199,7 +4208,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
                 makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x60),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4222,7 +4231,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
                 makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x05),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4246,7 +4255,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x48),
                 makePlaybackRow(index: 2, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -4270,7 +4279,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xB4, effectType: 0x06, effectParam: 0x20),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
@@ -4300,7 +4309,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x04, effectParam: 0x48),
                 makePlaybackRow(index: 1, effectType: 0x06, effectParam: 0x02),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4343,7 +4352,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x06, effectParam: 0x02),
                 makePlaybackRow(index: 2, effectType: 0x06, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4383,7 +4392,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x06, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4408,7 +4417,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 73, instrument: 1, volumeColumn: 0x30, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x02),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4442,7 +4451,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x01),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4463,7 +4472,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x05, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4494,7 +4503,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, effectType: 0x05, effectParam: 0x02),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4522,7 +4531,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, note: 65, instrument: 1, effectType: 0x05, effectParam: 0x01),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4548,7 +4557,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 61, instrument: 1, volumeColumn: 0x30, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x2F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -4581,7 +4590,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x02),
                 makePlaybackRow(index: 3),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -4621,7 +4630,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 73, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, volumeColumn: 0xF4),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4647,7 +4656,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, note: 65, instrument: 1, volumeColumn: 0xF4),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4671,7 +4680,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, volumeColumn: 0xF4),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4693,7 +4702,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, volumeColumn: 0xF4),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
         let noSpeedSong = makePlaybackSong(
@@ -4703,7 +4712,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x00),
                 makePlaybackRow(index: 2, volumeColumn: 0xF0),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -4735,7 +4744,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 2, volumeColumn: 0xF4),
                 makePlaybackRow(index: 3),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -4766,7 +4775,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [row]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -4794,7 +4803,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0x64, effectType: 0x09, effectParam: 0x01)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -4821,7 +4830,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -4848,7 +4857,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 97)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -4872,12 +4881,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let otherEffectSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x22, effectParam: 0x42)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
@@ -4949,7 +4958,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -4986,7 +4995,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD0)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5100,7 +5109,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -5133,7 +5142,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC2)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5166,7 +5175,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, effectType: 0x0F, effectParam: 0x03),
                 makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC2)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5218,7 +5227,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC2)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -5246,7 +5255,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC2)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5271,7 +5280,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC1)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5297,7 +5306,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x92)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5335,7 +5344,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, effectType: 0x0F, effectParam: 0x03),
                 makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x92)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5365,7 +5374,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x92)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -5455,7 +5464,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 stateRow,
                 makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x91)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -5489,7 +5498,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01),
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x91)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -5515,7 +5524,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x92)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5544,7 +5553,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x91)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -5811,7 +5820,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x34)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -5842,12 +5851,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let disabledEnvelopeSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: disabledEnvelope)]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: disabledEnvelope, noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
@@ -5869,14 +5878,14 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)
+                1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))
             ],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
@@ -5916,7 +5925,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1, 1, 1, 1])], volumeEnvelope: envelope)
+                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1, 1, 1, 1])], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))
             ],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
@@ -5944,7 +5953,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(
                     index: 1,
                     samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 10), baseSampleRate: 100)],
-                    volumeEnvelope: envelope
+                    volumeEnvelope: envelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
@@ -5972,7 +5982,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1, 1, 1, 1])], volumeEnvelope: envelope)
+                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1, 1, 1, 1])], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))
             ],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
@@ -5994,12 +6004,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let invalidEnvelopeSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: invalidEnvelope)]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: invalidEnvelope, noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
@@ -6023,7 +6033,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x03)]
             ],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1])], volumeEnvelope: envelope)
+                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1])], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))
             ],
             initialTiming: PlaybackTiming(speed: 6, bpm: 125)
         )
@@ -6056,7 +6066,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1])], volumeEnvelope: envelope)
+                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1])], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))
             ]
         )
 
@@ -6096,7 +6106,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(
                     index: 1,
                     samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 6), baseSampleRate: 100)],
-                    volumeEnvelope: envelope
+                    volumeEnvelope: envelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -6133,7 +6144,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(
                     index: 1,
                     samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 6), baseSampleRate: 100)],
-                    volumeEnvelope: envelope
+                    volumeEnvelope: envelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -6172,7 +6184,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(
                     index: 1,
                     samples: [makePlaybackSample(pcm: [1, 1, 1], baseSampleRate: 100)],
-                    volumeEnvelope: envelope
+                    volumeEnvelope: envelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -6215,7 +6228,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(
                     index: 1,
                     samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 4), baseSampleRate: 100)],
-                    volumeEnvelope: envelope
+                    volumeEnvelope: envelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -6253,7 +6267,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(
                     index: 1,
                     samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 6), baseSampleRate: 100)],
-                    volumeEnvelope: envelope
+                    volumeEnvelope: envelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -6287,7 +6302,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(
                     index: 1,
                     samples: [makePlaybackSample(pcm: samplePCM, baseSampleRate: 100)],
-                    volumeEnvelope: volumeEnvelope
+                    volumeEnvelope: volumeEnvelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: speed, bpm: bpm)
@@ -6309,7 +6325,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(
                     index: 1,
                     samples: [makePlaybackSample(pcm: samplePCM, baseSampleRate: 100)],
-                    volumeEnvelope: volumeEnvelope
+                    volumeEnvelope: volumeEnvelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -6438,7 +6455,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 1: PlaybackInstrument(
                     index: 1,
                     samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 6), baseSampleRate: 100)],
-                    volumeEnvelope: envelope
+                    volumeEnvelope: envelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
@@ -6484,7 +6502,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             song: makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [forwardSample], volumeEnvelope: envelope)],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [forwardSample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
                 initialTiming: PlaybackTiming(speed: 1, bpm: 250)
             ),
             orderIndex: 0,
@@ -6495,7 +6513,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             song: makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [pingPongSample], volumeEnvelope: envelope)],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [pingPongSample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
                 initialTiming: PlaybackTiming(speed: 1, bpm: 250)
             ),
             orderIndex: 0,
@@ -6514,7 +6532,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -6535,12 +6553,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let volumeSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
@@ -6566,12 +6584,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let zeroSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x10)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let fullSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x50)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
@@ -6596,17 +6614,17 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let centerSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let leftSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xC0)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let rightSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xCF)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 2)
@@ -6637,7 +6655,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -6660,7 +6678,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30)]],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)
+                1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))
             ]
         )
 
@@ -6682,7 +6700,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1, volumeColumn: 0x30)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -6703,7 +6721,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
@@ -6717,7 +6735,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             let song = makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: rawValue)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             )
             let result = renderer.render(PlaybackSongOfflineRenderRequest(song: song, orderIndex: 0, config: config, frames: 3))
             let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
@@ -6736,12 +6754,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let baselineSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let slideSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x64)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
@@ -6775,7 +6793,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0x74)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -6805,7 +6823,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let fineDown = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x88)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let fineUp = makePlaybackSong(
             orderPatternIndices: [2],
@@ -6815,7 +6833,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0x98)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [quiet])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [quiet], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let clampDown = makePlaybackSong(
@@ -6826,13 +6844,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0x8F)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [quieter])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [quieter], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let clampUp = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x9F)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer()
         let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
@@ -6865,7 +6883,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         for column: UInt8 in [0xDF, 0xEF] {
             let song = makePlaybackSong(orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: column)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
                 initialTiming: PlaybackTiming(speed: 6, bpm: 125))
             let result = PlaybackSongOfflineRenderer().render(.init(song: song,
                 config: .init(sampleRate: 48_000, channelCount: 2), frames: 5_760))
@@ -6893,7 +6911,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 61, instrument: 1, volumeColumn: 0x64)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
 
@@ -6960,7 +6978,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x15, effectParam: 0x02),
                 makePlaybackRow(index: 2),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -7001,7 +7019,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x15, effectParam: 0xFF),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -7036,7 +7054,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x15, effectParam: 0x01),
                 makePlaybackRow(index: 2),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -7075,7 +7093,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x15, effectParam: 0x02),
                 makePlaybackRow(index: 1),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -7116,7 +7134,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 2),
                 makePlaybackRow(index: 3),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -7146,7 +7164,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0x64)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -7184,7 +7202,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -7221,7 +7239,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -7255,7 +7273,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -7299,7 +7317,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 53, instrument: 1),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -7333,7 +7351,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -7387,7 +7405,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -7436,8 +7454,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 ],
             ],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [firstSample]),
-                2: PlaybackInstrument(index: 2, samples: [secondSample]),
+                1: PlaybackInstrument(index: 1, samples: [firstSample], noteSampleMap: Array(repeating: 0, count: 96)),
+                2: PlaybackInstrument(index: 2, samples: [secondSample], noteSampleMap: Array(repeating: 1, count: 96)),
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
@@ -7480,7 +7498,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x0F),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -7513,7 +7531,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x0F),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -7538,7 +7556,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x11, effectType: 0x0A, effectParam: 0x0F),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -7561,7 +7579,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x4F, effectType: 0x0A, effectParam: 0xF0),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -7585,7 +7603,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x0F),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -7612,7 +7630,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x2F),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -7639,7 +7657,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x00),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -7673,7 +7691,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, effectType: 0x0A, effectParam: 0x00),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -7711,7 +7729,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -7744,7 +7762,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 52, instrument: 1, effectType: 0x0A, effectParam: 0x00),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -7776,7 +7794,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x00),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -7811,7 +7829,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 3),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -7843,7 +7861,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let panSong = makePlaybackSong(
@@ -7855,7 +7873,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let renderer = PlaybackSongOfflineRenderer()
@@ -7896,7 +7914,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -7925,7 +7943,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -7963,7 +7981,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 49, instrument: 1),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -8011,7 +8029,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 49, instrument: 1),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -8056,7 +8074,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -8091,7 +8109,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 55, instrument: 1),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -8126,7 +8144,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 3)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -8161,7 +8179,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
         let hxySong = makePlaybackSong(
@@ -8173,7 +8191,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let renderer = PlaybackSongOfflineRenderer()
@@ -8218,7 +8236,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 3)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -8255,7 +8273,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -8285,7 +8303,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             let song = makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: rows],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
                 initialTiming: PlaybackTiming(speed: 1, bpm: 250)
             )
             return PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -8331,7 +8349,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -8417,7 +8435,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -8499,7 +8517,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 3: [makePlaybackRow(index: 0, note: 49, instrument: 1)],
                 4: [makePlaybackRow(index: 0, note: 49, instrument: 1)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let outOfRangeSong = makePlaybackSong(
@@ -8508,7 +8526,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 2: [makePlaybackRow(index: 0, effectType: 0x0B, effectParam: 0x7F)],
                 3: [makePlaybackRow(index: 0, note: 49, instrument: 1)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -8645,7 +8663,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
 
@@ -8737,7 +8755,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1)],
                 3: [makePlaybackRow(index: 0, effectType: 0x0B, effectParam: 0x00)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -8769,7 +8787,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(

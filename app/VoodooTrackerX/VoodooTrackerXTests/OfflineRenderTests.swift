@@ -11,7 +11,7 @@ final class OfflineRenderTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x00, effectParam: 0x37),
                 makePlaybackRow(index: 2),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -61,7 +61,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [7],
             patternRowsByIndex: [7: [row]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -94,7 +94,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: 3)
         let request = PlaybackSongOfflineRenderRequest(
@@ -122,7 +122,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [row]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -148,7 +148,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [row]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -182,7 +182,7 @@ final class OfflineRenderTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -221,7 +221,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -417,7 +417,7 @@ final class OfflineRenderTests: XCTestCase {
                 makePlaybackRow(index: 2),
                 makePlaybackRow(index: 3)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -446,7 +446,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -487,7 +487,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -616,7 +616,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -662,7 +662,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -701,7 +701,7 @@ final class OfflineRenderTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -725,7 +725,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -756,7 +756,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -790,7 +790,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -816,7 +816,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -849,7 +849,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -886,7 +886,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -917,7 +917,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -950,8 +950,8 @@ final class OfflineRenderTests: XCTestCase {
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, samples: [firstSample]),
-                2: PlaybackInstrument(index: 2, samples: [replacementSample])
+                1: PlaybackInstrument(index: 1, samples: [firstSample], noteSampleMap: Array(repeating: 0, count: 96)),
+                2: PlaybackInstrument(index: 2, samples: [replacementSample], noteSampleMap: Array(repeating: 0, count: 96))
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
@@ -987,7 +987,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1018,7 +1018,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1044,7 +1044,7 @@ final class OfflineRenderTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1070,7 +1070,7 @@ final class OfflineRenderTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let renderer = PlaybackSongOfflineRenderer()
@@ -1094,7 +1094,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let request = PlaybackSongOfflineRenderRequest(
             song: song,
@@ -1121,7 +1121,7 @@ final class OfflineRenderTests: XCTestCase {
             song: makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [forwardSample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [forwardSample], noteSampleMap: Array(repeating: 0, count: 96))]
             ),
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
@@ -1131,7 +1131,7 @@ final class OfflineRenderTests: XCTestCase {
             song: makePlaybackSong(
                 orderPatternIndices: [2],
                 patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [pingPongSample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [pingPongSample], noteSampleMap: Array(repeating: 0, count: 96))]
             ),
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
@@ -1149,7 +1149,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -1185,7 +1185,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [32],
             patternRowsByIndex: [32: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 125),
             usesLinearFrequencyTable: false
         )
@@ -1230,7 +1230,7 @@ final class OfflineRenderTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0xC0),
                 makePlaybackRow(index: 2)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1261,7 +1261,7 @@ final class OfflineRenderTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2),
                 makePlaybackRow(index: 1)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1290,7 +1290,7 @@ final class OfflineRenderTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x91)
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1467,7 +1467,7 @@ final class OfflineRenderTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 250)
         )
         let request = PlaybackSongOfflineRenderRequest(
@@ -1503,7 +1503,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let request = PlaybackSongOfflineRenderRequest(
             song: song,
@@ -1534,7 +1534,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let request = PlaybackSongOfflineRenderRequest(
             song: song,
@@ -1583,7 +1583,7 @@ final class OfflineRenderTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [loopingSample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [loopingSample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
         return PlaybackSongOfflineRenderRequest(

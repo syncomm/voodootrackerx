@@ -592,9 +592,12 @@ and normalization details.
   [Policy B correction](xm-effect-support.md#absent-keymap-compatibility-gap) is
   CLOSED on this branch after local qualification; acceptance requires submitted
   native CI and Gregory's review/merge. No read-only fallback exception is
-  approved. The separate `VTX-J-002` Clear Song Data bridge can carry nil-plus-PCM
-  into editable state; its admission and the writer's nil-to-S01 conversion
-  remain [open boundary concerns](design/editable-document-save-export-model.md#export-xm).
+  approved. The bounded `VTX-J-002` Clear Song Data admission contract is CLOSED:
+  a retained nil-map/PCM instrument blocks the whole loaded bridge at availability,
+  confirmation and factory boundaries. Exact sparse palettes and retained neutral
+  instruments remain supported. The writer's nil-to-S01 conversion remains a
+  [separate open release blocker](design/editable-document-save-export-model.md#export-xm)
+  owned by Gregory.
 - Sample import accepts the currently supported WAV/WAVE, AIFF/AIF, AIFC, and
   native FLAC subset through one validation/decode/normalization path. A
   successful import owns canonical mono 16-bit PCM in the document, retains no

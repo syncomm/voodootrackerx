@@ -23,8 +23,9 @@ commit-list truncation limits require full qualification. Unknowns never expand
 the allowlist. JSON records event, source SHA, reason, completeness, count and paths.
 
 The native helper requires 103 app ASan / 69 package ASan /
-1,908 optimized app / 979 optimized package cases and four expected traps. The
-package count includes the four ordinary absent-keymap regressions; the same
+1,913 optimized app / 979 optimized package cases and four expected traps. The app
+count includes the five Clear Song Data admission regressions; the package count
+includes the four ordinary absent-keymap regressions. The same
 source, sanitizer, process/image/options, progress/retirement and trap assertions
 remain required. `pipefail` preserves native failures while retaining `native.log`.
 Evidence upload uses `always()`, including source and classification receipts.

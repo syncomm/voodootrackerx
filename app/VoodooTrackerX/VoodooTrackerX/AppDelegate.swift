@@ -1750,7 +1750,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return SongOrderEditorDisplayState.loadedModule(
                 metadata: loadedMetadata,
                 selectedOrderPosition: selectedSongPositionIndex,
-                currentPatternIndex: currentPatternIndex
+                currentPatternIndex: currentPatternIndex,
+                isClearSongEnabled: clearSongDataCoordinator.canBegin
             )
         }
         return .empty
@@ -1866,7 +1867,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     playbackSong: playbackSong,
                     selection: loadedModuleSelection,
                     sourcePatternIndex: currentPatternIndex,
-                    bridgeEligible: loadedModuleCanMakeEditableCopy()
+                    bridgeEligible: loadedModuleCanClearSongData()
                 ),
                 isPlaybackActive: playbackEngine.state.isPlaying,
                 hasConflictingDocumentPresentation: hasConflict
@@ -3501,15 +3502,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return blankDocument?.selection ?? .default
     }
 
-    private func loadedModuleCanMakeEditableCopy() -> Bool {
+    private func loadedModuleCanClearSongData() -> Bool {
         guard blankDocument == nil,
               loadedMetadata != nil,
               let song = playbackEngine.song else {
             return false
         }
-        return song.instrumentsByIndex.values.contains { instrument in
-            instrument.samples.contains { !$0.pcm.isEmpty }
-        }
+        return BlankTrackerDocument.canMakeEditableCopyClearingSongData(
+            instrumentPalette: song.instrumentsByIndex
+        )
     }
 
     private func clampedLoadedModuleSelection(

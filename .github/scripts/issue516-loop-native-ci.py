@@ -16,6 +16,9 @@ import subprocess
 import tempfile
 import time
 
+# Full optimized app suite, including five Clear Song Data admission regressions.
+APP_RELEASE_COUNT = 1913
+
 # Full optimized suite, including the four ordinary absent-keymap regressions.
 PACKAGE_RELEASE_COUNT = 979
 
@@ -684,7 +687,7 @@ def main():
         '-resultBundlePath', str(result), 'test'])
     release_compiler(text, 'VoodooTrackerX', True)
     image('build/Build/Products/Release/VoodooTrackerXTests.xctest/Contents/MacOS/VoodooTrackerXTests', False)
-    result_cases(result, 1908)
+    result_cases(result, APP_RELEASE_COUNT)
     build = run('package-release-build', ['swift', 'build', '--build-tests', '-c', 'release',
         '--disable-code-coverage', '-v', '-Xswiftc', '-enable-testing'])
     release_compiler(build, 'VoodooTrackerXPlaybackSupport', False)
@@ -723,7 +726,7 @@ def main():
     require(output(['git', 'rev-parse', 'HEAD']) == head and
             output(['git', 'status', '--porcelain=v1', '-uall']) == '', 'source changed during qualification')
     emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 103, 'packageASan': 69,
-          'optimizedAppRelease': 1908, 'optimizedPackageRelease': PACKAGE_RELEASE_COUNT, 'expectedReleaseTraps': 4,
+          'optimizedAppRelease': APP_RELEASE_COUNT, 'optimizedPackageRelease': PACKAGE_RELEASE_COUNT, 'expectedReleaseTraps': 4,
           'failed': 0, 'skipped': 0})
 
 

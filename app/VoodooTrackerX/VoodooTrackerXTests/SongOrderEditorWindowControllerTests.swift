@@ -342,7 +342,8 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
                     finetune: 0,
                     baseSampleRate: 8_363
                 )
-            ]
+            ],
+            noteSampleMap: Array(repeating: 0, count: 96)
         )
         let playbackSong = PlaybackSong(
             title: "Synthetic",
@@ -2989,7 +2990,7 @@ private func makeClearSongEditableDocument() -> BlankTrackerDocument {
         volume: 1,
         baseSampleRate: 8_363
     )
-    let instrument = PlaybackInstrument(index: 2, name: "Lead", samples: [sample])
+    let instrument = PlaybackInstrument(index: 2, name: "Lead", samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))
     var firstPattern = makePattern(index: 0, rowCount: 16, channels: 2)
     var secondPattern = makePattern(index: 1, rowCount: 32, channels: 3)
     firstPattern.rows[0][0] = XMPatternEventCell(

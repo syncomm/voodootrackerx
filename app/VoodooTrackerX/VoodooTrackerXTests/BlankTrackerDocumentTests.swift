@@ -1,5 +1,289 @@
+import AppKit
 import CryptoKit
 import XCTest
+
+@MainActor
+final class ClearSongDataAdmissionTests: XCTestCase {
+    func testLoadedNilPCMAndMixedPalettesAreRefusedAtFactoryAndConfirmation() throws {
+        for volume: UInt8 in [0, 32] { for headers in [[33], [128], [263, 33]] {
+            let loaded = try fixture(headers, volume: volume)
+            let before = loaded.song
+            XCTAssertTrue(before.instrumentsByIndex.values.contains {
+                $0.noteSampleMap == nil && $0.samples.contains { !$0.pcm.isEmpty }
+            })
+            XCTAssertNil(copy(loaded))
+            let context = context(loaded)
+            var commits = 0
+            let coordinator = ClearSongDataCoordinator(
+                contextProvider: { context }, commitHandler: { _ in commits += 1; return true }
+            )
+            XCTAssertFalse(coordinator.canBegin)
+            XCTAssertNil(coordinator.begin())
+            XCTAssertFalse(target(loaded).isCurrent(in: context))
+            XCTAssertEqual(commits, 0)
+            XCTAssertEqual(loaded.song, before)
+            XCTAssertEqual(try Data(contentsOf: loaded.url), loaded.bytes)
+        } }
+    }
+
+    func testExactSparsePCMAndRetainedNeutralInstrumentsKeepExistingBridgeEligibility() throws {
+        for flags in [0, 1] { for headers in [[263], [263, 29]] {
+            let loaded = try fixture(headers, flags: flags)
+            let document = try XCTUnwrap(copy(loaded))
+            XCTAssertTrue(BlankTrackerDocument.canMakeEditableCopyClearingSongData(
+                instrumentPalette: loaded.song.instrumentsByIndex))
+            XCTAssertEqual(document.instrumentPalette, loaded.song.instrumentsByIndex)
+            XCTAssertEqual(document.selection, loaded.selection)
+            XCTAssertEqual(document.orderTable, [0])
+            XCTAssertEqual(document.pattern.rowCount, 4)
+            XCTAssertTrue(document.pattern.rows.allSatisfy { $0.allSatisfy { $0 == .empty } })
+            let instrument = try XCTUnwrap(document.instrumentPalette[1])
+            XCTAssertEqual(instrument.samples.map(\.sampleIndex), [0, 2])
+            XCTAssertNotEqual(instrument.samples[0].pcm, instrument.samples[1].pcm)
+            XCTAssertEqual([1, 2, 49, 96].map { instrument.mappedSampleIndex(forNote: UInt8($0)) }, [0, 1, 2, 5])
+            if headers.count == 2 {
+                XCTAssertEqual(document.instrumentPalette[2]?.samples, [])
+                XCTAssertNil(document.instrumentPalette[2]?.noteSampleMap)
+            }
+        } }
+        let neutral = try fixture([29])
+        XCTAssertNil(copy(neutral), "A safe neutral instrument alone does not satisfy the existing PCM requirement")
+        XCTAssertEqual(BlankTrackerDocument.makeDefault().instrumentPalette[1]?.samples, [])
+        XCTAssertNil(BlankTrackerDocument.makeDefault().instrumentPalette[1]?.noteSampleMap)
+    }
+
+    func testMenuAndSongOrderEntriesAgreeOnAdmissionCancelFailureAndFreshConfirmation() throws {
+        _ = NSApplication.shared
+        for headers in [[33], [128], [263, 33], [29], [263], [263, 29]] {
+            for useMenu in [true, false] {
+                let loaded = try fixture(headers), snapshot = context(loaded)
+                let eligible = headers == [263] || headers == [263, 29]
+                var document: BlankTrackerDocument?, allowCommit = false, commits = 0, revision = 0
+                let edits = EditableDocumentEditCoordinator(contextProvider: {
+                    document.map { .editable(document: $0, isPlaybackActive: false) } ?? .loadedReadOnly
+                }, documentApplyHandler: { document = $0; revision += 1 })
+                let coordinator = ClearSongDataCoordinator(contextProvider: { snapshot }, commitHandler: { target in
+                    commits += 1
+                    guard allowCommit,
+                          case let .loadedReadOnly(_, metadata, song, selection, pattern) = target else { return false }
+                    document = BlankTrackerDocument.makeEditableCopyClearingSongData(
+                        from: metadata, playbackSong: song, selection: selection, sourcePatternIndex: pattern)
+                    return document != nil
+                })
+                let menuTarget = ClearSongAdmissionMenuTarget(coordinator)
+                let menu = ApplicationMenuBuilder.build(target: menuTarget).mainMenu
+                let editMenu = try XCTUnwrap(menu.item(withTitle: "Edit")?.submenu)
+                let menuItem = try XCTUnwrap(editMenu.item(withTitle: "Clear Song Data"))
+                let controller = SongOrderEditorWindowController(displayState: .loadedModule(
+                    metadata: loaded.metadata, selectedOrderPosition: 0, currentPatternIndex: 0,
+                    isClearSongEnabled: coordinator.canBegin))
+                controller.showWindow(nil)
+                defer { controller.close() }
+                let view = try XCTUnwrap(controller.window?.contentView)
+                XCTAssertEqual((view as? SongOrderEditorContentView)?.displayState.isClearSongEnabled, eligible)
+                controller.onClearSongRequested = { menuTarget.clearSongData(nil) }
+                func refresh() {
+                    editMenu.update()
+                    controller.applyClearSongAvailability(coordinator.canBegin)
+                }
+                func descendants(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(descendants) }
+                refresh()
+                func clearButton() throws -> NSButton {
+                    try XCTUnwrap(descendants(view).compactMap { $0 as? NSButton }
+                        .first { $0.title == "⌫ CLEAR SONG" })
+                }
+                XCTAssertEqual(menuItem.isEnabled, eligible)
+                XCTAssertEqual(try clearButton().isEnabled, eligible)
+                func request() throws {
+                    if useMenu {
+                        if menuItem.isEnabled { _ = NSApp.sendAction(menuItem.action!, to: menuTarget, from: menuItem) }
+                    } else { try clearButton().performClick(nil) }
+                }
+                try request()
+                XCTAssertEqual(menuTarget.request != nil, eligible)
+                if let first = menuTarget.request {
+                    XCTAssertEqual(first.kind, .loadedReadOnlyModule)
+                    refresh()
+                    XCTAssertFalse(menuItem.isEnabled)
+                    XCTAssertFalse(try clearButton().isEnabled)
+                    XCTAssertTrue(coordinator.cancel(operationToken: first.operationToken))
+                    XCTAssertNil(document)
+                    XCTAssertEqual(commits, 0)
+                    refresh(); try request()
+                    let rejected = try XCTUnwrap(menuTarget.request)
+                    XCTAssertFalse(coordinator.confirm(operationToken: rejected.operationToken))
+                    XCTAssertNil(document)
+                    XCTAssertFalse(coordinator.isActive)
+                    allowCommit = true
+                    refresh(); try request()
+                    let accepted = try XCTUnwrap(menuTarget.request)
+                    XCTAssertTrue(coordinator.confirm(operationToken: accepted.operationToken))
+                    XCTAssertFalse(coordinator.confirm(operationToken: accepted.operationToken))
+                    XCTAssertEqual(document, copy(loaded))
+                    XCTAssertEqual(commits, 2)
+                } else {
+                    XCTAssertNil(coordinator.begin())
+                    XCTAssertFalse(coordinator.confirm(operationToken: UUID()))
+                    XCTAssertNil(document)
+                    XCTAssertEqual(commits, 0)
+                }
+                XCTAssertFalse(edits.clearSongData(), "Read-only refusal or an already-cleared value creates no edit")
+                XCTAssertEqual(revision, 0)
+                XCTAssertFalse(edits.undoManager.canUndo)
+                XCTAssertFalse(edits.undoManager.canRedo)
+                XCTAssertEqual(context(loaded), snapshot)
+                XCTAssertEqual(try Data(contentsOf: loaded.url), loaded.bytes)
+            }
+        }
+    }
+
+    func testPendingConfirmationRevalidatesNilPCMMixedPlaybackAndPresentationChanges() throws {
+        let loaded = try fixture([263]), baseline = context(loaded)
+        let invalid = [try context(fixture([33])), try context(fixture([128])),
+            try context(fixture([263, 33])), context(loaded, playing: true),
+            context(loaded, conflict: true), context(loaded, bridgeEligible: false)]
+        for replacement in invalid {
+            var current = baseline, commits = 0
+            let coordinator = ClearSongDataCoordinator(contextProvider: { current },
+                commitHandler: { _ in commits += 1; return true })
+            let request = try XCTUnwrap(coordinator.begin())
+            current = replacement
+            XCTAssertFalse(coordinator.confirm(operationToken: request.operationToken))
+            XCTAssertFalse(coordinator.isActive)
+            XCTAssertFalse(target(loaded).isCurrent(in: replacement))
+            XCTAssertEqual(commits, 0)
+        }
+    }
+
+    func testClearedExactSparsePaletteExportsAndReopensWithIdenticalPCMSelection() throws {
+        let loaded = try fixture([263, 29])
+        let document = try XCTUnwrap(copy(loaded))
+        let url = loaded.url.deletingLastPathComponent().appendingPathComponent("cleared-export.xm")
+        try EditableXMWriter().data(from: document).write(to: url, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let reopened = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        XCTAssertEqual(reopened.instrumentsByIndex, loaded.song.instrumentsByIndex)
+        XCTAssertTrue(metadata.xmPatterns[0].rows.allSatisfy { $0.allSatisfy { $0 == .empty } })
+        for note: UInt8 in [1, 2, 49, 96] { for rate in [44_100.0, 48_000] {
+            let probes = [loaded.song.instrumentsByIndex, document.instrumentPalette, reopened.instrumentsByIndex].map {
+                makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 1],
+                    instrumentsByIndex: $0, note: note, instrument: 1)
+            }
+            let rendered = probes.map { PlaybackSongOfflineRenderer().render(.init(
+                song: $0, config: .init(sampleRate: rate), rows: 1)) }
+            XCTAssertEqual(rendered[0].block.interleavedPCM, rendered[1].block.interleavedPCM)
+            XCTAssertEqual(rendered[0].block.interleavedPCM, rendered[2].block.interleavedPCM)
+            let index = note == 1 ? 0 : 2
+            if note == 1 || note == 49 {
+                XCTAssertEqual(rendered[0].plan.diagnostics.eventMappings.map(\.sampleIndex), [index])
+                XCTAssertEqual(rendered[0].plan.pattern.events.first?.sample.monoPCM,
+                    loaded.song.instrumentsByIndex[1]?.sample(mappedSampleIndex: index)?.pcm)
+                XCTAssertTrue(rendered[0].block.interleavedPCM.contains { note == 1 ? $0 > 0 : $0 < 0 })
+            } else {
+                XCTAssertTrue(rendered[0].plan.pattern.events.isEmpty)
+                XCTAssertTrue(rendered[0].block.interleavedPCM.allSatisfy { $0 == 0 })
+            }
+        } }
+        XCTAssertEqual(try Data(contentsOf: loaded.url), loaded.bytes)
+    }
+
+    private struct Loaded {
+        let identity = UUID()
+        let url: URL
+        let bytes: Data
+        let metadata: ParsedModuleMetadata
+        let song: PlaybackSong
+        let selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 3)
+    }
+
+    private func copy(_ loaded: Loaded) -> BlankTrackerDocument? {
+        BlankTrackerDocument.makeEditableCopyClearingSongData(
+            from: loaded.metadata, playbackSong: loaded.song, selection: loaded.selection
+        )
+    }
+
+    private func context(_ loaded: Loaded, playing: Bool = false, conflict: Bool = false,
+                         bridgeEligible: Bool = true) -> ClearSongDataContext {
+        .init(source: .loadedReadOnly(
+            moduleIdentity: loaded.identity, metadata: loaded.metadata, playbackSong: loaded.song,
+            selection: loaded.selection, sourcePatternIndex: 0, bridgeEligible: bridgeEligible
+        ), isPlaybackActive: playing, hasConflictingDocumentPresentation: conflict)
+    }
+
+    private func target(_ loaded: Loaded) -> ClearSongDataCommitTarget {
+        .loadedReadOnly(moduleIdentity: loaded.identity, metadata: loaded.metadata,
+            playbackSong: loaded.song, selection: loaded.selection, sourcePatternIndex: 0)
+    }
+
+    // Public recipe v1: two distinct signed 8-bit PCM slots (S01/S03), canonical
+    // empty S02, and exact routes to both PCM slots, empty S02 and missing S06.
+    // Short/partial headers deliberately omit the complete 96-note routing map.
+    // Regenerate from the repo root with:
+    // xcodebuild -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj -scheme VoodooTrackerX \
+    //   -configuration Debug -destination 'platform=macOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+    //   -only-testing:VoodooTrackerXTests/ClearSongDataAdmissionTests test
+    private func fixture(_ headers: [Int], flags: Int = 1, volume: UInt8 = 32) throws -> Loaded {
+        var bytes = [UInt8](repeating: 0, count: 336)
+        func put(_ value: Int, at offset: Int, count: Int) {
+            for i in 0..<count { bytes[offset + i] = UInt8(truncatingIfNeeded: value >> (8 * i)) }
+        }
+        bytes.replaceSubrange(0..<17, with: Array("Extended Module: ".utf8))
+        bytes[37] = 0x1A; put(0x0104, at: 58, count: 2); put(276, at: 60, count: 4)
+        for (offset, value) in [(64, 1), (68, 1), (70, 1), (72, headers.count), (74, flags), (76, 6), (78, 125)] {
+            put(value, at: offset, count: 2)
+        }
+        bytes += [9, 0, 0, 0, 0, 4, 0, 20, 0]
+        for note: UInt8 in [49, 1, 2, 96] { bytes += [note, 1, 0, 0, 0] }
+        for size in headers {
+            let start = bytes.count
+            bytes += Array(repeating: 0, count: size)
+            put(size, at: start, count: 4)
+            guard size > 29 else { continue } // A retained neutral sampleless instrument.
+            put(3, at: start + 27, count: 2); put(40, at: start + 29, count: 4)
+            if size >= 129 {
+                for note in 0..<96 { bytes[start + 33 + note] = note >= 48 ? 2 : 0 }
+                bytes[start + 34] = 1; bytes[start + 128] = 5
+            }
+            for slot in 0..<3 {
+                let header = bytes.count
+                bytes += Array(repeating: 0, count: 40)
+                if slot == 1 { continue }
+                put(256, at: header, count: 4); put(256, at: header + 8, count: 4)
+                bytes[header + 12] = volume; bytes[header + 14] = 1; bytes[header + 15] = 128
+                bytes[header + 18] = slot == 0 ? 65 : 67
+            }
+            for value: UInt8 in [16, 224] { bytes += [value] + Array(repeating: 0, count: 255) }
+        }
+        let directory = URL(fileURLWithPath: "/private/tmp/vtx-j-002-fixture-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("public-admission-v1.xm"), data = Data(bytes)
+        if flags == 1, volume == 32 {
+            let hashes: [[Int]: String] = [
+                [33]: "c380f3e3a8612289a4c5fabab46c13e155a666f1f4dadced61c9d958d862f8ee",
+                [128]: "7531e3f2769c065d1bc4cb0a2747fd98fabe0b387400d700e97eb2cb24320f19",
+                [263, 33]: "4560dcb3cb929736b90e0765bc44de65794d11eaa5f3e4aaf76a2a6f1545f2c5",
+                [263]: "37391411dc1db3055cdd5ed9b62b6d0b6a2168c16af33902a0169f2e4bdf2781",
+                [263, 29]: "b5e829ba43c7e6b32070a1585f35897a96abe083bd05aa891798b4203c6ea44e",
+                [29]: "cd7e921cf37d85731eb405c8bf3cc852e6434c26322dfc7ed291a876638cbb4d",
+            ]
+            XCTAssertEqual(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), hashes[headers])
+        }
+        try data.write(to: url)
+        let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+        print("VTX_CLEAR_SONG_FIXTURE_V1 headers=\(headers) path=\(url.path) sha256=\(SHA256.hash(data: data))")
+        return Loaded(url: url, bytes: data, metadata: metadata, song: song)
+    }
+}
+
+@MainActor
+private final class ClearSongAdmissionMenuTarget: NSObject, NSMenuItemValidation {
+    let coordinator: ClearSongDataCoordinator
+    var request: ClearSongDataRequest?
+    init(_ coordinator: ClearSongDataCoordinator) { self.coordinator = coordinator }
+    @objc func clearSongData(_ sender: Any?) { request = coordinator.begin() }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { coordinator.canBegin }
+}
 
 final class BlankTrackerDocumentTests: XCTestCase {
     func testDeterministicSineGeneratorPinsRecipeMetadataHashAndC4Planning() throws {
@@ -3421,7 +3705,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowCounts: [2: 16],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, name: "Drums", samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, name: "Drums", samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let beforeMetadata = metadata
         let beforeSong = song
@@ -3473,7 +3757,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [0],
             patternRowCounts: [0: 64],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, name: "MOD Inst", samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, name: "MOD Inst", samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let document = tryUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
@@ -3515,7 +3799,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             orderPatternIndices: [0],
             patternRowCounts: [0: 64],
             instrumentsByIndex: [
-                2: PlaybackInstrument(index: 2, name: "Lead", samples: [firstSample, secondSample])
+                2: PlaybackInstrument(index: 2, name: "Lead", samples: [firstSample, secondSample], noteSampleMap: Array(repeating: 0, count: 96))
             ]
         )
 
@@ -3548,7 +3832,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [0],
             patternRowCounts: [0: 64],
-            instrumentsByIndex: [4: PlaybackInstrument(index: 4, name: "Only", samples: [sample])]
+            instrumentsByIndex: [4: PlaybackInstrument(index: 4, name: "Only", samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let document = tryUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
@@ -3599,7 +3883,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [0],
             patternRowCounts: [0: 64],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         var document = tryUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
             from: metadata,
@@ -3624,7 +3908,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [0],
             patternRowCounts: [0: 64],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         var document = tryUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
             from: metadata,
@@ -3652,7 +3936,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [0],
             patternRowCounts: [0: 64],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let document = tryUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
             from: metadata,
@@ -5081,7 +5365,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             orderPatternIndices: [0],
             patternRowCounts: [0: rowCount],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, name: "Inst A", samples: [firstSample, secondSample])
+                1: PlaybackInstrument(index: 1, name: "Inst A", samples: [firstSample, secondSample], noteSampleMap: Array(repeating: 0, count: 96))
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )

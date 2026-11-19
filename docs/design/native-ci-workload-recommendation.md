@@ -22,10 +22,11 @@ base/head comparison, closing a live-head-away-and-back race. Its 300-file or
 commit-list truncation limits require full qualification. Unknowns never expand
 the allowlist. JSON records event, source SHA, reason, completeness, count and paths.
 
-The existing native helper is unchanged: 103 app ASan / 69 package ASan /
-1,908 optimized app / 975 optimized package cases and four expected traps, with
-the same source, sanitizer, process/image/options, progress/retirement and trap
-assertions. `pipefail` preserves native failures while retaining `native.log`.
+The native helper requires 103 app ASan / 69 package ASan /
+1,908 optimized app / 979 optimized package cases and four expected traps. The
+package count includes the four ordinary absent-keymap regressions; the same
+source, sanitizer, process/image/options, progress/retirement and trap assertions
+remain required. `pipefail` preserves native failures while retaining `native.log`.
 Evidence upload uses `always()`, including source and classification receipts.
 #554 remains an independent open host-progress issue; a relevant failure is never
 converted to a documentation skip.

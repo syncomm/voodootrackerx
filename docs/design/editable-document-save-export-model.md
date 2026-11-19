@@ -83,10 +83,15 @@ value-identical requests create no mutation or history.
 For a loaded read-only module, confirmation truthfully describes the transition
 to an editable document with cleared song data. The loaded source remains
 untouched, and the bridge continues to use
-`BlankTrackerDocument.makeEditableCopyClearingSongData`. The separate
-`VTX-J-002` admission-asymmetry finding remains unresolved; this safety boundary
-does not tighten, relax, or redirect that bridge through the Make Editable Copy
-coordinator.
+`BlankTrackerDocument.makeEditableCopyClearingSongData`. Its shared palette
+admission check requires the existing represented PCM and refuses the entire
+bridge if any retained PCM-bearing instrument has a nil keymap. Menu and Song /
+Order availability, confirmation revalidation, and the final factory use that
+same check. Exact sparse maps and unavailable destinations retain their identities;
+neutral sampleless nil-map instruments may be retained alongside eligible PCM.
+No map synthesis, palette filtering, or Make Editable Copy planner conversion is
+performed. This closes the bounded `VTX-J-002` bridge admission finding; the
+writer's separate nil-map serialization contract remains open under Gregory.
 
 ## From-Scratch Sample Ownership
 
@@ -203,16 +208,15 @@ One synthetic boundary is intentionally characterized rather than redefined here
 with a nil map, `EditableXMWriter` currently accepts the value and writes 96 zero note-map bytes (all notes route to
 S01). Normal reopen therefore materializes an explicit all-S01 map instead of preserving nil, so that input does not
 round-trip as the same canonical editable value. No supported File New/sample mutation or public-fixture loaded-XM ->
-Make Editable Copy workflow produces it. Runtime nil-map fallback, writer behavior, and loaded/read-only semantics are
-unchanged; the reference-sensitive sample reorder transaction and Move UI reject the state before mutation.
+Make Editable Copy workflow produces it. Strict runtime routing refuses absent maps. Writer behavior and loaded/read-only
+ownership are unchanged; the reference-sensitive sample reorder transaction and Move UI reject the state before mutation.
 
-The known `VTX-J-002` [Clear Song Data bridge](#clear-song-data-safety-boundary)
-can also carry a loaded nil-map/PCM palette into editable state despite refusal
-by File > Make Editable Copy. Current nil-to-S01 serialization can therefore
-change sparse source routing on reopen. [Accepted Policy B](../decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
-does not approve fallback, fix or authorize changes to either boundary: bridge
-admission and writer policy remain separate open decisions, preserving the
-existing bridge, writer contract and ADR 014 separation.
+The `VTX-J-002` [Clear Song Data admission check](#clear-song-data-safety-boundary)
+now blocks loaded nil-map/PCM palettes before confirmation and at the factory.
+The writer still accepts independently supplied noncanonical nil-map/PCM values
+and serializes all-S01, potentially changing routing on reopen. That separate
+writer contract remains an open release blocker owned by Gregory; this bridge
+repair neither changes serialization nor redirects admission through ADR 014.
 
 ### Represented-sample Clear and Export XM boundary
 

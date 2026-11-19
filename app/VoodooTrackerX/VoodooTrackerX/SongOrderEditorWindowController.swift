@@ -55,6 +55,9 @@ struct ClearSongDataContext: Equatable {
             bridgeEligible
         ):
             guard let moduleIdentity,
+                  BlankTrackerDocument.canMakeEditableCopyClearingSongData(
+                      instrumentPalette: playbackSong.instrumentsByIndex
+                  ),
                   EditorCommandAvailability.canClearSongData(
                       hasBlankDocument: false,
                       sourceContext: .loadedModule(patternIndex: sourcePatternIndex),
@@ -371,7 +374,8 @@ struct SongOrderEditorDisplayState: Equatable {
         metadata: ParsedModuleMetadata,
         selectedOrderPosition: Int,
         currentPatternIndex: Int,
-        requestedBankIndex: Int? = nil
+        requestedBankIndex: Int? = nil,
+        isClearSongEnabled: Bool = false
     ) -> SongOrderEditorDisplayState {
         let rowCounts = metadata.xmPatterns.reduce(into: [Int: Int]()) { partialResult, pattern in
             partialResult[pattern.index] = pattern.rowCount
@@ -392,7 +396,8 @@ struct SongOrderEditorDisplayState: Equatable {
             currentPatternIndex: currentPatternIndex,
             requestedBankIndex: requestedBankIndex,
             hasDocumentState: true,
-            isOrderMutationEnabled: false
+            isOrderMutationEnabled: false,
+            isClearSongEnabled: isClearSongEnabled
         )
     }
 

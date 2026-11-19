@@ -2,6 +2,7 @@ import contextlib
 import copy
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -95,6 +96,60 @@ class NativePackageReleaseCountTests(unittest.TestCase):
         for text in invalid:
             with self.subTest(text=text[-100:]), self.assertRaises(AssertionError):
                 HELPER.package_cases(text, HELPER.PACKAGE_RELEASE_COUNT)
+
+
+class NativeAppReleaseCountTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="vtx-native-app-count-", dir="/private/tmp")
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.cases = [f"BaselineTests/testCase{i}" for i in range(1908)] + [
+            "ClearSongDataAdmissionTests/" + method for method in [
+                "testClearedExactSparsePaletteExportsAndReopensWithIdenticalPCMSelection",
+                "testExactSparsePCMAndRetainedNeutralInstrumentsKeepExistingBridgeEligibility",
+                "testLoadedNilPCMAndMixedPalettesAreRefusedAtFactoryAndConfirmation",
+                "testMenuAndSongOrderEntriesAgreeOnAdmissionCancelFailureAndFreshConfirmation",
+                "testPendingConfirmationRevalidatesNilPCMMixedPlaybackAndPresentationChanges",
+            ]
+        ]
+        self.summary = dict(totalTestCount=1913, passedTests=1913, failedTests=0,
+                            skippedTests=0, expectedFailures=0)
+        self.tests = {"devices": [{"architecture": "arm64"}], "testNodes": [
+            {"nodeType": "Test Case", "result": "Passed", "nodeIdentifier": case + "()"}
+            for case in self.cases
+        ]}
+
+    def validate(self, summary, tests):
+        with mock.patch.object(HELPER, "root", self.root), \
+                mock.patch.object(HELPER, "output", side_effect=[json.dumps(summary), json.dumps(tests)]):
+            return HELPER.result_cases(self.root / "release-app.xcresult", HELPER.APP_RELEASE_COUNT)
+
+    def test_full_count_includes_all_five_clear_song_admission_cases(self):
+        self.assertEqual(self.validate(self.summary, self.tests), self.cases)
+
+    def test_missing_duplicate_failed_skipped_and_non_native_cases_still_fail_closed(self):
+        invalid = []
+        for missing in [1, 5]:
+            summary, tests = copy.deepcopy(self.summary), copy.deepcopy(self.tests)
+            summary.update(totalTestCount=1913 - missing, passedTests=1913 - missing)
+            tests["testNodes"] = tests["testNodes"][:-missing]
+            invalid.append((summary, tests))
+        duplicate = copy.deepcopy(self.tests)
+        duplicate["testNodes"][-1] = copy.deepcopy(duplicate["testNodes"][-2])
+        extra = copy.deepcopy(self.tests)
+        extra["testNodes"].append(copy.deepcopy(extra["testNodes"][-1]))
+        invalid.extend([(self.summary, duplicate), (self.summary, extra)])
+        for status in ["Failed", "Skipped"]:
+            tests = copy.deepcopy(self.tests)
+            tests["testNodes"][-1]["result"] = status
+            invalid.append((self.summary, tests))
+        wrong_count = dict(self.summary, totalTestCount=1908)
+        non_native = copy.deepcopy(self.tests)
+        non_native["devices"][0]["architecture"] = "x86_64"
+        invalid.extend([(wrong_count, self.tests), (self.summary, non_native)])
+        for summary, tests in invalid:
+            with self.subTest(summary=summary), self.assertRaises(AssertionError):
+                self.validate(summary, tests)
 
 
 class NativeRuntimeProofTests(unittest.TestCase):

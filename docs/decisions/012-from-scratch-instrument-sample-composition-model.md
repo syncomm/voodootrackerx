@@ -458,6 +458,12 @@ not approved repairs. ADR 014's `exact`/`normalized`/`unavailable` planner, load
 source ownership/provenance, direct Sample Editor preview, and existing
 source/cut/reset contracts remain unchanged. See [current routing status](../xm-effect-support.md#absent-keymap-compatibility-gap).
 
+**Bridge admission superseding note:** `VTX-J-002` now refuses the entire loaded
+Clear Song Data transition when any retained instrument has represented PCM and
+nil routing. Availability, confirmation and factory revalidate the same pure
+predicate without synthesizing a map or filtering the palette. This closes only
+bridge admission; writer nil-to-all-S01 serialization remains separately open.
+
 ## Product Surface And Content Policy
 
 The Instrument Editor owns instrument identity, its sample palette, keymap

@@ -213,3 +213,11 @@ existing dense exports do not change, no native VTX format exists, and no stored
 VTX document requires conversion. Compatibility is covered by byte-stability,
 writer/reopen, resolver, atomic export, capacity, provenance classification,
 negative noncanonical-header, and editable-copy/re-export tests.
+
+## Clear Song Data palette admission
+
+The loaded read-only bridge now refuses the whole palette when any retained
+instrument has represented PCM and no keymap. Exact maps, sparse identities and
+retained neutral instruments are unchanged. No parser, XM byte layout, writer,
+normalization profile or stored document changes; no migration is required.
+The writer's independent nil-to-all-S01 behavior remains an open contract.

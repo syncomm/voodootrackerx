@@ -892,13 +892,20 @@ struct BlankTrackerDocument: Equatable {
         )
     }
 
+    /// Preserves the existing PCM requirement while refusing any retained nil-map PCM.
+    static func canMakeEditableCopyClearingSongData(instrumentPalette: [Int: PlaybackInstrument]) -> Bool {
+        hasUsableInstrumentSamplePalette(instrumentPalette) && instrumentPalette.values.allSatisfy {
+            $0.noteSampleMap != nil || $0.samples.allSatisfy { $0.pcm.isEmpty }
+        }
+    }
+
     static func makeEditableCopyClearingSongData(
         from metadata: ParsedModuleMetadata,
         playbackSong: PlaybackSong,
         selection: TrackerEditorSelection,
         sourcePatternIndex: Int = defaultPatternIndex
     ) -> BlankTrackerDocument? {
-        guard hasUsableInstrumentSamplePalette(playbackSong.instrumentsByIndex) else {
+        guard canMakeEditableCopyClearingSongData(instrumentPalette: playbackSong.instrumentsByIndex) else {
             return nil
         }
 

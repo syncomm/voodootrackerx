@@ -3,6 +3,21 @@
 This log records intentional changes to VTX's supported persistence or module
 compatibility boundary. It is not a claim of arbitrary XM round-trip support.
 
+## Policy B ordinary absent-keymap routing
+
+Ordinary explicit-note sources and tone targets now refuse nil keymaps rather
+than selecting the first playable sample. This applies equally to editable value
+snapshots and loaded read-only representations, including short/partial sampled
+XM headers. The exact 96-entry map remains the only admitted route; mapped
+missing/empty identities retain their separate existing behavior. Nil does not
+acquire a mapped-empty cut of a prior voice.
+
+This implements [accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b).
+Loaded bytes, parser behavior, provenance, writer output and editable-copy
+admission are unchanged; no stored-format migration is required. No read-only
+fallback exception is approved. Clear Song Data's nil-plus-PCM bridge and the
+writer's nil-to-S01 serialization remain separate open contracts.
+
 ## Native C playback-head diagnostics
 
 Normal full-plan, finite continuation and explicit user-Loop transport follow use one C-head

@@ -3796,7 +3796,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             speed: 1,
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
@@ -3847,7 +3847,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let loadedSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowCounts: [2: 4],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
         let beforeMetadata = metadata
@@ -3919,7 +3919,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
         var document = makeBlankDocument(
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
@@ -3941,7 +3941,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             speed: 1,
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
         let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
@@ -3985,7 +3985,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             speed: 1,
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
         let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
@@ -4032,7 +4032,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             speed: 1,
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 2)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
         let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
@@ -4259,7 +4259,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             speed: 1,
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
         let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
@@ -4332,7 +4332,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             speed: 1,
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
         let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
         let engine = PlaybackEngine(
@@ -5038,8 +5038,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
             orderPatternIndices: [0],
             patternRowCounts: [0: rowCount],
             instrumentsByIndex: [
-                1: PlaybackInstrument(index: 1, name: "Inst A", samples: [firstSample]),
-                2: PlaybackInstrument(index: 2, name: "Inst B", samples: [secondSample])
+                1: PlaybackInstrument(index: 1, name: "Inst A", samples: [firstSample], noteSampleMap: Array(repeating: 0, count: 96)),
+                2: PlaybackInstrument(index: 2, name: "Inst B", samples: [secondSample], noteSampleMap: Array(repeating: 0, count: 96))
             ],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )

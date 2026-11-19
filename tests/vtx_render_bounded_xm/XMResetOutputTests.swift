@@ -237,7 +237,7 @@ final class XMResetOutputTests: XCTestCase {
         return PlaybackSong(title: "Reset output", orders: [.init(orderIndex: 0, patternIndex: 0)],
             patternsByIndex: [0: .init(index: 0, rows: (0..<8).map { row in
                 .init(index: row, cells: [commands[row] ?? (row == 0 ? cell(note: 49) : cell())])
-            })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: bpm), usesLinearFrequencyTable: true)
     }
 }

@@ -1728,7 +1728,7 @@ final class RuntimeCMixerQueueReferenceTests: XCTestCase {
             makePlaybackRow(index: 0, note: 49, instrument: 1),
             makePlaybackRow(index: 1, effectType: 12, effectParam: 32),
             makePlaybackRow(index: 2, note: 53, instrument: 1)
-        ]], instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 1, bpm: 25))
+        ]], instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 1, bpm: 25))
         let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
         let core = makeCore()
         core.configureAdapterEventSchedule(runtime.events, runtimeFrameOffset: 0)
@@ -2216,7 +2216,7 @@ final class RuntimeCMixerTests: XCTestCase {
             makePlaybackRow(index: 2, note: 97), makePlaybackRow(index: 3, volumeColumn: 0x30, effectType: 8, effectParam: 224),
             makePlaybackRow(index: 4, effectType: 15, effectParam: 250), makePlaybackRow(index: 5, effectType: 15, effectParam: 3),
             makePlaybackRow(index: 6, note: 49, instrument: 1), makePlaybackRow(index: 7)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: .init(speed: 6, bpm: 125))
         for rate in [44_100.0, 48_000] {
             for profile in MixerMixProfile.allCases {
@@ -2276,7 +2276,7 @@ final class RuntimeCMixerTests: XCTestCase {
             makePlaybackRow(index: 0, note: 49, instrument: 1),
             makePlaybackRow(index: 1, volumeColumn: 0x30, effectType: 8, effectParam: 192),
             makePlaybackRow(index: 2, note: 97), makePlaybackRow(index: 3)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 125))
         for profile in MixerMixProfile.allCases {
             let config = MixerRenderConfig(sampleRate: 100, channelCount: 2, mixProfile: profile)
@@ -2533,7 +2533,7 @@ final class RuntimeCMixerTests: XCTestCase {
         return PlaybackSong(title: "Public G06 control", orders: [.init(orderIndex: 0, patternIndex: 0)],
             patternsByIndex: [0: .init(index: 0, rows: (0..<(columnPans ? 16 : 8)).map { row in
                 .init(index: row, cells: [commands[row] ?? .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)])
-            })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: volume, panningEnvelope: pan)],
+            })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: volume, panningEnvelope: pan, noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: true)
     }
 
@@ -2638,7 +2638,7 @@ final class RuntimeCMixerTests: XCTestCase {
         let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
         let song = makePlaybackSong(orderPatternIndices: [0],
             patternRowsByIndex: [0: (0..<40).map { makePlaybackRow(index: $0, note: $0 == 0 ? 49 : 0, instrument: $0 == 0 ? 1 : 0) }],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])], initialTiming: .init(speed: 1, bpm: 250))
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 1, bpm: 250))
         let baseline = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
         let event = SyntheticTrackerEvent(row: 0, scheduledStartFrame: 0, sample: .init(monoPCM: (0..<8).map { Float($0) / 8 }),
             playbackStep: 0.75, loop: .init(mode: .pingPong, startFrame: 1, endFrame: 5),
@@ -2707,7 +2707,7 @@ final class RuntimeCMixerTests: XCTestCase {
         let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: [
             makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2),
             makePlaybackRow(index: 1, effectType: 0x15, effectParam: 1), makePlaybackRow(index: 2)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: .init(speed: 3, bpm: 125))
         var plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
         plan.playbackStateEvents = [.init(activeEventIndex: 0, channelIndex: 0, scheduledFrame: 6,
@@ -2905,7 +2905,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x15, effectParam: 0x02),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -2932,7 +2932,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x5F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
@@ -2959,7 +2959,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x14, effectParam: 0x01),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])], initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
         let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
@@ -2985,7 +2985,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01),
                 makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
@@ -3009,7 +3009,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x20),
                 makePlaybackRow(index: 2, effectType: 0x01, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3035,7 +3035,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x1F),
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x11),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3060,7 +3060,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x2F),
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x21),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3085,7 +3085,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x21, effectParam: 0x1F),
                 makePlaybackRow(index: 1, effectType: 0x21, effectParam: 0x21),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3114,7 +3114,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0xA1),
                 makePlaybackRow(index: 2, effectType: 0x0E, effectParam: 0xB1),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 250)
         )
 
@@ -3143,7 +3143,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x0F),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -3172,7 +3172,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x01),
                 makePlaybackRow(index: 1, note: 52, instrument: 1, effectType: 0x0A, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -3204,7 +3204,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 73, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x02),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3236,7 +3236,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 73, instrument: 1, effectType: 0x03, effectParam: 0x40),
                 makePlaybackRow(index: 2, volumeColumn: 0xF4),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3263,7 +3263,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 1, effectType: 0x05, effectParam: 0x02),
                 makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
 
@@ -3312,7 +3312,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3334,7 +3334,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
                 makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x00),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -3359,7 +3359,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 1, note: 52, instrument: 1, effectType: 0x06, effectParam: 0x02),
                 makePlaybackRow(index: 2, effectType: 0x06, effectParam: 0x01),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
@@ -5139,7 +5139,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 2, effectType: 0x08, effectParam: 0xFF)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 125)
         )
 
@@ -5185,7 +5185,7 @@ final class RuntimeCMixerTests: XCTestCase {
             speed: 1,
             orderTable: [0],
             selection: .default,
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             patterns: [pattern]
         )
         let song = EditablePlaybackSongBuilder.build(from: document)
@@ -5229,7 +5229,7 @@ final class RuntimeCMixerTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         )
 
         let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 44_100)
@@ -5271,7 +5271,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     ])
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
 
@@ -5300,7 +5300,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
 
@@ -5533,7 +5533,7 @@ final class RuntimeCMixerTests: XCTestCase {
             speed: 1,
             orderTable: [0],
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
-            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             patterns: [pattern]
         )
         let song = EditablePlaybackSongBuilder.build(from: document)
@@ -5667,7 +5667,7 @@ final class RuntimeCMixerTests: XCTestCase {
         let loadedSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowCounts: [2: 4],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
         let beforeMetadata = metadata
@@ -5922,7 +5922,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 makePlaybackRow(index: 4, effectType: 0x10, effectParam: 0x20),
                 makePlaybackRow(index: 5, note: 97),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 25)
         )
         let offline = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
@@ -5978,7 +5978,7 @@ final class RuntimeCMixerTests: XCTestCase {
             makePlaybackRow(index: 1),
             makePlaybackRow(index: 2, effectType: 7, effectParam: 0),
             makePlaybackRow(index: 3, effectType: 0x0C, effectParam: 0x20),
-        ]], instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+        ]], instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 25))
         let offline = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
             song: song, config: MixerRenderConfig(sampleRate: 100, channelCount: 1), frames: 240))
@@ -6620,7 +6620,7 @@ final class RuntimeCMixerTests: XCTestCase {
                             PlaybackRow(index: 0, cells: [.init(note: 49, instrument: 1, volumeColumn: 0xA4, effectType: command, effectParam: seed)]),
                             PlaybackRow(index: 1, cells: [.init(note: 0, instrument: 0, volumeColumn: writer == 6 ? 0xB8 : 0, effectType: writer, effectParam: writer == 4 ? 0x48 : 0)]),
                             makePlaybackRow(index: 2, effectType: command, effectParam: parameter)]],
-                            instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+                            instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 6, bpm: 125))
                         let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
                         let boundary = 12 * Int(rate / 50)
                         XCTAssertEqual(runtime.events.filter { $0.scheduledFrame == boundary && $0.categories.contains("step_update") }.count, 1)
@@ -6652,7 +6652,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     PlaybackRow(index: 0, cells: [.init(note: 49, instrument: 1, volumeColumn: 0xA4, effectType: 0, effectParam: 0)]),
                     PlaybackRow(index: 1, cells: [.init(note: 0, instrument: 0, volumeColumn: 0xB8, effectType: 0, effectParam: 0)]),
                     makePlaybackRow(index: 2, effectType: command, effectParam: zero)]],
-                    instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+                    instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 6, bpm: 125))
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
                 XCTAssertFalse(runtime.events.contains { $0.source.rowIndex == 2 && $0.categories.contains("step_update") })
                 let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1), maximumRenderFrames: 4096)
@@ -6685,7 +6685,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 0, note: 49, instrument: 1),
                     makePlaybackRow(index: 1, effectType: 7, effectParam: 0x48),
                     makePlaybackRow(index: 2, effectType: 14, effectParam: zero)]],
-                    instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+                    instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 6, bpm: 125))
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
                 let core = RuntimeCMixerRenderCore(config: .init(sampleRate: rate, channelCount: 1), maximumRenderFrames: 4096)
                 core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
@@ -6721,7 +6721,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, note: target, effectType: 3, effectParam: speed),
                     makePlaybackRow(index: 2, effectType: 7, effectParam: 0x48),
                     makePlaybackRow(index: 3, effectType: 5)]],
-                    instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125))
+                    instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 6, bpm: 125))
                 let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
                 XCTAssertFalse(runtime.events.contains { event in
                     if case .gainPanUpdate = event.action { return event.source.rowIndex == 3 }; return false
@@ -7045,7 +7045,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     relativeNote: 0,finetune: 0,baseSampleRate: 8363,loopStart: 0,loopLength: 256,loopType: 1)
                 let rows = [[c(12,64,note: 49,instrument: 1)],[c(3,4,note: 53,volume: 0xCF)],[c(fx,param,note: 61,instrument: 2,volume: volume)]]
                 let song = makePlaybackSong(orderPatternIndices: [0],patternRowsByIndex: [0: rows.enumerated().map { .init(index: $0.offset,cells: $0.element) }],
-                    instrumentsByIndex: [1: .init(index: 1,samples: [source]),2: .init(index: 2,samples: [target])],
+                    instrumentsByIndex: [1: .init(index: 1,samples: [source], noteSampleMap: Array(repeating: 0, count: 96)),2: .init(index: 2,samples: [target], noteSampleMap: Array(repeating: 0, count: 96))],
                     initialTiming: .init(speed: 3,bpm: 125),usesLinearFrequencyTable: linear)
                 for rate in [44_100.0,48_000] {
                     let plan = RuntimeCMixerAdapterEventPlan.make(song: song,sampleRate: rate)
@@ -7244,7 +7244,7 @@ final class RuntimeCMixerTests: XCTestCase {
             makePlaybackRow(index: 0, note: 49, instrument: 1, effectParam: 0x37),
             makePlaybackRow(index: 1, effectParam: 0x73), makePlaybackRow(index: 2, note: 97),
             makePlaybackRow(index: 3, effectParam: 0x01), makePlaybackRow(index: 4)]],
-            instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
         for rate in [44_100.0, 48_000] {
             let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
             let updates = runtime.events.filter { $0.categories.contains("arpeggio_0xy") && $0.categories.contains("step_update") }
@@ -7829,7 +7829,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 patternRowsByIndex: [
                     2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]
                 ],
-                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             ))
 
             let invalidated = try XCTUnwrap(harness.traceWriter.events.first { $0.runtimeAction == "adapter_plan_configured" })
@@ -7995,7 +7995,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1), makePlaybackRow(index: 1)],
                 5: [makePlaybackRow(index: 0), makePlaybackRow(index: 1)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 25)
         ))
         harness.engine.play(from: nil)
@@ -8236,7 +8236,7 @@ final class RuntimeCMixerTests: XCTestCase {
         engine.load(song: makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: nil)
@@ -8283,7 +8283,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         ))
 
@@ -8330,7 +8330,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         ))
 
@@ -8368,7 +8368,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 49, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         ))
 
@@ -8409,7 +8409,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     ])
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         ))
 
@@ -8444,7 +8444,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     ])
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         ))
 
@@ -8515,7 +8515,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, volumeColumn: 0x20)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 3, bpm: 125)
         ))
 
@@ -8549,7 +8549,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, volumeColumn: 0x20)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         ))
 
@@ -8576,7 +8576,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x01, effectParam: 0x02)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 25)
         ))
 
@@ -8606,7 +8606,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 53, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         ))
 
@@ -9496,7 +9496,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
         let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
@@ -10561,7 +10561,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC1)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 2, bpm: 125)
         ))
 
@@ -10617,7 +10617,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 53, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 125)
         ))
 
@@ -10668,7 +10668,7 @@ final class RuntimeCMixerTests: XCTestCase {
                     makePlaybackRow(index: 1, note: 53, instrument: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 125)
         ))
 
@@ -10760,7 +10760,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x09, effectParam: 0x02)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
@@ -10818,7 +10818,7 @@ final class RuntimeCMixerTests: XCTestCase {
         return makePlaybackSong(
             orderPatternIndices: [0],
             patternRowsByIndex: [0: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
     }

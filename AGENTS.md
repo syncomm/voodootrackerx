@@ -221,8 +221,8 @@ governs canonical/editable routing and the read-only compatibility boundary.
   explicit approval, verified input-provenance scope, and observable diagnostics.
   No such exception is approved; legacy fallback grants no permission to
   normalize a loaded map or extend fallback as an assumed policy.
-- Deployed absent-map fallback is an implementation gap, not compliance with
-  this authority. Correct it only through a separately approved, tested change.
+- Any remaining absent-map fallback is an implementation gap, not compliance
+  with this authority. Correct it only through a separately approved, tested change.
 - Editable S01...S16 capacity does not establish a new parser or playback limit
   for loaded read-only modules.
 

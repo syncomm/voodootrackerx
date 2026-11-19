@@ -65,6 +65,38 @@ class NativeOutputCollectionTests(unittest.TestCase):
         self.assertEqual((self.root / "app-asan.stderr.log").read_text(), "original failure\n")
 
 
+class NativePackageReleaseCountTests(unittest.TestCase):
+    def setUp(self):
+        self.cases = [f"BaselineTests/testCase{i}" for i in range(975)] + [
+            "OrdinaryAbsentKeymapTests/" + method for method in [
+                "testExactMapSelectsDistinguishableSparsePCMAndMissingRouteRetainsIdentity",
+                "testLoadedShortAndPartialSampledHeadersRemainUnchangedAndCannotFallback",
+                "testNilPCMAndNeutralRoutesDoNotStartOrCutAtImmediateED0OrED3Dispatch",
+                "testNilToneTargetsPreserveSourceAndExistingSlideWithoutSelectingPCM",
+            ]
+        ]
+
+    def output(self, cases):
+        rows = ["Test Case '-[%s %s]' passed (0.001 seconds)." % tuple(case.split("/"))
+                for case in cases]
+        return "\n".join(rows + [f"Executed {len(cases)} tests, with 0 failures"])
+
+    def test_full_count_includes_all_four_policy_b_regressions(self):
+        self.assertEqual(HELPER.package_cases(self.output(self.cases), HELPER.PACKAGE_RELEASE_COUNT),
+                         self.cases)
+
+    def test_missing_duplicate_failed_or_skipped_cases_still_fail_closed(self):
+        exact = self.output(self.cases)
+        invalid = [self.output(self.cases[:-4]), self.output(self.cases[:-1]),
+                   self.output(self.cases + self.cases[-1:]),
+                   self.output(self.cases[:-1] + self.cases[-2:-1]),
+                   exact.replace("passed", "failed", 1), exact.replace("passed", "skipped", 1),
+                   exact.replace("Executed 979", "Executed 975")]
+        for text in invalid:
+            with self.subTest(text=text[-100:]), self.assertRaises(AssertionError):
+                HELPER.package_cases(text, HELPER.PACKAGE_RELEASE_COUNT)
+
+
 class NativeRuntimeProofTests(unittest.TestCase):
     def setUp(self):
         self.expected = [HELPER.APP[0], HELPER.APP[-1]]

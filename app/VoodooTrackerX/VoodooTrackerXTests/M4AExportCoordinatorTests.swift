@@ -281,7 +281,7 @@ final class M4AExportCoordinatorTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
                 makePlaybackRow(index: 1),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
     }

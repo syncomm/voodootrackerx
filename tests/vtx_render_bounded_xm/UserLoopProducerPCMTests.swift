@@ -311,7 +311,7 @@ final class UserLoopProducerPCMTests: XCTestCase {
             pcm: [0.25, -0.25, 0.125, -0.125], volume: 1, relativeNote: 0, finetune: 0,
             baseSampleRate: 8363, loopStart: 0, loopLength: 4, loopType: 1)
         return .init(title: "Public loop source-continuation regression", orders: [.init(orderIndex: 0, patternIndex: 0)],
-            patternsByIndex: [0: pattern], instrumentsByIndex: [1: .init(index: 1, samples: [sample])],
+            patternsByIndex: [0: pattern], instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 3, bpm: 125),
             usesLinearFrequencyTable: linear)
     }

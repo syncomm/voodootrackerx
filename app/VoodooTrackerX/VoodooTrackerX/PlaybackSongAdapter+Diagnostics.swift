@@ -677,7 +677,7 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func selectSample(forNote note: UInt8, from instrument: PlaybackInstrument,
-        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .firstPlayableSample) -> SampleSelection {
+        missingKeymapPolicy: PlaybackInstrumentMissingKeymapPolicy = .fail) -> SampleSelection {
         let mapPresent = instrument.noteSampleMap != nil
         let mappedSampleIndex = instrument.mappedSampleIndex(forNote: note)
         let mappedSample = mappedSampleIndex.flatMap { instrument.sample(mappedSampleIndex: $0) }

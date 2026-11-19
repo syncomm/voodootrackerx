@@ -1549,8 +1549,7 @@ enum PlaybackSongSyntheticAdapter {
             if hasValidImmediateNoteInstrument, !handlesTonePortamento, !hasRetriggerEffect,
                !(hasKxxKeyOff && cell.effectParam == 0),
                let instrument = song.instrumentsByIndex[Int(cell.instrument)] {
-                explicitTriggerSelection = selectSample(forNote: cell.note, from: instrument,
-                    missingKeymapPolicy: isE90 ? .fail : .firstPlayableSample)
+                explicitTriggerSelection = selectSample(forNote: cell.note, from: instrument)
             } else {
                 explicitTriggerSelection = nil
             }
@@ -2293,8 +2292,8 @@ enum PlaybackSongSyntheticAdapter {
                 context.channelStates[channelIndex] = channelState
                 continue
             }
-            let sampleSelection = explicitTriggerSelection ?? toneTargetSelection ?? selectSample(forNote: cell.note, from: instrument,
-                missingKeymapPolicy: isNoteOnly || isE90 ? .fail : .firstPlayableSample)
+            // Policy B: absent routing cannot select PCM or acquire a mapped-empty cut.
+            let sampleSelection = explicitTriggerSelection ?? toneTargetSelection ?? selectSample(forNote: cell.note, from: instrument)
             guard let sample = sampleSelection.sample else {
                 if selectedEmptyPitch == nil && ordinaryEmptyHeader == nil && !(hasNoteDelayEffect && extendedEffectTick(cell) > 0) {
                     captureSelection(source: source, row: syntheticRow, tick: 0, channel: channelIndex,

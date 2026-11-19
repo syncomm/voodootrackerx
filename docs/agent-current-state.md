@@ -571,29 +571,30 @@ and normalization details.
 - The Instrument Editor's manual `MAP RANGE…` action is the current explicit
   assignment surface. The visible ownership strip is only a projection of the
   canonical map; graphical selection/painting is not implemented.
-- Instrument Editor and tracker audition use the exact keymap. Song playback
-  and product audio export honor present exact maps; ordinary explicit-note
-  adapter paths and some tone targets still request `.firstPlayableSample` when
-  the map is nil. Note-only, E90 and retained-source restart use `.fail`.
-  Ordinary instrument-only cells restore cached defaults without selecting a
-  sample; nonzero instrument-only EDx uses the strict retained-note path.
-  Selected sample remains editing focus; Sample Editor audition alone resolves
-  that represented selection directly. Both mapped and direct preview retain
-  positive-header availability, distinct from song represented-PCM eligibility.
+- Instrument Editor/tracker audition, song playback and product audio export
+  resolve instrument + note through the exact keymap. Ordinary explicit notes,
+  tone targets, note-only, E90 and retained-source restart request strict routing;
+  nil maps create no new PCM source. Ordinary instrument-only cells restore
+  cached defaults without selecting a sample; nonzero instrument-only EDx uses
+  the strict retained-note path. Selected sample remains editing focus; Sample
+  Editor audition alone resolves that represented selection directly. Both
+  preview routes retain positive-header availability, distinct from song
+  represented-PCM eligibility.
 - Exact mapped declared-empty ordinary ED0/in-row EDx cuts the prior source at
   dispatch and applies the header/default/reset state without new PCM or fallback.
   Represented PCM with header volume zero is a different source condition;
   ordinary note+instrument ED0/in-row EDx restores the selected header volume
   at dispatch before an explicit column volume setter. Song gain consumes it
   once, including quiet/zero headers; note-only volume carry stays separate.
-- Noncanonical short/partial loaded XM headers can yield nil maps with PCM.
-  Loader reachability is observed; no read-only fallback exception or abnormal-file
-  FT2 playback semantics is verified. Current fallback is legacy behavior, not a
-  no-fallback gate pass. [Accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b)
-  is binding routing authority; deployed fallback differs, leaving the absent-map
-  implementation/compatibility gap OPEN. The separate `VTX-J-002`
-  Clear Song Data bridge can carry nil-plus-PCM into editable state; its admission
-  and the writer's nil-to-S01 conversion remain [open boundary concerns](design/editable-document-save-export-model.md#export-xm).
+- Noncanonical short/partial loaded XM headers can retain PCM with nil maps.
+  Ordinary routing now refuses that unavailable route without normalizing the
+  input or acquiring a mapped-empty cut of a prior voice. The bounded ordinary
+  [Policy B correction](xm-effect-support.md#absent-keymap-compatibility-gap) is
+  CLOSED on this branch after local qualification; acceptance requires submitted
+  native CI and Gregory's review/merge. No read-only fallback exception is
+  approved. The separate `VTX-J-002` Clear Song Data bridge can carry nil-plus-PCM
+  into editable state; its admission and the writer's nil-to-S01 conversion
+  remain [open boundary concerns](design/editable-document-save-export-model.md#export-xm).
 - Sample import accepts the currently supported WAV/WAVE, AIFF/AIF, AIFC, and
   native FLAC subset through one validation/decode/normalization path. A
   successful import owns canonical mono 16-bit PCM in the document, retains no

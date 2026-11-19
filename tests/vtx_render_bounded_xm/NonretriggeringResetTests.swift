@@ -277,7 +277,7 @@ final class NonretriggeringResetTests: XCTestCase {
         let song = PlaybackSong(title: "Reset foundation", orders: [.init(orderIndex: 0, patternIndex: 0)],
             patternsByIndex: [0: PlaybackPattern(index: 0, rows: (0..<40).map { row in
                 .init(index: row, cells: [.init(note: row == 0 ? 49 : 0, instrument: row == 0 ? 1 : 0, volumeColumn: 0, effectType: 0, effectParam: 0)])
-            })], instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], panningEnvelope: pan)],
+            })], instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], panningEnvelope: pan, noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 1, bpm: 250), usesLinearFrequencyTable: true)
         let baseline = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
         let event = SyntheticTrackerEvent(row: 0, scheduledStartFrame: 0, sample: .init(monoPCM: (0..<64).map { Float($0) / 64 }),

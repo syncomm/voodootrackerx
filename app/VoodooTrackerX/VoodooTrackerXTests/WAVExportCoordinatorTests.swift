@@ -1232,7 +1232,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
                     makePlaybackRow(index: 1),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
     }
@@ -1289,7 +1289,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
         return makePlaybackSong(
             orderPatternIndices: Array(repeating: 0, count: 16),
             patternRowsByIndex: [0: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 125)
         )
     }
@@ -1317,7 +1317,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
         return makePlaybackSong(
             orderPatternIndices: Array(repeating: 0, count: orderCount),
             patternRowsByIndex: [0: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 125)
         )
     }
@@ -1337,7 +1337,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
                     makePlaybackRow(index: 1),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
     }
@@ -1355,7 +1355,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
         return makePlaybackSong(
             orderPatternIndices: Array(repeating: 0, count: 9),
             patternRowsByIndex: [0: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 125)
         )
     }
@@ -1379,7 +1379,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
         return makePlaybackSong(
             orderPatternIndices: Array(repeating: 0, count: 3),
             patternRowsByIndex: [0: rows],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 6, bpm: 125)
         )
     }

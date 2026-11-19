@@ -203,7 +203,7 @@ final class InstrumentOnlyVolumeTests: XCTestCase {
             instrumentsByIndex: [1: .init(index: 1, samples: [sample(1, 1, 0.375, 192), sample(1, 0, 1, 64)],
                 volumeEnvelope: volume, panningEnvelope: pan,
                 noteSampleMap: Array(repeating: 0, count: 48) + Array(repeating: 1, count: 48)),
-                2: .init(index: 2, samples: [sample(2, 0, 0.75, 224, loop: false)])],
+                2: .init(index: 2, samples: [sample(2, 0, 0.75, 224, loop: false)], noteSampleMap: Array(repeating: 0, count: 96))],
             restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: true)
     }
 }

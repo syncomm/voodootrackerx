@@ -1867,7 +1867,7 @@ final class PlaybackEngineTests: XCTestCase {
         let song = makePlaybackSong(
             orderPatternIndices: [0],
             patternRowCounts: [0: 4],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [0.25], baseSampleRate: 100)])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [0.25], baseSampleRate: 100)], noteSampleMap: Array(repeating: 0, count: 96))],
             note: 49,
             instrument: 1,
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
@@ -1927,7 +1927,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 1),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
         let before = sourceSong
@@ -1965,7 +1965,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 1),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
         let before = sourceSong
@@ -2048,7 +2048,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 2),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
         let refreshedSong = makePlaybackSong(
@@ -2061,7 +2061,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 2),
                 ],
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         )
         let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
@@ -2277,7 +2277,7 @@ final class PlaybackEngineTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x02)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
@@ -2415,7 +2415,7 @@ final class PlaybackEngineTests: XCTestCase {
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1)],
                 5: [makePlaybackRow(index: 0, note: 53, instrument: 1, effectType: 0x0E, effectParam: 0xC2)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             initialTiming: PlaybackTiming(speed: 4, bpm: 125)
         ))
 
@@ -2453,7 +2453,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 2, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x92)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 3, bpm: 125))
 
@@ -2483,7 +2483,7 @@ final class PlaybackEngineTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x3D)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
@@ -2509,7 +2509,7 @@ final class PlaybackEngineTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xCC)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
@@ -2559,7 +2559,7 @@ final class PlaybackEngineTests: XCTestCase {
         engine.load(song: makePlaybackSong(
             orderPatternIndices: [2],
             patternRowCounts: [2: 4],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             note: 49,
             instrument: 1
         ))
@@ -2639,7 +2639,7 @@ final class PlaybackEngineTests: XCTestCase {
         engine.load(song: makePlaybackSong(
             orderPatternIndices: [2],
             patternRowCounts: [2: 4],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             note: 49,
             instrument: 1,
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
@@ -2690,7 +2690,7 @@ final class PlaybackEngineTests: XCTestCase {
         engine.load(song: makePlaybackSong(
             orderPatternIndices: [2],
             patternRowCounts: [2: 4],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
             note: 49,
             instrument: 1,
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
@@ -2890,7 +2890,7 @@ final class PlaybackEngineTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0C, effectParam: 0x20)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
@@ -2909,7 +2909,7 @@ final class PlaybackEngineTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x08, effectParam: 0xFF)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
@@ -2938,7 +2938,7 @@ final class PlaybackEngineTests: XCTestCase {
                     )
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
@@ -2964,7 +2964,7 @@ final class PlaybackEngineTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x10, effectParam: 0x20)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
@@ -2985,7 +2985,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 4, bpm: 125))
 
@@ -3012,7 +3012,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 3)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
 
@@ -3041,7 +3041,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
 
@@ -3069,7 +3069,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
 
@@ -3095,7 +3095,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 3, bpm: 125))
 
@@ -3121,7 +3121,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
 
@@ -3147,7 +3147,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
 
@@ -3185,7 +3185,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 3, bpm: 125))
 
@@ -3224,7 +3224,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 2)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
 
@@ -3248,7 +3248,7 @@ final class PlaybackEngineTests: XCTestCase {
             patternRowsByIndex: [
                 2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x02)]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
@@ -3269,7 +3269,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 4, bpm: 125))
 
@@ -3294,7 +3294,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 4, bpm: 125))
 
@@ -3319,7 +3319,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 4, bpm: 125))
 
@@ -3346,7 +3346,7 @@ final class PlaybackEngineTests: XCTestCase {
                     makePlaybackRow(index: 1)
                 ]
             ],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
         ))
         engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
 
@@ -3425,7 +3425,7 @@ private func makeAdmissionFailurePlayback(
         runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler(), environment: environment)
     engine.load(song: makePlaybackSong(
         orderPatternIndices: [0], patternRowCounts: [0: rowCount],
-        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
         note: 49, instrument: 1, initialTiming: PlaybackTiming(speed: 1, bpm: 125)
     ))
     engine.play(from: nil, loopEnabled: loopEnabled, timingSession: nil)
@@ -3586,7 +3586,7 @@ private func makeRuntimeAdapterPlaybackSong(patternIndex: Int, usesLinearFrequen
                 makePlaybackRow(index: 1)
             ]
         ],
-        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
         initialTiming: PlaybackTiming(speed: 1, bpm: 250),
         usesLinearFrequencyTable: usesLinearFrequencyTable
     )
@@ -3604,7 +3604,7 @@ private func makeEditablePatternLoopSong(notesByRow: [Int: UInt8], rowCount: Int
     return makePlaybackSong(
         orderPatternIndices: [0],
         patternRowsByIndex: [0: rows],
-        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
         initialTiming: PlaybackTiming(speed: 1, bpm: 25)
     )
 }
@@ -3628,7 +3628,7 @@ private func makeDurationPlaybackSong(patternIndex: Int, rowCount: Int = 74) -> 
     return makePlaybackSong(
         orderPatternIndices: [patternIndex],
         patternRowsByIndex: [patternIndex: rows],
-        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))],
         initialTiming: PlaybackTiming(speed: 1, bpm: 1)
     )
 }
@@ -3804,7 +3804,7 @@ extension SelectedOriginConsumerTests {
         struct WeakRow { weak var value: PlaybackXMChannelRow? }
         let sample = makePlaybackSample(pcm: [0.25, -0.25], loopStart: 0, loopLength: 2, loopType: 1)
         let song = makePlaybackSong(orderPatternIndices: [0], patternRowCounts: [0: 8],
-            instrumentsByIndex: [1: .init(index: 1, samples: [sample])], note: 49, instrument: 1)
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], note: 49, instrument: 1)
         var source = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 0, orderCount: 1, sampleRate: 48_000)
         let weakRows = source.xmChannelRows.map { WeakRow(value: $0) }
         let expected = { () -> RuntimeCMixerAdapterEventStorage in
@@ -3969,7 +3969,7 @@ extension SelectedOriginConsumerTests {
             sustainPointIndex: nil, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: 1, fadeout: 0)
         let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: (0..<256).map {
             makePlaybackRow(index: $0, note: $0 == 0 ? 49 : 0, instrument: $0 == 0 ? 1 : 0)
-        }], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: envelope)])
+        }], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: envelope, noteSampleMap: Array(repeating: 0, count: 96))])
         for cancelAt in [12, 20, 30] {
             var polls = 0
             let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000,
@@ -4007,7 +4007,7 @@ extension SelectedOriginConsumerTests {
             note: row % 4 == 0 ? 49 : 0, instrument: row % 4 == 0 ? 1 : 0,
             effectType: row % 4 == 2 ? 1 : 0, effectParam: row % 4 == 2 ? 1 : 0) }
         let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: rows],
-            instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 3, bpm: 125))
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 3, bpm: 125))
         let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
         let cores = (0..<2).map { _ in RuntimeCMixerRenderCore(config: .init(sampleRate: 48_000, channelCount: 1)) }
         _ = cores[0].configureAdapterEventSchedule(plan.eventStorage, runtimeFrameOffset: 0)
@@ -4041,7 +4041,7 @@ extension SelectedOriginConsumerTests {
         let cell = PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 4, effectParam: 0x47)
         let rows = (0..<64).map { PlaybackRow(index: $0, cells: Array(repeating: cell, count: 8)) }
         let song = makePlaybackSong(orderPatternIndices: Array(repeating: 0, count: 64), patternRowsByIndex: [0: rows],
-            instrumentsByIndex: [1: .init(index: 1, samples: [sample])])
+            instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))])
         let probe = ProductionPreparationTestProbe()
         var hooks = RuntimeAdapterPlanPreparationHooks(); hooks.receipt = { probe.record($0) }
         let output = ProductionPreparationTestAudioOutput()
@@ -4084,7 +4084,7 @@ extension SelectedOriginConsumerTests {
                     ? makePlaybackRow(index: row) : pattern[row]
             }
             let expandedRows = executedRows.enumerated().map { PlaybackRow(index: $0.offset, cells: $0.element.cells) }
-            let instruments = [1: PlaybackInstrument(index: 1, samples: [sample])]
+            let instruments = [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             let song = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: pattern],
                 instrumentsByIndex: instruments, initialTiming: .init(speed: 3, bpm: 125), usesLinearFrequencyTable: linear)
             let expanded = makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: expandedRows],
@@ -4617,7 +4617,7 @@ extension SelectedOriginConsumerTests {
         func song(_ visits: [Int]) -> PlaybackSong {
             makePlaybackSong(orderPatternIndices: [0], patternRowsByIndex: [0: visits.enumerated().map {
                 PlaybackRow(index: $0.offset, cells: pattern[$0.element].cells)
-            }], instrumentsByIndex: [1: .init(index: 1, samples: [sample])], initialTiming: .init(speed: 3, bpm: 125))
+            }], instrumentsByIndex: [1: .init(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))], initialTiming: .init(speed: 3, bpm: 125))
         }
         let templateSong = song([2, 3, 0, 1, 2, 3])
         let template = RuntimeCMixerAdapterEventPlan.make(song: templateSong, sampleRate: 48_000)

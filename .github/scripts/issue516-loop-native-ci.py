@@ -16,6 +16,9 @@ import subprocess
 import tempfile
 import time
 
+# Full optimized suite, including the four ordinary absent-keymap regressions.
+PACKAGE_RELEASE_COUNT = 979
+
 # Exact public selectors; no discovery-based reduction, skip or duplicate allowance.
 APP = [
     'LoopEngineLifecycleTests/testActualCHeadResolvesExactRowHeldFxxAndJumpBoundaries',
@@ -689,7 +692,7 @@ def main():
     package = package_image('release', False)
     before = sha(package)
     text = run('package-release', ['swift', 'test', '--skip-build', '-c', 'release'])
-    package_cases(text, 975)
+    package_cases(text, PACKAGE_RELEASE_COUNT)
     require(sha(package) == before, 'package Release image changed during execution')
     require(hashlib.sha256(GUARD_SOURCE.encode()).hexdigest() == GUARD_SHA, 'guard source changed')
     source, probe = root / 'GuardProbe.swift', root / 'guard-probe'
@@ -720,7 +723,7 @@ def main():
     require(output(['git', 'rev-parse', 'HEAD']) == head and
             output(['git', 'status', '--porcelain=v1', '-uall']) == '', 'source changed during qualification')
     emit({'head': head, 'status': 'ISSUE516_NATIVE_PASS', 'appASan': 103, 'packageASan': 69,
-          'optimizedAppRelease': 1908, 'optimizedPackageRelease': 975, 'expectedReleaseTraps': 4,
+          'optimizedAppRelease': 1908, 'optimizedPackageRelease': PACKAGE_RELEASE_COUNT, 'expectedReleaseTraps': 4,
           'failed': 0, 'skipped': 0})
 
 

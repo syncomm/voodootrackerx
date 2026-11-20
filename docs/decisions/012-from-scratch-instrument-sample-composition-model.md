@@ -450,11 +450,12 @@ cut, and source/header provenance is unchanged. The shared legacy resolver API
 and separate noncanonical admission/writer contracts are not redesigned here.
 See the [current qualification boundary](../xm-effect-support.md#absent-keymap-compatibility-gap).
 
-The known `VTX-J-002` Clear Song Data bridge can carry nil-plus-PCM into an
-editable palette, and the writer currently serializes that state as all-S01,
-which can change sparse routing on reopen. These remain separate admission and
-writer decisions under the [save/export boundary](../design/editable-document-save-export-model.md#export-xm),
-not approved repairs. ADR 014's `exact`/`normalized`/`unavailable` planner, loaded
+**Historical admission/writer gaps (superseded by the notes below):** the known
+`VTX-J-002` Clear Song Data bridge could carry nil-plus-PCM into an editable
+palette, and the writer serialized that state as all-S01, changing sparse routing
+on reopen. These required separate admission and writer decisions under the
+[save/export boundary](../design/editable-document-save-export-model.md#export-xm).
+ADR 014's `exact`/`normalized`/`unavailable` planner, loaded
 source ownership/provenance, direct Sample Editor preview, and existing
 source/cut/reset contracts remain unchanged. See [current routing status](../xm-effect-support.md#absent-keymap-compatibility-gap).
 
@@ -462,7 +463,17 @@ source/cut/reset contracts remain unchanged. See [current routing status](../xm-
 Clear Song Data transition when any retained instrument has represented PCM and
 nil routing. Availability, confirmation and factory revalidate the same pure
 predicate without synthesizing a map or filtering the palette. This closes only
-bridge admission; writer nil-to-all-S01 serialization remains separately open.
+bridge admission; the following note owns the independent writer contract.
+
+**Writer preflight superseding note:** `EditableXMWriter` now refuses represented
+PCM with nil routing, including S01 and zero-header-volume PCM, using
+`unsupportedNoteSampleMap(instrumentIndex:entryCount:sampleIndex:)` with the
+offending instrument identity and nil optional fields. Every instrument is
+validated before serialization or atomic destination replacement. Neutral
+sampleless nil-map instruments keep their 29-byte encoding; exact maps and
+dense/sparse sample identities retain their existing bytes. This implements
+strict export refusal, without map synthesis, a new normalization profile,
+parser/runtime changes, or changes to the loaded bridge and ADR 014 planner.
 
 ## Product Surface And Content Policy
 

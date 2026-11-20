@@ -386,6 +386,14 @@ struct EditableXMWriter {
         guard let highestRequiredSampleIndex else {
             return XMInstrumentExport.noSample(name: paletteInstrument.name)
         }
+        // Sample-bearing XM headers require an explicit map; nil must not acquire an S01 route.
+        guard let validatedNoteSampleMap else {
+            throw EditableXMWriterError.unsupportedNoteSampleMap(
+                instrumentIndex: instrumentIndex,
+                entryCount: nil,
+                sampleIndex: nil
+            )
+        }
         let serializedSampleCount = highestRequiredSampleIndex + 1
         guard serializedSampleCount <= BlankTrackerDocument.maximumSampleCountPerInstrument else {
             throw EditableXMWriterError.unsupportedInstrumentSampleCount(
@@ -414,8 +422,7 @@ struct EditableXMWriter {
         let exportedSamples = (0..<serializedSampleCount).map {
             exportedSamplesByIndex[$0] ?? .canonicalEmptySlot
         }
-        let noteSampleMap = validatedNoteSampleMap?.map(UInt8.init)
-            ?? Array(repeating: 0, count: 96)
+        let noteSampleMap = validatedNoteSampleMap.map(UInt8.init)
 
         return XMInstrumentExport(
             name: paletteInstrument.name,

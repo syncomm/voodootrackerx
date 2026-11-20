@@ -90,8 +90,9 @@ Order availability, confirmation revalidation, and the final factory use that
 same check. Exact sparse maps and unavailable destinations retain their identities;
 neutral sampleless nil-map instruments may be retained alongside eligible PCM.
 No map synthesis, palette filtering, or Make Editable Copy planner conversion is
-performed. This closes the bounded `VTX-J-002` bridge admission finding; the
-writer's separate nil-map serialization contract remains open under Gregory.
+performed. This closes the bounded `VTX-J-002` bridge admission finding.
+Independent writer preflight also refuses nil-map/PCM inputs as described
+under [Export XM](#export-xm).
 
 ## From-Scratch Sample Ownership
 
@@ -204,19 +205,23 @@ compatibility outcomes remain the planner's responsibility. Exact and Profile-v1
 safe/inert normalized plans transition immediately, while unavailable plans remain
 actionable so the UI can explain the typed reason.
 
-One synthetic boundary is intentionally characterized rather than redefined here. If represented samples are supplied
-with a nil map, `EditableXMWriter` currently accepts the value and writes 96 zero note-map bytes (all notes route to
-S01). Normal reopen therefore materializes an explicit all-S01 map instead of preserving nil, so that input does not
-round-trip as the same canonical editable value. No supported File New/sample mutation or public-fixture loaded-XM ->
-Make Editable Copy workflow produces it. Strict runtime routing refuses absent maps. Writer behavior and loaded/read-only
-ownership are unchanged; the reference-sensitive sample reorder transaction and Move UI reject the state before mutation.
+Writer preflight rejects independently supplied represented PCM with a nil
+instrument map. The typed failure is
+`unsupportedNoteSampleMap(instrumentIndex:entryCount:sampleIndex:)`, with the
+offending one-based instrument identity and both optional fields nil. This
+includes populated S01, later sparse identities, and PCM with header volume zero.
+Nil grants no routing authority under accepted Policy B; export never synthesizes
+all-S01, selects another sample, or filters the palette.
 
-The `VTX-J-002` [Clear Song Data admission check](#clear-song-data-safety-boundary)
-now blocks loaded nil-map/PCM palettes before confirmation and at the factory.
-The writer still accepts independently supplied noncanonical nil-map/PCM values
-and serializes all-S01, potentially changing routing on reopen. That separate
-writer contract remains an open release blocker owned by Gregory; this bridge
-repair neither changes serialization nor redirects admission through ADR 014.
+The entire palette is validated before serialization and the existing atomic
+write. `ExportXMCoordinator` surfaces `failed(.writerFailed(...))`; an existing
+destination retains its bytes and a new destination remains absent even when an
+earlier instrument is valid. Neutral sampleless nil-map instruments retain their
+29-byte no-sample encoding. Explicit exact maps, represented identities and
+canonical sparse headers keep the same bytes. This is writer admission, not a
+new parser/playback rule, editable-copy normalization profile, or owned Save path.
+The separate `VTX-J-002` [Clear Song Data admission check](#clear-song-data-safety-boundary)
+continues to guard the loaded bridge without redirecting it through ADR 014.
 
 ### Represented-sample Clear and Export XM boundary
 

@@ -110,7 +110,9 @@ final class ExportXMCoordinatorTests: XCTestCase {
             orderTable: [0],
             patterns: [pattern],
             instrumentPalette: [
-                1: PlaybackInstrument(index: 1, name: "Tiny Inst", samples: [sample])
+                1: PlaybackInstrument(
+                    index: 1, name: "Tiny Inst", samples: [sample], noteSampleMap: Array(repeating: 0, count: 96)
+                )
             ]
         )
         XCTAssertTrue(document.renameInstrument(at: 0, name: "Renamed Tiny"))
@@ -319,6 +321,60 @@ final class ExportXMCoordinatorTests: XCTestCase {
         )?.sampleIndex, 2)
     }
 
+    func testNilMapPCMInLaterInstrumentPreservesDestinationAndDoesNotCreateNewFile() throws {
+        let validSample = PlaybackSample(
+            instrumentIndex: 2, sampleIndex: 0, name: "Valid PCM", pcm: [-0.25, 0.25],
+            volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363,
+            sourceBitDepthBits: 8, sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+        let invalidSample = PlaybackSample(
+            instrumentIndex: 7, sampleIndex: 2, name: "Unrouted PCM", pcm: [-0.75, 0.75],
+            volume: 0, relativeNote: -2, finetune: 7, baseSampleRate: 8_363,
+            sourceBitDepthBits: 16, sourceIsSignedPCM: true, sourceIsDeltaEncoded: true
+        )
+        let document = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, samples: [], noteSampleMap: nil),
+                2: PlaybackInstrument(index: 2, samples: [validSample], noteSampleMap: Array(repeating: 0, count: 96)),
+                7: PlaybackInstrument(index: 7, samples: [invalidSample], noteSampleMap: nil)
+            ]
+        )
+        let originalDocument = document
+        let expectedError = EditableXMWriterError.unsupportedNoteSampleMap(
+            instrumentIndex: 7, entryCount: nil, sampleIndex: nil
+        )
+        XCTAssertThrowsError(try EditableXMWriter().data(from: document)) { error in
+            XCTAssertEqual(error as? EditableXMWriterError, expectedError)
+        }
+
+        for existingDestination in [true, false] {
+            let destination = try temporaryDestination(filename: "nil-map-\(existingDestination).xm")
+            let original = Data("existing destination must survive".utf8)
+            if existingDestination {
+                try original.write(to: destination)
+            }
+            let provider = FakeExportXMDestinationProvider(destination: destination)
+            let coordinator = ExportXMCoordinator(destinationProvider: provider)
+            let context = ExportXMDocumentContext.editable(
+                document: document, displayName: document.title, isPlaybackActive: false
+            )
+
+            XCTAssertTrue(ExportXMCoordinator.canExport(context: context))
+            let result = coordinator.beginExport(context: context)
+            XCTAssertEqual(result, .failed(.writerFailed(String(describing: expectedError))))
+            XCTAssertEqual(result.userFacingTitle, "Export XM Failed")
+            XCTAssertTrue(result.userFacingMessage?.contains(String(describing: expectedError)) == true)
+            XCTAssertEqual(provider.requests, [ExportXMDestinationRequest(suggestedFilename: "Untitled.xm")])
+            XCTAssertEqual(FileManager.default.fileExists(atPath: destination.path), existingDestination)
+            if existingDestination {
+                XCTAssertEqual(try Data(contentsOf: destination), original)
+            }
+            XCTAssertEqual(document, originalDocument)
+        }
+    }
+
     func testOutOfCapacityMapFailurePreservesExistingDestinationBytes() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,
@@ -373,7 +429,7 @@ final class ExportXMCoordinatorTests: XCTestCase {
             orderTable: [0],
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
             instrumentPalette: [
-                1: PlaybackInstrument(index: 1, samples: [sample])
+                1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))
             ]
         )
         let destination = try temporaryDestination(filename: "unsupported-sample.xm")
@@ -457,8 +513,8 @@ final class ExportXMCoordinatorTests: XCTestCase {
     }
 
     private func temporaryDestination(filename: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let directory = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("vtx-export-xm-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock {
             try? FileManager.default.removeItem(at: directory)
@@ -467,8 +523,8 @@ final class ExportXMCoordinatorTests: XCTestCase {
     }
 
     private func temporaryDestinationInMissingDirectory(filename: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let directory = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("vtx-export-xm-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock {
             try? FileManager.default.removeItem(at: directory)

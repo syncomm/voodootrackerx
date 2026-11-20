@@ -2425,7 +2425,8 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
                     name: "Panning Instrument",
                     samples: [sample],
                     panningEnvelope: panningEnvelope,
-                    autoVibrato: autoVibrato
+                    autoVibrato: autoVibrato,
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ],
             patterns: [pattern]
@@ -2494,7 +2495,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
     }
 
     private func temporaryDestination(filename: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("vtx-editable-copy-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock {

@@ -111,8 +111,11 @@ class NativeAppReleaseCountTests(unittest.TestCase):
                 "testMenuAndSongOrderEntriesAgreeOnAdmissionCancelFailureAndFreshConfirmation",
                 "testPendingConfirmationRevalidatesNilPCMMixedPlaybackAndPresentationChanges",
             ]
+        ] + [
+            "EditableXMWriterTests/testMixedNeutralAndMappedZeroVolumePCMInstrumentsReopenExactly",
+            "ExportXMCoordinatorTests/testNilMapPCMInLaterInstrumentPreservesDestinationAndDoesNotCreateNewFile",
         ]
-        self.summary = dict(totalTestCount=1913, passedTests=1913, failedTests=0,
+        self.summary = dict(totalTestCount=1915, passedTests=1915, failedTests=0,
                             skippedTests=0, expectedFailures=0)
         self.tests = {"devices": [{"architecture": "arm64"}], "testNodes": [
             {"nodeType": "Test Case", "result": "Passed", "nodeIdentifier": case + "()"}
@@ -124,29 +127,31 @@ class NativeAppReleaseCountTests(unittest.TestCase):
                 mock.patch.object(HELPER, "output", side_effect=[json.dumps(summary), json.dumps(tests)]):
             return HELPER.result_cases(self.root / "release-app.xcresult", HELPER.APP_RELEASE_COUNT)
 
-    def test_full_count_includes_all_five_clear_song_admission_cases(self):
+    def test_full_count_includes_clear_song_admission_and_writer_keymap_cases(self):
         self.assertEqual(self.validate(self.summary, self.tests), self.cases)
 
-    def test_missing_duplicate_failed_skipped_and_non_native_cases_still_fail_closed(self):
+    def test_missing_duplicate_failed_skipped_unexpected_and_non_native_cases_fail_closed(self):
         invalid = []
-        for missing in [1, 5]:
+        for missing in [1, 2, 7]:
             summary, tests = copy.deepcopy(self.summary), copy.deepcopy(self.tests)
-            summary.update(totalTestCount=1913 - missing, passedTests=1913 - missing)
+            summary.update(totalTestCount=1915 - missing, passedTests=1915 - missing)
             tests["testNodes"] = tests["testNodes"][:-missing]
             invalid.append((summary, tests))
         duplicate = copy.deepcopy(self.tests)
         duplicate["testNodes"][-1] = copy.deepcopy(duplicate["testNodes"][-2])
         extra = copy.deepcopy(self.tests)
-        extra["testNodes"].append(copy.deepcopy(extra["testNodes"][-1]))
+        extra["testNodes"].append(dict(nodeType="Test Case", result="Passed", nodeIdentifier="Unexpected/testExtra()"))
         invalid.extend([(self.summary, duplicate), (self.summary, extra)])
-        for status in ["Failed", "Skipped"]:
+        for status in ["Failed", "Skipped", "Expected Failure", "Unexpected"]:
             tests = copy.deepcopy(self.tests)
             tests["testNodes"][-1]["result"] = status
             invalid.append((self.summary, tests))
-        wrong_count = dict(self.summary, totalTestCount=1908)
+        for field, value in [("totalTestCount", 1913), ("passedTests", 1914),
+                             ("failedTests", 1), ("skippedTests", 1), ("expectedFailures", 1)]:
+            invalid.append((dict(self.summary, **{field: value}), self.tests))
         non_native = copy.deepcopy(self.tests)
         non_native["devices"][0]["architecture"] = "x86_64"
-        invalid.extend([(wrong_count, self.tests), (self.summary, non_native)])
+        invalid.append((self.summary, non_native))
         for summary, tests in invalid:
             with self.subTest(summary=summary), self.assertRaises(AssertionError):
                 self.validate(summary, tests)

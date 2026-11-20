@@ -595,9 +595,13 @@ and normalization details.
   approved. The bounded `VTX-J-002` Clear Song Data admission contract is CLOSED:
   a retained nil-map/PCM instrument blocks the whole loaded bridge at availability,
   confirmation and factory boundaries. Exact sparse palettes and retained neutral
-  instruments remain supported. The writer's nil-to-S01 conversion remains a
-  [separate open release blocker](design/editable-document-save-export-model.md#export-xm)
-  owned by Gregory.
+  instruments remain supported. The bounded `VTX-XM-WRITER-NILMAP1` writer
+  serialization safety contract is CLOSED on this branch after local
+  qualification: independent nil-map/PCM inputs receive a typed instrument-specific
+  preflight refusal before atomic export. Neutral sampleless nil maps and exact
+  dense/sparse output remain supported. Submitted-head native CI and Gregory's
+  review/merge remain acceptance gates; this closes only
+  [writer serialization safety](design/editable-document-save-export-model.md#export-xm).
 - Sample import accepts the currently supported WAV/WAVE, AIFF/AIF, AIFC, and
   native FLAC subset through one validation/decode/normalization path. A
   successful import owns canonical mono 16-bit PCM in the document, retains no

@@ -16,8 +16,8 @@ import subprocess
 import tempfile
 import time
 
-# Full optimized app suite, including five Clear Song Data admission regressions.
-APP_RELEASE_COUNT = 1913
+# Full optimized app suite, including Clear Song Data and writer keymap regressions.
+APP_RELEASE_COUNT = 1915
 
 # Full optimized suite, including the four ordinary absent-keymap regressions.
 PACKAGE_RELEASE_COUNT = 979

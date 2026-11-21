@@ -3,6 +3,21 @@
 This log records intentional changes to VTX's supported persistence or module
 compatibility boundary. It is not a claim of arbitrary XM round-trip support.
 
+## XM writer absent-keymap validation
+
+`EditableXMWriter` rejects represented PCM with an absent instrument map using
+`unsupportedNoteSampleMap(instrumentIndex:entryCount:sampleIndex:)`, with the
+offending identity and nil optional fields. This includes populated S01, later
+sparse samples and zero-header-volume PCM. Validation finishes before any atomic
+file write, preserving existing destination bytes and leaving new destinations
+absent. Neutral sampleless nil-map instruments keep their 29-byte encoding;
+explicit exact maps and already-valid dense/sparse output remain byte-identical.
+
+This is an admission/validation behavior change under accepted Policy B, not
+a changed XM byte layout. No stored-document migration is required. Parser,
+runtime, loaded-source ownership, Clear Song Data admission and ADR 014's
+Profile-v1 normalization are unchanged.
+
 ## Policy B ordinary absent-keymap routing
 
 Ordinary explicit-note sources and tone targets now refuse nil keymaps rather
@@ -15,8 +30,8 @@ acquire a mapped-empty cut of a prior voice.
 This implements [accepted Policy B](decisions/012-from-scratch-instrument-sample-composition-model.md#accepted-superseding-routing-clarification-policy-b).
 Loaded bytes, parser behavior, provenance, writer output and editable-copy
 admission are unchanged; no stored-format migration is required. No read-only
-fallback exception is approved. Clear Song Data's nil-plus-PCM bridge and the
-writer's nil-to-S01 serialization remain separate open contracts.
+fallback exception is approved. Clear Song Data bridge admission and writer
+serialization have independent guards described in this log.
 
 ## Native C playback-head diagnostics
 
@@ -220,4 +235,4 @@ The loaded read-only bridge now refuses the whole palette when any retained
 instrument has represented PCM and no keymap. Exact maps, sparse identities and
 retained neutral instruments are unchanged. No parser, XM byte layout, writer,
 normalization profile or stored document changes; no migration is required.
-The writer's independent nil-to-all-S01 behavior remains an open contract.
+The independent writer validation contract is described above.

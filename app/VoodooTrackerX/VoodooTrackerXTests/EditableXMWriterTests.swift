@@ -210,7 +210,10 @@ final class EditableXMWriterTests: XCTestCase {
             orderTable: [0],
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
             instrumentPalette: [
-                1: PlaybackInstrument(index: 1, samples: [sample], panningEnvelope: panningEnvelope)
+                1: PlaybackInstrument(
+                    index: 1, samples: [sample], panningEnvelope: panningEnvelope,
+                    noteSampleMap: Array(repeating: 0, count: 96)
+                )
             ]
         )
 
@@ -237,7 +240,9 @@ final class EditableXMWriterTests: XCTestCase {
             orderTable: [0],
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
             instrumentPalette: [
-                1: PlaybackInstrument(index: 1, name: "Instrument", samples: [sample])
+                1: PlaybackInstrument(
+                    index: 1, name: "Instrument", samples: [sample], noteSampleMap: Array(repeating: 0, count: 96)
+                )
             ]
         )
 
@@ -288,7 +293,7 @@ final class EditableXMWriterTests: XCTestCase {
             let document = makeDocument(
                 orderTable: [0],
                 patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
-                instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+                instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))]
             )
 
             let data = try EditableXMWriter().data(from: document)
@@ -324,7 +329,11 @@ final class EditableXMWriterTests: XCTestCase {
         let baseDocument = makeDocument(
             orderTable: [0],
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, name: "Instrument", samples: [sample])]
+            instrumentPalette: [
+                1: PlaybackInstrument(
+                    index: 1, name: "Instrument", samples: [sample], noteSampleMap: Array(repeating: 0, count: 96)
+                )
+            ]
         )
 
         for finetune in [-128, -37, 0, 42, 127] {
@@ -380,7 +389,11 @@ final class EditableXMWriterTests: XCTestCase {
         let baseDocument = makeDocument(
             orderTable: [0],
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
-            instrumentPalette: [1: PlaybackInstrument(index: 1, name: "Instrument", samples: [sample])]
+            instrumentPalette: [
+                1: PlaybackInstrument(
+                    index: 1, name: "Instrument", samples: [sample], noteSampleMap: Array(repeating: 0, count: 96)
+                )
+            ]
         )
 
         for relativeNote in [-128, -37, 0, 42, 127] {
@@ -451,7 +464,7 @@ final class EditableXMWriterTests: XCTestCase {
             orderTable: [0],
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
             instrumentPalette: [
-                1: PlaybackInstrument(index: 1, samples: [sample])
+                1: PlaybackInstrument(index: 1, samples: [sample], noteSampleMap: Array(repeating: 0, count: 96))
             ]
         )
 
@@ -503,7 +516,9 @@ final class EditableXMWriterTests: XCTestCase {
             let invalidPCM = makeDocument(
                 orderTable: [0],
                 patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
-                instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [makeXMSourceSample(pcm: pcm)])]
+                instrumentPalette: [1: PlaybackInstrument(
+                    index: 1, samples: [makeXMSourceSample(pcm: pcm)], noteSampleMap: Array(repeating: 0, count: 96)
+                )]
             )
             XCTAssertThrowsError(try EditableXMWriter().data(from: invalidPCM)) { error in
                 XCTAssertEqual(error as? EditableXMWriterError, .unsupportedSamplePCM(instrumentIndex: 1, sampleIndex: 0))
@@ -560,7 +575,8 @@ final class EditableXMWriterTests: XCTestCase {
             instrumentPalette: [
                 1: PlaybackInstrument(
                     index: 1,
-                    samples: [makeXMSourceSample(sampleIndex: 16, pcm: [0])]
+                    samples: [makeXMSourceSample(sampleIndex: 16, pcm: [0])],
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ]
         )
@@ -580,7 +596,8 @@ final class EditableXMWriterTests: XCTestCase {
                     samples: [
                         makeXMSourceSample(name: "First", pcm: [-0.25]),
                         makeXMSourceSample(name: "Duplicate", pcm: [0.25]),
-                    ]
+                    ],
+                    noteSampleMap: Array(repeating: 0, count: 96)
                 )
             ]
         )
@@ -701,44 +718,101 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertNil(song.instrumentsByIndex[2]?.noteSampleMap)
     }
 
-    func testRepresentedSamplesWithoutMapExportAsAllS01AndReopenWithExplicitMap() throws {
-        let first = makeXMSourceSample(sampleIndex: 0, name: "Content A", pcm: [-0.25, 0.25])
-        let second = makeXMSourceSample(sampleIndex: 1, name: "Content B", pcm: [-0.75, 0.75])
-        let sourceInstrument = PlaybackInstrument(index: 1, samples: [first, second], noteSampleMap: nil)
+    func testRepresentedSamplesWithoutMapAreRejectedBeforeSerialization() {
+        let validInstrument = PlaybackInstrument(
+            index: 1, samples: [makeXMSourceSample(pcm: [-0.5, 0.5])],
+            noteSampleMap: Array(repeating: 0, count: 96)
+        )
+        for instrumentIndex in [1, 7] {
+            for volume: Float in [1, 0] {
+                let first = makeXMSourceSample(
+                    instrumentIndex: instrumentIndex, name: "Content A", pcm: [-0.25, 0.25],
+                    volume: volume, panning: 37, relativeNote: -2, finetune: 7
+                )
+                let third = makeXMSourceSample(
+                    instrumentIndex: instrumentIndex, sampleIndex: 2, name: "Content B", pcm: [-0.75, 0.75],
+                    volume: volume, sourceBitDepthBits: 16
+                )
+                let second = makeXMSourceSample(
+                    instrumentIndex: instrumentIndex, sampleIndex: 1, name: "Only S02", pcm: [-0.5, 0.5],
+                    volume: volume
+                )
+                for samples in [[first], [second], [third], [first, third], [third, first], [third, second]] {
+                    var palette = [1: validInstrument]
+                    palette[instrumentIndex] = PlaybackInstrument(
+                        index: instrumentIndex, samples: samples, noteSampleMap: nil
+                    )
+                    let document = makeDocument(
+                        orderTable: [0],
+                        patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+                        instrumentPalette: palette
+                    )
+                    let original = document
+
+                    XCTAssertThrowsError(try EditableXMWriter().data(from: document)) { error in
+                        XCTAssertEqual(
+                            error as? EditableXMWriterError,
+                            .unsupportedNoteSampleMap(instrumentIndex: instrumentIndex, entryCount: nil, sampleIndex: nil)
+                        )
+                    }
+                    XCTAssertEqual(document, original)
+                }
+            }
+        }
+    }
+
+    func testMixedNeutralAndMappedZeroVolumePCMInstrumentsReopenExactly() throws {
+        let first = makeXMSourceSample(
+            instrumentIndex: 2, name: "Quiet S01", pcm: [-0.25, 0.25], volume: 0, panning: 37
+        )
+        let third = makeXMSourceSample(
+            instrumentIndex: 2, sampleIndex: 2, name: "Quiet S03", pcm: [-0.75, 0.75],
+            volume: 0, panning: 201, sourceBitDepthBits: 16
+        )
+        var map = Array(repeating: 0, count: 96)
+        map[48] = 1
+        map[49] = 5
+        map[95] = 2
         let document = makeDocument(
             orderTable: [0],
             patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
-            instrumentPalette: [1: sourceInstrument]
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, name: "Neutral Before", samples: [], noteSampleMap: nil),
+                2: PlaybackInstrument(index: 2, name: "Exact Sparse", samples: [first, third], noteSampleMap: map),
+                3: PlaybackInstrument(index: 3, name: "Neutral After", samples: [], noteSampleMap: nil)
+            ]
         )
-
-        XCTAssertNil(sourceInstrument.noteSampleMap)
-        XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
-            instrumentIndex: 1,
-            note: 49,
-            instrument: sourceInstrument,
-            missingKeymapPolicy: .firstPlayableSample
-        )?.sample, first)
 
         let data = try EditableXMWriter().data(from: document)
-        let instrumentOffset = data.patternHeader(at: 336).nextOffset
-        XCTAssertEqual(
-            Array(data[instrumentOffset + 33..<instrumentOffset + 129]),
-            Array(repeating: UInt8(0), count: 96)
-        )
-        let url = try temporaryExportURL(filename: "represented-nil-map.xm")
+        let neutralBefore = data.instrumentHeader(at: data.patternHeader(at: 336).nextOffset)
+        let mapped = data.instrumentHeader(at: neutralBefore.nextOffset)
+        let neutralAfter = data.instrumentHeader(at: mapped.nextOffset)
+        XCTAssertEqual(neutralBefore.headerLength, 29)
+        XCTAssertEqual(neutralBefore.sampleCount, 0)
+        XCTAssertEqual(mapped.sampleCount, 6)
+        XCTAssertEqual(data.sampleHeader(at: mapped.sampleHeaderOffset).volume, 0)
+        XCTAssertEqual(data.sampleHeader(at: mapped.sampleHeaderOffset + 80).volume, 0)
+        XCTAssertEqual(Array(data[mapped.sampleHeaderOffset + 40..<mapped.sampleHeaderOffset + 80]), Array(repeating: 0, count: 40))
+        XCTAssertEqual(Array(data[mapped.sampleHeaderOffset + 120..<mapped.sampleHeaderOffset + 240]), Array(repeating: 0, count: 120))
+        XCTAssertEqual(neutralAfter.headerLength, 29)
+        XCTAssertEqual(neutralAfter.sampleCount, 0)
+        XCTAssertEqual(neutralAfter.nextOffset, data.count)
+
+        let url = try temporaryExportURL(filename: "mixed-neutral-exact-map.xm")
         try data.write(to: url, options: .atomic)
         let metadata = try ModuleMetadataLoader().load(fromPath: url.path)
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
-        let reopened = try XCTUnwrap(song.instrument(forInstrument: 1))
-
-        XCTAssertEqual(reopened.samples, [first, second])
-        XCTAssertEqual(reopened.noteSampleMap, Array(repeating: 0, count: 96))
+        XCTAssertEqual(song.instrumentsByIndex, document.instrumentPalette)
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 2, note: 49, instrumentsByIndex: song.instrumentsByIndex
+        ))
+        XCTAssertNil(PlaybackInstrumentSampleResolver.resolveSample(
+            instrumentIndex: 2, note: 50, instrumentsByIndex: song.instrumentsByIndex
+        ))
         XCTAssertEqual(PlaybackInstrumentSampleResolver.resolveSample(
-            instrumentIndex: 1,
-            note: 49,
-            instrument: reopened
-        )?.sample, first)
-        XCTAssertNotEqual(reopened, sourceInstrument, "writer acceptance is not value-preserving for state D")
+            instrumentIndex: 2, note: 96, instrumentsByIndex: song.instrumentsByIndex,
+            sourceEligibility: .representedPCM
+        )?.sample, third)
     }
 
     func testSimpleNoteAndInstrumentReloadThroughParser() throws {
@@ -1778,14 +1852,14 @@ final class EditableXMWriterTests: XCTestCase {
     }
 
     private func temporaryExportURL(filename: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("vtx-editable-xm-writer-export-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock {
             try? FileManager.default.removeItem(at: directory)
         }
         let url = directory.appendingPathComponent(filename)
-        XCTAssertTrue(url.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+        XCTAssertTrue(url.path.hasPrefix("/private/tmp/"))
         return url
     }
 
@@ -1795,7 +1869,7 @@ final class EditableXMWriterTests: XCTestCase {
         line: UInt = #line
     ) throws -> ParsedModuleMetadata {
         let data = try EditableXMWriter().data(from: document)
-        let directory = FileManager.default.temporaryDirectory
+        let directory = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("vtx-editable-xm-writer-reload-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock {
@@ -1805,8 +1879,8 @@ final class EditableXMWriterTests: XCTestCase {
         let url = directory.appendingPathComponent("generated.xm")
         try data.write(to: url, options: .atomic)
         XCTAssertTrue(
-            url.path.hasPrefix(FileManager.default.temporaryDirectory.path),
-            "reload smoke wrote outside the system temporary directory",
+            url.path.hasPrefix("/private/tmp/"),
+            "reload smoke wrote outside /private/tmp",
             file: file,
             line: line
         )

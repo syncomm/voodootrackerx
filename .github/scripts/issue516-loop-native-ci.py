@@ -16,11 +16,11 @@ import subprocess
 import tempfile
 import time
 
-# Full optimized app suite, including the two pan-Q8 runtime/writer regressions.
-APP_RELEASE_COUNT = 1917
+# Full optimized app suite, adding one logical pan sustain/release runtime guard.
+APP_RELEASE_COUNT = 1918
 
-# Full optimized suite, including the three pan-Q8 regressions; G31 is renamed.
-PACKAGE_RELEASE_COUNT = 982
+# Full optimized suite, adding two logical pan sustain/release policy guards.
+PACKAGE_RELEASE_COUNT = 984
 
 # Exact public selectors; no discovery-based reduction, skip or duplicate allowance.
 APP = [

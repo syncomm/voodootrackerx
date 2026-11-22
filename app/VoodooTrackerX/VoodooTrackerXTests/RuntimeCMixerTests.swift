@@ -2321,6 +2321,21 @@ final class RuntimeCMixerTests: XCTestCase {
         }
     }
 
+    func testLogicalPanSustainReleaseSharesExactCoreFramesTargetsAndPCM() throws {
+        for linear in [true, false] {
+            let song = makePanningEnvelopeControl(panPoints: [(0,32),(4,16),(8,48),(12,32)],
+                linear: linear, sustainRelease: true)
+            let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 48_000)
+            let states = try XCTUnwrap(plan.xmEnvelopeTimeline?.updatesByEvent[0])
+            XCTAssertEqual(states[6].state.panTick, 4)
+            XCTAssertEqual(states[6].state.panValue, 4096.0 / 16384)
+            XCTAssertEqual(states[7].state.panTick, 5)
+            XCTAssertEqual(states[7].state.panValue, 6144.0 / 16384)
+            XCTAssertEqual(states[7].scheduledFrame, 6720)
+            try assertXMEnvelopeRuntimeParity(song)
+        }
+    }
+
     @MainActor
     func testColdVolumeEnvelopeSharesRuntimeTargetsAndWindowState() throws {
         let fixture = try referenceXMFixtureURL("generated/cold-volume-envelope-start.xm")
@@ -2504,20 +2519,25 @@ final class RuntimeCMixerTests: XCTestCase {
 
     private func makePanningEnvelopeControl(volumeFlags: UInt8 = 1, positions: Bool = false,
                                            panSlides: Bool = false, columnPans: Bool = false,
-                                           panPoints: [(Int, Int)]? = nil, linear: Bool = true) -> PlaybackSong {
+                                           panPoints: [(Int, Int)]? = nil, linear: Bool = true,
+                                           sustainRelease: Bool = false) -> PlaybackSong {
         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.25, count: 256),
             volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363, loopStart: 0, loopLength: 256, loopType: 1)
         let volume = PlaybackVolumeEnvelope(enabled: volumeFlags & 1 != 0, points: [.init(tick: 0, value: 64), .init(tick: 100, value: 64)],
             sustainPointIndex: volumeFlags & 2 == 0 ? nil : 1, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: volumeFlags, fadeout: 0)
         let pan = PlaybackPanningEnvelope(enabled: true,
             points: (panPoints ?? [(0,32),(2,16),(6,48),(10,32)]).map { .init(tick: $0.0, value: $0.1) },
-            sustainPointIndex: nil, loopStartPointIndex: 1, loopEndPointIndex: 2, typeFlags: 5)
+            sustainPointIndex: sustainRelease ? 1 : nil, loopStartPointIndex: sustainRelease ? nil : 1,
+            loopEndPointIndex: sustainRelease ? nil : 2, typeFlags: sustainRelease ? 3 : 5)
         var commands: [Int: PlaybackCell] = [
             0: .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
             1: .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 8, effectParam: 224),
             2: .init(note: 0, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
             3: .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 15, effectParam: 250),
             4: .init(note: 97, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]
+        if sustainRelease {
+            commands = [0: commands[0]!, 1: .init(note: 97, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]
+        }
         if positions {
             commands[2] = .init(note: 0, instrument: 1, volumeColumn: 0, effectType: 0x15, effectParam: 4)
             commands[4] = .init(note: 97, instrument: 0, volumeColumn: 0, effectType: 0x15, effectParam: 8)

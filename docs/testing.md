@@ -140,7 +140,12 @@ current-audible reset rebasing, exact truncated 5 ms duration, stereo interiors,
 completion/hold/resume, same-frame factors, unchanged targets, fractional
 ping-pong cursor preservation and continuation across every reset boundary.
 Runtime reset tests pin generation safety and zero application-frame delta.
-Audible XM pan envelopes remain inert.
+Audible XM pan envelopes use the shared final-L/R target. The
+[logical pan release policy](design/xm-reset-output-ramp.md#intentional-logical-pan-sustain-release)
+is guarded by `XMPanningEnvelopeTests.testLogicalPanSustainReleaseBoundariesKeepTheAuthoredTailInBothModes`,
+`testLogicalPanReleaseKeepsSilentPCMAndExactEmptyRouteDistinct` and the app's
+`RuntimeCMixerTests.testLogicalPanSustainReleaseSharesExactCoreFramesTargetsAndPCM`.
+The public recipe/hash test generates the long reference-wrap input without rendering it.
 
 For manual listening, compare matching public-source before/after renders for
 sustain → release → fadeout, no-envelope key-off, and an active voice crossing

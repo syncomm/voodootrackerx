@@ -276,8 +276,10 @@ host.
   sounding instrument's raw volume-sustain flag is set, including disabled volume
   envelopes. The bounded G07 Lxx panning-envelope positioning contract is closed
   with automated controls and maintainer-reported Xcode/listening acceptance.
-  Pan sustain/release clocks, extreme output differences and broader onset
-  interactions remain open; the bounded static pan law (G40) is closed.
+  Manager-approved [logical pan release](design/xm-reset-output-ramp.md#intentional-logical-pan-sustain-release)
+  preserves sustain on release and resumes its tail next tick, intentionally
+  unlike FT2's stale value. Codification qualification, specific-pair listening
+  and merge acceptance remain pending; broader onset/output obligations stay open.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.
@@ -504,8 +506,9 @@ host.
   fields and original expectations preserved. Full Xcode Debug, SwiftPM
   Debug/Release, optimized app build and original paired median gates pass.
   See the [bounded qualification](ft2-xm-closure-matrix.md#g40-bounded-opt-in-ft2-static-pan-law).
-  G06/G07 extreme output-wrap/sustain/release differences and post-song host
-  tails remain open. Ordinary Xcode Release tests need a future independent
+  G06/G07 retain intentional extreme output-wrap and logical sustain/release
+  differences; the latter's codification acceptance and post-song host tails
+  remain pending. Ordinary Xcode Release tests need a future independent
   optimized-test-instrumentation policy; the supported fault-injection suite
   runs in Debug, without exposing those hooks in the Release product.
 - G41B offset admission, memory and refused-source retirement are CLOSED through

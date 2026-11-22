@@ -265,8 +265,8 @@ No reference audio or corpus-derived artifacts are committed.
 This closes the audible-factor contract, not all pan-envelope parity. The bounded
 normal-domain Q8 interpretation below supersedes the original Float segment
 arithmetic without changing G06's output calculation. VTX retains its logical
-release from pan sustain; the pinned sustained control keeps its pan value held
-after release. That clock difference remains separate. G07 adds positioning to
+release from pan sustain under the [intentional policy below](#intentional-logical-pan-sustain-release);
+the pinned sustained control keeps its pan value held after release. G07 adds positioning to
 this same pan segment; the bounded static pan law (G40) is closed. Preview
 is isolated.
 
@@ -308,6 +308,45 @@ a 1.92-second original musical example. Reference artifacts remain external.
 This bounded contract is CLOSED on the branch after full local Debug/optimized
 Release, reference, public-output and actual-host qualification. Native submission
 CI and Gregory's review/merge remain acceptance gates; Phase 2/v0.5 stays HOLD.
+
+### Intentional logical pan sustain release
+
+`VTX-PAN-SR-1B-POLICY-CODIFICATION` records the manager-approved composition-first
+decision to preserve VTX: a held enabled pan sustain keeps its position/value on
+the release tick and advances into the authored tail on the next canonical tick.
+The narrow policy's codification acceptance is pending this PR's qualification,
+maintainer listening to its specific VTX/reference pair, review and merge;
+it is not yet CLOSED. v0.5 remains HOLD.
+
+Reference observation record **PAN-SR v1** uses the pinned ft2-clone
+`87be42543dac82cf802b5bddad917bda62ace131` loader, tick dispatcher and mixer.
+Public [recipe v1](../../tests/reference-xm/source/pan-envelope-sustain-release-v1.py)
+and its [.sha256 manifest](../../tests/reference-xm/source/pan-envelope-sustain-release-v1.sha256)
+identify original synthetic inputs, without reference code or media. For points
+`(0,32),(4,16),(8,48),(12,32)`, sustain index 1, loop off and note97/K00 at row 1:
+
+| Publication | VTX panTick / Q8 / byte | Reference panTick / Q8 / byte |
+| --- | --- | --- |
+| Release, frame 5292/5760 at 44.1/48 kHz | 4 / 4096 / 64 | 6 / 4096 / 64 |
+| Following tick, frame 6174/6720 | 5 / 6144 / 96 | 7 / 4096 / 64 |
+
+The reference counter advances while its pending point and zero-slope value stay
+held; VTX intentionally does not emulate that stale hold or its unsigned-counter
+wrap. A separate finite-song native Linear/48 kHz guard observed slope recovery
+at ordinal 65540 and value movement at 65541 (~21m50.82s). This is manual/external
+characterization, never an always-on CI audio render. Original DOS cause and
+historical XM prevalence remain unproven. Existing XMs relying on the hold can
+sound different: predictable composer release is the accepted tradeoff.
+
+Before/at first sustain arrival, release proceeds normally. Last-point sustain
+retains the terminal value despite clock movement. Existing loop-end wrap/tail
+ordering, raw volume-sustain Lxx gate and release-before-position precedence,
+note-only carry, instrument resets and exact silent routes remain protected.
+Logical Q8, final L/R targets and PCM are distinct assertions; silent targets do
+not establish audio. G06 non-wrapping output, nominal Q8/63 playback/raw-64
+metadata, G31 and G40 are unchanged. Prior Intel characterization comprised 232
+paired mode/rate observations, eight hosts and 178 focused tests, not full suites,
+arm64 or listening acceptance. Note97+ED/EE collisions and broader tails remain separate.
 
 ### G07 Lxx panning-envelope positioning
 

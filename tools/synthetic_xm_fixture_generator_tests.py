@@ -2,6 +2,7 @@ import copy
 import importlib.util
 import hashlib
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1063,6 +1064,24 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 generator.resolved_child(output_dir, "../outside.manifest.json")
+
+
+class PanSustainReleaseRecipeTests(unittest.TestCase):
+    def test_version_one_regenerates_exact_public_inputs_without_audio(self):
+        recipe = PACK_ROOT / "source/pan-envelope-sustain-release-v1.py"
+        expected = {name: digest for digest, name in
+                    (line.split() for line in recipe.with_suffix('.sha256').read_text().splitlines())}
+        with tempfile.TemporaryDirectory(prefix="vtx-pan-sr-recipe-", dir="/private/tmp") as directory:
+            output = Path(directory)
+            subprocess.run([sys.executable, str(recipe), '--output-dir', directory, '--verify'],
+                           check=True, capture_output=True, text=True)
+            actual = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in output.glob('*.xm')}
+            self.assertEqual(len(actual), 118)
+            self.assertEqual(actual, expected)
+            self.assertEqual(actual['pan-sr-v1-note97-held-release-linear.xm'],
+                             '1c5ff75dd8fc8e43dc0cba73b4e1e8867e0c2d488a39ddb8ccde6440493b7945')
+            self.assertEqual({p.suffix for p in output.iterdir()}, {'.xm', '.json', '.txt'})
+            # The long counter-wrap case is generated/hashed, never rendered by CI.
 
 
 if __name__ == "__main__":

@@ -145,7 +145,7 @@ Only outstanding or retained contracts belong here. Intentional artifacts are vi
 | G41 9xx/900 and sample loop/end boundaries | Partial | G41B/G41C are Closed slices; broader loop/end integration, discovery and unavailable historical inputs still need qualification. | [Offset/loop qualification and remaining limits](#g41-bounded-offset-admission-and-shared-ping-pong-geometry) |
 | F00 zero speed | Known difference | Known difference — unresolved: VTX ignores F00, while FT2 writes zero speed/tick state. Resulting traversal and transport policy still need characterization. | [VTX zero-speed handling](../app/VoodooTrackerX/VoodooTrackerX/PlaybackSongAdapter+Timing.swift#L235) |
 | Pan-envelope extreme final-pan byte wrap | Known difference | Intentionally retained: G06 stays bounded in both profiles beyond its nominal 0...63 domain. The carried-slope witness emits reference byte 0 versus VTX 252; this does not close the extreme-output difference. | [Exact witness and approved policy](design/xm-reset-output-ramp.md#bounded-normal-domain-pan-envelope-q8) |
-| Pan-envelope sustain/release clock | Known difference | Known difference — unresolved: releasing pan sustain can leave a different logical clock and factor; volume-clock closure does not resolve it. | [Pan-envelope tests](../tests/vtx_render_bounded_xm/XMPanningEnvelopeTests.swift) |
+| Pan-envelope sustain/release clock | Known difference | Known difference — intentionally not emulated: VTX holds sustain once on release, then resumes the authored tail; FT2 advances its raw counter with a stale held value. Manager policy approved; codification acceptance awaits qualification, specific-pair listening and merge. | [Versioned observation and policy](design/xm-reset-output-ramp.md#intentional-logical-pan-sustain-release); [regressions](../tests/vtx_render_bounded_xm/XMPanningEnvelopeTests.swift) |
 | Warm volume reset and before-first Lxx seek | Known difference | Known difference — unresolved: warm accumulator/slope resets and explicit seeks before the first point retain reference quirks beyond the cold #539 slice. | [Cold/warm boundary](design/xm-reset-output-ramp.md#cold-volume-before-the-first-point) |
 | Unusual ED/EE/key-off precedence | Needs characterization | Note-off plus delayed or held-row dispatch outside the bounded G23/G24/G35 cases still needs a distinguishing reference witness. Historical EE2 reproduction remains unavailable; ordinary pattern-delay closure is unchanged. | [Lifecycle exclusions](#g39-phase-consumption-and-remaining-range); [release tests](../tests/vtx_render_bounded_xm/NoteOffPrecedenceTests.swift); [EE2 limitation](https://github.com/syncomm/voodootrackerx/pull/539) |
 | Whole-runtime host/offline and PCM tails | Partial | In-song delivery is verified; post-song tails and remaining mode/rate/profile comparisons still need full qualification. | [G39 delivery limits](#g39-phase-consumption-and-remaining-range); [output contract](design/xm-reset-output-ramp.md) |
@@ -650,8 +650,9 @@ establish callback underruns or resolve `VTX-D1-001`.
 ### Known reference differences and deferred boundaries
 
 The bounded G40 law and merged #538/#539 volume-envelope slices are Closed.
-Warm reset/seek, pan-envelope sustain/release and broader output qualification
-remain separate obligations; no retained-difference label grants a waiver. G05's bounded
+Warm reset/seek and broader output qualification remain separate obligations;
+the [intentional pan release policy](design/xm-reset-output-ramp.md#intentional-logical-pan-sustain-release)
+has its own pending acceptance, without a release waiver. G05's bounded
 final-output admission is closed above; generic non-XM/editor-preview ramp policy
 is unchanged. Current
 [volume ownership](design/xm-volume-ownership.md)

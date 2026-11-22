@@ -16,6 +16,15 @@ The carried-wrap pair reproduces the original 993-byte witness exactly; its
 reference byte 0 remains distinct from approved bounded VTX byte 252. Reference
 audio is external, and no human listening acceptance is implied.
 
+Pan sustain/release characterization recipe version 1 is
+`source/pan-envelope-sustain-release-v1.py`, with its companion `.sha256` manifest.
+Regenerate its 118 public inputs with
+`python3 tests/reference-xm/source/pan-envelope-sustain-release-v1.py --output-dir /private/tmp/vtx-pan-sr-v1 --verify`.
+The independent cases cover release boundaries, loop/sustain locations, Lxx gates,
+exact silent routes, source resets, steady tones and a native-counter-wrap guard.
+These inputs assert no new playback policy or closure; generated XM, reference
+outputs and characterization evidence remain external.
+
 `source/cold-entry-v1.manifest.json` versions the original public ORIGIN1 v2
 controls as one small recipe: unplayed F01/instrument-only prefixes, note-only
 entries and a same-channel E60 anchor. `ColdEntryTests` parses regenerated XM

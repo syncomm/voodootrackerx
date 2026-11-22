@@ -6,6 +6,16 @@ remain intentionally deferred.
 
 ## Purpose
 
+Public pan-Q8 recipe version 1 is `source/pan-envelope-q8-v1.py`. Its 30 inputs
+cover both modes, signed slopes, raw point 64, Lxx, carry/reset, zero-volume PCM,
+96-row sub-Q8 arrival and an original 1.92-second triangle duet. Generate only
+external binaries with `python3 tests/reference-xm/source/pan-envelope-q8-v1.py
+--output-dir /private/tmp/vtx-pan-q8-v1 --verify`. The committed `.sha256`
+manifest SHA-256 is `b9b3f75d8b1b92068ab11156c130e831f5583a03799c24ba602bb4fc99d6dd56`.
+The carried-wrap pair reproduces the original 993-byte witness exactly; its
+reference byte 0 remains distinct from approved bounded VTX byte 252. Reference
+audio is external, and no human listening acceptance is implied.
+
 `source/cold-entry-v1.manifest.json` versions the original public ORIGIN1 v2
 controls as one small recipe: unplayed F01/instrument-only prefixes, note-only
 entries and a same-channel E60 anchor. `ColdEntryTests` parses regenerated XM

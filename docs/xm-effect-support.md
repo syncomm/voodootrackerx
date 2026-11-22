@@ -84,7 +84,7 @@ Start here for what each command does. A Closed status covers its named bounded 
 | `Gxx` | Global volume | Implemented | Closed | None | Not applicable | Sets the whole song’s volume. Notes and held output observe the change in channel execution order. |
 | `Hxy` / `H00` | Global volume slide | Implemented | Known difference | Remembers one global-slide amount; unseeded `H00` is a no-op | Not applicable | Gradually changes the whole song’s volume. Known difference — intentionally not emulated: `H00` without previous slide history leaves volume alone where FT2 can make a small volume change. |
 | `Kxx` | Key off | Implemented | Partial | None | Not applicable | Releases the note on a chosen tick so its envelope/fadeout can continue. Unusual delayed/held-row release combinations and full tail qualification remain open. |
-| `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Moves the instrument’s volume/pan envelopes to a selected position. Warm before-first reset/seek and pan-clock/arithmetic/sustain differences still need work; the [merged cold and volume-loop slices](ft2-xm-closure-matrix.md#volume-envelope-closure-and-release-boundary) are Closed. |
+| `Lxx` | Set envelope position | Implemented | Partial | None | Not applicable | Moves the instrument’s volume/pan envelopes to a selected position. Warm before-first reset/seek, pan clocks/sustain and extreme output differences still need work; the [merged cold and volume-loop slices](ft2-xm-closure-matrix.md#volume-envelope-closure-and-release-boundary) are Closed. |
 | `Pxy` | Panning slide | Implemented | Closed | Remembers its own amount; `P00` reuses it | Not applicable | Slides sound left or right on later ticks. Stored-pan movement and writer order are verified; shared pan-envelope differences remain separate. |
 | `Rxy` | Multi retrigger | Implemented | Known difference | Repeat interval and volume-change setting remembered separately | Not applicable | Repeats the current note at a chosen interval and can change its volume on each repeat. Known difference — intentionally not emulated: FT2 changes a silent volume value before any note exists; VTX does not. |
 | `Txy` | Tremor | Implemented | Closed | Remembers its own on/off timing; `T00` reuses it | Not applicable | Alternates the note between audible and muted intervals without changing base volume or restarting the sample. |
@@ -994,7 +994,10 @@ support alone does not close these domains:
   independent future infrastructure debt, not a failed G40 audio gate.
   G06 now composes the carried pan value into the existing final-L/R
   target, preserving neutral/static baselines and silent routes. Existing
-  fractional/point-64 arithmetic and pan-sustain release differences remain open.
+  normal-domain Q8 uses playback endpoint 63 while preserving raw point 64.
+  G06 remains bounded in both profiles; the intentional extreme reference-wrap
+  difference and pan-sustain release remain open under the
+  [bounded pan policy](design/xm-reset-output-ramp.md#bounded-normal-domain-pan-envelope-q8).
   Lxx now positions the existing pan clock under the sounding instrument's raw
   volume-sustain flag, independent of volume enable/loop flags. Command-frame
   position/value controls match the pinned reference at both rates. The bounded
@@ -1007,7 +1010,7 @@ support alone does not close these domains:
   exact point reassignment through the existing final stereo targets. Both-rate
   whole/window/core/actual-host, reference-audio and Release gates pass. Merged #538 closes bounded volume-Lxx
   loop/end positioning, and merged #539 closes fresh cold-before-first initialization.
-  Warm reset/seek and pan Float/Q8, sustain and clock quirks remain open;
+  Warm reset/seek, extreme pan output and pan sustain/clock quirks remain open;
   #539's scoped performance exception does not close global Release gates. See the
   [owned volume policy](design/xm-reset-output-ramp.md#g31-bounded-volume-envelope-q8-arithmetic).
   Instrument autovibrato (G32) is closed under its accepted bounded VTX

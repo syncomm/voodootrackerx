@@ -126,7 +126,9 @@ final class XMEnvelopeSemanticTests: XCTestCase {
             }
             let states = try XCTUnwrap(result.plan.xmEnvelopeTimeline?.updatesByEvent[0])
             XCTAssertEqual(Array(states.prefix(9)).map(\.state.panTick), [0, 1, 2, 3, 0, 1, 2, 3, 0])
-            XCTAssertEqual(Array(states.prefix(5)).map(\.state.panValue), [0, 0.25, 0.5, 0.75, 0])
+            // Pinned native loop: raw endpoint 64 is interpreted as 63 before the slope.
+            XCTAssertEqual(Array(states.prefix(5)).map(\.state.panValue),
+                [0, 4032, 8064, 12096, 0].map { Float($0) / 16384 })
             XCTAssertEqual(Array(result.block.interleavedPCM.prefix(2)), [0, 0])
             XCTAssertGreaterThan(result.block.interleavedPCM[2], result.block.interleavedPCM[3])
         }

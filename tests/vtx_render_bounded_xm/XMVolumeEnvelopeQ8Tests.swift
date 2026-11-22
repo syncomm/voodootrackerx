@@ -121,7 +121,7 @@ final class XMVolumeEnvelopeQ8Tests: XCTestCase {
         }
     }
 
-    func testNongridPanStillUsesFloatAndPublicFixtureMatchesEveryWindow() throws {
+    func testNongridPanHasItsOwnPointDomainAndPublicVolumeFixtureMatchesEveryWindow() throws {
         let points = [(0, 13), (7, 61)]
         let pan = PlaybackPanningEnvelope(enabled: true, points: points.map { .init(tick: $0.0, value: $0.1) },
             sustainPointIndex: nil, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: 1)
@@ -130,8 +130,8 @@ final class XMVolumeEnvelopeQ8Tests: XCTestCase {
         let fixture = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: url.path), modulePath: url.path)
         for rate in [44_100.0, 48_000] {
             let states = try XCTUnwrap(adapt(song(envelope(points), panEnvelope: pan), rate).xmEnvelopeTimeline?.updatesByEvent[0])
-            XCTAssertEqual(states[1].state.panValue, Float(13) / 64 + (Float(48) / 64) * (Float(1) / 7))
-            XCTAssertNotEqual(states[1].state.volumeValue, states[1].state.panValue)
+            XCTAssertEqual(states[1].state.panValue, Float(5083) / 16384)
+            XCTAssertEqual(states[1].state.volumeValue, states[1].state.panValue)
             let config = MixerRenderConfig(sampleRate: rate)
             let request = PlaybackSongOfflineRenderRequest(song: fixture, config: config, rows: 12)
             let renderer = PlaybackSongOfflineRenderer(), whole = renderer.render(request)

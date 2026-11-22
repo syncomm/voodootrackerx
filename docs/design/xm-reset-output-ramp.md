@@ -262,13 +262,52 @@ routes, note-only carry, instrument-only reset, Lxx and both-rate window parity.
 control and the existing public envelope fixture through the runtime render core.
 No reference audio or corpus-derived artifacts are committed.
 
-This closes the audible-factor contract, not all pan-envelope parity. Existing
-Float segment interpolation and slopes through stored point 64 remain distinct
-from reference Q8 arithmetic and loader normalization. VTX retains its logical
+This closes the audible-factor contract, not all pan-envelope parity. The bounded
+normal-domain Q8 interpretation below supersedes the original Float segment
+arithmetic without changing G06's output calculation. VTX retains its logical
 release from pan sustain; the pinned sustained control keeps its pan value held
-after release. Neither clock/arithmetic difference is corrected here. G07 adds
-positioning to this same pan segment; static pan law (G40) remains open. Preview
+after release. That clock difference remains separate. G07 adds positioning to
+this same pan segment; the bounded static pan law (G40) is closed. Preview
 is isolated.
+
+### Bounded normal-domain pan-envelope Q8
+
+`VTX-PAN-Q8-1B-NOMINAL` uses independently observed signed Q8 pan arithmetic:
+limit each playback endpoint to 63, then divide `256 * (y1-y0)` by the increasing
+tick span, truncating toward zero. The value is `256*y0 + slopeQ8*(tick-x0)`;
+exact point arrival assigns `256*y1`. Divide by 16384 for the existing semantic
+factor. `(0,13),(6,14)` emits `3328,3370,3412,3454,3496,3538,3584`, including
+centered final byte 53 at tick 3 where Float interpolation emitted 54.
+Native parity covers increasing ticks in the reference coordinate range;
+wider represented coordinates are not newly normalized by this contract.
+Sub-Q8 positive/negative slopes hold until exact arrival. Pending segment carry,
+reset, G07 gates/positioning and sustain/release clocks retain their ownership.
+No second clock, state growth, C DSP or G31 volume-policy change is involved.
+Raw point 64 remains stored as 64 through parser, editor, writer and reopen;
+only playback interpretation limits that endpoint before calculating its slope.
+
+G06 still caps the consumed factor at 63 and bounds final pan in both VTX and
+FT2 profiles. The pinned reference's extreme wrap is an intentional, narrow
+product difference, not normal-domain parity: with pan 128, old points
+`(0,13),(7,61)`, new points `(0,13),(13,61)`, C-4/I01, I02-only, then C-4-only,
+row 2/tick 2 reaches pan tick 8. At frames 12348/13440 (44.1/48 kHz), the native
+stored Q8 accumulator is 17368; its emitted value is limited to 64. At center,
+the displacement 128 narrows to signed byte -128, yielding final pan 0. For
+right-of-center pan 192, displacement 64 instead makes the final unsigned sum
+256 wrap to 0. VTX retains factor 1 and G06 bytes 252/254 respectively.
+For the centered witness, reference L/R is `1/0`; VTX keeps the FT2-profile
+coefficients `0.125/0.992156982421875`. Source I02/S01 and its advancing cursor are retained.
+This known output difference remains open to any separately approved policy;
+there is no new profile switch or claim of universal FT2 parity.
+
+`XMPanningEnvelopeTests` and runtime/writer regressions cover both modes/rates,
+native factors/final targets, 64-row continuation, bounded extremes and exact
+raw metadata. Public [recipe v1](../../tests/reference-xm/source/pan-envelope-q8-v1.py)
+and its reviewed hash manifest regenerate normal/carry/zero-volume controls and
+a 1.92-second original musical example. Reference artifacts remain external.
+This bounded contract is CLOSED on the branch after full local Debug/optimized
+Release, reference, public-output and actual-host qualification. Native submission
+CI and Gregory's review/merge remain acceptance gates; Phase 2/v0.5 stays HOLD.
 
 ### G07 Lxx panning-envelope positioning
 
@@ -280,7 +319,7 @@ the gate. Silent declared routes carry the same semantics without creating a
 voice. Existing resets and release happen before same-cell positioning; Lxx
 does not revive key-on or reset fadeout.
 
-The command selects the requested byte position and samples the existing Float
+The command selects the requested byte position and samples the existing
 segment on that exact canonical tick frame. A position at or beyond the final
 point holds its value while the clock advances. Selecting exactly a loop end
 wraps immediately to its start, except for a released sustain point at that end.
@@ -297,8 +336,9 @@ verify semantic state, final targets, PCM and zero planned/applied frame delta.
 
 The bounded G07 Lxx panning-envelope positioning contract is `CLOSED` by
 maintainer acceptance of the automated controls and external verification below.
-G06 remains closed. Pan fractional/Q8 arithmetic, G40 static/header/8xx
-final pan law and the pan-sustain/release difference remain explicitly open;
+G06 remains closed within its bounded output policy. Normal-domain pan Q8 is
+separately scoped above; G40 is closed. The extreme reference output wrap and
+pan-sustain/release difference remain explicit;
 this is not overall panning-envelope parity.
 
 The maintainer reported `** TEST SUCCEEDED **` for the full canonical repo-root
@@ -499,7 +539,7 @@ and `F03`. Measurements establish these rules:
 | Field | Semantic rule |
 | --- | --- |
 | Initial state | Publish envelope position 0 on the trigger tick, key-on true, fadeout 32768 (unity). |
-| Advancement | Advance one logical position at each subsequent canonical XM tick; hold the factor between ticks. Volume uses the bounded G31 Q8 policy below; pan retains Float interpolation. |
+| Advancement | Advance one logical position at each subsequent canonical XM tick; hold the factor between ticks. Volume uses bounded G31 Q8; pan uses the independently qualified normal-domain Q8/endpoint-63 interpretation above. |
 | Sustain/release | Hold the sustain point while key-on. The release tick retains a held sustain value; the next tick advances. |
 | Loop | Wrap on the end tick to the start point (exclusive end). Looping continues after release, except that a released sustain point at the loop end lets progression escape the loop. |
 | `Lxx` | Preserve volume positioning; additionally position the enabled pan envelope under the sounding instrument's raw volume-sustain flag. Use the same canonical tick frame and existing interpolator. See the G07 contract above for loop/end boundaries. |
@@ -540,7 +580,8 @@ segment slots, including bounded carry and its existing `0...1` clamp. A new
 instrument curve still retains the old slope until its pending point is met.
 No clock, state width, planning pass, source eligibility or C DSP changes.
 Represented coordinates and parser/writer admission remain unchanged.
-Pan retains its prior Float value/slope, point domain and sustain/release quirk.
+The separate pan contract above limits playback endpoints to 63; volume 64
+remains valid here. Pan sustain/release remains separately owned.
 Existing final gain multiplication order is retained; the odd-fade control
 differs from the reference by at most one Float32 ULP (`2.98e-8`).
 

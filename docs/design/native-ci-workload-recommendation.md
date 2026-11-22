@@ -23,10 +23,11 @@ commit-list truncation limits require full qualification. Unknowns never expand
 the allowlist. JSON records event, source SHA, reason, completeness, count and paths.
 
 The native helper requires 103 app ASan / 69 package ASan /
-1,917 optimized app / 982 optimized package cases and four expected traps. The app
+1,918 optimized app / 984 optimized package cases and four expected traps. The app
 count includes the five Clear Song Data admission regressions and two additional
-writer/export keymap tests plus two pan-Q8 runtime/writer cases; the package count
-includes the four ordinary absent-keymap and three pan-Q8 regressions. The G31
+writer/export keymap tests, two pan-Q8 runtime/writer cases and one logical pan
+release runtime guard; the package count includes the four ordinary absent-keymap,
+three pan-Q8 and two logical pan release regressions. The G31
 pan assertion is renamed, without adding a case. Count controls reject stale,
 missing, duplicate, extra and non-passing cases, inconsistent summaries and
 non-native app execution. The same

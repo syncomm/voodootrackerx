@@ -73,8 +73,10 @@ bounded contracts; they do not establish full command or audible parity.
 - G06 makes the existing panning-envelope segment audible through that final-L/R
   authority, preserving neutral/static baselines, exact routes and both-rate parity.
 - Bounded G07 Lxx panning-envelope positioning is closed under the raw
-  volume-sustain flag, preserving volume Lxx and G06. G40 pan law
-  and the pan-sustain/release difference remain open.
+  volume-sustain flag, preserving volume Lxx and G06. Bounded G40 is closed;
+  [logical pan release](design/xm-reset-output-ramp.md#intentional-logical-pan-sustain-release)
+  is an approved intentional difference, with codification qualification,
+  specific-pair listening and merge acceptance pending. Release remains HOLD.
 - Bounded G31 volume Q8 arithmetic is closed with direct/carried and both-rate
   delivery/reference/performance verification. Bounded volume-Lxx loop/end
   positioning is closed by PR #538 and its specific performance exception.

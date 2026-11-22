@@ -200,6 +200,87 @@ final class XMPanningEnvelopeTests: XCTestCase {
         }
     }
 
+    func testLogicalPanSustainReleaseBoundariesKeepTheAuthoredTailInBothModes() throws {
+        let curve = envelope([(0,32),(4,16),(8,48),(12,32)], sustain: 1)
+        // Independent release/next-tick vectors; the observed FT2 stale hold is not the oracle.
+        let cases: [(Int, PlaybackCell, Int, Int, Int)] = [
+            (3, cell(note: 49, instrument: 1, effect: 20, param: 3), 0, 3, 4096),
+            (4, cell(note: 49, instrument: 1, effect: 20, param: 4), 0, 4, 6144),
+            (5, cell(note: 49, instrument: 1, effect: 20, param: 5), 0, 4, 6144),
+            (6, cell(effect: 20), 1, 4, 6144), (6, cell(note: 97), 1, 4, 6144)]
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            let tick = Int(rate / 50), config = MixerRenderConfig(sampleRate: rate, mixProfile: .ft2)
+            for (release, command, row, position, nextQ8) in cases {
+                let module = song(curve, commands: [row: command], linear: linear)
+                let request = PlaybackSongOfflineRenderRequest(song: module, config: config, rows: 8)
+                let renderer = PlaybackSongOfflineRenderer(), full = renderer.render(request)
+                let states = try XCTUnwrap(full.plan.xmEnvelopeTimeline?.updatesByEvent[0])
+                XCTAssertEqual(states[release].state.panTick, position)
+                XCTAssertEqual(states[release].state.panValue * 16384, release == 3 ? 5120 : 4096)
+                XCTAssertFalse(states[release].state.keyOn)
+                XCTAssertEqual(states[release + 1].state.panTick, position + 1)
+                XCTAssertEqual(states[release + 1].state.panValue * 16384, Float(nextQ8))
+                XCTAssertEqual(states[release + 1].scheduledFrame, (release + 1) * tick)
+                XCTAssertEqual(full.plan.diagnostics.eventMappings.map(\.instrumentIndex), [1])
+                XCTAssertEqual(full.plan.diagnostics.eventMappings.map(\.sampleIndex), [0])
+                let target = try XCTUnwrap(full.plan.xmAudibleTimeline?.updatesByEvent[0]?.last {
+                    $0.scheduledFrame <= (release + 1) * tick })
+                let byte = nextQ8 / 64
+                XCTAssertEqual(target.pan, PlaybackSamplePanningPolicy.plannedPan(byte))
+                XCTAssertEqual(target.durationFrames, tick)
+                let settled = (release + 2) * tick * 2
+                XCTAssertEqual(full.block.interleavedPCM[settled], 0.25 * 0.3125 * nativeQ16Gain(256 - byte))
+                XCTAssertEqual(full.block.interleavedPCM[settled + 1], 0.25 * 0.3125 * nativeQ16Gain(byte))
+                XCTAssertEqual(renderer.renderWindowed(request, windowRows: 1).block.interleavedPCM, full.block.interleavedPCM)
+                XCTAssertEqual(renderer.render(request, splitFrameCounts: [7 * tick + 1, 41 * tick - 1]).block.interleavedPCM,
+                    full.block.interleavedPCM)
+#if DEBUG
+                let actual = PlaybackSongOfflineRenderSession(request: request)
+                let control = PlaybackSongOfflineRenderSession(request: .init(song: song(curve, linear: linear), config: config, rows: 8))
+                _ = actual.render(frames: 8 * tick + 1); _ = control.render(frames: 8 * tick + 1)
+                let voice = try XCTUnwrap(actual.sourceVoiceForTesting(0))
+                XCTAssertEqual(voice.envelopeSemanticState, states[8].state)
+                XCTAssertEqual(control.sourceVoiceForTesting(0)?.envelopeSemanticState?.panTick, 4)
+                XCTAssertEqual(voice.samplePosition, control.sourceVoiceForTesting(0)?.samplePosition)
+                XCTAssertEqual(voice.sampleStep, control.sourceVoiceForTesting(0)?.sampleStep)
+                XCTAssertTrue(voice.active)
+#endif
+            }
+            for (pan, expected) in [(envelope([(0,32),(4,16)], sustain: 1), Float(4096)),
+                (envelope([(0,32),(4,16),(8,48),(12,32)], sustain: 1, loop: (1,2)), Float(6144))] {
+                let plan = render(song(pan, commands: [1: cell(note: 97)], linear: linear), rate).plan
+                XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[0]?[6].state.panTick, 4)
+                XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[0]?[7].state.panTick, 5)
+                XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[0]?[7].state.panValue, expected / 16384)
+            }
+        } }
+    }
+
+    func testLogicalPanReleaseKeepsSilentPCMAndExactEmptyRouteDistinct() throws {
+        let pan = envelope([(0,32),(4,16),(8,48),(12,32)], sustain: 1)
+        for linear in [true, false] { for rate in [44_100.0, 48_000] { for empty in [false, true] {
+            var commands = [1: cell(note: 97), 3: cell(effect: 12, param: 64)]
+            if empty { commands[0] = cell(note: 50, instrument: 1) }
+            let result = render(song(pan, commands: commands, empty: empty, linear: linear, sampleVolume: 0), rate)
+            let states = try XCTUnwrap(result.plan.xmEnvelopeTimeline?.channelUpdates)
+            XCTAssertEqual(states[6].state.panTick, 4)
+            XCTAssertEqual(states[6].state.panValue, 4096.0 / 16384)
+            XCTAssertEqual(states[7].state.panTick, 5)
+            XCTAssertEqual(states[7].state.panValue, 6144.0 / 16384)
+            XCTAssertEqual(states[7].sampleIndex, empty ? 1 : 0)
+            XCTAssertEqual(result.plan.pattern.events.count, empty ? 0 : 1)
+            XCTAssertEqual(states[7].sourceEventIndex, empty ? nil : 0)
+            let reveal = 18 * Int(rate / 50) * 2
+            XCTAssertTrue(result.block.interleavedPCM[..<reveal].allSatisfy { $0 == 0 })
+            if empty {
+                XCTAssertTrue(result.block.interleavedPCM.allSatisfy { $0 == 0 })
+                XCTAssertTrue(result.plan.xmAudibleTimeline?.updates.isEmpty == true)
+            } else {
+                XCTAssertGreaterThan(result.block.interleavedPCM[reveal + 2 * Int(rate / 50)], 0)
+            }
+        } } }
+    }
+
     func testLxxRawVolumeSustainGateDoesNotRequireVolumeEnableOrLoop() throws {
         for rate in [44_100.0, 48_000] {
             for flags: UInt8 in 0...7 {
@@ -534,9 +615,10 @@ final class XMPanningEnvelopeTests: XCTestCase {
     private func song(_ pan: PlaybackPanningEnvelope = .disabled, header: UInt8 = 128, commands: [Int: PlaybackCell] = [:],
                       volumeEnvelope: Bool = true, volumeSustain: Bool = false, empty: Bool = false, oneShot: Bool = false,
                       volumeFlags: UInt8? = nil, volumePoints: [(Int, Int)] = [(0, 64), (100, 64)], secondVolumeFlags: UInt8? = nil,
-                      linear: Bool = true, secondPan: PlaybackPanningEnvelope? = nil, rowCount: Int = 8) -> PlaybackSong {
+                      linear: Bool = true, secondPan: PlaybackPanningEnvelope? = nil, rowCount: Int = 8,
+                      sampleVolume: Float = 1) -> PlaybackSong {
         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.25, count: 256),
-            volume: 1, panning: header, relativeNote: 0, finetune: 0, baseSampleRate: 8_363,
+            volume: sampleVolume, panning: header, relativeNote: 0, finetune: 0, baseSampleRate: 8_363,
             loopStart: 0, loopLength: oneShot ? 0 : 256, loopType: oneShot ? 0 : 1)
         var map = Array(repeating: 0, count: 96)
         if empty { map[49] = 1 }

@@ -2314,6 +2314,13 @@ final class RuntimeCMixerTests: XCTestCase {
         try assertXMEnvelopeRuntimeParity(song)
     }
 
+    func testPanQ8AndRaw64ShareExactCoreTargetsAndCanonicalFramesInBothModes() throws {
+        for linear in [true, false] {
+            try assertXMEnvelopeRuntimeParity(makePanningEnvelopeControl(volumeFlags: 2, positions: true,
+                panPoints: [(0,13),(7,64),(20,17),(25,61)], linear: linear))
+        }
+    }
+
     @MainActor
     func testColdVolumeEnvelopeSharesRuntimeTargetsAndWindowState() throws {
         let fixture = try referenceXMFixtureURL("generated/cold-volume-envelope-start.xm")
@@ -2496,13 +2503,14 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     private func makePanningEnvelopeControl(volumeFlags: UInt8 = 1, positions: Bool = false,
-                                           panSlides: Bool = false, columnPans: Bool = false) -> PlaybackSong {
+                                           panSlides: Bool = false, columnPans: Bool = false,
+                                           panPoints: [(Int, Int)]? = nil, linear: Bool = true) -> PlaybackSong {
         let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.25, count: 256),
             volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363, loopStart: 0, loopLength: 256, loopType: 1)
         let volume = PlaybackVolumeEnvelope(enabled: volumeFlags & 1 != 0, points: [.init(tick: 0, value: 64), .init(tick: 100, value: 64)],
             sustainPointIndex: volumeFlags & 2 == 0 ? nil : 1, loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: volumeFlags, fadeout: 0)
         let pan = PlaybackPanningEnvelope(enabled: true,
-            points: [.init(tick: 0, value: 32), .init(tick: 2, value: 16), .init(tick: 6, value: 48), .init(tick: 10, value: 32)],
+            points: (panPoints ?? [(0,32),(2,16),(6,48),(10,32)]).map { .init(tick: $0.0, value: $0.1) },
             sustainPointIndex: nil, loopStartPointIndex: 1, loopEndPointIndex: 2, typeFlags: 5)
         var commands: [Int: PlaybackCell] = [
             0: .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
@@ -2534,7 +2542,7 @@ final class RuntimeCMixerTests: XCTestCase {
             patternsByIndex: [0: .init(index: 0, rows: (0..<(columnPans ? 16 : 8)).map { row in
                 .init(index: row, cells: [commands[row] ?? .init(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)])
             })], instrumentsByIndex: [1: .init(index: 1, samples: [sample], volumeEnvelope: volume, panningEnvelope: pan, noteSampleMap: Array(repeating: 0, count: 96))],
-            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: true)
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
     }
 
     func testXMEnvelopeSemanticUpdateRejectsStaleGenerationAndCompletedSource() throws {

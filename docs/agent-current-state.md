@@ -252,8 +252,12 @@ host.
   in runtime and offline rendering. One C final-L/R state interpolates ordinary
   targets over the current tick and carries in-flight window progress.
   Direct and carried volume factors use signed Q8 slopes with exact point
-  reassignment under the bounded G31 contract. Pan retains Float interpolation;
-  volume-Lxx now qualifies exact loop ends immediately and preserves past-end
+  reassignment under the bounded G31 contract. Pan uses independently verified
+  normal-domain signed Q8 and playback-only endpoint limiting to 63; raw point
+  64 survives writer/reopen. G06's bounded, non-wrapping output remains unchanged
+  in both profiles; the extreme native byte-wrap witness remains an intentional
+  known difference under the [bounded pan policy](design/xm-reset-output-ramp.md#bounded-normal-domain-pan-envelope-q8).
+  Volume-Lxx now qualifies exact loop ends immediately and preserves past-end
   traversal through the existing segment state, accepted in PR #538 with its
   contract-specific performance exception. The bounded cold volume initialization
   candidate retains zero before the first point without delaying source birth;
@@ -272,7 +276,8 @@ host.
   sounding instrument's raw volume-sustain flag is set, including disabled volume
   envelopes. The bounded G07 Lxx panning-envelope positioning contract is closed
   with automated controls and maintainer-reported Xcode/listening acceptance.
-  Pan-clock/Q8 quirks, static pan law (G40) and broader onset interactions remain open.
+  Pan sustain/release clocks, extreme output differences and broader onset
+  interactions remain open; the bounded static pan law (G40) is closed.
 - Offline C-mixer render/export is the deterministic comparison context. Runtime
   capture and smoke checks validate the app host and delivery path; they do not
   create a second playback authority.
@@ -499,7 +504,7 @@ host.
   fields and original expectations preserved. Full Xcode Debug, SwiftPM
   Debug/Release, optimized app build and original paired median gates pass.
   See the [bounded qualification](ft2-xm-closure-matrix.md#g40-bounded-opt-in-ft2-static-pan-law).
-  G06/G07 fractional/Q8/point-64/sustain/release differences and post-song host
+  G06/G07 extreme output-wrap/sustain/release differences and post-song host
   tails remain open. Ordinary Xcode Release tests need a future independent
   optimized-test-instrumentation policy; the supported fault-injection suite
   runs in Debug, without exposing those hooks in the Release product.

@@ -1150,6 +1150,30 @@ final class EditableXMWriterTests: XCTestCase {
         )?.sampleIndex, 1)
     }
 
+    func testPanQ8PlaybackKeepsRaw64ThroughWriterAndLoadedReopen() throws {
+        let pan = PlaybackPanningEnvelope(enabled: true,
+            points: [.init(tick: 0, value: 13), .init(tick: 7, value: 64)],
+            sustainPointIndex: 0, loopStartPointIndex: 0, loopEndPointIndex: 0, typeFlags: 1)
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 2, channels: 1)
+        pattern.rows[0][0] = .init(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        let instrument = PlaybackInstrument(index: 1,
+            samples: [makeXMSourceSample(pcm: Array(repeating: 0.25, count: 64),
+                loopStart: 0, loopLength: 64, loopType: 1)],
+            panningEnvelope: pan, noteSampleMap: Array(repeating: 0, count: 96))
+        let document = makeDocument(orderTable: [0], patterns: [pattern], instrumentPalette: [1: instrument])
+        let data = try EditableXMWriter().data(from: document)
+        XCTAssertEqual(data.le16(at: data.patternHeader(at: 336).nextOffset + 183), 64)
+        let url = try temporaryExportURL(filename: "public-pan-q8-raw64.xm")
+        try data.write(to: url, options: .atomic)
+        let song = try PlaybackSongBuilder.build(from: ModuleMetadataLoader().load(fromPath: url.path), modulePath: url.path)
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 48_000)
+        XCTAssertEqual(plan.xmEnvelopeTimeline?.updatesByEvent[0]?[7].state.panValue, Float(63) / 64)
+        XCTAssertEqual(song.instrumentsByIndex[1]?.panningEnvelope, pan)
+        XCTAssertEqual(document.instrumentPalette[1]?.panningEnvelope, pan)
+        XCTAssertEqual(try Data(contentsOf: url), data)
+        XCTAssertEqual(try EditableXMWriter().data(from: document), data)
+    }
+
     func testOnlyEmptyMappedSlotPreservesInstrumentMetadataMapAndUnavailableRoute() throws {
         let volumeEnvelope = PlaybackVolumeEnvelope(
             enabled: true,

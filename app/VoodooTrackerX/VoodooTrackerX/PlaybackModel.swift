@@ -247,6 +247,33 @@ enum PlaybackVolumeEnvelopeQ8 {
     static func factor(_ value: Int) -> Float { Float(value) / 16_384 }
 }
 
+/// Playback-only pan interpretation; canonical/source point values remain exact.
+enum PlaybackPanningEnvelopeQ8 {
+    private static func point(_ raw: PlaybackEnvelopePoint) -> PlaybackEnvelopePoint {
+        .init(tick: raw.tick, value: min(63, raw.value))
+    }
+
+    static func slope(from start: PlaybackEnvelopePoint, to end: PlaybackEnvelopePoint) -> Float {
+        // Independent native pan observations establish the same signed Q8 division
+        // as volume, after the pan-specific endpoint limit, before interpolation.
+        PlaybackVolumeEnvelopeQ8.factor(PlaybackVolumeEnvelopeQ8.slope(from: point(start), to: point(end)))
+    }
+
+    static func value(at tick: Int, envelope: PlaybackVolumeEnvelope) -> Float {
+        guard envelope.enabled, let first = envelope.points.first else { return 1 }
+        let tick = max(0, tick)
+        if tick <= first.tick { return point(first).normalizedValue }
+        for index in 1..<envelope.points.count {
+            let next = envelope.points[index]
+            if tick <= next.tick {
+                return PlaybackVolumeEnvelopeQ8.factor(PlaybackVolumeEnvelopeQ8.value(at: tick,
+                    from: point(envelope.points[index - 1]), to: point(next)))
+            }
+        }
+        return point(envelope.points.last!).normalizedValue
+    }
+}
+
 struct PlaybackVolumeEnvelope: Equatable {
     static let disabled = PlaybackVolumeEnvelope(
         enabled: false,
@@ -302,7 +329,7 @@ struct PlaybackVolumeEnvelope: Equatable {
         value(at: tick, quantizedVolume: true)
     }
 
-    /// Pan segments retain their established Float interpolation and point domain.
+    /// Unquantized inspection; XM pan playback uses PlaybackPanningEnvelopeQ8.
     func floatingValue(at tick: Int) -> Float {
         value(at: tick, quantizedVolume: false)
     }

@@ -329,7 +329,7 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
         }
 
         mutating func sample(_ position: Int, envelope: PlaybackVolumeEnvelope, keyOn: Bool, volumeQ8: Bool = false) {
-            value = volumeQ8 ? envelope.value(at: position) : envelope.floatingValue(at: position)
+            value = volumeQ8 ? envelope.value(at: position) : PlaybackPanningEnvelopeQ8.value(at: position, envelope: envelope)
             let points = envelope.points
             guard !points.isEmpty else { return }
             if keyOn && envelope.sustainEnabled, let index = envelope.sustainPointIndex,
@@ -339,8 +339,8 @@ struct PlaybackXMEnvelopeTimeline: Equatable {
             } else if let next = points.firstIndex(where: { $0.tick > position }), next > 0 {
                 pendingPoint = next
                 slope = volumeQ8 ? PlaybackVolumeEnvelopeQ8.factor(PlaybackVolumeEnvelopeQ8.slope(
-                    from: points[next - 1], to: points[next])) : Float(points[next].value - points[next - 1].value) /
-                    Float(64 * max(1, points[next].tick - points[next - 1].tick))
+                    from: points[next - 1], to: points[next])) : PlaybackPanningEnvelopeQ8.slope(
+                    from: points[next - 1], to: points[next])
             } else {
                 pendingPoint = points.count - 1
                 slope = 0

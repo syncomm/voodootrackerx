@@ -16,11 +16,11 @@ import subprocess
 import tempfile
 import time
 
-# Full optimized app suite, including Clear Song Data and writer keymap regressions.
-APP_RELEASE_COUNT = 1915
+# Full optimized app suite, including the two pan-Q8 runtime/writer regressions.
+APP_RELEASE_COUNT = 1917
 
-# Full optimized suite, including the four ordinary absent-keymap regressions.
-PACKAGE_RELEASE_COUNT = 979
+# Full optimized suite, including the three pan-Q8 regressions; G31 is renamed.
+PACKAGE_RELEASE_COUNT = 982
 
 # Exact public selectors; no discovery-based reduction, skip or duplicate allowance.
 APP = [
@@ -444,7 +444,13 @@ def package_cases(text, count, expected=None):
     cases = [cls + '/' + method for cls, method, status in rows]
     require(len(cases) == len(set(cases)) == count, 'missing or duplicated package cases')
     require(all(status == 'passed' for cls, method, status in rows), 'non-passed package case')
-    require(re.search(r'Executed ' + str(count) + r' tests?, with 0 failures', text) is not None,
+    summaries = [detail for total, detail in re.findall(
+        r'(?m)^\s*Executed (\d+) tests?, with ([^\r\n]+)$', text) if int(total) == count]
+    # Accept the ordinary XCTest footer, but never a passing prefix followed by
+    # unexpected/expected failures, skips, or conflicting full-suite summaries.
+    require(bool(summaries) and all(re.fullmatch(
+        r'0 failures(?: \(0 unexpected\))?(?: in [\d.]+ \([\d.]+\) seconds)?\s*', detail)
+        for detail in summaries),
             'package summary count')
     if expected is not None:
         require(sorted(cases) == sorted(expected), 'unexpected package selectors')

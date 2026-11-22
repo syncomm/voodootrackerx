@@ -75,27 +75,44 @@ class NativePackageReleaseCountTests(unittest.TestCase):
                 "testNilPCMAndNeutralRoutesDoNotStartOrCutAtImmediateED0OrED3Dispatch",
                 "testNilToneTargetsPreserveSourceAndExistingSlideWithoutSelectingPCM",
             ]
-        ]
+        ] + ["XMPanningEnvelopeTests/" + method for method in [
+            "testPanQ8IndependentNativeVectorsAndFinalTargetsPreserveRawPoints",
+            "testPanQ8SubQuantumSlopesArriveExactlyAcrossThe64RowWindow",
+            "testPanQ8PendingCarryAndResetKeepBoundedOutputInBothProfiles",
+        ]]
+        self.cases[0] = "XMVolumeEnvelopeQ8Tests/testNongridPanHasItsOwnPointDomainAndPublicVolumeFixtureMatchesEveryWindow"
 
     def output(self, cases):
         rows = ["Test Case '-[%s %s]' passed (0.001 seconds)." % tuple(case.split("/"))
                 for case in cases]
         return "\n".join(rows + [f"Executed {len(cases)} tests, with 0 failures"])
 
-    def test_full_count_includes_all_four_policy_b_regressions(self):
+    def test_full_count_includes_policy_b_pan_q8_and_renamed_g31_regressions(self):
+        self.assertEqual(HELPER.PACKAGE_RELEASE_COUNT, 982)
         self.assertEqual(HELPER.package_cases(self.output(self.cases), HELPER.PACKAGE_RELEASE_COUNT),
                          self.cases)
+        self.assertEqual(HELPER.package_cases(self.output(self.cases).replace(
+            "0 failures", "0 failures (0 unexpected) in 1.234 (1.234) seconds"), 982), self.cases)
 
-    def test_missing_duplicate_failed_or_skipped_cases_still_fail_closed(self):
+    def test_incomplete_nonpassing_or_stale_package_counts_still_fail_closed(self):
         exact = self.output(self.cases)
-        invalid = [self.output(self.cases[:-4]), self.output(self.cases[:-1]),
+        invalid = [self.output(self.cases[:-7]), self.output(self.cases[:-3]), self.output(self.cases[:-1]),
                    self.output(self.cases + self.cases[-1:]),
+                   self.output(self.cases + ["Unexpected/testExtra"]),
                    self.output(self.cases[:-1] + self.cases[-2:-1]),
-                   exact.replace("passed", "failed", 1), exact.replace("passed", "skipped", 1),
-                   exact.replace("Executed 979", "Executed 975")]
+                   exact.replace("Executed 982", "Executed 979"),
+                   exact.replace("Executed 982", "Executed 981")]
+        invalid += [exact.replace("passed", status, 1) for status in
+                    ["failed", "skipped", "expected failure", "unexpected failure"]]
+        invalid += [exact.replace("0 failures", summary) for summary in
+                    ["1 failures", "0 failures (1 unexpected)", "0 failures, 1 expected failure",
+                     "0 failures, 1 skipped"]]
+        invalid.append(exact + "\nExecuted 982 tests, with 1 failures")
         for text in invalid:
             with self.subTest(text=text[-100:]), self.assertRaises(AssertionError):
                 HELPER.package_cases(text, HELPER.PACKAGE_RELEASE_COUNT)
+        with self.assertRaises(AssertionError):
+            HELPER.package_cases(exact, 979)
 
 
 class NativeAppReleaseCountTests(unittest.TestCase):
@@ -114,8 +131,10 @@ class NativeAppReleaseCountTests(unittest.TestCase):
         ] + [
             "EditableXMWriterTests/testMixedNeutralAndMappedZeroVolumePCMInstrumentsReopenExactly",
             "ExportXMCoordinatorTests/testNilMapPCMInLaterInstrumentPreservesDestinationAndDoesNotCreateNewFile",
+            "EditableXMWriterTests/testPanQ8PlaybackKeepsRaw64ThroughWriterAndLoadedReopen",
+            "RuntimeCMixerTests/testPanQ8AndRaw64ShareExactCoreTargetsAndCanonicalFramesInBothModes",
         ]
-        self.summary = dict(totalTestCount=1915, passedTests=1915, failedTests=0,
+        self.summary = dict(totalTestCount=1917, passedTests=1917, failedTests=0,
                             skippedTests=0, expectedFailures=0)
         self.tests = {"devices": [{"architecture": "arm64"}], "testNodes": [
             {"nodeType": "Test Case", "result": "Passed", "nodeIdentifier": case + "()"}
@@ -127,14 +146,15 @@ class NativeAppReleaseCountTests(unittest.TestCase):
                 mock.patch.object(HELPER, "output", side_effect=[json.dumps(summary), json.dumps(tests)]):
             return HELPER.result_cases(self.root / "release-app.xcresult", HELPER.APP_RELEASE_COUNT)
 
-    def test_full_count_includes_clear_song_admission_and_writer_keymap_cases(self):
+    def test_full_count_includes_admission_keymap_and_both_pan_q8_cases(self):
+        self.assertEqual(HELPER.APP_RELEASE_COUNT, 1917)
         self.assertEqual(self.validate(self.summary, self.tests), self.cases)
 
     def test_missing_duplicate_failed_skipped_unexpected_and_non_native_cases_fail_closed(self):
         invalid = []
-        for missing in [1, 2, 7]:
+        for missing in [1, 2, 9]:
             summary, tests = copy.deepcopy(self.summary), copy.deepcopy(self.tests)
-            summary.update(totalTestCount=1915 - missing, passedTests=1915 - missing)
+            summary.update(totalTestCount=1917 - missing, passedTests=1917 - missing)
             tests["testNodes"] = tests["testNodes"][:-missing]
             invalid.append((summary, tests))
         duplicate = copy.deepcopy(self.tests)
@@ -146,12 +166,19 @@ class NativeAppReleaseCountTests(unittest.TestCase):
             tests = copy.deepcopy(self.tests)
             tests["testNodes"][-1]["result"] = status
             invalid.append((self.summary, tests))
-        for field, value in [("totalTestCount", 1913), ("passedTests", 1914),
+        for field, value in [("totalTestCount", 1915), ("passedTests", 1916),
+                             ("totalTestCount", "1917"), ("failedTests", False),
                              ("failedTests", 1), ("skippedTests", 1), ("expectedFailures", 1)]:
             invalid.append((dict(self.summary, **{field: value}), self.tests))
         non_native = copy.deepcopy(self.tests)
         non_native["devices"][0]["architecture"] = "x86_64"
         invalid.append((self.summary, non_native))
+        mixed = copy.deepcopy(self.tests)
+        mixed["devices"].append({"architecture": "x86_64"})
+        invalid.append((self.summary, mixed))
+        missing_device = copy.deepcopy(self.tests)
+        missing_device["devices"] = []
+        invalid.append((self.summary, missing_device))
         for summary, tests in invalid:
             with self.subTest(summary=summary), self.assertRaises(AssertionError):
                 self.validate(summary, tests)

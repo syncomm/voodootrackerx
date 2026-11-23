@@ -16,11 +16,11 @@ import subprocess
 import tempfile
 import time
 
-# Full optimized app suite, adding one logical pan sustain/release runtime guard.
-APP_RELEASE_COUNT = 1918
+# Full optimized app suite, including the warm volume-reset runtime guard.
+APP_RELEASE_COUNT = 1919
 
-# Full optimized suite, adding two logical pan sustain/release policy guards.
-PACKAGE_RELEASE_COUNT = 984
+# Full optimized suite, including three bounded warm volume-reset policy guards.
+PACKAGE_RELEASE_COUNT = 987
 
 # Exact public selectors; no discovery-based reduction, skip or duplicate allowance.
 APP = [

@@ -114,6 +114,7 @@ swift test --filter XMEnvelopeSemanticTests
 swift test --filter NonretriggeringResetTests
 swift test --filter XMResetOutputTests
 swift test --filter InstrumentOnlyVolumeTests
+swift test --filter XMWarmVolumeEnvelopeTests
 ```
 
 `instrument-only-volume-semantics.xm` adds cached defaults, carried versus
@@ -124,6 +125,17 @@ Runtime tests check generation/cursor preservation, exact application frames and
 a twelve-channel stress case under unchanged fixed headroom. Listening includes
 baseline/reference/candidate; the separate note-only coverage below includes
 the fixture's final note-only row.
+
+`XMWarmVolumeEnvelopeTests` uses tiny in-memory public controls for the
+[intentional warm-reset policy](design/xm-reset-output-ramp.md#intentional-warm-volume-reset):
+exact signed Q8 and pending/slope transitions, flat/cold/note-only controls,
+retained-source instrument-only targets and whole/window/stream PCM.
+Run it with the existing silent/empty/unavailable route guards, `XMColdVolumeEnvelopeTests`,
+`XMVolumeEnvelopeQ8Tests`, `XMVolumeLxxLoopEndTests`, `OrdinaryAbsentKeymapTests`
+and the existing reset/source-lifetime guards. The app's
+`RuntimeCMixerTests.testWarmVolumeResetSharesExactCoreFramesTargetsAndRetainedSource`
+checks the real render core, exact application frames, retained cursor/step and
+the existing 5 ms ramp. No generated XM/reference assets or long renders are required.
 
 `envelope-release-fadeout-timing.xm` covers a carried voice across `FFA` and
 `F03`, sustain/release, no-envelope key-off with a later volume write, and an

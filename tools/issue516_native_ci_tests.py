@@ -81,6 +81,10 @@ class NativePackageReleaseCountTests(unittest.TestCase):
             "testPanQ8PendingCarryAndResetKeepBoundedOutputInBothProfiles",
             "testLogicalPanSustainReleaseBoundariesKeepTheAuthoredTailInBothModes",
             "testLogicalPanReleaseKeepsSilentPCMAndExactEmptyRouteDistinct",
+        ]] + ["XMWarmVolumeEnvelopeTests/" + method for method in [
+            "testWarmResetReplacesEitherOldSignedSlopeWithTheNewFirstValue",
+            "testFlatWarmGreenControlAndNoteOnlyCarryKeepExactFactors",
+            "testInstrumentOnlyWarmResetKeepsExactTargetsAndWholeWindowStreamPCM",
         ]]
         self.cases[0] = "XMVolumeEnvelopeQ8Tests/testNongridPanHasItsOwnPointDomainAndPublicVolumeFixtureMatchesEveryWindow"
 
@@ -90,11 +94,11 @@ class NativePackageReleaseCountTests(unittest.TestCase):
         return "\n".join(rows + [f"Executed {len(cases)} tests, with 0 failures"])
 
     def test_full_count_includes_policy_b_pan_q8_logical_release_and_renamed_g31(self):
-        self.assertEqual(HELPER.PACKAGE_RELEASE_COUNT, 984)
+        self.assertEqual(HELPER.PACKAGE_RELEASE_COUNT, 987)
         self.assertEqual(HELPER.package_cases(self.output(self.cases), HELPER.PACKAGE_RELEASE_COUNT, self.cases),
                          self.cases)
         self.assertEqual(HELPER.package_cases(self.output(self.cases).replace(
-            "0 failures", "0 failures (0 unexpected) in 1.234 (1.234) seconds"), 984, self.cases), self.cases)
+            "0 failures", "0 failures (0 unexpected) in 1.234 (1.234) seconds"), 987, self.cases), self.cases)
 
     def test_incomplete_nonpassing_or_stale_package_counts_still_fail_closed(self):
         exact = self.output(self.cases)
@@ -103,19 +107,22 @@ class NativePackageReleaseCountTests(unittest.TestCase):
                    self.output(self.cases + ["Unexpected/testExtra"]),
                    self.output(self.cases[:-1] + self.cases[-2:-1]),
                    self.output(self.cases[:-1] + ["Unexpected/testReplacement"]),
-                   exact.replace("Executed 984", "Executed 982"),
-                   exact.replace("Executed 984", "Executed 983")]
+                   exact.replace("Executed 987", "Executed 982"),
+                   exact.replace("Executed 987", "Executed 983"),
+                   exact.replace("Executed 987", "Executed 984"),
+                   exact.replace("Executed 987", "Executed 986")]
         invalid += [exact.replace("passed", status, 1) for status in
                     ["failed", "skipped", "expected failure", "unexpected failure"]]
         invalid += [exact.replace("0 failures", summary) for summary in
                     ["1 failures", "0 failures (1 unexpected)", "0 failures, 1 expected failure",
                      "0 failures, 1 skipped"]]
-        invalid.append(exact + "\nExecuted 984 tests, with 1 failures")
+        invalid.append(exact + "\nExecuted 987 tests, with 1 failures")
         for text in invalid:
             with self.subTest(text=text[-100:]), self.assertRaises(AssertionError):
                 HELPER.package_cases(text, HELPER.PACKAGE_RELEASE_COUNT, self.cases)
-        with self.assertRaises(AssertionError):
-            HELPER.package_cases(exact, 982)
+        for stale_count in [982, 983, 984, 986, 988]:
+            with self.subTest(stale_count=stale_count), self.assertRaises(AssertionError):
+                HELPER.package_cases(exact, stale_count)
 
 
 class NativeAppReleaseCountTests(unittest.TestCase):
@@ -137,8 +144,9 @@ class NativeAppReleaseCountTests(unittest.TestCase):
             "EditableXMWriterTests/testPanQ8PlaybackKeepsRaw64ThroughWriterAndLoadedReopen",
             "RuntimeCMixerTests/testPanQ8AndRaw64ShareExactCoreTargetsAndCanonicalFramesInBothModes",
             "RuntimeCMixerTests/testLogicalPanSustainReleaseSharesExactCoreFramesTargetsAndPCM",
+            "RuntimeCMixerTests/testWarmVolumeResetSharesExactCoreFramesTargetsAndRetainedSource",
         ]
-        self.summary = dict(totalTestCount=1918, passedTests=1918, failedTests=0,
+        self.summary = dict(totalTestCount=1919, passedTests=1919, failedTests=0,
                             skippedTests=0, expectedFailures=0)
         self.tests = {"devices": [{"architecture": "arm64"}], "testNodes": [
             {"nodeType": "Test Case", "result": "Passed", "nodeIdentifier": case + "()"}
@@ -151,14 +159,14 @@ class NativeAppReleaseCountTests(unittest.TestCase):
             return HELPER.result_cases(self.root / "release-app.xcresult", HELPER.APP_RELEASE_COUNT, self.cases)
 
     def test_full_count_includes_admission_keymap_pan_q8_and_logical_release(self):
-        self.assertEqual(HELPER.APP_RELEASE_COUNT, 1918)
+        self.assertEqual(HELPER.APP_RELEASE_COUNT, 1919)
         self.assertEqual(self.validate(self.summary, self.tests), self.cases)
 
     def test_missing_duplicate_failed_skipped_unexpected_and_non_native_cases_fail_closed(self):
         invalid = []
         for missing in [1, 2, 9]:
             summary, tests = copy.deepcopy(self.summary), copy.deepcopy(self.tests)
-            summary.update(totalTestCount=1918 - missing, passedTests=1918 - missing)
+            summary.update(totalTestCount=1919 - missing, passedTests=1919 - missing)
             tests["testNodes"] = tests["testNodes"][:-missing]
             invalid.append((summary, tests))
         duplicate = copy.deepcopy(self.tests)
@@ -168,7 +176,7 @@ class NativeAppReleaseCountTests(unittest.TestCase):
         replaced = copy.deepcopy(self.tests)
         replaced["testNodes"][-1]["nodeIdentifier"] = "Unexpected/testReplacement()"
         invalid.extend([(self.summary, duplicate), (self.summary, extra), (self.summary, replaced)])
-        for status in ["Failed", "Skipped", "Expected Failure", "Unexpected"]:
+        for status in ["Failed", "Skipped", "Expected Failure", "Unexpected", "Unexpected Failure"]:
             tests = copy.deepcopy(self.tests)
             tests["testNodes"][-1]["result"] = status
             invalid.append((self.summary, tests))

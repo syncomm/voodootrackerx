@@ -1010,7 +1010,11 @@ support alone does not close these domains:
   exact point reassignment through the existing final stereo targets. Both-rate
   whole/window/core/actual-host, reference-audio and Release gates pass. Merged #538 closes bounded volume-Lxx
   loop/end positioning, and merged #539 closes fresh cold-before-first initialization.
-  Warm reset/seek and broader pan-output qualification remain open; logical pan
+  The bounded [warm-reset policy](design/xm-reset-output-ramp.md#intentional-warm-volume-reset)
+  intentionally adopts the first represented value instead of the pinned clone's
+  stale accumulator/slope. Its codification is CLOSED on the PR branch after local
+  qualification, pending submitted-head native CI and Gregory's review/merge. Before-first Lxx
+  and broader pan-output qualification remain open; logical pan
   release intentionally resumes the tail instead of the reference's stale hold.
   #539's scoped performance exception does not close global Release gates. See the
   [owned volume policy](design/xm-reset-output-ramp.md#g31-bounded-volume-envelope-q8-arithmetic).
@@ -1075,7 +1079,8 @@ or explicit accepted rationale; aggregate audio correlation is not closure.
   bounded local combined EEx traversal and pattern-local/safe traversal policy.
   Bounded G33 Pxy and G34 Txy are closed through accepted PRs #514/#515;
   G40's bounded opt-in law and #538/#539 volume slices are closed;
-  warm reset/seek and retained pan boundaries remain open.
+  warm reset is an intentional bounded policy with submission/merge gates;
+  before-first Lxx and retained pan boundaries remain separate.
   G32 instrument autovibrato is closed under its bounded VTX policy above.
   Remaining memory/mode interactions stay in v1 scope; merged fine/extra-fine
   and Amiga foundations are not missing implementations.

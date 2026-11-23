@@ -615,8 +615,8 @@ interpolation. This is the pinned clone's Q8 convention, not a claim of
 bit-identical original DOS FT2 output.
 
 Normalized Q8 values/slopes are exactly representable in the existing Float
-segment slots, including bounded carry and its existing `0...1` clamp. A new
-instrument curve still retains the old slope until its pending point is met.
+segment slots, including bounded carry and its existing `0...1` clamp. Note-only
+carry onto a new instrument curve retains the old slope until its pending point is met.
 No clock, state width, planning pass, source eligibility or C DSP changes.
 Represented coordinates and parser/writer admission remain unchanged.
 The separate pan contract above limits playback endpoints to 63; volume 64
@@ -634,7 +634,7 @@ and G40 pan-law residuals remain separately owned.
 The separately implemented volume-Lxx contract below supersedes G31's retained
 positioning difference: L0A previously emitted tick 10/value 17 instead of
 tick 3/value 53, and L0C previously wrapped its next tick to 3 instead of 13.
-G31 arithmetic is unchanged. The bounded cold initialization candidate below
+G31 arithmetic is unchanged. The bounded cold initialization contract below
 corrects ticks 0...2 before `(3,48),(10,16)`. Protected logical sustain clocks
 remain unchanged where reference raw counters advance while their emitted
 factor holds.
@@ -661,7 +661,7 @@ contract; cold initialization and broader XM/backend closure remain separate.
 
 ### Cold volume before the first point
 
-The bounded candidate keeps the existing zero volume-segment seed at the first
+The bounded contract accepted in PR #539 keeps the zero volume-segment seed at the first
 enabled-volume reset until its first point arrives. For `(3,48),(10,16)`, owned
 ticks 0...2 emit zero; tick 3 assigns `12288/16384`, then the existing signed Q8
 slope applies. ED1 births the source on tick 1 and reaches that point on song
@@ -677,10 +677,59 @@ clock owner, source route, C state or mixer DSP changes.
 `XMColdVolumeEnvelopeTests` and the original public ED1 fixture pin both modes
 and rates, immediate/ED0/ED1 controls, zero-time and single/segmented points,
 disabled/pan history, source/empty ownership and window/partition delivery.
-Acceptance/resource qualification remains **OPEN**. Warm resets can retain native
-accumulator/slope before the first point; explicit before-first Lxx has separate
-quirks. Those residuals remain owned by a subsequent effects follow-up. This
-candidate does not zero every reset or change unusual release precedence.
+This bounded cold contract is **CLOSED** through PR #539; its scoped performance
+exception transfers to no other change. Integrated resource/release qualification
+remains OPEN. Warm resets follow the separate policy below. Explicit before-first
+Lxx remains a separate effects follow-up; unusual release precedence is unchanged.
+
+### Intentional warm volume reset
+
+**PRESERVE VTX / INTENTIONALLY NOT EMULATED.** An explicit warm enabled-volume
+reset adopts the new curve's first represented value before point arrival,
+clearing the old slope. Cold initialization above still holds zero; ordinary
+note-only entry carries its segment and pending point. Enabled-volume history
+survives disabled instruments, while pan-only/disabled-volume history does not
+make a channel warm. No universal first-value or zero initialization is implied.
+
+The bounded policy is **CLOSED on this PR branch** after local regression
+qualification. Acceptance requires submitted-head native CI and Gregory's review/merge.
+Production playback is unchanged. Before-first Lxx is a separate later contract;
+this policy grants no performance, host callback-safety or release exception.
+
+Measured reference differences are limited to ft2-clone
+`87be42543dac82cf802b5bddad917bda62ace131`, not every original DOS FT2 build or
+universal tracker intent. In both frequency modes at 44.1/48 kHz, old curve
+`(0,20),(12,56),(24,8)` reaches Q8 `8960`, slope `+768`. Note+I02 selects
+`(3,48),(10,16)` at row 1 tick 0, frame `5292/5760`: the clone emits Q8 `9728`
+with the stale slope; VTX emits `12288`, slope zero, factor `0.75`. Both reach
+`12288` at new tick 3 and `11118` at tick 4. Prior negative slope `-1024`
+instead gives clone reset `10240`; VTX still gives `12288`. Flat warm control
+`(3,37),(10,37)` agrees at `9472` throughout the before-first interval.
+
+In the separate instrument-only retained-source witness, reset targets are
+clone `8778/16384` and VTX `12288/16384` at frame `5760`, over the existing
+240-frame reset ramp. Neither player physically retriggers the sample or resets
+its cursor. Gregory's acceptance of that one A listening pair preferred VTX's
+smoother result; the perceived reference attack comes from envelope targets/ramps.
+This is pair-specific owner listening acceptance, not general acoustic or
+compatibility qualification.
+
+`XMWarmVolumeEnvelopeTests` pins signed Q8 accumulator/slope/pending transitions,
+positive/negative history, the flat control, cold-zero contrast, note-only carry,
+exact source identity and exact whole/window/stream PCM. Existing cold-envelope,
+G31, empty-slot and absent-keymap tests own silent/empty/unavailable route guards.
+The runtime-core regression verifies both modes/rates, mono/stereo and both mix
+profiles, semantic/final targets, zero planned/applied frame delta and retained
+sample identity/cursor/step with the unchanged 5 ms reset. Existing #538/#539,
+G31, pan Q8/release, source-completion and headroom guards remain authoritative.
+
+Previously measured actual-host captures matched offline PCM. Four warm-case
+captures nevertheless recorded raw
+`unexpectedSilentOutputCount=underrunCount=4` during authored cold zero-envelope
+silence; the other five captures recorded zero for those counters. These are
+historical observations, not fresh host qualification or a resolution of #554
+or callback real-time safety. Ordinary/quick ramps, release/fadeout, G06/G07,
+G40, exact keymaps, parser/writer and editable-document/Undo authority are unchanged.
 
 ## Independently measured reference
 

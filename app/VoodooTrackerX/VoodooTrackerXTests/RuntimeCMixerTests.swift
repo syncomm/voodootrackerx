@@ -2343,6 +2343,73 @@ final class RuntimeCMixerTests: XCTestCase {
         try assertXMEnvelopeRuntimeParity(song)
     }
 
+    func testWarmVolumeResetSharesExactCoreFramesTargetsAndRetainedSource() throws {
+        func control(linear: Bool, kind: Int, reset: Bool = true) -> PlaybackSong {
+            func envelope(_ points: [(Int, Int)]) -> PlaybackVolumeEnvelope {
+                .init(enabled: true, points: points.map { .init(tick: $0.0, value: $0.1) }, sustainPointIndex: nil,
+                    loopStartPointIndex: nil, loopEndPointIndex: nil, typeFlags: 1, fadeout: 0)
+            }
+            let next = envelope([(3, 48), (10, 16)])
+            let old = kind == 2 ? next : envelope(kind == 0 ? [(0, 20), (12, 56), (24, 8)] : [(0, 64), (12, 16), (24, 56)])
+            let instruments = Dictionary(uniqueKeysWithValues: [1, 2].map { index in
+                let sample = PlaybackSample(instrumentIndex: index, sampleIndex: 0,
+                    pcm: Array(repeating: index == 1 ? 0.25 : -0.5, count: 65536), volume: 1, panning: 128,
+                    relativeNote: 0, finetune: 0, baseSampleRate: 8363, loopStart: 0, loopLength: 65536, loopType: 1)
+                return (index, PlaybackInstrument(index: index, samples: [sample], volumeEnvelope: index == 1 ? old : next,
+                    noteSampleMap: Array(repeating: 0, count: 96)))
+            })
+            return .init(title: "Public warm reset core control", orders: [.init(orderIndex: 0, patternIndex: 0)],
+                patternsByIndex: [0: .init(index: 0, rows: [makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: reset && kind != 2 ? 49 : 0, instrument: reset ? 2 : 0),
+                    makePlaybackRow(index: 2)])], instrumentsByIndex: instruments, restartOrderIndex: 0,
+                endBehavior: .stopAtEnd, initialTiming: .init(speed: 6, bpm: 125), usesLinearFrequencyTable: linear)
+        }
+        for linear in [true, false] { for kind in 0..<3 {
+            let song = control(linear: linear, kind: kind)
+            try assertXMEnvelopeRuntimeParity(song) // Mono/stereo, both rates/profiles, exact C delivery and zero frame delta.
+            guard kind == 2 else { continue }
+            for rate in [44_100.0, 48_000] {
+                let config = MixerRenderConfig(sampleRate: rate), frame = 6 * Int(rate / 50)
+                let runtime = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: rate)
+                let plan = try XCTUnwrap(runtime.plan)
+                XCTAssertEqual(plan.pattern.events.count, 1)
+                XCTAssertEqual(runtime.events.filter { if case .noteTrigger = $0.action { return true }; return false }.count, 1)
+                XCTAssertEqual(plan.diagnostics.eventMappings.map(\.instrumentIndex), [1])
+                XCTAssertEqual(plan.diagnostics.eventMappings.map(\.sampleIndex), [0])
+                XCTAssertEqual(plan.pattern.events[0].sample.monoPCM, song.instrumentsByIndex[1]?.samples[0].pcm)
+                let core = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                    outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                let blank = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 1024,
+                    outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"]))
+                core.configureAdapterEventScheduleForTesting(runtime.events, runtimeFrameOffset: 0)
+                blank.configureAdapterEventScheduleForTesting(RuntimeCMixerAdapterEventPlan.make(
+                    song: control(linear: linear, kind: kind, reset: false), sampleRate: rate).events, runtimeFrameOffset: 0)
+                var cursor = 0
+                while cursor < frame {
+                    let count = min(997, frame - cursor)
+                    _ = renderRuntimePCM(core, frames: count); _ = renderRuntimePCM(blank, frames: count)
+                    cursor += count
+                }
+                let before = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                _ = renderRuntimePCM(core, frames: 1); _ = renderRuntimePCM(blank, frames: 1)
+                let after = try XCTUnwrap(core.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                let unchanged = try XCTUnwrap(blank.adapterVoiceDiagnosticForTesting(eventIndex: 0))
+                XCTAssertEqual(after.samplePosition, before.samplePosition + before.sampleStep)
+                XCTAssertEqual(after.samplePosition, unchanged.samplePosition)
+                XCTAssertEqual(after.sampleStep, before.sampleStep)
+                XCTAssertEqual(after.sampleStep, unchanged.sampleStep)
+                XCTAssertEqual(after.sourceOnsetElapsedFrames, unchanged.sourceOnsetElapsedFrames)
+                XCTAssertEqual(after.channelTag, before.channelTag)
+                XCTAssertEqual(core.snapshot().activeVoiceCount, 1)
+                XCTAssertNil(core.adapterVoiceDiagnosticForTesting(eventIndex: 1))
+                XCTAssertEqual(after.envelopeSemanticState?.volumeValue, 0.75)
+                XCTAssertEqual(after.audibleOutputState?.start, before.audibleOutputState?.current)
+                XCTAssertEqual(after.audibleOutputState?.target, [0.75, 0.75, 0.75])
+                XCTAssertEqual(after.audibleOutputState?.durationFrames, Int(rate * 0.005))
+            }
+        } }
+    }
+
     @MainActor
     func testVolumeLxxLoopEndSharesExactCoreTargetsFramesAndSourceCursors() throws {
         let fixture = try referenceXMFixtureURL("generated/volume-lxx-loop-end.xm")

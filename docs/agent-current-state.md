@@ -259,9 +259,14 @@ host.
   known difference under the [bounded pan policy](design/xm-reset-output-ramp.md#bounded-normal-domain-pan-envelope-q8).
   Volume-Lxx now qualifies exact loop ends immediately and preserves past-end
   traversal through the existing segment state, accepted in PR #538 with its
-  contract-specific performance exception. The bounded cold volume initialization
-  candidate retains zero before the first point without delaying source birth;
-  qualification, warm before-first resets and explicit-seek quirks remain open.
+  contract-specific performance exception. The cold contract accepted in #539
+  retains zero before the first point without delaying source birth.
+  [Warm volume reset](design/xm-reset-output-ramp.md#intentional-warm-volume-reset)
+  intentionally adopts the first represented value and clears the old slope;
+  note-only segment carry remains separate. This bounded codification is CLOSED
+  on the PR branch after local qualification, pending submitted-head native CI
+  and Gregory's review/merge. Before-first Lxx and
+  integrated resource/release qualification remain OPEN; no exception transfers.
   Non-retriggering resets use a 5 ms transition from current audible output
   through that same state. Ordinary instrument-only cells restore the last
   selected declared header's cached volume/pan and reset channel semantics;

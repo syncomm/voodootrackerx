@@ -82,10 +82,11 @@ bounded contracts; they do not establish full command or audible parity.
   positioning is closed by PR #538 and its specific performance exception.
   Cold before-first initialization is closed by PR #539. The bounded
   [warm-reset policy](design/xm-reset-output-ramp.md#intentional-warm-volume-reset)
-  preserves VTX's first-value reset and is CLOSED on the PR branch after local
-  qualification; submitted-head native CI and Gregory's review/merge remain
-  required. Gregory owns the separately approved
-  before-first Lxx follow-up. Integrated resource/release gates stay OPEN;
+  preserves VTX's first-value reset and is CLOSED through merged #564.
+  The independently accepted [before-first Lxx policy](design/xm-reset-output-ramp.md#intentional-before-first-volume-lxx)
+  preserves first-value holding and authored point/slope arrival; bounded
+  codification is CLOSED on this PR branch, with submitted-head normal/native CI
+  and Gregory's review/merge required. Integrated resource/release gates stay OPEN;
   no earlier performance exception transfers.
 - Instrument-only default restoration and ordinary note-only exact-keymap
   routing/state carry are implemented without fabricated sources or fallback.

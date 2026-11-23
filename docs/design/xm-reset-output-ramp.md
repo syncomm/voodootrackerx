@@ -679,8 +679,8 @@ and rates, immediate/ED0/ED1 controls, zero-time and single/segmented points,
 disabled/pan history, source/empty ownership and window/partition delivery.
 This bounded cold contract is **CLOSED** through PR #539; its scoped performance
 exception transfers to no other change. Integrated resource/release qualification
-remains OPEN. Warm resets follow the separate policy below. Explicit before-first
-Lxx remains a separate effects follow-up; unusual release precedence is unchanged.
+remains OPEN. Warm resets and explicit before-first Lxx follow their separate
+intentional policies below; unusual release precedence is unchanged.
 
 ### Intentional warm volume reset
 
@@ -691,9 +691,9 @@ note-only entry carries its segment and pending point. Enabled-volume history
 survives disabled instruments, while pan-only/disabled-volume history does not
 make a channel warm. No universal first-value or zero initialization is implied.
 
-The bounded policy is **CLOSED on this PR branch** after local regression
-qualification. Acceptance requires submitted-head native CI and Gregory's review/merge.
-Production playback is unchanged. Before-first Lxx is a separate later contract;
+The bounded policy is **CLOSED** through merged
+[PR #564](https://github.com/syncomm/voodootrackerx/pull/564).
+Production playback is unchanged. Before-first Lxx has its independent policy below;
 this policy grants no performance, host callback-safety or release exception.
 
 Measured reference differences are limited to ft2-clone
@@ -730,6 +730,46 @@ silence; the other five captures recorded zero for those counters. These are
 historical observations, not fresh host qualification or a resolution of #554
 or callback real-time safety. Ordinary/quick ramps, release/fadeout, G06/G07,
 G40, exact keymaps, parser/writer and editable-document/Undo authority are unchanged.
+
+### Intentional before-first volume Lxx
+
+**PRESERVE VTX / INTENTIONALLY NOT EMULATED.** An explicit volume `Lxx` seek
+before a nonzero first point, including `L00`/`L01`/`L02`, holds its first value. The
+first authored point still arrives, and its subsequent signed Q8 slope executes.
+This accepted musical policy is independent of warm reset A: cold initialization
+without an explicit seek still holds zero under #539; note-only carry is unchanged.
+
+For falling `(3,48),(10,16)`, those seeks emit Q8 `12288` (factor `0.75`),
+reach point 0 at tick 3, then emit `11118` at tick 4. `L03`/`L04` are green
+controls at `12288`/`11118`. For rising `(3,12),(10,57)`, `L01` holds Q8
+`3072` through tick 3, then emits `4717` at tick 4 with slope `+1645`,
+reaching the exact second point `14592` at tick 10.
+
+Independent observations in both frequency modes at 44.1/48 kHz are limited to
+ft2-clone `87be42543dac82cf802b5bddad917bda62ace131`. Its falling early seeks
+backward-extrapolate Q8 `15798`, `14628`, `13458`; rising `L01` leaves a negative
+accumulator, clips output to silence, skips point 0 and stays silent until tick 10
+(about 180 ms). VTX has active audible PCM from frame 1 under the existing onset
+ramp. This intentionally retains a legacy compatibility cost for songs relying
+on those clone artifacts. It makes no original DOS FT2 or blanket FT2 equality claim.
+
+Gregory heard no distinguishable difference in the short B listening comparison;
+this records indifference, not a preference for either version. Structural
+correctness and independent reference evidence justify the accepted policy.
+The self-contained synthetic regression
+`XMColdVolumeEnvelopeTests.testBeforeFirstLxxHoldsFirstValueAndReachesAuthoredPointWithoutRetrigger`
+pins cold birth and warm seek-only command/following frames, Q8 values, audible
+targets and exact mapped source identity without fabricated triggers in both
+modes/rates. No local reference media or optional handoff is a test dependency.
+
+The bounded codification is **CLOSED on this PR branch**; acceptance requires
+green submitted-head normal/native CI and Gregory's review/merge. Production
+playback, #538 loop/end positioning, #539 cold zero, #564 warm reset, G31,
+pan Q8/release and G06/G07/G40, Fxx timing, source/keymap/PCM identity, ramps,
+runtime/offline/window parity, parser/writer metadata, loaded read-only ownership,
+ADR 014 and edit/Undo authority remain unchanged. No performance, host,
+callback-safety or release gate is waived; the #554 physical arm64/cold-host
+qualification and v0.5 gates remain OPEN.
 
 ## Independently measured reference
 

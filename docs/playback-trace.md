@@ -300,6 +300,11 @@ valid zero state without a missing-memory diagnostic. Nonzero `4xy` nibbles
 update their independent memory on nonzero ticks; `400`, `40y`, and `4x0`
 retain each zero nibble's previous value. Slide parameters never write vibrato
 speed/depth, and absence of slide memory does not prevent vibrato execution.
+Bare note97+EDx records actual eligible releases in `key_off_events`,
+with its ED effect bytes and actual synthetic tick/frame. It creates no trigger
+delay/reset record in `note_delay_effects`; those remain source-dispatch evidence.
+Out-of-speed bare ED requests create no release. Decorated ED and K20 held-zero
+policies are unchanged.
 Raw exact `K00` owns row-entry release, suppressing ordinary note starts;
 note97+K00 yields one semantic release diagnostic with K00 metadata. Carried
 owner selection precedes release, admitted cached restoration and column/Cxx/8xx

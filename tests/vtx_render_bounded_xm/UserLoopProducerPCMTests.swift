@@ -231,7 +231,7 @@ final class UserLoopProducerPCMTests: XCTestCase {
 
     /// Applies already generated runtime commands through the existing C boundary.
     /// This test consumer performs no row/effect interpretation or voice reconstruction.
-    private final class Consumer {
+    final class Consumer {
         let mixer: CSoftwareMixer
         var current = [Int: Int](), voices = [Int: Int]()
         var heldSteps = [Int: Double]()

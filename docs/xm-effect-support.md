@@ -1065,10 +1065,14 @@ support alone does not close these domains:
   [Historical-input and integration limits](ft2-xm-closure-matrix.md#g41-bounded-offset-admission-and-shared-ping-pong-geometry)
   remain explicit. Sample/instrument
   changes must preserve exact routing, defaults, silent clocks and note-only
-  carry; their unusual delay/retrigger/release precedence stays open. In particular,
-  note97+ED1 releases immediately in VTX even with EE0 while the pinned reference
-  retains key-on. The post-G41 cross-family trigger/release audit owns this preexisting
-  interaction independently of ordinary EEx timing.
+  carry. Bare note97+ED0...EDF (zero instrument and volume bytes) now releases at
+  each eligible local ED tick, including held ED0 zero phases, without reset or
+  a new source. Out-of-speed delays never release. This approved musical policy
+  intentionally differs from the pinned modern clone's release-then-reset/re-key.
+  [PureDelayedKeyOffTests](../tests/vtx_render_bounded_xm/PureDelayedKeyOffTests.swift)
+  pins timing, Q8/fadeout, routes and C output. Decorated ED release cells, ordinary
+  note97 retained scalar publication and K20 held-zero dispatch remain separately
+  owned residuals; G23/G24/G35/G38 retain their bounded authorities.
 
 See [volume ownership](design/xm-volume-ownership.md) and
 [reset/output targets](design/xm-reset-output-ramp.md) for retained policies and

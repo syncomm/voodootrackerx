@@ -250,6 +250,17 @@ released key state. Disabled and enabled-envelope consumers retain their actual
 cold segments rather than fabricating unity. Completed sources stay completed,
 and declared empty routes preserve exact headers without first-playable fallback.
 
+### Pure delayed key-off
+
+Bare note97+ED0...EDF is an approved release-only path: zero instrument and
+volume bytes admit release at each eligible local tick, including held ED0 zero
+phases. It uses the existing causal release decision, preserves the first release
+origin, and never resets or creates a source. Out-of-speed requests do nothing;
+ordinary note97 stays immediate. Decorated ED cells, ordinary note97 scalar-output
+binding and K20 held-zero dispatch are separate residual contracts.
+The bounded implementation is CLOSED; submitted-head qualification, Gregory's
+listening and merge remain acceptance gates for this intentionally different policy.
+
 ### Delayed instrument-only ED1...EDF (G23)
 
 Nonzero instrument-only delay selects the valid carried instrument at row entry

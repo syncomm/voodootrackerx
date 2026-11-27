@@ -4,6 +4,18 @@ This directory is VoodooTracker X's public, deterministic XM reference pack.
 It includes approved generated binary XM fixtures; XI and reference audio
 remain intentionally deferred.
 
+Pure delayed key-off recipe version 1 is `source/pure-delayed-keyoff-v1.py` with
+its companion `.sha256` manifest. Its four committed XM files preserve the
+original minimal ED1/EE0 and held ED1/EE2 witnesses in Linear and Amiga mode;
+they are a selected subset, not the exploratory matrix. The recipe and PCM are
+original project work; no reference implementation code or external music is included.
+Regenerate and verify:
+
+```sh
+python3 -B tests/reference-xm/source/pure-delayed-keyoff-v1.py \
+  --output-dir /private/tmp/vtx-pure-delayed-keyoff-v1
+```
+
 ## Purpose
 
 Public pan-Q8 recipe version 1 is `source/pan-envelope-q8-v1.py`. Its 30 inputs

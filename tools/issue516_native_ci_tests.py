@@ -85,7 +85,16 @@ class NativePackageReleaseCountTests(unittest.TestCase):
             "testWarmResetReplacesEitherOldSignedSlopeWithTheNewFirstValue",
             "testFlatWarmGreenControlAndNoteOnlyCarryKeepExactFactors",
             "testInstrumentOnlyWarmResetKeepsExactTargetsAndWholeWindowStreamPCM",
-        ]] + ["XMColdVolumeEnvelopeTests/testBeforeFirstLxxHoldsFirstValueAndReachesAuthoredPointWithoutRetrigger"]
+        ]] + ["XMColdVolumeEnvelopeTests/testBeforeFirstLxxHoldsFirstValueAndReachesAuthoredPointWithoutRetrigger"] + [
+            "PureDelayedKeyOffTests/" + method for method in [
+                "testActualDispatchAndIndependentReleaseCurveAcrossModesRatesAndSpeeds",
+                "testDisabledEnvelopeZeroFadeoutAndNoEscapeToNextGeneration",
+                "testNativeDueFramePCMAndWholeWindowStreamAndContinuation",
+                "testNonzeroFxxAndLastGlobalDelayWriterAreChannelOrdered",
+                "testOrdinaryDecoratedK20AndDelayedTriggerNeighborsRemainSeparate",
+                "testReleasedEmptyCompletedAndColdRoutesKeepHonestOwnership",
+            ]
+        ]
         self.cases[0] = "XMVolumeEnvelopeQ8Tests/testNongridPanHasItsOwnPointDomainAndPublicVolumeFixtureMatchesEveryWindow"
 
     def output(self, cases):
@@ -94,34 +103,35 @@ class NativePackageReleaseCountTests(unittest.TestCase):
         return "\n".join(rows + [f"Executed {len(cases)} tests, with 0 failures"])
 
     def test_full_count_includes_policy_b_pan_q8_warm_reset_before_first_lxx_and_renamed_g31(self):
-        self.assertEqual(HELPER.PACKAGE_RELEASE_COUNT, 988)
+        self.assertEqual(HELPER.PACKAGE_RELEASE_COUNT, 994)
         self.assertEqual(HELPER.package_cases(self.output(self.cases), HELPER.PACKAGE_RELEASE_COUNT, self.cases),
                          self.cases)
         self.assertEqual(HELPER.package_cases(self.output(self.cases).replace(
-            "0 failures", "0 failures (0 unexpected) in 1.234 (1.234) seconds"), 988, self.cases), self.cases)
+            "0 failures", "0 failures (0 unexpected) in 1.234 (1.234) seconds"), 994, self.cases), self.cases)
 
     def test_incomplete_nonpassing_or_stale_package_counts_still_fail_closed(self):
         exact = self.output(self.cases)
-        invalid = [self.output(self.cases[:-7]), self.output(self.cases[:-3]), self.output(self.cases[:-2]), self.output(self.cases[:-1]),
+        invalid = [self.output(self.cases[:-7]), self.output(self.cases[:-6]), self.output(self.cases[:-3]), self.output(self.cases[:-2]), self.output(self.cases[:-1]),
                    self.output(self.cases + self.cases[-1:]),
                    self.output(self.cases + ["Unexpected/testExtra"]),
                    self.output(self.cases[:-1] + self.cases[-2:-1]),
-                   self.output(self.cases[:-1] + ["Unexpected/testReplacement"]),
-                   exact.replace("Executed 988", "Executed 982"),
-                   exact.replace("Executed 988", "Executed 983"),
-                   exact.replace("Executed 988", "Executed 984"),
-                   exact.replace("Executed 988", "Executed 986"),
-                   exact.replace("Executed 988", "Executed 987")]
+                   self.output(self.cases[:-1] + ["Unexpected/testReplacement"])]
+        invalid += [exact.replace("Executed 994", f"Executed {count}")
+                    for count in [982, 983, 984, 986, 987, 988, 989, 990, 991, 992, 993]]
+        for case in self.cases[-6:]:
+            invalid.append(self.output([name for name in self.cases if name != case]))
+            invalid.append(self.output(["Unexpected/testReplacement" if name == case else name
+                                        for name in self.cases]))
         invalid += [exact.replace("passed", status, 1) for status in
                     ["failed", "skipped", "expected failure", "unexpected failure"]]
         invalid += [exact.replace("0 failures", summary) for summary in
                     ["1 failures", "0 failures (1 unexpected)", "0 failures, 1 expected failure",
                      "0 failures, 1 skipped"]]
-        invalid.append(exact + "\nExecuted 988 tests, with 1 failures")
+        invalid.append(exact + "\nExecuted 994 tests, with 1 failures")
         for text in invalid:
             with self.subTest(text=text[-100:]), self.assertRaises(AssertionError):
                 HELPER.package_cases(text, HELPER.PACKAGE_RELEASE_COUNT, self.cases)
-        for stale_count in [982, 983, 984, 986, 987, 989]:
+        for stale_count in [982, 983, 984, 986, 987, 988, 989, 990, 991, 992, 993, 995]:
             with self.subTest(stale_count=stale_count), self.assertRaises(AssertionError):
                 HELPER.package_cases(exact, stale_count)
 

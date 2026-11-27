@@ -236,6 +236,13 @@ host.
   The bounded G24 contract, both-rate canonical-host delivery and startup
   attribution gates are closed. The overall product ≤1 s startup target remains
   outstanding; G24 does not change startup architecture.
+- Bare note97+EDx with zero instrument/volume bytes releases at its eligible
+  local tick under the approved pure-release policy. ED0 includes fresh and held
+  local zero; out-of-speed requests never dispatch. Existing release clocks and
+  source/cursor identity continue without reset or re-key. Decorated ED cells,
+  ordinary note97 scalar publication and K20 held zero remain separate residuals.
+  The bounded pure-release implementation is CLOSED; its precedence parent stays
+  PARTIAL. Submitted-head qualification, Gregory's listening and merge remain required.
 - Ordinary volume-column `6x/7x` slides update base/output on nonzero ticks of
   the effective Fxx row speed, including silent channel state. Speed 1 has no
   slide; zero amounts restore output without memory. Fine `8x/9x` stay at tick

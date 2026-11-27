@@ -10,6 +10,12 @@ extension PlaybackSongSyntheticAdapter {
 
     static let rxyVolumeChangePolicy = "ft2_exact_integer_multi_retrigger_volume"
 
+    /// The approved release-only ED contract excludes instrument and column writers.
+    static func isPureDelayedKeyOff(_ cell: PlaybackCell) -> Bool {
+        cell.note == 97 && cell.instrument == 0 && cell.volumeColumn == 0 &&
+            cell.effectType == 0x0E && cell.effectParam >> 4 == 0x0D
+    }
+
     /// One bounded, immutable decision at the release frame; no earlier objects are mutated here.
     struct CausalReleaseResult: Equatable {
         struct SourceAnnotation: Equatable {

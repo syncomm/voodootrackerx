@@ -187,6 +187,9 @@ bounded contracts; they do not establish full command or audible parity.
 
 ### Outstanding milestones
 
+- After bounded pure note97+EDx release acceptance, close ordinary note97 retained
+  scalar publication separately, then decide decorated ED/held-zero precedence,
+  then F00. Codex owns focused qualification; Gregory owns policy and acceptance.
 - Close remaining evidence-backed FT2/XM commands and cross-cutting output,
   pitch, memory, envelope, trigger/retrigger/cut, and traversal obligations.
   Known families include G40 pan law, G41 sample boundaries,

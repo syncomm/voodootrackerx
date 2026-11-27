@@ -1490,6 +1490,7 @@ enum PlaybackSongSyntheticAdapter {
             let extendedSubcommand = cell.effectType == 0x0E ? ((cell.effectParam >> 4) & 0x0F) : nil
             let hasNoteCutEffect = extendedSubcommand == 0x0C
             let hasNoteDelayEffect = extendedSubcommand == 0x0D && refusedSelection == nil
+            let pureDelayedKeyOff = isPureDelayedKeyOff(cell)
             if extendedSubcommand == 0x0D, refusedSelection != nil {
                 context.noteDelayEffects.append(.init(source: source, channelIndex: channelIndex,
                     syntheticRow: syntheticRow, syntheticTick: 0, effectType: cell.effectType,
@@ -1624,7 +1625,8 @@ enum PlaybackSongSyntheticAdapter {
                 song.instrumentsByIndex[Int(cell.instrument)] != nil &&
                 !(hasNoteDelayEffect && cell.effectParam & 15 != 0)
             // Release before cached defaults and writers; raw K00 owns a simultaneous note97.
-            if cell.note == 97 || rawK00 {
+            let releasesAtRowEntry = (cell.note == 97 && (!pureDelayedKeyOff || cell.effectParam == 0xD0)) || rawK00
+            if releasesAtRowEntry {
                 handleKeyOff(source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
                     syntheticTick: 0, scheduledFrame: scheduledStartFrame, rowSpeed: timingConfig.speed,
                     rowBPM: timingConfig.bpm, volumeColumn: volumeColumn, cell: cell, channelState: &channelState,
@@ -1632,7 +1634,8 @@ enum PlaybackSongSyntheticAdapter {
                     voiceStateUpdates: &context.voiceStateUpdates, globalVolume: context.globalVolumeState.volumeValue,
                     eventMappings: &context.eventMappings, ignoredCells: &context.ignoredCells,
                     deferredCellFields: &context.deferredCellFields, eventCoverage: &context.eventCoverage,
-                    effectType: rawK00 ? cell.effectType : nil, effectParam: rawK00 ? cell.effectParam : nil,
+                    effectType: rawK00 || pureDelayedKeyOff ? cell.effectType : nil,
+                    effectParam: rawK00 || pureDelayedKeyOff ? cell.effectParam : nil,
                     instrumentOnlyVolumeRestored: restoresInstrumentOnlyDefaults)
             }
             if restoresInstrumentOnlyDefaults {
@@ -1645,7 +1648,7 @@ enum PlaybackSongSyntheticAdapter {
                     updates: &context.voiceStateUpdates, resets: &context.playbackStateEvents)
             }
             if channelState.activeEventIndex == nil && !handlesTonePortamento &&
-                (cell.note == 97 || (hasKxxKeyOff && cell.effectParam == 0)) {
+                releasesAtRowEntry {
                 channelState.keyOffWithoutVoice = true
             }
             prepareTremoloRow(
@@ -1951,7 +1954,7 @@ enum PlaybackSongSyntheticAdapter {
                         eventCoverage: &context.eventCoverage
                     )
                 }
-                if let noteDelay {
+                if let noteDelay, !pureDelayedKeyOff {
                     context.noteDelayEffects.append(noteDelay)
                 }
                 if hasNoteCutEffect {
@@ -3073,6 +3076,25 @@ enum PlaybackSongSyntheticAdapter {
         // A later channel's Gxx must not see a future slide or tremolo value.
         for channelIndex in row.cells.indices {
             let cell = row.cells[channelIndex]
+            if isPureDelayedKeyOff(cell) {
+                var state = context.channelStates[channelIndex]
+                // Actual held ticks dispatch by local phase; row entry already owns ED0.
+                // Reuse release finalization without any delayed-note reset or source birth.
+                for tick in timingConfig.nonzeroDispatchTicks where
+                    timingConfig.localEffectPhase(for: tick) == extendedEffectTick(cell) {
+                    handleKeyOff(source: source, channelIndex: channelIndex, syntheticRow: syntheticRow,
+                        syntheticTick: tick, scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                        rowSpeed: timingConfig.speed, rowBPM: timingConfig.bpm,
+                        volumeColumn: context.emptyVolumeColumn, cell: cell, channelState: &state,
+                        events: &context.events, keyOffEvents: &context.keyOffEvents,
+                        voiceStateUpdates: &context.voiceStateUpdates, globalVolume: context.globalVolumeState.volumeValue,
+                        eventMappings: &context.eventMappings, ignoredCells: &context.ignoredCells,
+                        deferredCellFields: &context.deferredCellFields, eventCoverage: &context.eventCoverage,
+                        effectType: cell.effectType, effectParam: cell.effectParam)
+                }
+                context.channelStates[channelIndex] = state
+                continue
+            }
             if isDelayedInstrumentOnly(cell) || (timingConfig.patternDelayCycles > 0 &&
                 cell.note == 0 && cell.instrument > 0 && cell.effectType == 14 && cell.effectParam == 0xD0) {
                 handleDelayedInstrumentOnly(cell: cell, source: source, channelIndex: channelIndex,

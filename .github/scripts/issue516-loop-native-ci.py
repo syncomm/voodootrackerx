@@ -19,8 +19,8 @@ import time
 # Full optimized app suite, including the warm volume-reset runtime guard.
 APP_RELEASE_COUNT = 1919
 
-# Full optimized suite, including warm-reset and before-first volume-Lxx guards.
-PACKAGE_RELEASE_COUNT = 988
+# Full optimized suite, including warm-reset, before-first Lxx and pure ED release.
+PACKAGE_RELEASE_COUNT = 994
 
 # Exact public selectors; no discovery-based reduction, skip or duplicate allowance.
 APP = [

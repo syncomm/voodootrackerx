@@ -49,6 +49,46 @@ final class XMColdVolumeEnvelopeTests: XCTestCase {
         } }
     }
 
+    func testBeforeFirstLxxHoldsFirstValueAndReachesAuthoredPointWithoutRetrigger() throws {
+        // Independent policy vectors: preserve point 0 instead of the clone's early-seek artifacts.
+        let vectors: [([(Int, Int)], UInt8, [Int])] = [
+            ([(3, 48), (10, 16)], 0, [12288, 12288, 12288, 12288, 11118, 9948]),
+            ([(3, 48), (10, 16)], 1, [12288, 12288, 12288, 11118, 9948]),
+            ([(3, 48), (10, 16)], 2, [12288, 12288, 11118, 9948]),
+            ([(3, 48), (10, 16)], 3, [12288, 11118, 9948]),
+            ([(3, 48), (10, 16)], 4, [11118, 9948]),
+            ([(3, 12), (10, 57)], 1, [3072, 3072, 3072, 4717, 6362, 8007, 9652, 11297, 12942, 14592])
+        ]
+        for linear in [true, false] { for rate in [44_100.0, 48_000] {
+            for warm in [false, true] { for (points, position, values) in vectors {
+                let row = warm ? 1 : 0, tickFrames = Int(rate / 50)
+                let input = song(curve(points), linear: linear, commands: [row: cell(
+                    note: warm ? 0 : 49, instrument: warm ? 0 : 1, effect: 21, parameter: position)])
+                let plan = adapt(input, rate)
+                XCTAssertEqual(plan.pattern.events.count, 1) // A warm seek never fabricates a birth.
+                XCTAssertEqual(plan.diagnostics.eventMappings.map(\.instrumentIndex), [1])
+                XCTAssertEqual(plan.diagnostics.eventMappings.map(\.sampleIndex), [0])
+                XCTAssertTrue(plan.diagnostics.eventMappings.allSatisfy { !$0.firstPlayableSampleFallbackUsed })
+                XCTAssertEqual(input.instrumentsByIndex[1]?.noteSampleMap, Array(repeating: 0, count: 96))
+                XCTAssertEqual(plan.pattern.events[0].sample.monoPCM, input.instrumentsByIndex[1]?.samples[0].pcm)
+                for (offset, q8) in values.enumerated() {
+                    let frame = (row * 6 + offset) * tickFrames
+                    let state = try XCTUnwrap(plan.xmEnvelopeTimeline?.channelState(channelIndex: 0, atOrBefore: frame))
+                    XCTAssertEqual(state.scheduledFrame, frame)
+                    XCTAssertEqual(state.state.volumeTick, Int(position) + offset)
+                    XCTAssertEqual(state.state.volumeValue * 16384, Float(q8))
+                    XCTAssertEqual(state.instrumentIndex, 1)
+                    XCTAssertEqual(state.sampleIndex, 0)
+                    XCTAssertEqual(state.sourceEventIndex, 0)
+                    XCTAssertTrue(state.state.keyOn)
+                    XCTAssertEqual(state.state.fadeoutAccumulator, 32768)
+                    let target = try XCTUnwrap(plan.xmAudibleTimeline?.updatesByEvent[0]?.first { $0.scheduledFrame == frame })
+                    XCTAssertEqual(target.amplitude, Float(q8) / 16384)
+                }
+            } }
+        } }
+    }
+
     func testNoteOnlyCarryReachesThePendingPointAndColdSustainHoldsItsValue() throws {
         for linear in [true, false] { for rate in [44_100.0, 48_000] {
             let carried = adapt(song(curve([(7, 48), (14, 16)]), linear: linear, commands: [1: cell(note: 49)]), rate)

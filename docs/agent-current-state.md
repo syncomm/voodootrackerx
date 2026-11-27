@@ -263,10 +263,12 @@ host.
   retains zero before the first point without delaying source birth.
   [Warm volume reset](design/xm-reset-output-ramp.md#intentional-warm-volume-reset)
   intentionally adopts the first represented value and clears the old slope;
-  note-only segment carry remains separate. This bounded codification is CLOSED
-  on the PR branch after local qualification, pending submitted-head native CI
-  and Gregory's review/merge. Before-first Lxx and
-  integrated resource/release qualification remain OPEN; no exception transfers.
+  note-only segment carry remains separate. That policy is CLOSED through #564.
+  [Before-first volume Lxx](design/xm-reset-output-ramp.md#intentional-before-first-volume-lxx)
+  intentionally holds the first value and reaches its authored point/slope.
+  Its bounded codification is CLOSED on this PR branch, pending submitted-head
+  normal/native CI and Gregory's review/merge. Integrated resource/release
+  qualification remains OPEN; no exception transfers.
   Non-retriggering resets use a 5 ms transition from current audible output
   through that same state. Ordinary instrument-only cells restore the last
   selected declared header's cached volume/pan and reset channel semantics;
